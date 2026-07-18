@@ -11,3 +11,18 @@ node_modules/
 # Editor/OS
 .DS_Store
 Thumbs.db
+
+# Next.js
+/.next/
+/out/
+/build
+/coverage
+/.pnp
+.pnp.js
+.yarn/install-state.gz
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.vercel
+*.tsbuildinfo
+next-env.d.ts
