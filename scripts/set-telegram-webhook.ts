@@ -16,17 +16,21 @@ if (!token) {
 
 const webhookUrl = `${publicUrl}/api/webhooks/telegram`;
 
-const response = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ url: webhookUrl }),
-});
+async function main() {
+  const response = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url: webhookUrl }),
+  });
 
-const result = await response.json();
-console.log(result);
+  const result = await response.json();
+  console.log(result);
 
-if (!result.ok) {
-  throw new Error(`Telegram setWebhook failed: ${result.description}`);
+  if (!result.ok) {
+    throw new Error(`Telegram setWebhook failed: ${result.description}`);
+  }
+
+  console.log(`Telegram webhook registered: ${webhookUrl}`);
 }
 
-console.log(`Telegram webhook registered: ${webhookUrl}`);
+main();
