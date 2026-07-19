@@ -13,6 +13,9 @@ export default async function DashboardLayout({
 
   const { profile, org, theme } = session;
   const roleLabel = (profile?.role ?? "member").replace(/_/g, " ");
+  const isStaff = ["admin", "facility_manager", "finance_approver"].includes(
+    profile?.role ?? ""
+  );
 
   return (
     <div className="min-h-screen" style={{ background: theme.surface }}>
@@ -34,11 +37,27 @@ export default async function DashboardLayout({
             <Link href="/dashboard" className="opacity-80 hover:opacity-100">
               Requests
             </Link>
+            {isStaff && (
+              <>
+                <Link
+                  href="/dashboard/vendors"
+                  className="opacity-80 hover:opacity-100"
+                >
+                  Vendors
+                </Link>
+                <Link
+                  href="/dashboard/sc"
+                  className="opacity-80 hover:opacity-100"
+                >
+                  Service Charges
+                </Link>
+              </>
+            )}
             <Link
-              href="/dashboard/vendors"
+              href="/dashboard/statements"
               className="opacity-80 hover:opacity-100"
             >
-              Vendors
+              Statements
             </Link>
           </nav>
         </div>
