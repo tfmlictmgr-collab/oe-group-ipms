@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getSessionProfile } from "@/lib/auth";
 import {
   type Ticket,
   URGENCY_STYLES,
@@ -8,6 +9,7 @@ import {
   CHANNEL_LABELS,
   formatDateTime,
 } from "@/lib/ticket-format";
+import TicketStatusControl from "./TicketStatusControl";
 
 export default async function TicketDetailPage({
   params,
@@ -15,6 +17,13 @@ export default async function TicketDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const session = await getSessionProfile();
+  if (!session) redirect("/login");
+
+  const canManage =
+    session.profile?.role === "admin" ||
+    session.profile?.role === "facility_manager";
+
   const supabase = await createClient();
   const { data: ticket } = await supabase
     .from("tickets")
@@ -98,6 +107,12 @@ export default async function TicketDetailPage({
             {t.message_text}
           </p>
         </div>
+
+        {canManage && (
+          <div className="mt-4 border-t border-neutral-100 pt-4">
+            <TicketStatusControl ticketId={t.id} currentStatus={t.status} />
+          </div>
+        )}
       </div>
     </div>
   );

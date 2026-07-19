@@ -65,6 +65,15 @@ export default async function DashboardLayout({
             >
               Statements
             </Link>
+            {(profile?.role === "admin" ||
+              profile?.role === "finance_approver") && (
+              <Link
+                href="/dashboard/audit"
+                className="opacity-80 hover:opacity-100"
+              >
+                Audit
+              </Link>
+            )}
             {profile?.role === "admin" && (
               <Link
                 href="/dashboard/settings"
