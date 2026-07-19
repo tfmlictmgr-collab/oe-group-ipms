@@ -18,6 +18,10 @@ export default async function DashboardLayout({
   );
   const isAdmin = profile?.role === "admin";
   const seesAudit = isAdmin || profile?.role === "finance_approver";
+  // B7 "Exec / BI dashboard" column
+  const seesBi = ["admin", "facility_manager", "finance_approver", "property_owner"].includes(
+    profile?.role ?? ""
+  );
 
   const navLink = "whitespace-nowrap py-1 opacity-80 transition-opacity hover:opacity-100";
 
@@ -69,6 +73,11 @@ export default async function DashboardLayout({
             <Link href="/dashboard" className={navLink}>
               Requests
             </Link>
+            {seesBi && (
+              <Link href="/dashboard/bi" className={navLink}>
+                Dashboard
+              </Link>
+            )}
             {isStaff && (
               <>
                 <Link href="/dashboard/vendors" className={navLink}>
