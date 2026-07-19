@@ -14,7 +14,7 @@ export default async function DashboardPage() {
 
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl font-semibold text-neutral-800">
             Service Requests
@@ -25,7 +25,7 @@ export default async function DashboardPage() {
         </div>
         <Link
           href="/dashboard/new"
-          className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
+          className="self-start whitespace-nowrap rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 sm:self-auto"
         >
           + New Request
         </Link>

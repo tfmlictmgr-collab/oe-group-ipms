@@ -70,7 +70,7 @@ export default async function TicketDetailPage({
           </div>
         </div>
 
-        <dl className="grid grid-cols-2 gap-4 border-t border-neutral-100 pt-4 text-sm">
+        <dl className="grid grid-cols-1 gap-4 border-t border-neutral-100 pt-4 text-sm sm:grid-cols-2">
           <div>
             <dt className="text-neutral-400">Ticket ID</dt>
             <dd className="font-mono text-xs text-neutral-700">{t.id}</dd>

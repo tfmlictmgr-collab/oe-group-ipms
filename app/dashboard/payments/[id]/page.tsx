@@ -12,18 +12,29 @@ import {
 } from "@/lib/payment";
 import PaymentActions from "./PaymentActions";
 
-// Which gate stages are complete, given the payment's state.
+// Gate progress is derived from `status` alone — it is the authoritative state
+// machine. Deriving from the individual timestamp columns instead lets the
+// stepper drift out of sync with status if those columns are ever written
+// independently.
+const STATUS_RANK: Record<string, number> = {
+  pending_verification: 0,
+  pending_evaluation: 1,
+  verified: 1,
+  recommended: 2,
+  pending_approval: 2,
+  approved: 3,
+  remitted: 4,
+};
+
 function stageState(payment: PaymentRow) {
-  const verification = !!payment.service_verified_at;
-  const performance =
-    payment.status === "rejected"
-      ? "failed"
-      : payment.performance_validated
-        ? "done"
-        : "pending";
-  const approval = !!payment.approved_at;
-  const remittance = payment.status === "remitted";
-  return { verification, performance, approval, remittance };
+  const rejected = payment.status === "rejected";
+  const rank = STATUS_RANK[payment.status] ?? 0;
+  return {
+    verification: rejected ? true : rank >= 1,
+    performance: rejected ? "failed" : rank >= 2 ? "done" : "pending",
+    approval: rank >= 3,
+    remittance: rank >= 4,
+  };
 }
 
 export default async function PaymentDetailPage({
@@ -92,16 +103,16 @@ export default async function PaymentDetailPage({
       </Link>
 
       <div className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-black/5">
-        <div className="flex items-start justify-between gap-4">
-          <div>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+          <div className="min-w-0">
             <h1 className="text-lg font-semibold text-neutral-800">
               {vendor?.name}
             </h1>
-            <p className="text-sm text-neutral-500">
+            <p className="truncate text-sm text-neutral-500">
               {p.invoice_reference ?? "no reference"}
             </p>
           </div>
-          <div className="text-right">
+          <div className="flex-shrink-0 sm:text-right">
             <div className="text-2xl font-bold tabular-nums text-neutral-800">
               {formatNaira(p.amount)}
             </div>
@@ -181,7 +192,7 @@ export default async function PaymentDetailPage({
           </div>
         )}
 
-        {p.remittance_reference && (
+        {p.status === "remitted" && p.remittance_reference && (
           <div className="mt-4 rounded-lg bg-amber-50 px-4 py-3 text-sm">
             <div className="font-semibold text-amber-800">
               SIMULATED — POC ONLY

@@ -74,8 +74,8 @@ export default async function VendorDetailPage({
       </Link>
 
       <div className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-black/5">
-        <div className="flex items-start justify-between gap-4">
-          <div>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+          <div className="min-w-0">
             <h1 className="text-lg font-semibold text-neutral-800">
               {vendor.name}
             </h1>
@@ -86,7 +86,7 @@ export default async function VendorDetailPage({
               {vendor.contact_email} · {vendor.contact_phone}
             </p>
           </div>
-          <div className="text-right">
+          <div className="flex-shrink-0 sm:text-right">
             <div className="text-3xl font-bold tabular-nums text-neutral-800">
               {avg != null ? avg.toFixed(1) : "—"}
             </div>

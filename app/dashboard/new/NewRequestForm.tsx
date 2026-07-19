@@ -81,7 +81,7 @@ export default function NewRequestForm({ orgId }: { orgId: string }) {
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>
           <label className="mb-1 block text-sm font-medium text-neutral-700">
             Category

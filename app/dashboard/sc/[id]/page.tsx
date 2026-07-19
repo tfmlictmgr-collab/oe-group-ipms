@@ -59,8 +59,8 @@ export default async function BudgetDetailPage({
       </Link>
 
       <div className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-black/5">
-        <div className="flex items-start justify-between gap-4">
-          <div>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+          <div className="min-w-0">
             <h1 className="text-lg font-semibold text-neutral-800">
               {property?.name}
             </h1>
@@ -71,7 +71,7 @@ export default async function BudgetDetailPage({
               <p className="mt-1 text-xs text-neutral-400">{property.address}</p>
             )}
           </div>
-          <div className="text-right">
+          <div className="flex-shrink-0 sm:text-right">
             <div className="text-2xl font-bold tabular-nums text-neutral-800">
               {formatNaira(budget.total_amount)}
             </div>
@@ -88,7 +88,7 @@ export default async function BudgetDetailPage({
         </div>
       </div>
 
-      <div className="mt-6 flex items-center justify-between">
+      <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-sm font-semibold text-neutral-700">
           Apportionment ({shares.length} units, pro-rata by floor area)
         </h2>

@@ -23,7 +23,7 @@ export default async function PaymentsPage() {
 
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl font-semibold text-neutral-800">
             Vendor Payments
@@ -34,7 +34,7 @@ export default async function PaymentsPage() {
         </div>
         <Link
           href="/dashboard/payments/new"
-          className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
+          className="self-start whitespace-nowrap rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 sm:self-auto"
         >
           + Submit Invoice
         </Link>
@@ -50,26 +50,26 @@ export default async function PaymentsPage() {
             <li key={p.id}>
               <Link
                 href={`/dashboard/payments/${p.id}`}
-                className="flex items-center justify-between gap-4 rounded-xl bg-white p-4 shadow-sm ring-1 ring-black/5 transition-shadow hover:shadow-md"
+                className="flex flex-col gap-2 rounded-xl bg-white p-4 shadow-sm ring-1 ring-black/5 transition-shadow hover:shadow-md sm:flex-row sm:items-center sm:justify-between sm:gap-4"
               >
-                <div>
-                  <p className="font-medium text-neutral-800">
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-neutral-800">
                     {p.vendors?.name ?? "—"}
                   </p>
-                  <p className="text-xs text-neutral-500">
+                  <p className="truncate text-xs text-neutral-500">
                     {p.invoice_reference ?? "no ref"}
                   </p>
                 </div>
-                <div className="flex items-center gap-4">
+                <div className="flex flex-shrink-0 items-center gap-3">
                   <span
-                    className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ring-1 ${
+                    className={`whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium capitalize ring-1 ${
                       PAYMENT_STATUS_STYLES[p.status] ??
                       "bg-neutral-100 text-neutral-600 ring-neutral-200"
                     }`}
                   >
                     {statusLabel(p.status)}
                   </span>
-                  <span className="w-28 text-right font-semibold tabular-nums text-neutral-800">
+                  <span className="text-right font-semibold tabular-nums text-neutral-800">
                     {formatNaira(p.amount)}
                   </span>
                 </div>

@@ -46,21 +46,23 @@ export default async function VendorsPage() {
               <li key={v.id}>
                 <Link
                   href={`/dashboard/vendors/${v.id}`}
-                  className="flex items-center justify-between gap-4 rounded-xl bg-white p-4 shadow-sm ring-1 ring-black/5 transition-shadow hover:shadow-md"
+                  className="flex flex-col gap-2 rounded-xl bg-white p-4 shadow-sm ring-1 ring-black/5 transition-shadow hover:shadow-md sm:flex-row sm:items-center sm:justify-between sm:gap-4"
                 >
-                  <div className="flex items-center gap-3">
-                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-neutral-100 text-xs font-semibold text-neutral-500">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-neutral-100 text-xs font-semibold text-neutral-500">
                       {i + 1}
                     </span>
-                    <div>
-                      <p className="font-medium text-neutral-800">{v.name}</p>
-                      <p className="text-xs capitalize text-neutral-500">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-neutral-800">
+                        {v.name}
+                      </p>
+                      <p className="truncate text-xs capitalize text-neutral-500">
                         {v.service_category ?? "—"} · {v.count} evaluation
                         {v.count === 1 ? "" : "s"}
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-shrink-0 items-center gap-3 pl-11 sm:pl-0">
                     {band && (
                       <span
                         className={`rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${band.style}`}

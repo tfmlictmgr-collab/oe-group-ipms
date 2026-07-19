@@ -16,87 +16,92 @@ export default async function DashboardLayout({
   const isStaff = ["admin", "facility_manager", "finance_approver"].includes(
     profile?.role ?? ""
   );
+  const isAdmin = profile?.role === "admin";
+  const seesAudit = isAdmin || profile?.role === "finance_approver";
+
+  const navLink = "whitespace-nowrap py-1 opacity-80 transition-opacity hover:opacity-100";
 
   return (
-    <div className="min-h-screen" style={{ background: theme.surface }}>
-      <header
-        className="flex items-center justify-between px-6 py-3"
-        style={{ background: theme.primary, color: theme.primaryForeground }}
-      >
-        <div className="flex items-center gap-6">
-          <Link href="/dashboard" className="flex items-center gap-2">
-            <span
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-xs font-bold"
-              style={{ background: theme.accent, color: theme.primaryForeground }}
+    <div
+      className="min-h-screen overflow-x-hidden"
+      style={{ background: theme.surface }}
+    >
+      <header style={{ background: theme.primary, color: theme.primaryForeground }}>
+        <div className="mx-auto max-w-5xl px-4 sm:px-6">
+          {/* Top row: brand + identity */}
+          <div className="flex items-center justify-between gap-3 py-3">
+            <Link
+              href="/dashboard"
+              className="flex min-w-0 items-center gap-2"
             >
-              OE
-            </span>
-            <span className="text-sm font-semibold">{theme.name} · Portal</span>
-          </Link>
-          <nav className="flex items-center gap-4 text-sm">
-            <Link href="/dashboard" className="opacity-80 hover:opacity-100">
+              <span
+                className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-xs font-bold"
+                style={{
+                  background: theme.accent,
+                  color: theme.primaryForeground,
+                }}
+              >
+                OE
+              </span>
+              <span className="truncate text-sm font-semibold">
+                {theme.name}
+                <span className="hidden sm:inline"> · Portal</span>
+              </span>
+            </Link>
+
+            <div className="flex min-w-0 flex-shrink items-center gap-3">
+              <div className="min-w-0 text-right leading-tight">
+                <div className="truncate text-sm font-medium">
+                  {profile?.full_name ?? profile?.email}
+                </div>
+                <div className="truncate text-xs capitalize opacity-80">
+                  {roleLabel}
+                  <span className="hidden sm:inline"> · {org?.name}</span>
+                </div>
+              </div>
+              <SignOutButton />
+            </div>
+          </div>
+
+          {/* Nav wraps rather than scrolling, so no destination is ever hidden
+              off-screen on narrow viewports. */}
+          <nav className="flex flex-wrap gap-x-4 gap-y-1 pb-2 text-sm">
+            <Link href="/dashboard" className={navLink}>
               Requests
             </Link>
             {isStaff && (
               <>
-                <Link
-                  href="/dashboard/vendors"
-                  className="opacity-80 hover:opacity-100"
-                >
+                <Link href="/dashboard/vendors" className={navLink}>
                   Vendors
                 </Link>
-                <Link
-                  href="/dashboard/sc"
-                  className="opacity-80 hover:opacity-100"
-                >
+                <Link href="/dashboard/sc" className={navLink}>
                   Service Charges
                 </Link>
-                <Link
-                  href="/dashboard/payments"
-                  className="opacity-80 hover:opacity-100"
-                >
+                <Link href="/dashboard/payments" className={navLink}>
                   Payments
                 </Link>
               </>
             )}
-            <Link
-              href="/dashboard/statements"
-              className="opacity-80 hover:opacity-100"
-            >
+            <Link href="/dashboard/statements" className={navLink}>
               Statements
             </Link>
-            {(profile?.role === "admin" ||
-              profile?.role === "finance_approver") && (
-              <Link
-                href="/dashboard/audit"
-                className="opacity-80 hover:opacity-100"
-              >
+            {seesAudit && (
+              <Link href="/dashboard/audit" className={navLink}>
                 Audit
               </Link>
             )}
-            {profile?.role === "admin" && (
-              <Link
-                href="/dashboard/settings"
-                className="opacity-80 hover:opacity-100"
-              >
+            {isAdmin && (
+              <Link href="/dashboard/settings" className={navLink}>
                 Settings
               </Link>
             )}
           </nav>
         </div>
-        <div className="flex items-center gap-4">
-          <div className="text-right leading-tight">
-            <div className="text-sm font-medium">
-              {profile?.full_name ?? profile?.email}
-            </div>
-            <div className="text-xs capitalize opacity-80">
-              {roleLabel} · {org?.name}
-            </div>
-          </div>
-          <SignOutButton />
-        </div>
       </header>
-      <main className="mx-auto max-w-4xl px-6 py-8">{children}</main>
+
+      <main className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6 sm:py-8">
+        {children}
+      </main>
     </div>
   );
 }

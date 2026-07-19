@@ -49,8 +49,10 @@ export function summarizeChange(entry: AuditEntry): string {
   return changed.length ? changed.join(", ") : "no field changes";
 }
 
+// Pinned locale/timezone — see the note in lib/ticket-format.ts.
 export function formatAuditTime(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
+  return new Date(iso).toLocaleString("en-GB", {
+    timeZone: "Africa/Lagos",
     month: "short",
     day: "numeric",
     hour: "2-digit",

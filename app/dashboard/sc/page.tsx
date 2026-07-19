@@ -41,17 +41,17 @@ export default async function ServiceChargePage() {
             <li key={b.id}>
               <Link
                 href={`/dashboard/sc/${b.id}`}
-                className="flex items-center justify-between gap-4 rounded-xl bg-white p-4 shadow-sm ring-1 ring-black/5 transition-shadow hover:shadow-md"
+                className="flex flex-col gap-2 rounded-xl bg-white p-4 shadow-sm ring-1 ring-black/5 transition-shadow hover:shadow-md sm:flex-row sm:items-center sm:justify-between sm:gap-4"
               >
-                <div>
-                  <p className="font-medium text-neutral-800">
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-neutral-800">
                     {b.properties?.name ?? "—"}
                   </p>
-                  <p className="text-xs text-neutral-500">
+                  <p className="truncate text-xs text-neutral-500">
                     {b.description} · {b.period}
                   </p>
                 </div>
-                <div className="flex items-center gap-4">
+                <div className="flex flex-shrink-0 items-center gap-3">
                   <span
                     className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ring-1 ${
                       b.status === "invoiced"

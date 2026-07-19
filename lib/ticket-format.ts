@@ -32,8 +32,12 @@ export const CHANNEL_LABELS: Record<string, string> = {
   email: "Email",
 };
 
+// Locale and timezone are pinned so server and client render identically
+// (an unpinned toLocaleString causes a hydration mismatch). Lagos time is also
+// the correct business clock for OE Group — see CLAUDE.md A2.5.
 export function formatDateTime(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
+  return new Date(iso).toLocaleString("en-GB", {
+    timeZone: "Africa/Lagos",
     month: "short",
     day: "numeric",
     hour: "2-digit",
