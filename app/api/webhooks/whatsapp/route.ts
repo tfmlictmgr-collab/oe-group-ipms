@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { classifyAndCreateTicket } from "@/lib/triage";
 
 // Meta's webhook verification handshake (run once when you register the
 // Callback URL in the Meta App Dashboard).
@@ -15,8 +16,11 @@ export async function GET(request: NextRequest) {
   return new NextResponse("Forbidden", { status: 403 });
 }
 
-// Incoming message events. Meta requires a fast 200 response — any real
-// processing (Day 4's classifier) happens after we've already responded.
+// Incoming message events. Classification is awaited before responding —
+// Vercel serverless functions don't reliably run work after the response is
+// sent (no background execution without a waitUntil primitive), and
+// Anthropic's typical latency (a few seconds) is well inside Meta's retry
+// window, so a synchronous await is the safer choice here.
 export async function POST(request: NextRequest) {
   const payload = await request.json();
   console.log("WhatsApp webhook payload:", JSON.stringify(payload));
@@ -32,9 +36,22 @@ export async function POST(request: NextRequest) {
   const message = value.messages[0];
   const senderWaId = message.from;
   const messageText = message.text?.body ?? "";
-  const timestamp = message.timestamp;
+  const senderName = value.contacts?.[0]?.profile?.name ?? null;
 
-  console.log("Incoming WhatsApp message:", { senderWaId, messageText, timestamp });
+  console.log("Incoming WhatsApp message:", { senderWaId, messageText });
+
+  try {
+    const ticket = await classifyAndCreateTicket(
+      messageText,
+      senderWaId,
+      senderName,
+      "whatsapp",
+      process.env.DEMO_ORG_ID!
+    );
+    console.log("Ticket created:", ticket.id, ticket.category, ticket.urgency);
+  } catch (error) {
+    console.error("Failed to classify/create ticket:", error);
+  }
 
   return new NextResponse("OK", { status: 200 });
 }

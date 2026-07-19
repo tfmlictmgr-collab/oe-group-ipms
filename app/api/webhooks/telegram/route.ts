@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { classifyAndCreateTicket } from "@/lib/triage";
 
 // Telegram doesn't require a GET verification handshake — POST only.
 export async function POST(request: NextRequest) {
@@ -14,15 +15,21 @@ export async function POST(request: NextRequest) {
   const firstName = message.from?.first_name;
   const username = message.from?.username;
   const messageText = message.text;
-  const date = message.date;
 
-  console.log("Incoming Telegram message:", {
-    chatId,
-    firstName,
-    username,
-    messageText,
-    date,
-  });
+  console.log("Incoming Telegram message:", { chatId, firstName, username, messageText });
+
+  try {
+    const ticket = await classifyAndCreateTicket(
+      messageText,
+      String(chatId),
+      firstName ?? username ?? null,
+      "telegram",
+      process.env.DEMO_ORG_ID!
+    );
+    console.log("Ticket created:", ticket.id, ticket.category, ticket.urgency);
+  } catch (error) {
+    console.error("Failed to classify/create ticket:", error);
+  }
 
   return new NextResponse("OK", { status: 200 });
 }

@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.112.3",
     "@supabase/supabase-js": "^2.110.7",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
