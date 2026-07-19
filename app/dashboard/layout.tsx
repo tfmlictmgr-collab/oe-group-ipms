@@ -51,6 +51,12 @@ export default async function DashboardLayout({
                 >
                   Service Charges
                 </Link>
+                <Link
+                  href="/dashboard/payments"
+                  className="opacity-80 hover:opacity-100"
+                >
+                  Payments
+                </Link>
               </>
             )}
             <Link
@@ -59,6 +65,14 @@ export default async function DashboardLayout({
             >
               Statements
             </Link>
+            {profile?.role === "admin" && (
+              <Link
+                href="/dashboard/settings"
+                className="opacity-80 hover:opacity-100"
+              >
+                Settings
+              </Link>
+            )}
           </nav>
         </div>
         <div className="flex items-center gap-4">
