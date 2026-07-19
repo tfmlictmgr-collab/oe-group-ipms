@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
-import { supabaseAdmin } from "./supabase/server";
+import { supabaseAdmin } from "./supabase/admin";
 
 const PROMPT_DOC_PATH = path.join(
   process.cwd(),
