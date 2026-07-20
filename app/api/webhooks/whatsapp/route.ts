@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { classifyAndCreateTicket } from "@/lib/triage";
 import { sendReply } from "@/lib/notify";
+import { buildAcknowledgement } from "@/lib/acknowledgement";
 
 // Meta's webhook verification handshake (run once when you register the
 // Callback URL in the Meta App Dashboard).
@@ -51,11 +52,7 @@ export async function POST(request: NextRequest) {
     );
     console.log("Ticket created:", ticket.id, ticket.category, ticket.urgency);
 
-    await sendReply(
-      "whatsapp",
-      senderWaId,
-      `Thanks — I've logged your request as ticket #${ticket.id} (${ticket.category}). Our team will follow up shortly.`
-    );
+    await sendReply("whatsapp", senderWaId, buildAcknowledgement(ticket));
   } catch (error) {
     console.error("Failed to classify/create ticket or send reply:", error);
   }

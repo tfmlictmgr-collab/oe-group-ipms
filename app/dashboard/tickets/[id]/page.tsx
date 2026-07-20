@@ -10,6 +10,7 @@ import {
   formatDateTime,
 } from "@/lib/ticket-format";
 import TicketStatusControl from "./TicketStatusControl";
+import { shortRef } from "@/lib/acknowledgement";
 
 export default async function TicketDetailPage({
   params,
@@ -72,8 +73,13 @@ export default async function TicketDetailPage({
 
         <dl className="grid grid-cols-1 gap-4 border-t border-neutral-100 pt-4 text-sm sm:grid-cols-2">
           <div>
-            <dt className="text-neutral-400">Ticket ID</dt>
-            <dd className="font-mono text-xs text-neutral-700">{t.id}</dd>
+            <dt className="text-neutral-400">Reference</dt>
+            <dd className="font-mono text-sm font-semibold text-neutral-800">
+              {shortRef(t.id)}
+            </dd>
+            <dd className="mt-0.5 break-all font-mono text-[10px] text-neutral-400">
+              {t.id}
+            </dd>
           </div>
           <div>
             <dt className="text-neutral-400">Channel</dt>

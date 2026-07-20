@@ -63,3 +63,32 @@
     text-wrap: balance;
   }
 }
+
+/* Brand-driven chrome. --brand/--brand-fg/--brand-accent are set on the
+   dashboard shell from the org's delivery_brand (lib/brands.ts), so primary
+   actions and accents follow the brand rather than a hard-coded neutral. */
+@layer components {
+  .btn-brand {
+    background-color: var(--brand, #8b1d1d);
+    color: var(--brand-fg, #ffffff);
+    transition: opacity 150ms ease;
+  }
+  .btn-brand:hover {
+    opacity: 0.9;
+  }
+  .btn-brand:disabled {
+    opacity: 0.5;
+  }
+
+  .ring-brand:focus {
+    border-color: var(--brand, #8b1d1d);
+    box-shadow: 0 0 0 1px var(--brand, #8b1d1d);
+    outline: none;
+  }
+
+  .chip-brand-active {
+    background-color: var(--brand, #8b1d1d);
+    color: var(--brand-fg, #ffffff);
+    box-shadow: inset 0 0 0 1px var(--brand, #8b1d1d);
+  }
+}

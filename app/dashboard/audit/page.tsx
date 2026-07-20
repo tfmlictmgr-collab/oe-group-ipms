@@ -70,7 +70,7 @@ export default async function AuditPage({
             href={f.key === "all" ? "/dashboard/audit" : `/dashboard/audit?type=${f.key}`}
             className={`rounded-full px-3 py-1 text-xs font-medium ring-1 transition-colors ${
               active === f.key
-                ? "bg-neutral-900 text-white ring-neutral-900"
+                ? "chip-brand-active ring-transparent"
                 : "bg-white text-neutral-600 ring-neutral-200 hover:bg-neutral-50"
             }`}
           >

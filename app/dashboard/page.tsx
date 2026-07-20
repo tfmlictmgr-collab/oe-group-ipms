@@ -25,7 +25,7 @@ export default async function DashboardPage() {
         </div>
         <Link
           href="/dashboard/new"
-          className="self-start whitespace-nowrap rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 sm:self-auto"
+          className="self-start whitespace-nowrap rounded-lg btn-brand px-4 py-2 text-sm font-medium text-white sm:self-auto"
         >
           + New Request
         </Link>

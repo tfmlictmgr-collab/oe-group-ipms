@@ -28,7 +28,16 @@ export default async function DashboardLayout({
   return (
     <div
       className="min-h-screen overflow-x-hidden"
-      style={{ background: theme.surface }}
+      style={
+        {
+          background: theme.surface,
+          // Drives .btn-brand / .chip-brand-active / .ring-brand so primary
+          // actions inherit the org's brand colour.
+          "--brand": theme.primary,
+          "--brand-fg": theme.primaryForeground,
+          "--brand-accent": theme.accent,
+        } as React.CSSProperties
+      }
     >
       <header style={{ background: theme.primary, color: theme.primaryForeground }}>
         <div className="mx-auto max-w-5xl px-4 sm:px-6">

@@ -27,10 +27,10 @@ export const BRAND_THEMES: Record<DeliveryBrand, BrandTheme> = {
   },
   direct: {
     name: "OE Group",
-    primary: "#1A1A2E", // charcoal
+    primary: "#8B1D1D", // dark red — OE Group house colour
     primaryForeground: "#ffffff",
-    accent: "#C9A227", // gold-ish neutral
-    surface: "#f5f5f7",
+    accent: "#C9A227", // gold
+    surface: "#faf7f6", // warm neutral so the red theme carries through
   },
 };
 

@@ -37,7 +37,7 @@ await supabase.from("users").upsert({
   id: resident.id,
   org_id: ORG_ID,
   role: "tenant",
-  full_name: "Adaeze Okafor",
+  full_name: "Tamuno Gab",
   email: RESIDENT_EMAIL,
 });
 
