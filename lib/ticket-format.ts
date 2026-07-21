@@ -20,6 +20,8 @@ export const URGENCY_STYLES: Record<string, string> = {
 
 export const STATUS_STYLES: Record<string, string> = {
   open: "bg-emerald-100 text-emerald-700 ring-emerald-200",
+  assigned: "bg-sky-100 text-sky-700 ring-sky-200",
+  acknowledged: "bg-indigo-100 text-indigo-700 ring-indigo-200",
   in_progress: "bg-amber-100 text-amber-700 ring-amber-200",
   resolved: "bg-neutral-100 text-neutral-600 ring-neutral-200",
   closed: "bg-neutral-100 text-neutral-500 ring-neutral-200",

@@ -10,7 +10,16 @@ import {
   formatDateTime,
 } from "@/lib/ticket-format";
 import TicketStatusControl from "./TicketStatusControl";
+import AssignControl from "./AssignControl";
+import AcknowledgeControl from "./AcknowledgeControl";
 import { shortRef } from "@/lib/acknowledgement";
+
+type AssignableTicket = Ticket & {
+  assigned_vendor_id: string | null;
+  assigned_to_user_id: string | null;
+  assigned_at: string | null;
+  acknowledged_at: string | null;
+};
 
 export default async function TicketDetailPage({
   params,
@@ -29,13 +38,48 @@ export default async function TicketDetailPage({
   const { data: ticket } = await supabase
     .from("tickets")
     .select(
-      "id, channel, message_text, category, urgency, summary, property_or_unit, requires_human_review, status, created_at"
+      "id, channel, message_text, category, urgency, summary, property_or_unit, requires_human_review, status, created_at, assigned_vendor_id, assigned_to_user_id, assigned_at, acknowledged_at"
     )
     .eq("id", id)
     .single();
 
   if (!ticket) notFound();
-  const t = ticket as Ticket;
+  const t = ticket as AssignableTicket;
+
+  // For the dispatch control (admin/FM): available vendors + ops staff.
+  const [vendorsRes, opsRes, myVendorRes] = await Promise.all([
+    canManage
+      ? supabase.from("vendors").select("id, name").order("name")
+      : Promise.resolve({ data: [] as { id: string; name: string }[] }),
+    canManage
+      ? supabase
+          .from("users")
+          .select("id, full_name, email")
+          .eq("role", "fm_ops_staff")
+      : Promise.resolve({ data: [] as { id: string; full_name: string | null; email: string | null }[] }),
+    supabase.from("vendors").select("id, name").eq("user_id", session.user.id),
+  ]);
+
+  const vendors = (vendorsRes.data ?? []).map((v) => ({ id: v.id, label: v.name }));
+  const opsStaff = (opsRes.data ?? []).map((o) => ({
+    id: o.id,
+    label: o.full_name ?? o.email ?? "Ops staff",
+  }));
+
+  // Is the current viewer the assignee (and the job still needs acknowledging)?
+  const myVendors = (myVendorRes.data ?? []) as { id: string; name: string }[];
+  const myVendorIds = myVendors.map((v) => v.id);
+  const isAssignee =
+    t.assigned_to_user_id === session.user.id ||
+    (t.assigned_vendor_id != null && myVendorIds.includes(t.assigned_vendor_id));
+  const needsAck = t.status === "assigned" && isAssignee;
+
+  // Resolve the assigned vendor's name from whichever source the viewer can see:
+  // the full vendor list (admin/FM) or the viewer's own vendor record (the vendor).
+  const assignedVendorName =
+    vendors.find((v) => v.id === t.assigned_vendor_id)?.label ??
+    myVendors.find((v) => v.id === t.assigned_vendor_id)?.name ??
+    null;
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -105,6 +149,17 @@ export default async function TicketDetailPage({
               {t.requires_human_review ? "Flagged" : "Not required"}
             </dd>
           </div>
+          <div>
+            <dt className="text-neutral-400">Assigned to</dt>
+            <dd className="text-neutral-700">
+              {assignedVendorName ?? (t.assigned_to_user_id ? "Ops staff" : "—")}
+              {t.acknowledged_at && (
+                <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200">
+                  acknowledged
+                </span>
+              )}
+            </dd>
+          </div>
         </dl>
 
         <div className="mt-4 border-t border-neutral-100 pt-4">
@@ -114,8 +169,21 @@ export default async function TicketDetailPage({
           </p>
         </div>
 
-        {canManage && (
+        {needsAck && (
           <div className="mt-4 border-t border-neutral-100 pt-4">
+            <AcknowledgeControl ticketId={t.id} />
+          </div>
+        )}
+
+        {canManage && (
+          <div className="mt-4 space-y-4 border-t border-neutral-100 pt-4">
+            <AssignControl
+              ticketId={t.id}
+              vendors={vendors}
+              opsStaff={opsStaff}
+              currentVendorId={t.assigned_vendor_id}
+              currentOpsUserId={t.assigned_to_user_id}
+            />
             <TicketStatusControl ticketId={t.id} currentStatus={t.status} />
           </div>
         )}

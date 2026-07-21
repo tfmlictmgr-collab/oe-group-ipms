@@ -4,7 +4,14 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
-const STATUSES = ["open", "in_progress", "resolved", "closed"];
+const STATUSES = [
+  "open",
+  "assigned",
+  "acknowledged",
+  "in_progress",
+  "resolved",
+  "closed",
+];
 
 export default function TicketStatusControl({
   ticketId,

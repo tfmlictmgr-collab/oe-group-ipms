@@ -12,6 +12,7 @@ export type AuditEntry = {
 export const ACTION_STYLES: Record<string, string> = {
   "payment.status_change": "bg-emerald-100 text-emerald-700 ring-emerald-200",
   "ticket.status_change": "bg-sky-100 text-sky-700 ring-sky-200",
+  "ticket.assignment": "bg-violet-100 text-violet-700 ring-violet-200",
   "sc_budget.status_change": "bg-indigo-100 text-indigo-700 ring-indigo-200",
   "payment_settings.update": "bg-amber-100 text-amber-700 ring-amber-200",
 };
@@ -31,6 +32,13 @@ export function summarizeChange(entry: AuditEntry): string {
 
   if (entry.action.endsWith("status_change")) {
     return `${before.status ?? "—"} → ${after.status ?? "—"}`;
+  }
+
+  if (entry.action === "ticket.assignment") {
+    const v = after.assigned_vendor_id;
+    const o = after.assigned_to_user_id;
+    if (!v && !o) return "unassigned";
+    return `assigned${v ? " to vendor" : ""}${o ? " to ops staff" : ""}`;
   }
 
   if (entry.action === "payment_settings.update") {
