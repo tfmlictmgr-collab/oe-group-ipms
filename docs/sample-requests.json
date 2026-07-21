@@ -1,0 +1,37 @@
+{
+  "_meta": {
+    "purpose": "Week 0 deliverable — held-out sample of historical-style requests, and the labelled test set for the Week 2 classifier accuracy measurement.",
+    "provenance": "SYNTHETIC. No real client data was available at POC time; these are realistic Nigerian FM/property requests (including pidgin and terse phrasing) hand-written and hand-labelled by the build team. They contain no real personal data.",
+    "labels": {
+      "category": ["maintenance", "billing", "vendor", "complaint", "general"],
+      "priority": ["critical", "high", "normal", "low"]
+    },
+    "count": 24
+  },
+  "samples": [
+    { "id": "S01", "text": "There is a burst pipe flooding the lobby on the ground floor, water is everywhere please come now", "expected_category": "maintenance", "expected_priority": "critical" },
+    { "id": "S02", "text": "No light for the whole of Block C since morning, the generator is not coming on", "expected_category": "maintenance", "expected_priority": "critical" },
+    { "id": "S03", "text": "The lift in Tower 2 has stopped working and someone is trapped inside", "expected_category": "maintenance", "expected_priority": "critical" },
+    { "id": "S04", "text": "AC in my flat has stopped cooling, it's very hot. Unit 4B", "expected_category": "maintenance", "expected_priority": "high" },
+    { "id": "S05", "text": "The security gate motor is faulty, we are opening it by hand since yesterday", "expected_category": "maintenance", "expected_priority": "high" },
+    { "id": "S06", "text": "Please the bulb in my kitchen has blown, whenever you are chanced", "expected_category": "maintenance", "expected_priority": "low" },
+    { "id": "S07", "text": "Toilet seat in unit 12 is loose, no rush", "expected_category": "maintenance", "expected_priority": "low" },
+    { "id": "S08", "text": "Abeg the cleaners never come clean my corridor for two weeks now", "expected_category": "maintenance", "expected_priority": "normal" },
+    { "id": "S09", "text": "I want to know my service charge balance for this year", "expected_category": "billing", "expected_priority": "normal" },
+    { "id": "S10", "text": "Why is my service charge invoice higher than last year? Please explain the breakdown", "expected_category": "billing", "expected_priority": "normal" },
+    { "id": "S11", "text": "I paid my service charge last week but it is still showing as unpaid on my statement", "expected_category": "billing", "expected_priority": "high" },
+    { "id": "S12", "text": "Please send me a receipt for the payment I made for Q1", "expected_category": "billing", "expected_priority": "low" },
+    { "id": "S13", "text": "I am disputing the arrears on my account, I already cleared it in January", "expected_category": "billing", "expected_priority": "high" },
+    { "id": "S14", "text": "This is Sparkle Cleaning. We have completed the deep clean for Block A, invoice attached ref INV-2026-0088", "expected_category": "vendor", "expected_priority": "normal" },
+    { "id": "S15", "text": "SecureGuard here — night shift completed, submitting our monthly invoice for payment", "expected_category": "vendor", "expected_priority": "normal" },
+    { "id": "S16", "text": "CoolAir HVAC: the servicing job for Ikoyi Heights is done, please process our payment", "expected_category": "vendor", "expected_priority": "normal" },
+    { "id": "S17", "text": "The security men are always sleeping on duty, this is unacceptable", "expected_category": "complaint", "expected_priority": "high" },
+    { "id": "S18", "text": "I am very unhappy with how the facility manager spoke to me yesterday, very rude", "expected_category": "complaint", "expected_priority": "normal" },
+    { "id": "S19", "text": "The noise from the construction next door is disturbing every night, nobody is doing anything", "expected_category": "complaint", "expected_priority": "normal" },
+    { "id": "S20", "text": "Good morning", "expected_category": "general", "expected_priority": "low" },
+    { "id": "S21", "text": "Please what are the office hours for the estate management office?", "expected_category": "general", "expected_priority": "low" },
+    { "id": "S22", "text": "How do I register my new tenant on the portal?", "expected_category": "general", "expected_priority": "normal" },
+    { "id": "S23", "text": "there is a strange burning smell coming from the electrical room on the 2nd floor", "expected_category": "maintenance", "expected_priority": "critical" },
+    { "id": "S24", "text": "kindly confirm you received my email about the leaking roof in unit 9, still waiting", "expected_category": "maintenance", "expected_priority": "high" }
+  ]
+}

@@ -57,16 +57,12 @@ function parseClassification(rawText: string): Classification {
   }
 }
 
-export async function classifyAndCreateTicket(
-  messageText: string,
-  chatId: string,
-  senderName: string | null,
-  channel: "whatsapp" | "telegram",
-  orgId: string
-) {
+// Pure classification: message in → Classification out, no DB write. Used by
+// both the live intake path and the accuracy harness (Week 2 measurement).
+export async function classifyMessage(
+  messageText: string
+): Promise<Classification> {
   const systemPrompt = loadSystemPrompt();
-
-  let classification: Classification;
   try {
     const response = await anthropic.messages.create({
       model: "claude-sonnet-4-6",
@@ -75,13 +71,25 @@ export async function classifyAndCreateTicket(
       messages: [{ role: "user", content: messageText }],
     });
     const textBlock = response.content.find((block) => block.type === "text");
-    classification = textBlock
+    return textBlock
       ? parseClassification(textBlock.text)
       : FALLBACK_CLASSIFICATION;
   } catch (error) {
     console.error("Claude classification failed:", error);
-    classification = FALLBACK_CLASSIFICATION;
+    return FALLBACK_CLASSIFICATION;
   }
+}
+
+export type { Classification };
+
+export async function classifyAndCreateTicket(
+  messageText: string,
+  chatId: string,
+  senderName: string | null,
+  channel: "whatsapp" | "telegram",
+  orgId: string
+) {
+  const classification = await classifyMessage(messageText);
 
   const { data: ticket, error } = await supabaseAdmin
     .from("tickets")
