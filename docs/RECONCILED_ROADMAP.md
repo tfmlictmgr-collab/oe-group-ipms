@@ -61,9 +61,31 @@ Ordered, because Wk2 depends on the Wk0 sample:
 
 ## Tracked gaps beyond Weeks 0–2 (scheduled, not lost)
 
-- **Wk3 dispatch/assignment workflow** — assign a ticket to a vendor/ops person
-  and notify them; "job routed and acknowledged." Genuinely not built. Owner:
-  Build Lead. Target: alongside/after Day 13 notification cascade.
+- **Wk3 dispatch/assignment workflow** — ✅ DONE. Assign to vendor/ops + acknowledge;
+  RLS assignee visibility. In-app notification only; multi-channel is Day 13.
 - **Wk4 cross-brand access test** — formal isolation test once orgs instantiated.
+  (Orgs now instantiated + verified informally; formal repeatable test pending.)
 - UX production-readiness — see `docs/UX_BACKLOG.md`.
 - PWA/offline + PDF export — CLAUDE.md B3 Phase-1 scope, not yet built.
+
+### Multi-tenancy gaps — foundation built, product flows NOT (Phase 1)
+
+The multi-tenant **foundation** is real and proven (every table carries `org_id`,
+RLS scopes by org, TFML/OEA verified isolated). What is missing is the
+**product surface** on top of it. These are **out of the 6-week POC scope** and
+must be scheduled for Phase 1 — recorded here so they are not assumed done:
+
+1. **Self-service onboarding / enrollment UI.** No in-app way for an org to enroll
+   its own vendors, FMs, property managers, owners or tenants. Today users/vendors
+   are created only by service-role seed scripts. Needs: public/invited signup,
+   an admin "add member to my org" flow, role assignment UI, and vendor
+   self-registration. The schema seams exist (`org_id`, `parent_org_id`,
+   `delivery_brand`); the screens and invite flow do not.
+
+2. **Per-org inbound channel routing.** One WhatsApp number, one Telegram bot, one
+   credential set — and the webhook routes **hardcode `DEMO_ORG_ID`**, so every
+   inbound message lands under the POC org regardless of brand. To have WhatsApp /
+   Telegram / SMS uniquely service each org, need either separate numbers/bots per
+   org or a mapping layer (inbound number/bot → org) that sets the ticket's
+   `org_id` from the channel. Day 13 covers *outbound* delivery only, not inbound
+   org routing. Ties to the same brand-isolation area as Wk4 ("no urls").
