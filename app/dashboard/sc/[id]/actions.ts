@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { apportion } from "@/lib/apportionment";
+import { sendCascade } from "@/lib/cascade";
+import { formatNaira } from "@/lib/currency";
 
 // Generates (or regenerates) per-unit service-charge invoices for a budget by
 // apportioning its total across the property's units. Runs under the caller's
@@ -62,6 +64,34 @@ export async function generateInvoices(budgetId: string) {
     .from("sc_budgets")
     .update({ status: "invoiced" })
     .eq("id", budgetId);
+
+  // Notify each occupant of their new statement via the B8 cascade (best-effort).
+  try {
+    const occupantIds = shares
+      .map((s) => s.occupant_user_id)
+      .filter((id): id is string => !!id);
+    if (occupantIds.length > 0) {
+      const { data: occupants } = await supabase
+        .from("users")
+        .select("id, email, phone")
+        .in("id", occupantIds);
+      for (const share of shares) {
+        if (!share.occupant_user_id) continue;
+        const u = occupants?.find((o) => o.id === share.occupant_user_id);
+        if (!u) continue;
+        await sendCascade({
+          orgId: budget.org_id,
+          entityType: "service_charge",
+          entityId: budget.id,
+          message: `Your ${budget.period} service charge statement for ${property?.name ?? "your property"} is ready: ${formatNaira(share.amount)}.`,
+          phone: u.phone,
+          email: u.email,
+        });
+      }
+    }
+  } catch (e) {
+    console.error("Statement notification cascade failed:", e);
+  }
 
   revalidatePath(`/dashboard/sc/${budgetId}`);
   revalidatePath("/dashboard/sc");

@@ -15,6 +15,7 @@ export const ACTION_STYLES: Record<string, string> = {
   "ticket.assignment": "bg-violet-100 text-violet-700 ring-violet-200",
   "sc_budget.status_change": "bg-indigo-100 text-indigo-700 ring-indigo-200",
   "payment_settings.update": "bg-amber-100 text-amber-700 ring-amber-200",
+  "notification.attempt": "bg-teal-100 text-teal-700 ring-teal-200",
 };
 
 export const ENTITY_FILTERS = [
@@ -23,6 +24,7 @@ export const ENTITY_FILTERS = [
   { key: "tickets", label: "Tickets" },
   { key: "sc_budgets", label: "Budgets" },
   { key: "payment_settings", label: "Settings" },
+  { key: "notifications", label: "Notifications" },
 ];
 
 // Human-readable one-line summary of what changed.
@@ -32,6 +34,12 @@ export function summarizeChange(entry: AuditEntry): string {
 
   if (entry.action.endsWith("status_change")) {
     return `${before.status ?? "—"} → ${after.status ?? "—"}`;
+  }
+
+  if (entry.action === "notification.attempt") {
+    const ch = after.channel ?? "?";
+    const st = after.status ?? "?";
+    return `${ch} · ${st}`;
   }
 
   if (entry.action === "ticket.assignment") {

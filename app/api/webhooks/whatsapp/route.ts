@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { classifyAndCreateTicket } from "@/lib/triage";
-import { sendReply } from "@/lib/notify";
 import { buildAcknowledgement } from "@/lib/acknowledgement";
+import { sendCascade } from "@/lib/cascade";
 
 // Meta's webhook verification handshake (run once when you register the
 // Callback URL in the Meta App Dashboard).
@@ -52,7 +52,14 @@ export async function POST(request: NextRequest) {
     );
     console.log("Ticket created:", ticket.id, ticket.category, ticket.urgency);
 
-    await sendReply("whatsapp", senderWaId, buildAcknowledgement(ticket));
+    // Acknowledge via the B8 cascade (WhatsApp primary here) — logged + audited.
+    await sendCascade({
+      orgId: process.env.DEMO_ORG_ID!,
+      entityType: "ticket",
+      entityId: ticket.id,
+      message: buildAcknowledgement(ticket),
+      whatsapp: senderWaId,
+    });
   } catch (error) {
     console.error("Failed to classify/create ticket or send reply:", error);
   }

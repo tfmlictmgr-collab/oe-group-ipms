@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { classifyAndCreateTicket } from "@/lib/triage";
-import { sendReply } from "@/lib/notify";
 import { buildAcknowledgement } from "@/lib/acknowledgement";
+import { sendCascade } from "@/lib/cascade";
 
 // Telegram doesn't require a GET verification handshake — POST only.
 export async function POST(request: NextRequest) {
@@ -30,7 +30,14 @@ export async function POST(request: NextRequest) {
     );
     console.log("Ticket created:", ticket.id, ticket.category, ticket.urgency);
 
-    await sendReply("telegram", String(chatId), buildAcknowledgement(ticket));
+    // Acknowledge via the B8 cascade (Telegram channel here) — logged + audited.
+    await sendCascade({
+      orgId: process.env.DEMO_ORG_ID!,
+      entityType: "ticket",
+      entityId: ticket.id,
+      message: buildAcknowledgement(ticket),
+      telegram: String(chatId),
+    });
   } catch (error) {
     console.error("Failed to classify/create ticket or send reply:", error);
   }

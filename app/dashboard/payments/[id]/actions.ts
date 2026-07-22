@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { averageComposite } from "@/lib/vendor-score";
+import { sendCascade } from "@/lib/cascade";
+import { formatNaira } from "@/lib/currency";
 
 async function loadPayment(supabase: Awaited<ReturnType<typeof createClient>>, id: string) {
   const { data, error } = await supabase
@@ -101,6 +103,29 @@ export async function approvePayment(paymentId: string) {
     })
     .eq("id", paymentId);
   if (error) throw new Error(error.message);
+
+  // Notify the vendor of approval via the B8 cascade (best-effort; never blocks
+  // the approval itself).
+  try {
+    const { data: vendor } = await supabase
+      .from("vendors")
+      .select("contact_phone, contact_email")
+      .eq("id", payment.vendor_id)
+      .single();
+    if (vendor) {
+      await sendCascade({
+        orgId: payment.org_id,
+        entityType: "payment",
+        entityId: paymentId,
+        message: `Your payment of ${formatNaira(payment.amount)} has been approved and is queued for remittance.`,
+        phone: vendor.contact_phone,
+        email: vendor.contact_email,
+      });
+    }
+  } catch (e) {
+    console.error("Approval notification cascade failed:", e);
+  }
+
   revalidatePath(`/dashboard/payments/${paymentId}`);
 }
 
