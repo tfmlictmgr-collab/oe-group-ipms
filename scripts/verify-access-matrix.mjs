@@ -121,6 +121,38 @@ try {
     f === a ? pass(`finance sees all ${f} payments (= admin)`) : fail(`finance payments ${f} != admin ${a}`);
   }
 
+  // Property scoping: FM sees managed-property tickets/budgets only; owner sees
+  // owned-property only; both strictly less than admin.
+  const fm = pocUsers.find((u) => u.role === "facility_manager");
+  const owner = pocUsers.find((u) => u.role === "property_owner");
+  if (fm && admin) {
+    const ft = visibleCounts[fm.id].tickets;
+    const at = visibleCounts[admin.id].tickets;
+    ft > 0 && ft < at
+      ? pass(`FM sees ${ft} tickets (managed properties) < admin ${at}`)
+      : fail(`FM tickets ${ft} not property-scoped (admin ${at})`);
+    const fb = visibleCounts[fm.id].sc_budgets;
+    fb > 0 && fb < visibleCounts[admin.id].sc_budgets
+      ? pass(`FM sees ${fb} budgets (managed) < admin ${visibleCounts[admin.id].sc_budgets}`)
+      : fail(`FM budgets ${fb} not property-scoped`);
+  }
+  if (owner && admin) {
+    const ot = visibleCounts[owner.id].tickets;
+    ot > 0 && ot < visibleCounts[admin.id].tickets
+      ? pass(`owner sees ${ot} tickets (owned property) < admin ${visibleCounts[admin.id].tickets}`)
+      : fail(`owner tickets ${ot} not property-scoped`);
+    const osc = visibleCounts[owner.id].service_charges;
+    osc > 0
+      ? pass(`owner sees ${osc} SC rows (owned portfolio)`)
+      : fail(`owner sees 0 SC rows (portfolio should have data)`);
+  }
+  // FM sees fewer tickets than... owner+ikoyi? FM (Lekki+Ikoyi) > owner (Lekki).
+  if (fm && owner) {
+    visibleCounts[fm.id].tickets > visibleCounts[owner.id].tickets
+      ? pass(`FM tickets ${visibleCounts[fm.id].tickets} > owner ${visibleCounts[owner.id].tickets} (FM manages more)`)
+      : fail(`FM/owner ticket scoping unexpected`);
+  }
+
   // ── C. CROSS-BRAND ────────────────────────────────────────────────────────
   console.log("\nC. CROSS-BRAND — TFML and OEA read disjoint data");
   const tfml = users.find((u) => u.delivery_brand === "TFML");

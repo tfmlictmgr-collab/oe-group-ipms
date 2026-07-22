@@ -39,13 +39,14 @@ Plus: dual-brand instantiated & isolated (TFML/OEA), dispatch/assignment (job ro
 
 ## Demo-risky flags
 
-1. **FM over-grant.** Facility Manager currently sees *all* in-org tickets/SC/payments,
-   not B7's literal "assigned properties / operational budgets / managed vendors."
-   Not a leak (same org), but broader than spec — needs an FM↔property assignment
-   model that doesn't exist yet. **Decision needed:** accept for POC or scope the model.
-2. **Property Owner & FM Ops see little/nothing.** No ownership mapping and no
-   standing job assignments, so RLS returns little. BI shows an honest empty note.
-   Same root cause as (1). Don't demo `owner@`/`ops@` cold.
+1. ~~FM over-grant~~ **RESOLVED** (migrations 0008/0009). FM is now scoped to
+   managed properties, owner to owned properties, via the `property_stakeholders`
+   model. Verified: FM sees Lekki+Ikoyi (9 tickets, 2 budgets), owner sees Lekki
+   (5 tickets, 6 SC rows), admin sees all — in the RLS layer and the BI dashboards.
+   Residual: vendor list is still management-level (vendors aren't property-linked).
+2. ~~Property Owner & FM Ops see nothing~~ **Owner RESOLVED** — owner now has a real
+   portfolio dashboard. FM Ops still sees only tickets dispatched to them (by design;
+   they have no standing property assignment) — expected, not a gap.
 3. **Finance sees all audit**, not only "all financial" — minor over-grant.
 4. **Vendor has no direct link to its own scorecard** (reachable only via detail URL).
    Polish.

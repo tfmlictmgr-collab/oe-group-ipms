@@ -6,20 +6,25 @@ import { averageComposite } from "@/lib/vendor-score";
 import { CountBar, ScoreBar, BudgetBar, type NamedValue, type BudgetRow } from "./Charts";
 
 // B7 "Exec / BI dashboard" column:
-//   Admin → all · Facility Manager → ops KPIs · Finance/Approver → financial
-//   Property Owner → own portfolio · Tenant / Vendor / FM Ops Staff → no access
+// Widget gating per B7's "Exec / BI dashboard" column. Every underlying query is
+// RLS-scoped, so FM/owner figures are automatically limited to their properties.
+//   requests    — requests by status/category
+//   vendorPerf  — vendor composite scores (ops management)
+//   collection  — collection rate + outstanding receivables
+//   liabilities — vendor liabilities (payments)
+//   budget      — budget-vs-invoiced utilisation
 function biScope(role: string | undefined) {
   switch (role) {
     case "admin":
-      return { ops: true, financial: true, portfolio: true };
-    case "facility_manager":
-      return { ops: true, financial: false, portfolio: false };
-    case "finance_approver":
-      return { ops: false, financial: true, portfolio: false };
-    case "property_owner":
-      return { ops: false, financial: false, portfolio: true };
+      return { requests: true, vendorPerf: true, collection: true, liabilities: true, budget: true };
+    case "facility_manager": // ops KPIs + operational budgets (managed properties)
+      return { requests: true, vendorPerf: true, collection: false, liabilities: false, budget: true };
+    case "finance_approver": // financial
+      return { requests: false, vendorPerf: false, collection: true, liabilities: true, budget: true };
+    case "property_owner": // own portfolio (RLS-scoped to owned properties)
+      return { requests: true, vendorPerf: false, collection: true, liabilities: false, budget: true };
     default:
-      return { ops: false, financial: false, portfolio: false };
+      return { requests: false, vendorPerf: false, collection: false, liabilities: false, budget: false };
   }
 }
 
@@ -70,7 +75,9 @@ export default async function BiDashboardPage() {
   const role = session.profile?.role;
   const scope = biScope(role);
 
-  if (!scope.ops && !scope.financial && !scope.portfolio) {
+  const hasAnyWidget =
+    scope.requests || scope.vendorPerf || scope.collection || scope.liabilities || scope.budget;
+  if (!hasAnyWidget) {
     return (
       <div className="mx-auto max-w-xl">
         <h1 className="text-xl font-semibold text-neutral-800">
@@ -178,13 +185,13 @@ export default async function BiDashboardPage() {
 
       {/* KPI tiles */}
       <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {scope.ops && (
+        {scope.requests && (
           <>
             <StatTile label="Open requests" value={String(openCount)} hint="open + in progress" />
             <StatTile label="Closed requests" value={String(closedCount)} hint="resolved + closed" />
           </>
         )}
-        {scope.financial && (
+        {scope.collection && (
           <>
             <StatTile
               label="Collection rate"
@@ -192,17 +199,19 @@ export default async function BiDashboardPage() {
               hint={`${formatNaira(totalPaid)} of ${formatNaira(totalInvoiced)}`}
             />
             <StatTile label="Outstanding receivables" value={formatNaira(outstanding)} />
-            <StatTile
-              label="Vendor liabilities"
-              value={formatNaira(vendorLiabilities)}
-              hint="approved / in-flight, not yet remitted"
-            />
           </>
+        )}
+        {scope.liabilities && (
+          <StatTile
+            label="Vendor liabilities"
+            value={formatNaira(vendorLiabilities)}
+            hint="approved / in-flight, not yet remitted"
+          />
         )}
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {scope.ops && (
+        {scope.requests && (
           <>
             <Panel title="Requests by status">
               <CountBar data={statusData} />
@@ -210,16 +219,17 @@ export default async function BiDashboardPage() {
             <Panel title="Requests by category">
               <CountBar data={categoryData} />
             </Panel>
-            <Panel
-              title="Vendor performance"
-              subtitle="Average composite score (AURA weighting), 0–100"
-            >
-              <ScoreBar data={vendorScores} />
-            </Panel>
           </>
         )}
-
-        {scope.financial && (
+        {scope.vendorPerf && (
+          <Panel
+            title="Vendor performance"
+            subtitle="Average composite score (AURA weighting), 0–100"
+          >
+            <ScoreBar data={vendorScores} />
+          </Panel>
+        )}
+        {scope.budget && (
           <Panel
             title="Budget utilisation"
             subtitle="Annual budget vs. invoiced to date, per property"
@@ -228,18 +238,6 @@ export default async function BiDashboardPage() {
           </Panel>
         )}
       </div>
-
-      {scope.portfolio && !scope.financial && (
-        <div className="mt-4 rounded-xl border border-dashed border-neutral-300 bg-white/60 p-6 text-sm text-neutral-500">
-          <p className="font-medium text-neutral-700">Portfolio view</p>
-          <p className="mt-1">
-            Owner-scoped portfolio reporting requires the property-ownership
-            mapping, which is not in the schema yet (owners are not currently
-            linked to properties). Tracked as a known gap — see the Week 1
-            checkpoint.
-          </p>
-        </div>
-      )}
     </div>
   );
 }

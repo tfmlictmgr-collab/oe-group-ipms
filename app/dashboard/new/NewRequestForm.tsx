@@ -13,7 +13,13 @@ const CATEGORIES = [
 ];
 const URGENCIES = ["low", "normal", "high", "critical"];
 
-export default function NewRequestForm({ orgId }: { orgId: string }) {
+export default function NewRequestForm({
+  orgId,
+  propertyId,
+}: {
+  orgId: string;
+  propertyId?: string | null;
+}) {
   const router = useRouter();
   const [messageText, setMessageText] = useState("");
   const [category, setCategory] = useState("maintenance");
@@ -47,6 +53,7 @@ export default function NewRequestForm({ orgId }: { orgId: string }) {
       urgency,
       summary: messageText.slice(0, 140),
       property_or_unit: propertyOrUnit || null,
+      property_id: propertyId ?? null,
     });
 
     if (error) {

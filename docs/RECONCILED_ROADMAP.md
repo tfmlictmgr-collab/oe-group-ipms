@@ -65,6 +65,12 @@ Ordered, because Wk2 depends on the Wk0 sample:
   RLS assignee visibility. In-app notification only; multi-channel is Day 13.
 - **Wk4 cross-brand access test** — formal isolation test once orgs instantiated.
   (Orgs now instantiated + verified informally; formal repeatable test pending.)
+- **FM/owner property scoping** — ✅ DONE (0008/0009). `property_stakeholders`
+  model (manager/owner), tickets linked to properties, read policies rewritten so
+  FM sees only managed-property data and owner only owned-property data; BI
+  dashboards scoped accordingly. Verified for all roles in
+  `scripts/verify-access-matrix.mjs`. Remaining minor over-grant: vendor list is
+  still management-level (not per-property) — vendors aren't property-linked.
 - UX production-readiness — see `docs/UX_BACKLOG.md`.
 - PWA/offline + PDF export — CLAUDE.md B3 Phase-1 scope, not yet built.
 
