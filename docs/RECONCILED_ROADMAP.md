@@ -78,6 +78,10 @@ Ordered, because Wk2 depends on the Wk0 sample:
   `docs/SECURITY_REVIEW.md`.
 - **Activate webhook auth in production** — set `WHATSAPP_APP_SECRET` and
   `TELEGRAM_WEBHOOK_SECRET` in Vercel (code is ready; default-skips in POC).
+- **KPI/SLA-driven, dual-source vendor evaluation** (Module 2 upgrade) — tenant
+  reviews the vendor on job completion + FM/PM evaluation, both driven by an
+  admin-editable KPI/SLA checklist (computed scores, not free-typed), combined via
+  the AURA weights. Full spec: `docs/PHASE1_VENDOR_EVALUATION.md`. ~1.5–2 weeks.
 
 ### Multi-tenancy gaps — foundation built, product flows NOT (Phase 1)
 
