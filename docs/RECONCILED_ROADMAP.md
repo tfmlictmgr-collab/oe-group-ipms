@@ -82,6 +82,21 @@ Ordered, because Wk2 depends on the Wk0 sample:
   reviews the vendor on job completion + FM/PM evaluation, both driven by an
   admin-editable KPI/SLA checklist (computed scores, not free-typed), combined via
   the AURA weights. Full spec: `docs/PHASE1_VENDOR_EVALUATION.md`. ~1.5–2 weeks.
+- **Role-appropriate personal reporting** (Module 6 extension — B7 already grants
+  each role its own data; this is a nicer view of it):
+  - *Tenant "Track my request"* — an ecommerce-style status timeline per request
+    (Submitted → AI-triaged → Assigned → Acknowledged → In progress → Completed →
+    Rate), the assigned vendor + its rating band, personal open/resolved summary,
+    SC/payment history + next-due, notifications feed. **Buildable on existing
+    timestamps** — highest-impact, lowest-cost addition; most relatable to a board.
+  - *Vendor "My performance & pipeline"* — composite score trend + 5-dimension
+    breakdown, job kanban (assigned→…→completed), payment status per invoice
+    (incl. "blocked: below threshold"), rank as a **band/percentile only**.
+  - **Guardrail:** each party sees its *own* data + a band/percentile — never
+    competitors' names/scores, never vendor pay details to tenants.
+  - POC-feasible now: tenant tracker, tenant SC/payment summary, vendor
+    trend/pipeline/pay-status. Phase 1: tenant→vendor rating, vendor-visible
+    reviews, SLA countdowns, earnings analytics.
 
 ### Multi-tenancy gaps — foundation built, product flows NOT (Phase 1)
 
