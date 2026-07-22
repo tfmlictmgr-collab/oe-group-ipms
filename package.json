@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "migrate": "node scripts/migrate.mjs",
+    "seed": "tsx scripts/seed.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.112.3",
