@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { classifyAndCreateTicket } from "@/lib/triage";
 import { buildAcknowledgement } from "@/lib/acknowledgement";
 import { sendCascade } from "@/lib/cascade";
+import { verifyWhatsAppSignature } from "@/lib/webhook-security";
 
 // Meta's webhook verification handshake (run once when you register the
 // Callback URL in the Meta App Dashboard).
@@ -24,10 +25,31 @@ export async function GET(request: NextRequest) {
 // Anthropic's typical latency (a few seconds) is well inside Meta's retry
 // window, so a synchronous await is the safer choice here.
 export async function POST(request: NextRequest) {
-  const payload = await request.json();
-  console.log("WhatsApp webhook payload:", JSON.stringify(payload));
+  // Raw body first: HMAC verification must run over the exact bytes Meta signed.
+  const rawBody = await request.text();
+  const sig = verifyWhatsAppSignature(
+    rawBody,
+    request.headers.get("x-hub-signature-256")
+  );
+  if (!sig.ok) {
+    console.warn("Rejected WhatsApp webhook:", sig.reason);
+    return new NextResponse("Forbidden", { status: 403 });
+  }
 
-  const value = payload?.entry?.[0]?.changes?.[0]?.value;
+  let payload: unknown;
+  try {
+    payload = JSON.parse(rawBody);
+  } catch {
+    return new NextResponse("Bad Request", { status: 400 });
+  }
+
+  const value = (payload as { entry?: { changes?: { value?: Record<string, unknown> }[] }[] })
+    ?.entry?.[0]?.changes?.[0]?.value as
+    | {
+        messages?: { from: string; text?: { body?: string } }[];
+        contacts?: { profile?: { name?: string } }[];
+      }
+    | undefined;
 
   // Status-update payloads (sent/delivered/read receipts) carry `statuses`,
   // not `messages` — ignore them, there's nothing to triage.

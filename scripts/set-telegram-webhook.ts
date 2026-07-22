@@ -15,12 +15,18 @@ if (!token) {
 }
 
 const webhookUrl = `${publicUrl}/api/webhooks/telegram`;
+// When set, Telegram echoes this on every POST as X-Telegram-Bot-Api-Secret-Token;
+// the webhook route rejects requests that don't match (see lib/webhook-security).
+const secretToken = process.env.TELEGRAM_WEBHOOK_SECRET;
 
 async function main() {
+  const body: Record<string, string> = { url: webhookUrl };
+  if (secretToken) body.secret_token = secretToken;
+
   const response = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url: webhookUrl }),
+    body: JSON.stringify(body),
   });
 
   const result = await response.json();
@@ -31,6 +37,11 @@ async function main() {
   }
 
   console.log(`Telegram webhook registered: ${webhookUrl}`);
+  console.log(
+    secretToken
+      ? "Secret token configured — webhook is authenticated."
+      : "No TELEGRAM_WEBHOOK_SECRET set — webhook accepts unauthenticated POSTs (POC)."
+  );
 }
 
 main();

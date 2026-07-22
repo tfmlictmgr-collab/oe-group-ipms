@@ -2,13 +2,32 @@ import { NextRequest, NextResponse } from "next/server";
 import { classifyAndCreateTicket } from "@/lib/triage";
 import { buildAcknowledgement } from "@/lib/acknowledgement";
 import { sendCascade } from "@/lib/cascade";
+import { verifyTelegramSecret } from "@/lib/webhook-security";
 
 // Telegram doesn't require a GET verification handshake — POST only.
 export async function POST(request: NextRequest) {
-  const payload = await request.json();
-  console.log("Telegram webhook payload:", JSON.stringify(payload));
+  const secret = verifyTelegramSecret(
+    request.headers.get("x-telegram-bot-api-secret-token")
+  );
+  if (!secret.ok) {
+    console.warn("Rejected Telegram webhook:", secret.reason);
+    return new NextResponse("Forbidden", { status: 403 });
+  }
 
-  const message = payload?.message;
+  let payload: { message?: Record<string, unknown> };
+  try {
+    payload = await request.json();
+  } catch {
+    return new NextResponse("Bad Request", { status: 400 });
+  }
+
+  const message = payload?.message as
+    | {
+        text?: string;
+        chat?: { id?: number };
+        from?: { first_name?: string; username?: string };
+      }
+    | undefined;
   if (!message?.text) {
     return new NextResponse("OK", { status: 200 });
   }

@@ -73,6 +73,11 @@ Ordered, because Wk2 depends on the Wk0 sample:
   still management-level (not per-property) — vendors aren't property-linked.
 - UX production-readiness — see `docs/UX_BACKLOG.md`.
 - PWA/offline + PDF export — CLAUDE.md B3 Phase-1 scope, not yet built.
+- **Webhook rate-limiting** (Phase 1) — Upstash Redis sliding-window limiter on the
+  intake webhooks. Signature verification (Day 17) is the POC mitigation; see
+  `docs/SECURITY_REVIEW.md`.
+- **Activate webhook auth in production** — set `WHATSAPP_APP_SECRET` and
+  `TELEGRAM_WEBHOOK_SECRET` in Vercel (code is ready; default-skips in POC).
 
 ### Multi-tenancy gaps — foundation built, product flows NOT (Phase 1)
 
