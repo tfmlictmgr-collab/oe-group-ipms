@@ -109,3 +109,12 @@ statements. No bugs hit. Full interactive run below is for UAT.
 | 7 BI scoping (3 roles) | verified | admin 3 / FM 2 / owner 1 property |
 | 8 Audit trail | verified | immutable, filterable (Day 11) |
 | 9 Dual-brand | verified | TFML navy / OEA red, isolated |
+
+## Day 19 — clean re-run
+
+Day 18 surfaced no failures, so Day 19 was used for a deeper "try to break it"
+pass on the newest cross-cutting path: a **tenant** submits a portal request →
+it inserts under RLS as the sender, **auto-links to their property** (Lekki
+Gardens, from their occupied unit) → the **managing FM** (Abdul Owo) can see it.
+Verified end-to-end: ticket created, sender correct, property auto-linked, FM
+visibility confirmed. **No bugs found — clean run, nothing to fix.**
