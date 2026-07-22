@@ -1,6 +1,9 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getSessionProfile } from "@/lib/auth";
 import { formatNaira } from "@/lib/currency";
+import RoleGate, { roleAllowed } from "../RoleGate";
 
 type BudgetRow = {
   id: string;
@@ -12,6 +15,12 @@ type BudgetRow = {
 };
 
 export default async function ServiceChargePage() {
+  const session = await getSessionProfile();
+  if (!session) redirect("/login");
+  if (!roleAllowed(session.profile?.role, ["admin", "facility_manager", "finance_approver"])) {
+    return <RoleGate title="Service Charge Administration" />;
+  }
+
   const supabase = await createClient();
   const { data } = await supabase
     .from("sc_budgets")

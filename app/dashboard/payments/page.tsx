@@ -1,7 +1,10 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getSessionProfile } from "@/lib/auth";
 import { formatNaira } from "@/lib/currency";
 import { PAYMENT_STATUS_STYLES, statusLabel } from "@/lib/payment";
+import RoleGate, { roleAllowed } from "../RoleGate";
 
 type Row = {
   id: string;
@@ -13,6 +16,12 @@ type Row = {
 };
 
 export default async function PaymentsPage() {
+  const session = await getSessionProfile();
+  if (!session) redirect("/login");
+  if (!roleAllowed(session.profile?.role, ["admin", "facility_manager", "finance_approver"])) {
+    return <RoleGate title="Vendor Payments" />;
+  }
+
   const supabase = await createClient();
   const { data } = await supabase
     .from("payments")

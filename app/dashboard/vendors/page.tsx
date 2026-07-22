@@ -1,6 +1,9 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getSessionProfile } from "@/lib/auth";
 import { averageComposite, scoreBand } from "@/lib/vendor-score";
+import RoleGate, { roleAllowed } from "../RoleGate";
 
 type VendorRow = {
   id: string;
@@ -11,6 +14,12 @@ type VendorRow = {
 };
 
 export default async function VendorsPage() {
+  const session = await getSessionProfile();
+  if (!session) redirect("/login");
+  if (!roleAllowed(session.profile?.role, ["admin", "facility_manager", "finance_approver"])) {
+    return <RoleGate title="Vendors" />;
+  }
+
   const supabase = await createClient();
   const { data } = await supabase
     .from("vendors")
