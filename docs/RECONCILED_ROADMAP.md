@@ -119,3 +119,41 @@ must be scheduled for Phase 1 — recorded here so they are not assumed done:
    org or a mapping layer (inbound number/bot → org) that sets the ticket's
    `org_id` from the channel. Day 13 covers *outbound* delivery only, not inbound
    org routing. Ties to the same brand-isolation area as Wk4 ("no urls").
+
+---
+
+## OEA property-management expansion (Phase 1+) — locked scope
+
+Source: `OUTLINE FOR SOFTWARE` + the three OEA tenant forms. Turns OEA from
+service-charge administration toward full property/lettings management. Extends the
+POC (does not overwrite). Full designs: `OEA_TENANT_ONBOARDING.md`; feature→phase
+map in the chat-of-record. **Four scope decisions are locked (no ambiguity):**
+
+1. **Rent = custodial.** OEA collects rent, deducts management/admin fees, remits to
+   landlords through the **same B4 gated remittance + segregated client-funds ledger
+   + daily reconciliation** as vendor payouts. Per-landlord `collection_mode =
+   custodial | direct` flag; custodial is the core, the ledger is mandatory.
+2. **Tenant-application review = two-tier, admin-configurable.** PM reviews/
+   recommends (property-scoped); admin/finance approves. Individual → single
+   approval, corporate → dual. Immutably audited.
+3. **PII retention.** Rejected/withdrawn: purge PII after **90 days**. Approved:
+   tenancy term **+ 6 years**, then purge/anonymise. Scheduled enforcement.
+4. **TFML overlap via per-org feature flags (B9).** Shared for both brands:
+   work-order media, inspections/inventory/audit, expense tracking, richer
+   reporting. **OEA-only:** applications/KYC, leases, rent billing/roll, landlord
+   dashboards, marketing. One codebase, per-org module registry.
+
+### Phasing of the expansion
+- **Phase 1 core:** tenant application & human-reviewed onboarding (both individual
+  & corporate); lease administration (creation, unit allocation, renewal/demand
+  notices); rent billing + rent roll/tenancy schedule; online rent payment
+  (custodial); work-order photo/video; PM/landlord/tenant dashboards; net income /
+  rental inflows / occupancy reporting; notices.
+- **Phase 2:** OCR/AI form-extraction (assistive, human-verified); lease e-signing;
+  bank-sync expense tracking (Mono/Okra); inspection checklists/inventory/audit;
+  quarterly & rental-survey reports; predictive rental-trend analytics.
+- **Phase 3:** one-click listing to social/web; leasing CRM; AI virtual touring
+  (recommend third-party embed, e.g. Matterport, not build).
+- **Advise/caution:** automated background checks are **not** in scope — screening is
+  **human review of submitted forms** by design (avoids NDPA automated-decision +
+  bias risk).

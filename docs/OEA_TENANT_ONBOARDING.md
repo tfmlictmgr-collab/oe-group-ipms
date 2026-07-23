@@ -98,9 +98,37 @@ flagged, and access-restricted (see guardrails).
   analytics; optional e-signing of the declaration; optional external verification
   hooks (only if OEA later contracts providers).
 
-## Open items (need answers before the downstream build)
-1. **Rent custody model** (custodial-remit-to-landlord vs landlord-direct) — drives
-   the funds ledger the onboarding hands off to. *Still unanswered.*
-2. **Reviewer roles + approval hierarchy** for applications (who approves, thresholds?).
-3. **Retention window** for rejected/withdrawn applicant PII (compliance decision).
-4. **Which parts apply to TFML** (facilities tenants/work-orders) vs OEA-only.
+## Locked decisions (July 2026 — authoritative, no ambiguity)
+
+1. **Rent custody = CUSTODIAL (default).** OEA collects rent into OE Group's
+   segregated client-funds account, deducts management + admin fees, and remits the
+   balance to landlords through the **same gated remittance + segregated ledger +
+   daily bank-vs-ledger reconciliation** as vendor payments (CLAUDE.md B4). A
+   per-landlord `collection_mode = custodial | direct` flag supports landlords who
+   collect directly (OEA then bills fees only) — but the **core build is custodial
+   and the segregated funds ledger is mandatory**. Rent therefore reuses Module 4's
+   approval-gated remittance, not a side path.
+
+2. **Reviewer hierarchy = two-tier, admin-configurable.** A **Property Manager**
+   (`facility_manager` role, property-scoped via `property_stakeholders`) reviews and
+   recommends; an **Approver** (`admin` or `finance_approver`) gives final approval.
+   Defaults: **individual applications → single approval; corporate/commercial →
+   dual (recommend → approve)**. Approver assignment + the single/dual threshold are
+   admin-configurable (mirrors `payment_settings`). Reviewers see only applications
+   for properties they manage; every action is immutably audited.
+
+3. **PII retention = enforced defaults.** **Rejected/withdrawn applications: PII
+   auto-purged after 90 days** (an anonymised audit stub remains, proving a decision
+   was made). **Approved applications: retained for the tenancy term + 6 years**
+   after termination (Nigerian contract limitation period), then purged/anonymised.
+   Special-category fields (religion, marital status) are optional and separately
+   access-gated. A scheduled job enforces the purges; windows are admin-configurable
+   but ship at these defaults.
+
+4. **TFML overlap = per-org feature flags (B9).** Enabled for **both** brands
+   (shared operations): work-order photo/video, inspection checklists/inventory/audit,
+   expense tracking, richer reporting/dashboards (vendor management already shared).
+   **OEA-only** (lettings): tenant application/KYC/onboarding, lease administration,
+   rent billing/roll, landlord dashboards, marketing/leasing. TFML keeps
+   facilities-ops with **no** tenant/lease/rent modules. One codebase, toggled by the
+   per-org module registry.
