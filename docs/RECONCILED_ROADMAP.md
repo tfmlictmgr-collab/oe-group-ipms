@@ -157,3 +157,49 @@ map in the chat-of-record. **Four scope decisions are locked (no ambiguity):**
 - **Advise/caution:** automated background checks are **not** in scope — screening is
   **human review of submitted forms** by design (avoids NDPA automated-decision +
   bias risk).
+
+---
+
+## LOCKED Phase 1 item — Interactive Analytics Dashboard (Module 6 upgrade, BOTH brands)
+
+Upgrades the static BI dashboard into an **interactive, insight-driven analytics
+console** for service improvement. Applies to **TFML and OEA** (operations-generic,
+enabled via the B9 per-org feature registry). No ambiguity — this is committed.
+
+### Filters (interactive, combinable)
+- **Date range** (custom + presets), **vendor**, **classification/category**,
+  **property**, **status**. Every filter is RLS-safe — a filtered view can never
+  reveal data beyond the viewer's B7 matrix row.
+
+### Metrics & insights
+- **Completion rate (%)** by **vendor** and by **classification**; completed vs
+  uncompleted counts *and* rate.
+- **Best / worst performing vendor** (insight callout), vendor ranking with
+  drill-down.
+- **Average time-to-resolve** (and, once SLAs exist, SLA-adherence %).
+- Open/closed, receivables, budget utilisation (existing) — now filterable.
+
+### Time dimension
+- **Weekly / monthly / quarterly / yearly** toggles with **trend lines** and
+  **period-over-period comparison** (e.g. this quarter vs last).
+
+### Enhanced UI feel (committed)
+- Polished, modern, **interactive** — hover tooltips, click-through drill-downs,
+  smooth responsive layout (mobile → desktop), brand-themed, validated dataviz
+  palette (per the dataviz standard), light/dark aware. Export to **CSV/PDF**.
+  Loading skeletons + empty states; accessible (WCAG AA).
+
+### Data foundation (mostly exists)
+- Tickets already carry status, category, `assigned_vendor_id`, and timestamps; the
+  **immutable audit trail records every status transition with its time**, so
+  completion timing is derivable. Add a `resolved_at`/`completed_at` column for
+  direct, fast querying.
+
+### Guardrails (baked in)
+- **RLS preserved on every filtered/aggregated view** — org + property scope always
+  applied server-side; filters can only narrow, never widen.
+- **Resource/scale:** pre-computed / materialised aggregates (not per-request full
+  scans) so it stays fast at 100+ properties; event-driven refresh.
+- **Token optimisation:** any NL-query / narrative-summary AI is event-driven +
+  cached, cheapest adequate model, never always-on.
+- **Governance:** insights are descriptive analytics, not automated decisions.
