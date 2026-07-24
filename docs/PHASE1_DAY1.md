@@ -85,13 +85,10 @@ each needs a key you create:
 - [x] **Vercel** — DONE (2026-07-24). Separate `oe-group-ipms-dev` project,
       14 runtime env vars (Production scope), phase-1 deployed and verified live
       at **https://oe-group-ipms-dev.vercel.app**. Demo project untouched.
-- [ ] **Uptime monitor** — the only item left. Needs an account I can't create
-      for you. Sign up for a free monitor (Better Uptime / UptimeRobot), add an
-      HTTPS check on **https://oe-group-ipms-dev.vercel.app/login** (expect 200),
-      and optionally a second on the demo URL. Non-blocking for Day 2.
+- [x] **Uptime monitor** — DONE (2026-07-24). UptimeRobot HTTPS check live on the
+      dev deployment, reporting **100%**.
 
-**Day 1 is functionally complete.** Env split, isolated dev DB, rate-limiting,
-error tracking, and an isolated live dev deployment are all done and verified.
-Only the (optional, external-account) uptime monitor remains. Day 2 — brand
-isolation + per-org channel routing (removing the hardcoded `DEMO_ORG_ID` from
-the webhooks) — can begin.
+**Day 1 is COMPLETE.** Env split, isolated dev DB, rate-limiting, error tracking,
+an isolated live dev deployment, and uptime monitoring are all done and verified.
+Day 2 — brand isolation + per-org channel routing (removing the hardcoded
+`DEMO_ORG_ID` from the webhooks) — can begin.
