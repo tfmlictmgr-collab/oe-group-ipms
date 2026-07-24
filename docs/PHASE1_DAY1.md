@@ -4,17 +4,37 @@
 
 ## What now exists
 
-Two fully independent Supabase projects, one codebase:
+Two fully independent worlds — separate Supabase **and** separate Vercel
+projects — on one codebase:
 
-| World | Supabase ref | Region | Branch | DB |
-|-------|-------------|--------|--------|-----|
-| **Demo** (frozen) | `egqzjrmzxqqxrrqpdwbt` | eu-west-1 | `main` / tag `poc-demo-v1` | migrations 0001–0010, live seed |
-| **Dev** (Phase 1) | `uszwigxdvjlwcwkjsjmc` | eu-west-2 | `phase-1` | migrations 0001–0010, fresh seed |
+| World | Supabase ref | Region | Vercel project | Live URL | Branch |
+|-------|-------------|--------|----------------|----------|--------|
+| **Demo** (frozen) | `egqzjrmzxqqxrrqpdwbt` | eu-west-1 | `oe-group-ipms` | oe-group-ipms.vercel.app | `main` / `poc-demo-v1` |
+| **Dev** (Phase 1) | `uszwigxdvjlwcwkjsjmc` | eu-west-2 | `oe-group-ipms-dev` | **oe-group-ipms-dev.vercel.app** | `phase-1` |
 
 Proven independent on 2026-07-24: seeding dev left the demo DB unchanged
 (demo still 26 tickets on its own host; dev 22 on a different host). Full
 verification suite passes against **dev** — access matrix, RLS REST, and the
 payment-gate bypass test all green.
+
+### Why two Vercel projects (not Preview-scoping)
+
+The demo project's env vars (incl. `NEXT_PUBLIC_SUPABASE_URL`) are set for **all**
+environments — Development, Preview *and* Production. So a phase-1 *Preview*
+deployment inside the demo project would have inherited the **demo database**.
+A separate `oe-group-ipms-dev` project gives the dev world its own env, its own
+URL, and zero chance of touching the demo — mirroring the Supabase split.
+
+**Deploy the dev world:** from the `phase-1` branch, `npx vercel deploy --prod`
+(this working copy is linked to `oe-group-ipms-dev`; the demo link is backed up
+at `.vercel.demo.bak`, gitignored). The dev project holds only the **runtime**
+env vars — the `SUPABASE_DB_*` pooler creds are deliberately excluded (migrations
+run locally, least-privilege). Verified live: the deployed login bundle references
+`uszwigxdvjlwcwkjsjmc.supabase.co` (dev), webhooks fail-closed 403, demo untouched.
+
+*(GitHub auto-deploy on push is not connected for the dev project — deploy via the
+CLI command above. Connect it in the Vercel dashboard later if wanted, setting the
+dev project's production branch to `phase-1`.)*
 
 ## Switching worlds on one machine
 
@@ -62,9 +82,16 @@ each needs a key you create:
       **disabled**, sending nothing. Source-map upload deferred to Day 12 (needs
       an auth token). Proven live: a test event flushed to the project
       (`flushed: true`); no-DSN path confirmed to send nothing without crashing.
-- [ ] **Uptime monitor** (Better Uptime / free) → point at the Phase-1 preview URL.
-- [ ] **Vercel:** link a Phase-1 preview deployment to the `phase-1` branch with
-      the dev env vars (separate from the demo production deployment).
+- [x] **Vercel** — DONE (2026-07-24). Separate `oe-group-ipms-dev` project,
+      14 runtime env vars (Production scope), phase-1 deployed and verified live
+      at **https://oe-group-ipms-dev.vercel.app**. Demo project untouched.
+- [ ] **Uptime monitor** — the only item left. Needs an account I can't create
+      for you. Sign up for a free monitor (Better Uptime / UptimeRobot), add an
+      HTTPS check on **https://oe-group-ipms-dev.vercel.app/login** (expect 200),
+      and optionally a second on the demo URL. Non-blocking for Day 2.
 
-Once those keys are in, Day 1 closes and Day 2 (brand isolation + per-org channel
-routing) begins.
+**Day 1 is functionally complete.** Env split, isolated dev DB, rate-limiting,
+error tracking, and an isolated live dev deployment are all done and verified.
+Only the (optional, external-account) uptime monitor remains. Day 2 — brand
+isolation + per-org channel routing (removing the hardcoded `DEMO_ORG_ID` from
+the webhooks) — can begin.
