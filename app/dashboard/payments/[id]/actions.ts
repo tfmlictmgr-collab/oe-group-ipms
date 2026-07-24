@@ -77,6 +77,9 @@ export async function runPerformanceCheck(paymentId: string) {
 
 // Stage 3 — Approval (finance/admin). Re-checks the gate from the DB so it
 // cannot be bypassed: both verification and performance must have passed.
+// Enforces the admin-configured approval threshold (B4/B7): payments above the
+// limit require an admin, not just a finance approver — making
+// `approval_threshold_amount` an enforced control rather than display-only.
 export async function approvePayment(paymentId: string) {
   const supabase = await createClient();
   const payment = await loadPayment(supabase, paymentId);
@@ -94,6 +97,25 @@ export async function approvePayment(paymentId: string) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
+  // Threshold gate: above the configured limit, only an admin may approve.
+  const { data: approver } = await supabase
+    .from("users")
+    .select("role")
+    .eq("id", user?.id ?? "")
+    .single();
+  const { data: settings } = await supabase
+    .from("payment_settings")
+    .select("approval_threshold_amount")
+    .eq("org_id", payment.org_id)
+    .single();
+  const threshold = Number(settings?.approval_threshold_amount ?? 1_000_000);
+  if (Number(payment.amount) > threshold && approver?.role !== "admin") {
+    throw new Error(
+      `Approvals above ${formatNaira(threshold)} require an admin (this payment is ${formatNaira(payment.amount)}).`
+    );
+  }
+
   const { error } = await supabase
     .from("payments")
     .update({

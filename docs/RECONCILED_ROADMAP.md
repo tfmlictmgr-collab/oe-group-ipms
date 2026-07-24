@@ -78,9 +78,13 @@ Ordered, because Wk2 depends on the Wk0 sample:
   `docs/SECURITY_REVIEW.md`.
 - **Webhook auth in production** — ✅ DONE. `WHATSAPP_APP_SECRET` and
   `TELEGRAM_WEBHOOK_SECRET` are set in Vercel Production (verified 2026-07-24);
-  deployed code enforces when a secret is present, so inbound WhatsApp and
-  Telegram (a B8 fallback channel) are authenticated. See the security-review
-  tracker below (S1) — hardening on `phase-1-hardening` makes it fail-closed.
+  the deployed code enforces whenever the secret is present, so inbound WhatsApp
+  and Telegram (a B8 fallback channel) are authenticated — verified live on
+  2026-07-24 (forged unsigned POSTs to both endpoints returned **403**). The
+  hardening **merged into `main`** makes this **fail-closed** (missing secret →
+  reject in prod, instead of silently skipping) as defence-in-depth. SMS
+  (Africa's Talking) is still stubbed; secure its callbacks when it's wired in
+  Phase 1. See the security-review tracker below (S1).
 - **KPI/SLA-driven, dual-source vendor evaluation** (Module 2 upgrade) — tenant
   reviews the vendor on job completion + FM/PM evaluation, both driven by an
   admin-editable KPI/SLA checklist (computed scores, not free-typed), combined via
