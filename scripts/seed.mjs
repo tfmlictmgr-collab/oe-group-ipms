@@ -48,18 +48,32 @@ const { data: oeaOrg } = await supabase.from("orgs").insert({ name: "OEA — Ora
 console.log("Orgs: POC + TFML + OEA");
 
 // ── 3. Users (auth users reused across reseeds; profiles re-created) ────────
+// Org/brand/role are stamped into app_metadata → they ride inside the SIGNED
+// JWT (Day 2 org claims). app_metadata is admin-only writable, so the client
+// can't forge it. RLS remains the enforced backstop; the claim is a trusted,
+// zero-DB-hit signal for the brand middleware.
+const orgBrand = {
+  [POC_ORG_ID]: "direct",
+  [tfmlOrg.id]: "TFML",
+  [oeaOrg.id]: "OEA",
+};
 const { data: authList } = await supabase.auth.admin.listUsers();
-async function ensureAuth(email) {
+async function ensureAuth(email, appMetadata) {
   let u = authList?.users?.find((x) => x.email === email);
   if (!u) {
-    const { data, error } = await supabase.auth.admin.createUser({ email, password: PASSWORD, email_confirm: true });
+    const { data, error } = await supabase.auth.admin.createUser({
+      email, password: PASSWORD, email_confirm: true, app_metadata: appMetadata,
+    });
     if (error) throw error;
     u = data.user;
+  } else {
+    // Reused across reseeds → refresh the claim so it always matches the profile.
+    await supabase.auth.admin.updateUserById(u.id, { app_metadata: appMetadata });
   }
   return u.id;
 }
 async function profile(email, orgId, role, fullName) {
-  const id = await ensureAuth(email);
+  const id = await ensureAuth(email, { org_id: orgId, delivery_brand: orgBrand[orgId] ?? "direct", role });
   await supabase.from("users").insert({ id, org_id: orgId, role, full_name: fullName, email });
   return id;
 }
