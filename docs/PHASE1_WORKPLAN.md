@@ -38,6 +38,13 @@ interactive-analytics items), `OEA_TENANT_ONBOARDING.md`, `PHASE1_VENDOR_EVALUAT
 - [ ] **Cloudflare R2** (or confirm Supabase Storage) for photo/video + documents.
 - [ ] Decide the **management/admin fee %** OEA deducts from rent before remitting.
 
+**🔒 Security-review preconditions (see the tracker in `RECONCILED_ROADMAP.md`):**
+- [ ] **S6 — Next.js decision (blocker):** revert to `14.2.35` (the proven POC
+      baseline) **or** keep `16` with an exact pin + a route-by-route verification
+      pass. Do **not** start Day 1 on the current uncommitted/unpinned bump.
+- [ ] **S8 — verify the classifier model id** `claude-sonnet-4-6` in `lib/triage.ts`
+      (a wrong id silently falls back to "needs human review" for every message).
+
 **Done when:** all keys are in hand (test mode is fine) and pasted to Claude on
 request. Nothing is built yet.
 
@@ -53,6 +60,11 @@ request. Nothing is built yet.
 > Supabase, run migrations + seed there. Add Upstash rate-limiting to both intake
 > webhooks, wire Sentry error tracking and uptime monitoring, and confirm automated
 > backups. Verify the demo database is untouched."
+
+**🔒 Security-review call (S1):** keep `WHATSAPP_APP_SECRET` + `TELEGRAM_WEBHOOK_SECRET`
+set in every environment — webhook auth is now **fail-closed in production** (missing
+secret → reject), so a new prod env without them silently kills intake. Secure the
+**SMS (Africa's Talking) callbacks** the same way once that channel is wired.
 
 **You do:** paste the `oe-group-dev` keys; create Upstash + Sentry accounts (free
 tier) and paste those keys.
@@ -76,6 +88,12 @@ with the demo provably untouched side-by-side.
 > Replace the hardcoded `DEMO_ORG_ID` in both webhooks with a channel→org mapping so
 > each brand's WhatsApp/Telegram number lands in its own org. Extend
 > `verify-access-matrix.mjs` to prove cross-brand isolation at all four layers."
+
+**🔒 Security-review call (S5):** while reworking scoping, **extend property-scoping to
+the money side** — today an FM sees *all* vendors, payments and vendor_evaluations
+org-wide (only tickets/SC were property-scoped in 0008/0009). This needs a
+**vendor↔property association** (a link table, or derive via assigned tickets); then
+re-run `verify-access-matrix.mjs` so the FM sees only their properties' vendors/pay.
 
 **You do:** add the DNS records Claude gives you; register the OEA WhatsApp number
 and give Claude its Phone Number ID.
@@ -128,6 +146,12 @@ opening balance to reconcile from.
 reconciliation report shows zero variance, then deliberately introduce one and see
 it flagged.
 
+**🔒 Security-review call (S3/S4):** apply migration `0010` here so the ledger's
+immutability extends to the money-adjacent tables — **audit `vendor_evaluations`
+inserts** (they drive the KPI payment gate, so an unaudited insert can game a payout)
+and **`service_charges` writes**, plus **soft-delete** (`deleted_at`) with user
+hard-delete blocked.
+
 **👁 Visible deliverable:** a **ledger screen with balances** and a **daily
 reconciliation report** showing matched vs flagged.
 
@@ -160,6 +184,15 @@ receipt → ledger, on screen.
 > **custodial landlord rent remittance**: collect rent, deduct management/admin
 > fees, remit the balance — same gate, same ledger, with remittance advice PDFs.
 > Support the per-landlord `collection_mode = custodial | direct` flag."
+
+**🔒 Security-review call (S2/S9) — do NOT ship the "existing gate" as-is:** before
+wiring real transfers, **harden the gate**. (1) Enforce `approval_threshold_amount`
+server-side — above the limit requires a higher approver (app fix is on
+`phase-1-hardening`; extend to a full **admin-configurable approval hierarchy**).
+(2) Apply the migration `0010` **payment state-machine trigger** so a direct
+PostgREST PATCH can't jump straight to `approved`/`remitted` — the DB, not just the
+server action, enforces verify→validate→approve→remit and finance/admin-only money
+moves. Live money on an unenforced gate is the single highest-liability shortcut.
 
 **You do:** approve the fee model; add a test recipient/bank account.
 
@@ -289,6 +322,11 @@ checklist**, and a visibly **polished mobile UI**.
 > Phase-1 URL, k6 load test to target, and confirm rate limits. Produce the NDPA
 > compliance pack (DPO, processor DPAs, privacy notice, consent records, retention
 > jobs). Then generate the multi-role UAT script and user guides."
+
+**🔒 Security-review call (S8):** add **triage resilience** — implement the Gemini
+**auto-failover** promised in CLAUDE.md B3 (today an Anthropic error degrades to a
+static "needs human review", it does not fail over), and confirm the classifier
+model id is valid so classification can't silently go dark.
 
 **You do:** designate the **DPO**, sign processor DPAs (Supabase, Vercel, Anthropic,
 Meta, Paystack, Flutterwave), publish the privacy notice, run UAT with real staff,

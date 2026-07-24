@@ -76,8 +76,11 @@ Ordered, because Wk2 depends on the Wk0 sample:
 - **Webhook rate-limiting** (Phase 1) — Upstash Redis sliding-window limiter on the
   intake webhooks. Signature verification (Day 17) is the POC mitigation; see
   `docs/SECURITY_REVIEW.md`.
-- **Activate webhook auth in production** — set `WHATSAPP_APP_SECRET` and
-  `TELEGRAM_WEBHOOK_SECRET` in Vercel (code is ready; default-skips in POC).
+- **Webhook auth in production** — ✅ DONE. `WHATSAPP_APP_SECRET` and
+  `TELEGRAM_WEBHOOK_SECRET` are set in Vercel Production (verified 2026-07-24);
+  deployed code enforces when a secret is present, so inbound WhatsApp and
+  Telegram (a B8 fallback channel) are authenticated. See the security-review
+  tracker below (S1) — hardening on `phase-1-hardening` makes it fail-closed.
 - **KPI/SLA-driven, dual-source vendor evaluation** (Module 2 upgrade) — tenant
   reviews the vendor on job completion + FM/PM evaluation, both driven by an
   admin-editable KPI/SLA checklist (computed scores, not free-typed), combined via
@@ -203,3 +206,42 @@ enabled via the B9 per-org feature registry). No ambiguity — this is committed
 - **Token optimisation:** any NL-query / narrative-summary AI is event-driven +
   cached, cheapest adequate model, never always-on.
 - **Governance:** insights are descriptive analytics, not automated decisions.
+
+---
+
+## Pre-Phase-1 Security & Integrity Review — tracked calls (2026-07-24, PC2)
+
+A code-grounded review of the POC baseline turned into decisions/calls. This is the
+**synchronised source of truth** for both machines — every observed lag below has a
+POC action *and* a Phase-1 home, so both builds get the fix. Code fixes live on
+branch **`phase-1-hardening`** (commits `2e48f8b`, `2bf4b17`); migration
+**`0010_money_integrity_hardening.sql`** is written but **not yet applied to any DB**.
+
+| ID | Finding (plain) | POC / demo action | Phase-1 home | Status |
+|----|-----------------|-------------------|--------------|--------|
+| **S1** | Webhook auth *default-skipped* when a secret was unset | Secrets **are** set in prod (verified); code now **fail-closed** on branch → backport to `main` | Day 1 (keep secrets set; secure SMS callbacks) | ✅ prod safe · code backport pending |
+| **S2** | `approval_threshold_amount` was **display-only** — any approver, any amount | App-layer enforce (admin required above the limit) → backport to `main` | Day 6 (full admin-configurable approval hierarchy) | ✅ on branch · hierarchy = Phase 1 |
+| **S9** | `payments_update` RLS let a **direct API PATCH skip the gate** | Apply `0010` payment state-machine trigger (service-role-exempt) | Day 6 | ⏳ migration written |
+| **S3** | `vendor_evaluations` **drive the KPI gate but were unaudited** (gate gameable) | Apply `0010` audit trigger | Day 4 / Day 11 | ⏳ migration written |
+| **S4** | `service_charges` had **no audit** + were **hard-deletable**; no soft-delete | Apply `0010` (audit + `deleted_at` soft-delete) | Day 4 (ledger immutability) | ⏳ migration written |
+| **S5** | FM sees **all vendors/payments/evaluations org-wide** (not property-scoped) | Leave (internal over-grant, org isolation holds) | Day 2 — extend property-scoping to the money side; **needs a vendor↔property model** (link table or derive via assigned tickets); re-run `verify-access-matrix.mjs` | 🔧 design call |
+| **S6** | Next.js **14→16 bump is uncommitted, unpinned, untested** | **DECISION:** revert to `14.2.35` (proven POC baseline) **or** keep 16 + commit + exact pin + route-by-route verify | Day 0/1 gate | ⚠️ **DECISION REQUIRED** |
+| **S7** | Inbound **hardcodes `DEMO_ORG_ID`** (both brands collapse on intake) | Leave (POC is single-org) | Day 2 (channel→org routing) | ✅ already planned |
+| **S8** | **No Gemini failover**; verify model id `claude-sonnet-4-6` | Verify the model id now (a wrong id → silent fallback to "needs human review" for every message) | Day 12 (resilience) | 🔧 to verify |
+
+**Applying these to the POC/demo too (per the "fix both builds" call):**
+- **S1, S2 are code-only** (no schema change) → safe to merge to `main` and redeploy
+  the demo; they improve the live POC with zero DB risk.
+- **Migration `0010` (S9/S3/S4)** touches the **shared POC DB**. It is additive and
+  **service-role-exempt** (seeds/webhooks unaffected), but it sits against Standing
+  Rule #1 (*freeze the demo*). **CALL:** apply `0010` to the POC DB as a controlled
+  one-off (recommended — low risk, gives the demo the same integrity guarantees), or
+  defer to Phase-1 Day-1 once dev/prod are split. Whoever applies it runs
+  `verify-access-matrix.mjs` + `verify-rls-rest.mjs` immediately after.
+- **S6 is the one true blocker** to branching Phase 1 from a clean baseline — resolve
+  it before Day 1. The bump is currently parked (git stash / uncommitted), not lost.
+
+**Cross-machine note (PC1 ↔ PC2):** this tracker lives on `main` so a `git pull`
+syncs both machines. The code + migration for S1–S4/S9 live on `phase-1-hardening`
+(pushed). Merge that branch (or cherry-pick the two code fixes) into the POC when
+you accept the S6 decision, so the demo and Phase 1 stay in step.
