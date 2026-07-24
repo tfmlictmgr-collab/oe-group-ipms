@@ -35,9 +35,10 @@ const pgc = new pg.Client({
 });
 await pgc.connect();
 await pgc.query(`truncate table
-  channel_routes, notifications, audit_log, property_stakeholders,
-  payment_settings, payments, service_charges, sc_budgets, units, properties,
-  vendor_evaluations, vendors, tickets, users, orgs restart identity cascade;`);
+  channel_routes, vendor_properties, notifications, audit_log,
+  property_stakeholders, payment_settings, payments, service_charges, sc_budgets,
+  units, properties, vendor_evaluations, vendors, tickets, users, orgs
+  restart identity cascade;`);
 await pgc.end();
 console.log("Truncated all app tables.");
 
@@ -235,6 +236,23 @@ channelRoutes.push(
 );
 await supabase.from("channel_routes").insert(channelRoutes);
 console.log(`Channel routes: ${channelRoutes.length} (POC live + TFML/OEA placeholders)`);
+
+// ── 12. Vendor↔property associations (Day 2 S5 money-side scoping) ──────────
+// Arranged to DEMONSTRATE scoping: the FM manages Lekki + Ikoyi, not Victoria
+// Court. SecureGuard (the ₦620k recommended payment) is on Victoria Court only,
+// so the FM cannot see that payout; FixIt (Lekki) and Sparkle (Ikoyi) they can.
+// Result: FM sees 2 of 3 payments; admin/finance see all 3.
+const vp = (vendor, property) => ({
+  org_id: POC_ORG_ID, vendor_id: vendorIds[vendor], property_id: propIds[property],
+});
+await supabase.from("vendor_properties").insert([
+  vp("FixIt Plumbing", "Lekki Gardens Estate"),        // FM ✓ (has a payment)
+  vp("Sparkle Cleaning Services", "Ikoyi Heights"),    // FM ✓ (has a payment)
+  vp("CoolAir HVAC", "Lekki Gardens Estate"),          // FM ✓ (no payment)
+  vp("SecureGuard Ltd", "Victoria Court"),             // FM ✗ (has the ₦620k payment)
+  vp("GreenScape Landscaping", "Victoria Court"),      // FM ✗
+]);
+console.log("Vendor↔property: 5 associations (FM sees 2 of 3 payments)");
 
 console.log("\n✅ Demo dataset seeded. All logins: password " + PASSWORD);
 console.log("   demo@ (admin) · finance@ · fm@ · ops@ · owner@ · vendor@ · resident@ · tfml@ · oea@");

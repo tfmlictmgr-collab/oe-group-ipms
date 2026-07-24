@@ -135,6 +135,20 @@ try {
     fb > 0 && fb < visibleCounts[admin.id].sc_budgets
       ? pass(`FM sees ${fb} budgets (managed) < admin ${visibleCounts[admin.id].sc_budgets}`)
       : fail(`FM budgets ${fb} not property-scoped`);
+
+    // S5 money-side scoping: FM sees payments/evaluations only for vendors on
+    // their properties — strictly fewer than admin, and NOT the Victoria-Court
+    // vendor's (SecureGuard) payout.
+    const fp = visibleCounts[fm.id].payments;
+    const ap = visibleCounts[admin.id].payments;
+    fp > 0 && fp < ap
+      ? pass(`FM sees ${fp} payments (own properties' vendors) < admin ${ap}`)
+      : fail(`FM payments ${fp} not money-scoped (admin ${ap})`);
+    const fe = visibleCounts[fm.id].vendor_evaluations;
+    const ae = visibleCounts[admin.id].vendor_evaluations;
+    fe > 0 && fe < ae
+      ? pass(`FM sees ${fe} evaluations (own vendors) < admin ${ae}`)
+      : fail(`FM evaluations ${fe} not money-scoped (admin ${ae})`);
   }
   if (owner && admin) {
     const ot = visibleCounts[owner.id].tickets;
