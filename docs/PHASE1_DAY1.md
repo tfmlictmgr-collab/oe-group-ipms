@@ -50,8 +50,11 @@ demo — `use-env.mjs demo` is for running the app read-only, not for writes.
 The env split, branch, migrations, seed, and verification are done. These remain,
 each needs a key you create:
 
-- [ ] **Upstash Redis** (free tier) → rate-limit both intake webhooks. Paste
-      `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN`.
+- [x] **Upstash Redis** — DONE (2026-07-24). Sliding-window limiter on both
+      intake webhooks (`lib/rate-limit.ts`): coarse per-IP shield (100/10s) +
+      per-sender burst cap (5/10s), both env-tunable. Drops with 200 (no provider
+      retry-storm) and **fails open** when Redis is unconfigured, so the demo is
+      unaffected. Proven live: `node scripts/verify-rate-limit.mjs`.
 - [ ] **Sentry** (free tier) → error tracking. Paste the DSN.
 - [ ] **Uptime monitor** (Better Uptime / free) → point at the Phase-1 preview URL.
 - [ ] **Vercel:** link a Phase-1 preview deployment to the `phase-1` branch with
