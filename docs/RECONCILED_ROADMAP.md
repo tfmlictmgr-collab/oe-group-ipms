@@ -225,9 +225,9 @@ branch **`phase-1-hardening`** (commits `2e48f8b`, `2bf4b17`); migration
 | **S3** | `vendor_evaluations` **drive the KPI gate but were unaudited** (gate gameable) | Apply `0010` audit trigger | Day 4 / Day 11 | ⏳ migration written |
 | **S4** | `service_charges` had **no audit** + were **hard-deletable**; no soft-delete | Apply `0010` (audit + `deleted_at` soft-delete) | Day 4 (ledger immutability) | ⏳ migration written |
 | **S5** | FM sees **all vendors/payments/evaluations org-wide** (not property-scoped) | Leave (internal over-grant, org isolation holds) | Day 2 — extend property-scoping to the money side; **needs a vendor↔property model** (link table or derive via assigned tickets); re-run `verify-access-matrix.mjs` | 🔧 design call |
-| **S6** | Next.js **14→16 bump is uncommitted, unpinned, untested** | **DECISION:** revert to `14.2.35` (proven POC baseline) **or** keep 16 + commit + exact pin + route-by-route verify | Day 0/1 gate | ⚠️ **DECISION REQUIRED** |
+| **S6** | Next.js **14→16 bump is uncommitted, unpinned, untested** | **RESOLVED (PC1, 2026-07-24):** `main` is pinned at **`next@14.2.35`**, lockfile agrees, working tree clean — the proven POC baseline. The bump exists only as an uncommitted/stashed change in PC2's working copy; **drop it there**, don't commit it. | Day 0/1 gate — now clear | ✅ **resolved on `main`** |
 | **S7** | Inbound **hardcodes `DEMO_ORG_ID`** (both brands collapse on intake) | Leave (POC is single-org) | Day 2 (channel→org routing) | ✅ already planned |
-| **S8** | **No Gemini failover**; verify model id `claude-sonnet-4-6` | Verify the model id now (a wrong id → silent fallback to "needs human review" for every message) | Day 12 (resilience) | 🔧 to verify |
+| **S8** | **No Gemini failover**; verify model id `claude-sonnet-4-6` | **VERIFIED (PC1, 2026-07-24):** live call to the Anthropic API with `claude-sonnet-4-6` returned **HTTP 200** — the id is valid and the classifier is not silently degrading. The **missing Gemini failover** remains real. | Day 12 (resilience) — failover only | ✅ model id verified · ⏳ failover pending |
 
 **Applying these to the POC/demo too (per the "fix both builds" call):**
 - **S1, S2 are code-only** (no schema change) → safe to merge to `main` and redeploy
@@ -238,8 +238,29 @@ branch **`phase-1-hardening`** (commits `2e48f8b`, `2bf4b17`); migration
   one-off (recommended — low risk, gives the demo the same integrity guarantees), or
   defer to Phase-1 Day-1 once dev/prod are split. Whoever applies it runs
   `verify-access-matrix.mjs` + `verify-rls-rest.mjs` immediately after.
-- **S6 is the one true blocker** to branching Phase 1 from a clean baseline — resolve
-  it before Day 1. The bump is currently parked (git stash / uncommitted), not lost.
+- **S6 is no longer a blocker.** Verified on PC1 (2026-07-24): `main` carries
+  `next@14.2.35` in both `package.json` and `package-lock.json`, with a clean tree.
+  Phase 1 can branch from `main` today. PC2 should discard its local bump.
+
+**Live verification of the demo (PC1, 2026-07-24)** — evidence, not assertion:
+- `oe-group-ipms.vercel.app/login` → **200**; landing → 307 (expected auth redirect).
+- Forged unsigned `POST` to `/api/webhooks/whatsapp` → **403**; to
+  `/api/webhooks/telegram` → **403**. Production webhook auth is **already
+  enforcing** (secrets are set), so the fail-closed change on `phase-1-hardening`
+  is defence-in-depth, not a fix for an open door.
+- Demo DB: `_migrations` holds **0001–0009 only** — `0010` is applied nowhere.
+  Seed data intact (3 orgs, 9 users across all 7 roles, 26 tickets, 5 vendors,
+  3 payments, 30 service charges, 15 evaluations).
+- **`0010` compatibility checked against the live schema before recommending it:**
+  `current_user_role()` returns NULL (not an error) for the service role so the
+  exemption is reachable; `log_audit()` reads `TG_ARGV[0]`, matching 0010's call
+  form; `payments`/`service_charges`/`vendor_evaluations` all have NOT NULL
+  `org_id` so `audit_log.org_id` cannot be violated by the new insert triggers;
+  the trigger's state machine matches the app's real transitions exactly
+  (`pending_evaluation`/`pending_approval` exist in the enum but are written by no
+  code path); and `runPerformanceCheck` sets `performance_validated` and `status`
+  in a single UPDATE, so the gate condition holds at trigger time. TRUNCATE
+  bypasses row triggers, so `npm run seed` is unaffected.
 
 **Cross-machine note (PC1 ↔ PC2):** this tracker lives on `main` so a `git pull`
 syncs both machines. The code + migration for S1–S4/S9 live on `phase-1-hardening`

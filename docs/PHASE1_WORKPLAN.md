@@ -39,11 +39,17 @@ interactive-analytics items), `OEA_TENANT_ONBOARDING.md`, `PHASE1_VENDOR_EVALUAT
 - [ ] Decide the **management/admin fee %** OEA deducts from rent before remitting.
 
 **🔒 Security-review preconditions (see the tracker in `RECONCILED_ROADMAP.md`):**
-- [ ] **S6 — Next.js decision (blocker):** revert to `14.2.35` (the proven POC
-      baseline) **or** keep `16` with an exact pin + a route-by-route verification
-      pass. Do **not** start Day 1 on the current uncommitted/unpinned bump.
-- [ ] **S8 — verify the classifier model id** `claude-sonnet-4-6` in `lib/triage.ts`
-      (a wrong id silently falls back to "needs human review" for every message).
+- [x] **S6 — Next.js: CLEARED (2026-07-24).** `main` is pinned at `next@14.2.35`
+      (package.json + lockfile agree, tree clean) — the proven POC baseline. The
+      14→16 bump exists only as an uncommitted change in PC2's working copy;
+      **discard it there.** Phase 1 branches from `main` as-is.
+- [x] **S8 — classifier model id: VERIFIED (2026-07-24).** A live Anthropic API
+      call with `claude-sonnet-4-6` returned HTTP 200, so triage is genuinely
+      classifying, not silently degrading. *(The missing Gemini failover is still
+      open — Day 12.)*
+
+**Neither precondition blocks Day 1 any longer.** The remaining Day 0 work is
+purely the accounts/keys checklist above.
 
 **Done when:** all keys are in hand (test mode is fine) and pasted to Claude on
 request. Nothing is built yet.
