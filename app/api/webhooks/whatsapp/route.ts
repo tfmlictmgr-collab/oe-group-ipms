@@ -4,6 +4,7 @@ import { buildAcknowledgement } from "@/lib/acknowledgement";
 import { sendCascade } from "@/lib/cascade";
 import { verifyWhatsAppSignature } from "@/lib/webhook-security";
 import { checkRateLimit, clientIp, INTAKE_LIMITS } from "@/lib/rate-limit";
+import { resolveOrgForChannel } from "@/lib/channel-routing";
 
 // Meta's webhook verification handshake (run once when you register the
 // Callback URL in the Meta App Dashboard).
@@ -62,6 +63,7 @@ export async function POST(request: NextRequest) {
   const value = (payload as { entry?: { changes?: { value?: Record<string, unknown> }[] }[] })
     ?.entry?.[0]?.changes?.[0]?.value as
     | {
+        metadata?: { phone_number_id?: string };
         messages?: { from: string; text?: { body?: string } }[];
         contacts?: { profile?: { name?: string } }[];
       }
@@ -73,12 +75,27 @@ export async function POST(request: NextRequest) {
     return new NextResponse("OK", { status: 200 });
   }
 
+  // Route by the business number that RECEIVED the message. The payload is
+  // already HMAC-verified as Meta's, so phone_number_id is trustworthy. No
+  // route → drop (200): never fall back to a default org (that's the collapse
+  // this replaces, and for money messages a cross-brand leak).
+  const phoneNumberId = value.metadata?.phone_number_id;
+  const route = await resolveOrgForChannel("whatsapp", phoneNumberId);
+  if (!route) {
+    console.warn("No WhatsApp channel route for phone_number_id:", phoneNumberId);
+    return new NextResponse("OK", { status: 200 });
+  }
+
   const message = value.messages[0];
   const senderWaId = message.from;
   const messageText = message.text?.body ?? "";
   const senderName = value.contacts?.[0]?.profile?.name ?? null;
 
-  console.log("Incoming WhatsApp message:", { senderWaId, messageText });
+  console.log("Incoming WhatsApp message:", {
+    senderWaId,
+    messageText,
+    org: route.label ?? route.orgId,
+  });
 
   // Per-sender burst cap: protects the expensive classify+write+reply path from
   // a single number looping or spamming. Generous for a human; drops (200) on trip.
@@ -99,13 +116,13 @@ export async function POST(request: NextRequest) {
       senderWaId,
       senderName,
       "whatsapp",
-      process.env.DEMO_ORG_ID!
+      route.orgId
     );
     console.log("Ticket created:", ticket.id, ticket.category, ticket.urgency);
 
     // Acknowledge via the B8 cascade (WhatsApp primary here) — logged + audited.
     await sendCascade({
-      orgId: process.env.DEMO_ORG_ID!,
+      orgId: route.orgId,
       entityType: "ticket",
       entityId: ticket.id,
       message: buildAcknowledgement(ticket),

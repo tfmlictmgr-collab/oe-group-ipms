@@ -35,9 +35,9 @@ const pgc = new pg.Client({
 });
 await pgc.connect();
 await pgc.query(`truncate table
-  notifications, audit_log, property_stakeholders, payment_settings, payments,
-  service_charges, sc_budgets, units, properties, vendor_evaluations, vendors,
-  tickets, users, orgs restart identity cascade;`);
+  channel_routes, notifications, audit_log, property_stakeholders,
+  payment_settings, payments, service_charges, sc_budgets, units, properties,
+  vendor_evaluations, vendors, tickets, users, orgs restart identity cascade;`);
 await pgc.end();
 console.log("Truncated all app tables.");
 
@@ -203,6 +203,24 @@ await supabase.from("tickets").insert([
   { org_id: tfmlOrg.id, channel: "portal", message_text: "AC servicing overdue in the east wing plant room — TFML site", category: "maintenance", urgency: "normal", summary: "AC servicing overdue — TFML site" },
   { org_id: oeaOrg.id, channel: "portal", message_text: "Tenancy renewal query for a managed property — OEA client", category: "general", urgency: "normal", summary: "Tenancy renewal query — OEA client" },
 ]);
+
+// ── 11. Channel routes: inbound identity → org (Day 2 per-org routing) ──────
+// The real WhatsApp number + Telegram bot keep landing in the POC org so
+// current intake is unbroken. Two placeholder WhatsApp identities map to TFML
+// and OEA so brand routing is provable end-to-end before real second numbers
+// exist (see scripts/verify-channel-routing.mjs). Swap the placeholders for the
+// real phone_number_ids when OEA/TFML get their own numbers.
+const channelRoutes = [];
+if (process.env.WHATSAPP_PHONE_NUMBER_ID)
+  channelRoutes.push({ org_id: POC_ORG_ID, channel: "whatsapp", external_id: process.env.WHATSAPP_PHONE_NUMBER_ID, label: "POC WhatsApp number" });
+if (process.env.TELEGRAM_WEBHOOK_SECRET)
+  channelRoutes.push({ org_id: POC_ORG_ID, channel: "telegram", external_id: process.env.TELEGRAM_WEBHOOK_SECRET, label: "POC Telegram bot" });
+channelRoutes.push(
+  { org_id: tfmlOrg.id, channel: "whatsapp", external_id: "TFML_WA_TEST_1000", label: "TFML WhatsApp (placeholder)" },
+  { org_id: oeaOrg.id, channel: "whatsapp", external_id: "OEA_WA_TEST_2000", label: "OEA WhatsApp (placeholder)" }
+);
+await supabase.from("channel_routes").insert(channelRoutes);
+console.log(`Channel routes: ${channelRoutes.length} (POC live + TFML/OEA placeholders)`);
 
 console.log("\n✅ Demo dataset seeded. All logins: password " + PASSWORD);
 console.log("   demo@ (admin) · finance@ · fm@ · ops@ · owner@ · vendor@ · resident@ · tfml@ · oea@");

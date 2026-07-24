@@ -53,16 +53,7 @@ export function verifyWhatsAppSignature(
     : { ok: false, reason: "signature mismatch" };
 }
 
-// Telegram echoes the secret_token set on setWebhook as a header on every POST.
-export function verifyTelegramSecret(headerToken: string | null): Result {
-  const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
-  if (!secret) return missingSecret("TELEGRAM_WEBHOOK_SECRET");
-  if (!headerToken) return { ok: false, reason: "missing x-telegram-bot-api-secret-token" };
-  // Constant-time compare so a mismatch doesn't leak length/content via timing.
-  const a = Buffer.from(headerToken);
-  const b = Buffer.from(secret);
-  if (a.length !== b.length) return { ok: false, reason: "secret token length mismatch" };
-  return crypto.timingSafeEqual(a, b)
-    ? { ok: true }
-    : { ok: false, reason: "secret token mismatch" };
-}
+// Telegram auth moved to per-bot routing: the x-telegram-bot-api-secret-token
+// header is matched against a channel_routes row (see lib/channel-routing.ts),
+// which both authenticates the request and resolves its org. That replaced the
+// single-secret verifyTelegramSecret() this module used to export.

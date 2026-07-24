@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { classifyAndCreateTicket } from "@/lib/triage";
 import { buildAcknowledgement } from "@/lib/acknowledgement";
 import { sendCascade } from "@/lib/cascade";
-import { verifyTelegramSecret } from "@/lib/webhook-security";
 import { checkRateLimit, clientIp, INTAKE_LIMITS } from "@/lib/rate-limit";
+import { resolveOrgForChannel } from "@/lib/channel-routing";
 
 // Telegram doesn't require a GET verification handshake — POST only.
 export async function POST(request: NextRequest) {
@@ -20,11 +20,19 @@ export async function POST(request: NextRequest) {
     return new NextResponse("OK", { status: 200 });
   }
 
-  const secret = verifyTelegramSecret(
-    request.headers.get("x-telegram-bot-api-secret-token")
-  );
-  if (!secret.ok) {
-    console.warn("Rejected Telegram webhook:", secret.reason);
+  // The per-bot secret token is BOTH auth and route key. Telegram echoes the
+  // secret_token set on setWebhook as this header. A token that matches a
+  // channel_routes row identifies the org AND proves the request is from that
+  // bot's webhook (only Telegram and we know the token). No match → forged or
+  // an unregistered bot → reject.
+  const headerToken = request.headers.get("x-telegram-bot-api-secret-token");
+  if (!headerToken) {
+    console.warn("Rejected Telegram webhook: missing secret token");
+    return new NextResponse("Forbidden", { status: 403 });
+  }
+  const route = await resolveOrgForChannel("telegram", headerToken);
+  if (!route) {
+    console.warn("Rejected Telegram webhook: unknown secret token (no route)");
     return new NextResponse("Forbidden", { status: 403 });
   }
 
@@ -51,7 +59,13 @@ export async function POST(request: NextRequest) {
   const username = message.from?.username;
   const messageText = message.text;
 
-  console.log("Incoming Telegram message:", { chatId, firstName, username, messageText });
+  console.log("Incoming Telegram message:", {
+    chatId,
+    firstName,
+    username,
+    messageText,
+    org: route.label ?? route.orgId,
+  });
 
   // Per-sender burst cap on the expensive classify+write+reply path.
   const senderGate = await checkRateLimit(
@@ -71,13 +85,13 @@ export async function POST(request: NextRequest) {
       String(chatId),
       firstName ?? username ?? null,
       "telegram",
-      process.env.DEMO_ORG_ID!
+      route.orgId
     );
     console.log("Ticket created:", ticket.id, ticket.category, ticket.urgency);
 
     // Acknowledge via the B8 cascade (Telegram channel here) — logged + audited.
     await sendCascade({
-      orgId: process.env.DEMO_ORG_ID!,
+      orgId: route.orgId,
       entityType: "ticket",
       entityId: ticket.id,
       message: buildAcknowledgement(ticket),
