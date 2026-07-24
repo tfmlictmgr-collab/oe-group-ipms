@@ -76,8 +76,13 @@ Ordered, because Wk2 depends on the Wk0 sample:
 - **Webhook rate-limiting** (Phase 1) — Upstash Redis sliding-window limiter on the
   intake webhooks. Signature verification (Day 17) is the POC mitigation; see
   `docs/SECURITY_REVIEW.md`.
-- **Activate webhook auth in production** — set `WHATSAPP_APP_SECRET` and
-  `TELEGRAM_WEBHOOK_SECRET` in Vercel (code is ready; default-skips in POC).
+- **Webhook auth in production** — ✅ DONE. `WHATSAPP_APP_SECRET` and
+  `TELEGRAM_WEBHOOK_SECRET` are set in Vercel Production (verified 2026-07-24);
+  the deployed code enforces whenever the secret is present, so inbound WhatsApp
+  and Telegram (a B8 fallback channel) are authenticated. Hardening on
+  `phase-1-hardening` makes this **fail-closed** (missing secret → reject in prod,
+  instead of silently skipping) as defense-in-depth. SMS (Africa's Talking) is
+  still stubbed; secure its callbacks when it's wired in Phase 1.
 - **KPI/SLA-driven, dual-source vendor evaluation** (Module 2 upgrade) — tenant
   reviews the vendor on job completion + FM/PM evaluation, both driven by an
   admin-editable KPI/SLA checklist (computed scores, not free-typed), combined via
