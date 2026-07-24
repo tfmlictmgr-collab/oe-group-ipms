@@ -55,7 +55,13 @@ each needs a key you create:
       per-sender burst cap (5/10s), both env-tunable. Drops with 200 (no provider
       retry-storm) and **fails open** when Redis is unconfigured, so the demo is
       unaffected. Proven live: `node scripts/verify-rate-limit.mjs`.
-- [ ] **Sentry** (free tier) → error tracking. Paste the DSN.
+- [x] **Sentry** — DONE (2026-07-24). `@sentry/nextjs` wired for server, edge,
+      and client runtimes via `instrumentation.ts` + the three `sentry.*.config.ts`
+      files, plus an `app/global-error.tsx` boundary. DSN is env-gated
+      (`NEXT_PUBLIC_SENTRY_DSN`) so an env without a DSN — the demo — runs Sentry
+      **disabled**, sending nothing. Source-map upload deferred to Day 12 (needs
+      an auth token). Proven live: a test event flushed to the project
+      (`flushed: true`); no-DSN path confirmed to send nothing without crashing.
 - [ ] **Uptime monitor** (Better Uptime / free) → point at the Phase-1 preview URL.
 - [ ] **Vercel:** link a Phase-1 preview deployment to the `phase-1` branch with
       the dev env vars (separate from the demo production deployment).
