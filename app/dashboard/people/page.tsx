@@ -1,3 +1,4 @@
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { Users } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
@@ -11,6 +12,8 @@ import { writableProperties } from "../assets/actions";
 import InviteDialog from "./InviteDialog";
 import { PendingInvites, VendorApprovals } from "./PendingList";
 import UnitAssign from "./UnitAssign";
+import ApplicationQueue, { type Application } from "./ApplicationQueue";
+import ApplicationLink from "./ApplicationLink";
 
 export default async function PeoplePage() {
   const session = await getSessionProfile();
@@ -21,11 +24,13 @@ export default async function PeoplePage() {
     return <RoleGate title="People & Onboarding" />;
   }
 
-  const isAdmin = session.profile?.role === "admin";
+  // The role gate above guarantees a profile exists; bind it so TS knows too.
+  const profile = session.profile!;
+  const isAdmin = profile.role === "admin";
   const brand = session.org?.delivery_brand ?? null;
   const supabase = await createClient();
 
-  const [membersRes, invitesRes, vendorsRes, pendingVendorsRes, unitsRes, props] =
+  const [membersRes, invitesRes, vendorsRes, pendingVendorsRes, unitsRes, props, appsRes, orgRes] =
     await Promise.all([
       supabase.from("users").select("id, full_name, email, role").order("full_name"),
       supabase
@@ -45,7 +50,22 @@ export default async function PeoplePage() {
         .order("label"),
       // Attaché assignment may only target properties the inviter controls.
       writableProperties(),
+      supabase
+        .from("vendor_applications")
+        .select("id, business_name, service_category, cac_number, tin, contact_name, contact_email, contact_phone, website, notes, status, email_verified_at, created_at")
+        .in("status", ["submitted", "email_verified", "under_review"])
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("orgs")
+        .select("id, vendor_applications_open")
+        .eq("id", profile.org_id)
+        .single(),
     ]);
+
+  const h = await headers();
+  const origin =
+    process.env.NEXT_PUBLIC_SITE_URL ??
+    `${h.get("x-forwarded-proto") ?? "http"}://${h.get("host")}`;
 
   const members = membersRes.data ?? [];
   const memberById = new Map(members.map((m) => [m.id, m.full_name ?? m.email ?? "User"]));
@@ -78,6 +98,26 @@ export default async function PeoplePage() {
         units={units.map((u) => ({ id: u.id, label: `${u.label} — ${u.property}` }))}
         vendors={(vendorsRes.data ?? []).map((v) => ({ id: v.id, label: v.name }))}
       />
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Vendor applications</CardTitle>
+          <CardDescription>
+            Share a public link so vendors can apply themselves. Every
+            application is reviewed by a person — approving one creates the
+            vendor record, and nothing can be assigned or paid before that.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <ApplicationLink
+            orgId={profile.org_id}
+            isOpen={Boolean(orgRes.data?.vendor_applications_open)}
+            isAdmin={isAdmin}
+            origin={origin}
+          />
+          <ApplicationQueue applications={(appsRes.data as Application[]) ?? []} />
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
@@ -133,7 +173,7 @@ export default async function PeoplePage() {
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium">
                     {m.full_name ?? m.email}
-                    {m.id === session.profile?.id && (
+                    {m.id === profile.id && (
                       <span className="ml-2 text-xs font-normal text-muted-foreground">(you)</span>
                     )}
                   </p>

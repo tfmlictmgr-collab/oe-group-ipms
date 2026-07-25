@@ -184,3 +184,38 @@ export async function assignUnitOccupant(unitId: string, userId: string | null) 
   }
   revalidatePath("/dashboard/people");
 }
+
+/** Approve or reject a public vendor application. Approval creates the vendor. */
+export async function decideVendorApplication(applicationId: string, approve: boolean, notes?: string) {
+  const supabase = await createClient();
+  const { error } = approve
+    ? await supabase.rpc("approve_vendor_application", {
+        p_application_id: applicationId,
+        p_notes: notes ?? null,
+      })
+    : await supabase.rpc("reject_vendor_application", {
+        p_application_id: applicationId,
+        p_notes: notes ?? null,
+      });
+  if (error) throw new Error(error.message);
+  revalidatePath("/dashboard/people");
+  revalidatePath("/dashboard/vendors");
+}
+
+/** Open or close the org's public vendor-application link. Admin only. */
+export async function setVendorApplicationsOpen(open: boolean) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Your session expired. Please sign in again.");
+  const { data: me } = await supabase
+    .from("users").select("org_id, role").eq("id", user.id).single();
+  if (me?.role !== "admin") {
+    throw new Error("Only an administrator can open or close vendor applications.");
+  }
+  const { error } = await supabase
+    .from("orgs")
+    .update({ vendor_applications_open: open })
+    .eq("id", me.org_id);
+  if (error) throw new Error(error.message);
+  revalidatePath("/dashboard/people");
+}

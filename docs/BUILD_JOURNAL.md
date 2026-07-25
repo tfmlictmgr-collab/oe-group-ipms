@@ -184,3 +184,57 @@ trail working as designed. Tests neutralise rather than erase.
 📌 Still open for Day 3+: vendor **self**-registration is currently
 invitation-based (admin/FM issues the link) — a public application form remains
 to be built; Resend key needed for automatic emails.
+
+---
+
+## 2026-07-25 · Vendor self-registration (closing the Day-3 gap before Day 4)
+**Why before the ledger:** "who may become a payable vendor" is a money-path
+question. Settling it now means the gate is already airtight when Day 4 makes
+remittance real — auditing it afterwards would mean auditing a live money path.
+
+🟢 `0021` `vendor_applications` — the first unauthenticated write in the system.
+Public `/apply/[orgId]` form, `/apply/confirm/[token]` email confirmation,
+admin review queue on `/dashboard/people`, and an admin-controlled open/close
+switch with a shareable link.
+
+**Controls, in order of cost so abuse is dropped early:**
+per-IP rate limit (5 / 10 min) → honeypot + submission-timing → Turnstile (when
+configured) → per-email rate limit (3 / 24 h) → field validation and length caps
+→ INSERT under RLS.
+
+⚖️ **Applications never touch `vendors`.** An applicant cannot exist as an
+assignable or payable entity until a human approves; approval is an RPC that
+*creates* the vendor, so "approved" and "exists as a vendor" cannot drift apart.
+⚖️ **Opt-in per org, default closed** — a leaked link is inert until an admin
+opens it, and closing it makes every old link inert again.
+⚖️ **anon may INSERT but never SELECT** — the endpoint cannot enumerate
+applicants, vendors or orgs. An unknown org and a closed org return the same
+message.
+⚖️ **Turnstile fails OPEN, deliberately** — unlike webhook auth. It is bot
+resistance, not authorisation; the authorisation gate is human approval, which
+cannot be bypassed. Failing closed would take the channel offline for a missing
+optional key, when the worst case is a spam row in a queue someone must approve
+anyway. Rate limiting and honeypot/timing run regardless.
+⚖️ **Email verification degrades, not blocks.** Without Resend the application is
+still queued and flagged "Email unverified" in the queue, so a reviewer knows to
+confirm by other means; the key upgrades it automatically.
+
+🔎 16 checks: closed org rejects; open org accepts; anon reads nothing back;
+applicant cannot self-approve via `status`; applying creates no vendor;
+duplicates refused while pending; a tenant and another org's admin both blocked
+from deciding; email confirmation single-use and silent on failure; approval
+creates exactly one approved vendor and links the application; double-approval
+refused; all audited.
+
+⚠️ **Nobody could submit at all.** The 0021 INSERT policy gated on
+`exists (select 1 from orgs …)`, but a WITH CHECK subquery runs as the *caller*
+and `orgs` RLS hides every row from anon — so the EXISTS was always false and
+every public submission was rejected, including from orgs that had opened
+applications. Fixed in `0022` with a SECURITY DEFINER predicate that answers one
+boolean and reveals nothing else. **A policy that reads another RLS-protected
+table must not assume the caller can see it.**
+
+📌 Remaining input gaps (not build gaps): `RESEND_API_KEY` + `RESEND_FROM` for
+invitation and verification emails; `TURNSTILE_SECRET_KEY` +
+`NEXT_PUBLIC_TURNSTILE_SITE_KEY` for bot resistance. Both are read at runtime —
+adding them needs no code change.
