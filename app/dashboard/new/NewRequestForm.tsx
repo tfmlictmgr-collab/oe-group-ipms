@@ -2,15 +2,14 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { AlertCircle } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { Button } from "@/components/ui/button";
+import { Input, Textarea, Select } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent } from "@/components/ui/card";
 
-const CATEGORIES = [
-  "maintenance",
-  "billing",
-  "vendor",
-  "complaint",
-  "general",
-];
+const CATEGORIES = ["maintenance", "billing", "vendor", "complaint", "general"];
 const URGENCIES = ["low", "normal", "high", "critical"];
 
 export default function NewRequestForm({
@@ -66,99 +65,92 @@ export default function NewRequestForm({
     router.refresh();
   }
 
-  const fieldClass =
-    "w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-800 focus:ring-1 focus:ring-neutral-800";
-
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="space-y-4 rounded-xl bg-white p-6 shadow-sm ring-1 ring-black/5"
-    >
-      <div>
-        <label className="mb-1 block text-sm font-medium text-neutral-700">
-          What&apos;s the issue?
-        </label>
-        <textarea
-          required
-          rows={4}
-          value={messageText}
-          onChange={(e) => setMessageText(e.target.value)}
-          className={fieldClass}
-          placeholder="e.g. The lift on the 3rd floor is not working."
-        />
-      </div>
+    <Card>
+      <CardContent className="pt-5">
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <div className="space-y-1.5">
+            <Label htmlFor="message">What&apos;s the issue?</Label>
+            <Textarea
+              id="message"
+              required
+              rows={4}
+              value={messageText}
+              onChange={(e) => setMessageText(e.target.value)}
+              placeholder="e.g. The lift on the 3rd floor is not working."
+            />
+            <p className="text-xs text-muted-foreground">
+              Be as specific as you can — it helps us route the job correctly.
+            </p>
+          </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div>
-          <label className="mb-1 block text-sm font-medium text-neutral-700">
-            Category
-          </label>
-          <select
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            className={`${fieldClass} capitalize`}
-          >
-            {CATEGORIES.map((c) => (
-              <option key={c} value={c} className="capitalize">
-                {c}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="mb-1 block text-sm font-medium text-neutral-700">
-            Urgency
-          </label>
-          <select
-            value={urgency}
-            onChange={(e) => setUrgency(e.target.value)}
-            className={`${fieldClass} capitalize`}
-          >
-            {URGENCIES.map((u) => (
-              <option key={u} value={u} className="capitalize">
-                {u}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="category">Category</Label>
+              <Select
+                id="category"
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className="capitalize"
+              >
+                {CATEGORIES.map((c) => (
+                  <option key={c} value={c} className="capitalize">
+                    {c}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="urgency">Urgency</Label>
+              <Select
+                id="urgency"
+                value={urgency}
+                onChange={(e) => setUrgency(e.target.value)}
+                className="capitalize"
+              >
+                {URGENCIES.map((u) => (
+                  <option key={u} value={u} className="capitalize">
+                    {u}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          </div>
 
-      <div>
-        <label className="mb-1 block text-sm font-medium text-neutral-700">
-          Property / Unit{" "}
-          <span className="font-normal text-neutral-400">(optional)</span>
-        </label>
-        <input
-          type="text"
-          value={propertyOrUnit}
-          onChange={(e) => setPropertyOrUnit(e.target.value)}
-          className={fieldClass}
-          placeholder="e.g. Block B, Unit 12"
-        />
-      </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="property">
+              Property / Unit{" "}
+              <span className="font-normal text-muted-foreground">(optional)</span>
+            </Label>
+            <Input
+              id="property"
+              type="text"
+              value={propertyOrUnit}
+              onChange={(e) => setPropertyOrUnit(e.target.value)}
+              placeholder="e.g. Block B, Unit 12"
+            />
+          </div>
 
-      {error && (
-        <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
-          {error}
-        </p>
-      )}
+          {error && (
+            <p
+              role="alert"
+              className="flex items-start gap-2 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
+            >
+              <AlertCircle className="mt-0.5 size-4 flex-shrink-0" />
+              {error}
+            </p>
+          )}
 
-      <div className="flex items-center justify-end gap-3 pt-2">
-        <button
-          type="button"
-          onClick={() => router.push("/dashboard")}
-          className="rounded-lg px-4 py-2 text-sm font-medium text-neutral-600 hover:bg-neutral-100"
-        >
-          Cancel
-        </button>
-        <button
-          type="submit"
-          disabled={loading}
-          className="rounded-lg btn-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-        >
-          {loading ? "Submitting…" : "Submit Request"}
-        </button>
-      </div>
-    </form>
+          <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
+            <Button type="button" variant="ghost" onClick={() => router.push("/dashboard")}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="brand" disabled={loading || !messageText.trim()}>
+              {loading ? "Submitting…" : "Submit Request"}
+            </Button>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
   );
 }

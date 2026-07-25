@@ -1,14 +1,15 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { ArrowLeft, CheckCircle2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
-import {
-  type Ticket,
-  URGENCY_STYLES,
-  STATUS_STYLES,
-  CHANNEL_LABELS,
-  formatDateTime,
-} from "@/lib/ticket-format";
+import { type Ticket, CHANNEL_LABELS, formatDateTime } from "@/lib/ticket-format";
+import { PageHeader } from "@/components/patterns/page-header";
+import { StatusBadge } from "@/components/patterns/status-badge";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 import TicketStatusControl from "./TicketStatusControl";
 import AssignControl from "./AssignControl";
 import AcknowledgeControl from "./AcknowledgeControl";
@@ -20,6 +21,17 @@ type AssignableTicket = Ticket & {
   assigned_at: string | null;
   acknowledged_at: string | null;
 };
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-0.5">
+      <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        {label}
+      </dt>
+      <dd className="text-sm">{children}</dd>
+    </div>
+  );
+}
 
 export default async function TicketDetailPage({
   params,
@@ -82,101 +94,87 @@ export default async function TicketDetailPage({
     null;
 
   return (
-    <div className="mx-auto max-w-2xl">
-      <Link
-        href="/dashboard"
-        className="mb-4 inline-block text-sm text-neutral-500 hover:text-neutral-800"
-      >
-        ← Back to requests
-      </Link>
-
-      <div className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-black/5">
-        <div className="mb-4 flex items-start justify-between gap-4">
-          <h1 className="text-lg font-semibold text-neutral-800">
-            {t.summary ?? t.message_text}
-          </h1>
-          <div className="flex flex-shrink-0 flex-col items-end gap-1.5">
-            {t.urgency && (
-              <span
-                className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ring-1 ${
-                  URGENCY_STYLES[t.urgency] ?? URGENCY_STYLES.normal
-                }`}
-              >
-                {t.urgency}
-              </span>
+    <div className="mx-auto max-w-3xl space-y-6">
+      <PageHeader
+        title={t.summary ?? t.message_text}
+        description={
+          <span className="flex flex-wrap items-center gap-1.5">
+            <StatusBadge status={t.status} />
+            {t.urgency && <StatusBadge status={t.urgency} />}
+            {t.category && (
+              <Badge variant="outline" className="capitalize">
+                {t.category}
+              </Badge>
             )}
-            <span
-              className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ring-1 ${
-                STATUS_STYLES[t.status] ?? STATUS_STYLES.open
-              }`}
-            >
-              {t.status.replace(/_/g, " ")}
-            </span>
-          </div>
-        </div>
+            {t.requires_human_review && <Badge variant="warning">Needs review</Badge>}
+          </span>
+        }
+        actions={
+          <Button asChild variant="ghost" size="sm">
+            <Link href="/dashboard">
+              <ArrowLeft /> Back
+            </Link>
+          </Button>
+        }
+      />
 
-        <dl className="grid grid-cols-1 gap-4 border-t border-neutral-100 pt-4 text-sm sm:grid-cols-2">
-          <div>
-            <dt className="text-neutral-400">Reference</dt>
-            <dd className="font-mono text-sm font-semibold text-neutral-800">
-              {shortRef(t.id)}
-            </dd>
-            <dd className="mt-0.5 break-all font-mono text-[10px] text-neutral-400">
-              {t.id}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-neutral-400">Channel</dt>
-            <dd className="text-neutral-700">
-              {CHANNEL_LABELS[t.channel] ?? t.channel}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-neutral-400">Category</dt>
-            <dd className="capitalize text-neutral-700">{t.category ?? "—"}</dd>
-          </div>
-          <div>
-            <dt className="text-neutral-400">Property / Unit</dt>
-            <dd className="text-neutral-700">{t.property_or_unit ?? "—"}</dd>
-          </div>
-          <div>
-            <dt className="text-neutral-400">Created</dt>
-            <dd className="text-neutral-700">{formatDateTime(t.created_at)}</dd>
-          </div>
-          <div>
-            <dt className="text-neutral-400">Human review</dt>
-            <dd className="text-neutral-700">
+      <Card>
+        <CardContent className="space-y-5 pt-5">
+          <dl className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+            <Field label="Reference">
+              <span className="font-mono font-semibold">{shortRef(t.id)}</span>
+              <span className="mt-0.5 block break-all font-mono text-[10px] text-muted-foreground">
+                {t.id}
+              </span>
+            </Field>
+            <Field label="Channel">{CHANNEL_LABELS[t.channel] ?? t.channel}</Field>
+            <Field label="Property / Unit">{t.property_or_unit ?? "—"}</Field>
+            <Field label="Created">{formatDateTime(t.created_at)}</Field>
+            <Field label="Assigned to">
+              <span className="flex flex-wrap items-center gap-2">
+                {assignedVendorName ?? (t.assigned_to_user_id ? "Ops staff" : "—")}
+                {t.acknowledged_at && (
+                  <Badge variant="success">
+                    <CheckCircle2 className="size-3" /> Acknowledged
+                  </Badge>
+                )}
+              </span>
+            </Field>
+            <Field label="Human review">
               {t.requires_human_review ? "Flagged" : "Not required"}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-neutral-400">Assigned to</dt>
-            <dd className="text-neutral-700">
-              {assignedVendorName ?? (t.assigned_to_user_id ? "Ops staff" : "—")}
-              {t.acknowledged_at && (
-                <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200">
-                  acknowledged
-                </span>
-              )}
-            </dd>
-          </div>
-        </dl>
+            </Field>
+          </dl>
 
-        <div className="mt-4 border-t border-neutral-100 pt-4">
-          <dt className="mb-1 text-sm text-neutral-400">Original message</dt>
-          <p className="whitespace-pre-wrap rounded-lg bg-neutral-50 p-3 text-sm text-neutral-700">
-            {t.message_text}
-          </p>
-        </div>
+          <Separator />
 
-        {needsAck && (
-          <div className="mt-4 border-t border-neutral-100 pt-4">
+          <div className="space-y-1.5">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Original message
+            </p>
+            <p className="whitespace-pre-wrap rounded-md bg-muted/60 p-3 text-sm">
+              {t.message_text}
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      {needsAck && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Acknowledge this job</CardTitle>
+          </CardHeader>
+          <CardContent>
             <AcknowledgeControl ticketId={t.id} />
-          </div>
-        )}
+          </CardContent>
+        </Card>
+      )}
 
-        {canManage && (
-          <div className="mt-4 space-y-4 border-t border-neutral-100 pt-4">
+      {canManage && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Dispatch &amp; status</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-5">
             <AssignControl
               ticketId={t.id}
               vendors={vendors}
@@ -184,10 +182,11 @@ export default async function TicketDetailPage({
               currentVendorId={t.assigned_vendor_id}
               currentOpsUserId={t.assigned_to_user_id}
             />
+            <Separator />
             <TicketStatusControl ticketId={t.id} currentStatus={t.status} />
-          </div>
-        )}
-      </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

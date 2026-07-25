@@ -1,14 +1,35 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { ShieldCheck } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
+import { cn } from "@/lib/utils";
+import { PageHeader } from "@/components/patterns/page-header";
+import { EmptyState } from "@/components/patterns/empty-state";
+import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from "@/components/ui/table";
 import {
   type AuditEntry,
-  ACTION_STYLES,
   ENTITY_FILTERS,
   summarizeChange,
   formatAuditTime,
 } from "@/lib/audit-format";
+
+// Semantic variant per action family, so the trail reads in dark mode too.
+function actionVariant(action: string) {
+  if (/reject|delete|fail/i.test(action)) return "destructive" as const;
+  if (/approve|remit|paid|complete|resolve/i.test(action)) return "success" as const;
+  if (/created|updated|write/i.test(action)) return "info" as const;
+  return "muted" as const;
+}
 
 export default async function AuditPage({
   searchParams,
@@ -54,77 +75,75 @@ export default async function AuditPage({
   const active = type ?? "all";
 
   return (
-    <div>
-      <div className="mb-4">
-        <h1 className="text-xl font-semibold text-neutral-800">Audit Trail</h1>
-        <p className="text-sm text-neutral-500">
-          Append-only record of status changes and configuration updates.
-          Entries cannot be edited or deleted.
-        </p>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="Audit Trail"
+        description="Append-only record of status changes and configuration updates. Entries cannot be edited or deleted."
+      />
 
-      <div className="mb-4 flex flex-wrap gap-2">
-        {ENTITY_FILTERS.map((f) => (
-          <Link
-            key={f.key}
-            href={f.key === "all" ? "/dashboard/audit" : `/dashboard/audit?type=${f.key}`}
-            className={`rounded-full px-3 py-1 text-xs font-medium ring-1 transition-colors ${
-              active === f.key
-                ? "chip-brand-active ring-transparent"
-                : "bg-white text-neutral-600 ring-neutral-200 hover:bg-neutral-50"
-            }`}
-          >
-            {f.label}
-          </Link>
-        ))}
+      <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+        {ENTITY_FILTERS.map((f) => {
+          const isActive = active === f.key;
+          return (
+            <Link
+              key={f.key}
+              href={f.key === "all" ? "/dashboard/audit" : `/dashboard/audit?type=${f.key}`}
+              className={cn(
+                "flex-shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                isActive
+                  ? "border-transparent bg-[var(--brand)] text-[var(--brand-fg)]"
+                  : "border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground"
+              )}
+            >
+              {f.label}
+            </Link>
+          );
+        })}
       </div>
 
       {entries.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-neutral-300 bg-white/60 p-10 text-center text-sm text-neutral-500">
-          No audit entries yet.
-        </div>
+        <EmptyState
+          icon={<ShieldCheck />}
+          title="No audit entries yet"
+          description="Every status change, approval and configuration update is recorded here automatically."
+        />
       ) : (
-        <div className="overflow-x-auto rounded-xl bg-white shadow-sm ring-1 ring-black/5">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-neutral-100 text-left text-xs text-neutral-400">
-                <th className="px-4 py-2 font-medium">Time</th>
-                <th className="px-3 py-2 font-medium">Actor</th>
-                <th className="px-3 py-2 font-medium">Action</th>
-                <th className="px-3 py-2 font-medium">Change</th>
-              </tr>
-            </thead>
-            <tbody>
+        <Card>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Time</TableHead>
+                <TableHead>Actor</TableHead>
+                <TableHead>Action</TableHead>
+                <TableHead>Change</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {entries.map((e) => (
-                <tr key={e.id} className="border-b border-neutral-50 last:border-0">
-                  <td className="whitespace-nowrap px-4 py-2 text-xs text-neutral-500">
+                <TableRow key={e.id}>
+                  <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
                     {formatAuditTime(e.created_at)}
-                  </td>
-                  <td className="px-3 py-2 text-neutral-700">
+                  </TableCell>
+                  <TableCell>
                     {e.actor_id ? (
                       actorNames.get(e.actor_id) ?? "Unknown user"
                     ) : (
-                      <span className="text-neutral-400">System</span>
+                      <span className="text-muted-foreground">System</span>
                     )}
-                  </td>
-                  <td className="px-3 py-2">
-                    <span
-                      className={`whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${
-                        ACTION_STYLES[e.action] ??
-                        "bg-neutral-100 text-neutral-600 ring-neutral-200"
-                      }`}
-                    >
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={actionVariant(e.action)} className="whitespace-nowrap">
                       {e.action}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2 font-mono text-xs text-neutral-600">
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="font-mono text-xs text-muted-foreground">
                     {summarizeChange(e)}
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
-        </div>
+            </TableBody>
+          </Table>
+        </Card>
       )}
     </div>
   );

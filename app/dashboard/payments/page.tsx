@@ -1,9 +1,14 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { Banknote, Plus, ChevronRight } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
 import { formatNaira } from "@/lib/currency";
-import { PAYMENT_STATUS_STYLES, statusLabel } from "@/lib/payment";
+import { statusLabel } from "@/lib/payment";
+import { PageHeader } from "@/components/patterns/page-header";
+import { EmptyState } from "@/components/patterns/empty-state";
+import { StatusBadge } from "@/components/patterns/status-badge";
+import { Button } from "@/components/ui/button";
 import RoleGate, { roleAllowed } from "../RoleGate";
 
 type Row = {
@@ -29,63 +34,82 @@ export default async function PaymentsPage() {
     .order("created_at", { ascending: false });
 
   const payments = (data as unknown as Row[]) ?? [];
+  const outstanding = payments
+    .filter((p) => !["remitted", "rejected"].includes(p.status))
+    .reduce((a, p) => a + Number(p.amount), 0);
 
   return (
-    <div>
-      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-neutral-800">
-            Vendor Payments
-          </h1>
-          <p className="text-sm text-neutral-500">
-            Gated remittance: verify → performance → approve → remit.
-          </p>
-        </div>
-        <Link
-          href="/dashboard/payments/new"
-          className="self-start whitespace-nowrap rounded-lg btn-brand px-4 py-2 text-sm font-medium text-white sm:self-auto"
-        >
-          + Submit Invoice
-        </Link>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="Vendor Payments"
+        description="Gated remittance: verify → performance → approve → remit."
+        actions={
+          <Button asChild variant="brand">
+            <Link href="/dashboard/payments/new">
+              <Plus /> Submit Invoice
+            </Link>
+          </Button>
+        }
+      />
 
       {payments.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-neutral-300 bg-white/60 p-10 text-center text-sm text-neutral-500">
-          No payment requests yet.
-        </div>
-      ) : (
-        <ul className="space-y-3">
-          {payments.map((p) => (
-            <li key={p.id}>
-              <Link
-                href={`/dashboard/payments/${p.id}`}
-                className="flex flex-col gap-2 rounded-xl bg-white p-4 shadow-sm ring-1 ring-black/5 transition-shadow hover:shadow-md sm:flex-row sm:items-center sm:justify-between sm:gap-4"
-              >
-                <div className="min-w-0">
-                  <p className="truncate font-medium text-neutral-800">
-                    {p.vendors?.name ?? "—"}
-                  </p>
-                  <p className="truncate text-xs text-neutral-500">
-                    {p.invoice_reference ?? "no ref"}
-                  </p>
-                </div>
-                <div className="flex flex-shrink-0 items-center gap-3">
-                  <span
-                    className={`whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium capitalize ring-1 ${
-                      PAYMENT_STATUS_STYLES[p.status] ??
-                      "bg-neutral-100 text-neutral-600 ring-neutral-200"
-                    }`}
-                  >
-                    {statusLabel(p.status)}
-                  </span>
-                  <span className="text-right font-semibold tabular-nums text-neutral-800">
-                    {formatNaira(p.amount)}
-                  </span>
-                </div>
+        <EmptyState
+          icon={<Banknote />}
+          title="No payment requests yet"
+          description="Submitted vendor invoices appear here and move through the approval gate."
+          action={
+            <Button asChild variant="brand" size="sm">
+              <Link href="/dashboard/payments/new">
+                <Plus /> Submit Invoice
               </Link>
-            </li>
-          ))}
-        </ul>
+            </Button>
+          }
+        />
+      ) : (
+        <>
+          <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              In the approval pipeline
+            </p>
+            <p className="mt-1 text-2xl font-semibold tabular-nums">
+              {formatNaira(outstanding)}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Across {payments.filter((p) => !["remitted", "rejected"].includes(p.status)).length} open
+              request(s) — none pays out until the gate passes.
+            </p>
+          </div>
+
+          <ul className="space-y-2.5">
+            {payments.map((p) => (
+              <li key={p.id}>
+                <Link
+                  href={`/dashboard/payments/${p.id}`}
+                  className="group flex items-center gap-4 rounded-lg border border-border bg-card p-4 shadow-sm transition-all hover:border-[var(--brand)]/40 hover:shadow-md"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-medium">{p.vendors?.name ?? "—"}</p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {p.invoice_reference ?? "no reference"}
+                    </p>
+                    <div className="mt-2 sm:hidden">
+                      <StatusBadge status={p.status} label={statusLabel(p.status)} />
+                    </div>
+                  </div>
+                  <div className="flex flex-shrink-0 items-center gap-3">
+                    <span className="hidden sm:inline-flex">
+                      <StatusBadge status={p.status} label={statusLabel(p.status)} />
+                    </span>
+                    <span className="text-right font-semibold tabular-nums">
+                      {formatNaira(p.amount)}
+                    </span>
+                    <ChevronRight className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                  </div>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
     </div>
   );

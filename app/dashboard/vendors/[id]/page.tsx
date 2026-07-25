@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { ArrowLeft, Mail, Phone } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
 import {
@@ -8,6 +9,19 @@ import {
   averageComposite,
   scoreBand,
 } from "@/lib/vendor-score";
+import { PageHeader } from "@/components/patterns/page-header";
+import { EmptyState } from "@/components/patterns/empty-state";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from "@/components/ui/table";
 import EvaluationForm from "./EvaluationForm";
 
 type Evaluation = {
@@ -29,6 +43,13 @@ const SCORE_COLUMN: Record<string, keyof Evaluation> = {
   satisfaction: "satisfaction_score",
   compliance: "compliance_score",
 };
+
+function bandVariant(score: number) {
+  if (score >= 85) return "success" as const;
+  if (score >= 70) return "info" as const;
+  if (score >= 55) return "warning" as const;
+  return "destructive" as const;
+}
 
 export default async function VendorDetailPage({
   params,
@@ -65,112 +86,126 @@ export default async function VendorDetailPage({
     session.profile?.role === "facility_manager";
 
   return (
-    <div className="mx-auto max-w-3xl">
-      <Link
-        href="/dashboard/vendors"
-        className="mb-4 inline-block text-sm text-neutral-500 hover:text-neutral-800"
-      >
-        ← Back to vendors
-      </Link>
+    <div className="mx-auto max-w-4xl space-y-6">
+      <PageHeader
+        title={vendor.name}
+        description={
+          <span className="flex flex-wrap items-center gap-2">
+            <Badge variant="outline" className="capitalize">
+              {vendor.service_category ?? "—"}
+            </Badge>
+            <Badge variant={vendor.status === "active" ? "success" : "muted"} className="capitalize">
+              {vendor.status}
+            </Badge>
+          </span>
+        }
+        actions={
+          <Button asChild variant="ghost" size="sm">
+            <Link href="/dashboard/vendors">
+              <ArrowLeft /> Back
+            </Link>
+          </Button>
+        }
+      />
 
-      <div className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-black/5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-          <div className="min-w-0">
-            <h1 className="text-lg font-semibold text-neutral-800">
-              {vendor.name}
-            </h1>
-            <p className="text-sm capitalize text-neutral-500">
-              {vendor.service_category ?? "—"} · {vendor.status}
-            </p>
-            <p className="mt-1 text-xs text-neutral-400">
-              {vendor.contact_email} · {vendor.contact_phone}
-            </p>
-          </div>
-          <div className="flex-shrink-0 sm:text-right">
-            <div className="text-3xl font-bold tabular-nums text-neutral-800">
-              {avg != null ? avg.toFixed(1) : "—"}
+      <Card>
+        <CardContent className="pt-5">
+          <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-1.5 text-sm">
+              {vendor.contact_email && (
+                <p className="flex items-center gap-2 text-muted-foreground">
+                  <Mail className="size-4" /> {vendor.contact_email}
+                </p>
+              )}
+              {vendor.contact_phone && (
+                <p className="flex items-center gap-2 text-muted-foreground">
+                  <Phone className="size-4" /> {vendor.contact_phone}
+                </p>
+              )}
             </div>
-            {band && (
-              <span
-                className={`mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${band.style}`}
-              >
-                {band.label}
-              </span>
-            )}
-            <p className="mt-1 text-xs text-neutral-400">avg composite</p>
-          </div>
-        </div>
-
-        {/* Weight legend */}
-        <div className="mt-5 grid grid-cols-2 gap-2 border-t border-neutral-100 pt-4 text-xs text-neutral-500 sm:grid-cols-5">
-          {WEIGHT_LABELS.map((w) => (
-            <div key={w.key}>
-              <div className="font-medium text-neutral-700">{w.label}</div>
-              <div>{Math.round(SCORE_WEIGHTS[w.key] * 100)}% weight</div>
+            <div className="flex items-center gap-4 sm:flex-col sm:items-end sm:gap-1">
+              <div className="text-4xl font-semibold tabular-nums">
+                {avg != null ? avg.toFixed(1) : "—"}
+              </div>
+              <div className="flex flex-col items-start gap-1 sm:items-end">
+                {band && avg != null && <Badge variant={bandVariant(avg)}>{band.label}</Badge>}
+                <p className="text-xs text-muted-foreground">avg composite</p>
+              </div>
             </div>
-          ))}
-        </div>
-      </div>
+          </div>
 
-      {/* Evaluation history */}
-      <div className="mt-6">
-        <h2 className="mb-3 text-sm font-semibold text-neutral-700">
-          Evaluation history
-        </h2>
-        {evaluations.length === 0 ? (
-          <p className="text-sm text-neutral-500">No evaluations yet.</p>
-        ) : (
-          <div className="overflow-x-auto rounded-xl bg-white shadow-sm ring-1 ring-black/5">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-neutral-100 text-left text-xs text-neutral-400">
-                  <th className="px-4 py-2 font-medium">Period</th>
+          <div className="mt-5 grid grid-cols-2 gap-3 border-t border-border pt-4 sm:grid-cols-5">
+            {WEIGHT_LABELS.map((w) => (
+              <div key={w.key} className="space-y-0.5">
+                <div className="text-xs font-medium">{w.label}</div>
+                <div className="text-xs text-muted-foreground">
+                  {Math.round(SCORE_WEIGHTS[w.key] * 100)}% weight
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Evaluation history</CardTitle>
+        </CardHeader>
+        <CardContent className="px-0 pb-0">
+          {evaluations.length === 0 ? (
+            <div className="px-5 pb-5">
+              <EmptyState
+                title="No evaluations yet"
+                description="Scores appear here once a facility manager submits an evaluation."
+              />
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Period</TableHead>
                   {WEIGHT_LABELS.map((w) => (
-                    <th key={w.key} className="px-3 py-2 text-right font-medium">
+                    <TableHead key={w.key} className="text-right">
                       {w.label.split(" ")[0]}
-                    </th>
+                    </TableHead>
                   ))}
-                  <th className="px-4 py-2 text-right font-medium">Composite</th>
-                </tr>
-              </thead>
-              <tbody>
+                  <TableHead className="text-right">Composite</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {evaluations.map((e) => (
-                  <tr
-                    key={e.id}
-                    className="border-b border-neutral-50 last:border-0"
-                  >
-                    <td className="px-4 py-2 font-medium text-neutral-700">
-                      {e.period ?? "—"}
-                    </td>
+                  <TableRow key={e.id}>
+                    <TableCell className="font-medium">{e.period ?? "—"}</TableCell>
                     {WEIGHT_LABELS.map((w) => (
-                      <td
+                      <TableCell
                         key={w.key}
-                        className="px-3 py-2 text-right tabular-nums text-neutral-600"
+                        className="text-right tabular-nums text-muted-foreground"
                       >
                         {String(e[SCORE_COLUMN[w.key]] ?? "—")}
-                      </td>
+                      </TableCell>
                     ))}
-                    <td className="px-4 py-2 text-right font-semibold tabular-nums text-neutral-800">
+                    <TableCell className="text-right font-semibold tabular-nums">
                       {e.composite_score != null
                         ? Number(e.composite_score).toFixed(1)
                         : "—"}
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
 
-      {/* Submit evaluation (FM/admin only) */}
       {canEvaluate && (
-        <div className="mt-6">
-          <h2 className="mb-3 text-sm font-semibold text-neutral-700">
-            Submit new evaluation
-          </h2>
-          <EvaluationForm vendorId={vendor.id} orgId={session.profile!.org_id} />
-        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Submit new evaluation</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <EvaluationForm vendorId={vendor.id} orgId={session.profile!.org_id} />
+          </CardContent>
+        </Card>
       )}
     </div>
   );

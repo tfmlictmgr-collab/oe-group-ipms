@@ -1,8 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { ReceiptText, ChevronRight } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
 import { formatNaira } from "@/lib/currency";
+import { PageHeader } from "@/components/patterns/page-header";
+import { EmptyState } from "@/components/patterns/empty-state";
+import { StatusBadge } from "@/components/patterns/status-badge";
 import RoleGate, { roleAllowed } from "../RoleGate";
 
 type BudgetRow = {
@@ -30,49 +34,43 @@ export default async function ServiceChargePage() {
   const budgets = (data as unknown as BudgetRow[]) ?? [];
 
   return (
-    <div>
-      <div className="mb-6">
-        <h1 className="text-xl font-semibold text-neutral-800">
-          Service Charge Administration
-        </h1>
-        <p className="text-sm text-neutral-500">
-          Annual budgets apportioned across each property&apos;s units.
-        </p>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="Service Charge Administration"
+        description="Annual budgets apportioned across each property's units."
+      />
 
       {budgets.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-neutral-300 bg-white/60 p-10 text-center text-sm text-neutral-500">
-          No budgets yet.
-        </div>
+        <EmptyState
+          icon={<ReceiptText />}
+          title="No budgets yet"
+          description="Create a budget for a property to apportion charges across its units."
+        />
       ) : (
-        <ul className="space-y-3">
+        <ul className="space-y-2.5">
           {budgets.map((b) => (
             <li key={b.id}>
               <Link
                 href={`/dashboard/sc/${b.id}`}
-                className="flex flex-col gap-2 rounded-xl bg-white p-4 shadow-sm ring-1 ring-black/5 transition-shadow hover:shadow-md sm:flex-row sm:items-center sm:justify-between sm:gap-4"
+                className="group flex items-center gap-4 rounded-lg border border-border bg-card p-4 shadow-sm transition-all hover:border-[var(--brand)]/40 hover:shadow-md"
               >
-                <div className="min-w-0">
-                  <p className="truncate font-medium text-neutral-800">
-                    {b.properties?.name ?? "—"}
-                  </p>
-                  <p className="truncate text-xs text-neutral-500">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium">{b.properties?.name ?? "—"}</p>
+                  <p className="truncate text-xs text-muted-foreground">
                     {b.description} · {b.period}
                   </p>
+                  <div className="mt-2 sm:hidden">
+                    <StatusBadge status={b.status} />
+                  </div>
                 </div>
                 <div className="flex flex-shrink-0 items-center gap-3">
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ring-1 ${
-                      b.status === "invoiced"
-                        ? "bg-emerald-100 text-emerald-700 ring-emerald-200"
-                        : "bg-neutral-100 text-neutral-600 ring-neutral-200"
-                    }`}
-                  >
-                    {b.status}
+                  <span className="hidden sm:inline-flex">
+                    <StatusBadge status={b.status} />
                   </span>
-                  <span className="font-semibold tabular-nums text-neutral-800">
+                  <span className="font-semibold tabular-nums">
                     {formatNaira(b.total_amount)}
                   </span>
+                  <ChevronRight className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
                 </div>
               </Link>
             </li>

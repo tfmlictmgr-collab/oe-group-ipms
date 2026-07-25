@@ -2,7 +2,12 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
+import { Button } from "@/components/ui/button";
+import { Input, Select } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent } from "@/components/ui/card";
 
 export default function SubmitInvoiceForm({
   orgId,
@@ -15,13 +20,11 @@ export default function SubmitInvoiceForm({
   const [vendorId, setVendorId] = useState(vendors[0]?.id ?? "");
   const [amount, setAmount] = useState("");
   const [invoiceRef, setInvoiceRef] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    setError(null);
 
     const supabase = createClient();
     const { error } = await supabase.from("payments").insert({
@@ -34,92 +37,80 @@ export default function SubmitInvoiceForm({
     });
 
     if (error) {
-      setError(error.message);
+      toast.error("Could not submit invoice", { description: error.message });
       setLoading(false);
       return;
     }
 
+    toast.success("Invoice submitted", {
+      description: "It now awaits service verification.",
+    });
     router.push("/dashboard/payments");
     router.refresh();
   }
 
-  const fieldClass =
-    "w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-800 focus:ring-1 focus:ring-neutral-800";
-
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="space-y-4 rounded-xl bg-white p-6 shadow-sm ring-1 ring-black/5"
-    >
-      <div>
-        <label className="mb-1 block text-sm font-medium text-neutral-700">
-          Vendor
-        </label>
-        <select
-          value={vendorId}
-          onChange={(e) => setVendorId(e.target.value)}
-          className={fieldClass}
-          required
-        >
-          {vendors.map((v) => (
-            <option key={v.id} value={v.id}>
-              {v.name}
-            </option>
-          ))}
-        </select>
-      </div>
+    <Card>
+      <CardContent className="pt-5">
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <div className="space-y-1.5">
+            <Label htmlFor="vendor">Vendor</Label>
+            <Select
+              id="vendor"
+              value={vendorId}
+              onChange={(e) => setVendorId(e.target.value)}
+              required
+            >
+              {vendors.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.name}
+                </option>
+              ))}
+            </Select>
+          </div>
 
-      <div>
-        <label className="mb-1 block text-sm font-medium text-neutral-700">
-          Invoice reference
-        </label>
-        <input
-          type="text"
-          value={invoiceRef}
-          onChange={(e) => setInvoiceRef(e.target.value)}
-          className={fieldClass}
-          placeholder="e.g. INV-2026-0042"
-        />
-      </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="ref">Invoice reference</Label>
+            <Input
+              id="ref"
+              type="text"
+              value={invoiceRef}
+              onChange={(e) => setInvoiceRef(e.target.value)}
+              placeholder="e.g. INV-2026-0042"
+            />
+          </div>
 
-      <div>
-        <label className="mb-1 block text-sm font-medium text-neutral-700">
-          Amount (₦)
-        </label>
-        <input
-          type="number"
-          min={0}
-          step="0.01"
-          required
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-          className={fieldClass}
-          placeholder="450000"
-        />
-      </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="amount">Amount (₦)</Label>
+            <Input
+              id="amount"
+              type="number"
+              min={0}
+              step="0.01"
+              required
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="450000"
+            />
+            <p className="text-xs text-muted-foreground">
+              No funds move on submission — this enters the gate at service verification.
+            </p>
+          </div>
 
-      {error && (
-        <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
-          {error}
-        </p>
-      )}
-
-      <div className="flex items-center justify-end gap-3 pt-2">
-        <button
-          type="button"
-          onClick={() => router.push("/dashboard/payments")}
-          className="rounded-lg px-4 py-2 text-sm font-medium text-neutral-600 hover:bg-neutral-100"
-        >
-          Cancel
-        </button>
-        <button
-          type="submit"
-          disabled={loading}
-          className="rounded-lg btn-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-        >
-          {loading ? "Submitting…" : "Submit Invoice"}
-        </button>
-      </div>
-    </form>
+          <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => router.push("/dashboard/payments")}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" variant="brand" disabled={loading || !vendorId}>
+              {loading ? "Submitting…" : "Submit Invoice"}
+            </Button>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
   );
 }

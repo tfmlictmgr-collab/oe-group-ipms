@@ -1,6 +1,10 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 import { getSessionProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { PageHeader } from "@/components/patterns/page-header";
+import { Button } from "@/components/ui/button";
 import SubmitInvoiceForm from "./SubmitInvoiceForm";
 
 export default async function NewPaymentPage() {
@@ -14,14 +18,18 @@ export default async function NewPaymentPage() {
     .order("name");
 
   return (
-    <div className="mx-auto max-w-xl">
-      <h1 className="mb-1 text-xl font-semibold text-neutral-800">
-        Submit Vendor Invoice
-      </h1>
-      <p className="mb-6 text-sm text-neutral-500">
-        Creates a payment request that enters the B4 gate at service
-        verification.
-      </p>
+    <div className="mx-auto max-w-2xl space-y-6">
+      <PageHeader
+        title="Submit Vendor Invoice"
+        description="Creates a payment request that enters the B4 gate at service verification."
+        actions={
+          <Button asChild variant="ghost" size="sm">
+            <Link href="/dashboard/payments">
+              <ArrowLeft /> Back
+            </Link>
+          </Button>
+        }
+      />
       <SubmitInvoiceForm
         orgId={session.profile!.org_id}
         vendors={(vendors as { id: string; name: string }[]) ?? []}

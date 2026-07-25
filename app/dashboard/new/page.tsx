@@ -1,6 +1,10 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 import { getSessionProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { PageHeader } from "@/components/patterns/page-header";
+import { Button } from "@/components/ui/button";
 import NewRequestForm from "./NewRequestForm";
 
 export default async function NewRequestPage() {
@@ -18,13 +22,18 @@ export default async function NewRequestPage() {
     .maybeSingle();
 
   return (
-    <div className="mx-auto max-w-xl">
-      <h1 className="mb-1 text-xl font-semibold text-neutral-800">
-        New Service Request
-      </h1>
-      <p className="mb-6 text-sm text-neutral-500">
-        Describe the issue. Our team is notified as soon as you submit.
-      </p>
+    <div className="mx-auto max-w-2xl space-y-6">
+      <PageHeader
+        title="New Service Request"
+        description="Describe the issue. Our team is notified as soon as you submit."
+        actions={
+          <Button asChild variant="ghost" size="sm">
+            <Link href="/dashboard">
+              <ArrowLeft /> Back
+            </Link>
+          </Button>
+        }
+      />
       <NewRequestForm
         orgId={session.profile!.org_id}
         propertyId={unit?.property_id ?? null}

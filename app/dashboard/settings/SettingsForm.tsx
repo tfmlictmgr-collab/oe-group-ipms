@@ -1,6 +1,10 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { updatePaymentSettings } from "./actions";
 
 export default function SettingsForm({
@@ -15,77 +19,59 @@ export default function SettingsForm({
   const [minScore, setMinScore] = useState(String(initialMinScore));
   const [threshold, setThreshold] = useState(String(initialThreshold));
   const [pending, startTransition] = useTransition();
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setError(null);
-    setSaved(false);
     startTransition(async () => {
       try {
         await updatePaymentSettings(orgId, Number(minScore), Number(threshold));
-        setSaved(true);
+        toast.success("Payment gate settings saved");
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to save");
+        toast.error("Could not save settings", {
+          description: err instanceof Error ? err.message : "Unexpected error.",
+        });
       }
     });
   }
 
-  const fieldClass =
-    "w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-800 focus:ring-1 focus:ring-neutral-800";
-
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="space-y-4 rounded-xl bg-white p-6 shadow-sm ring-1 ring-black/5"
-    >
-      <div>
-        <label className="mb-1 block text-sm font-medium text-neutral-700">
-          Minimum performance score (KPI gate)
-        </label>
-        <input
-          type="number"
-          min={0}
-          max={100}
-          step="0.01"
-          value={minScore}
-          onChange={(e) => setMinScore(e.target.value)}
-          className={fieldClass}
-        />
-        <p className="mt-1 text-xs text-neutral-400">
-          Vendors below this composite score are blocked from remittance.
-        </p>
+    <form onSubmit={handleSubmit} className="space-y-5">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="min-score">Minimum performance score (KPI gate)</Label>
+          <Input
+            id="min-score"
+            type="number"
+            min={0}
+            max={100}
+            step="0.01"
+            value={minScore}
+            onChange={(e) => setMinScore(e.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">
+            Vendors below this composite score are blocked from remittance.
+          </p>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="threshold">Finance approval threshold (₦)</Label>
+          <Input
+            id="threshold"
+            type="number"
+            min={0}
+            step="0.01"
+            value={threshold}
+            onChange={(e) => setThreshold(e.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">
+            Payments above this amount require an administrator to approve.
+          </p>
+        </div>
       </div>
 
-      <div>
-        <label className="mb-1 block text-sm font-medium text-neutral-700">
-          Finance approval threshold (₦)
-        </label>
-        <input
-          type="number"
-          min={0}
-          step="0.01"
-          value={threshold}
-          onChange={(e) => setThreshold(e.target.value)}
-          className={fieldClass}
-        />
-        <p className="mt-1 text-xs text-neutral-400">
-          Payments above this amount require finance sign-off.
-        </p>
-      </div>
-
-      <div className="flex items-center gap-3">
-        <button
-          type="submit"
-          disabled={pending}
-          className="rounded-lg btn-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-        >
-          {pending ? "Saving…" : "Save settings"}
-        </button>
-        {saved && <span className="text-sm text-emerald-700">Saved.</span>}
-        {error && <span className="text-sm text-red-600">{error}</span>}
-      </div>
+      <Button type="submit" variant="brand" disabled={pending}>
+        {pending ? "Saving…" : "Save settings"}
+      </Button>
     </form>
   );
 }

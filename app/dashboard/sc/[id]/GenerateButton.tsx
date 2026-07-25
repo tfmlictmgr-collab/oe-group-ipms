@@ -1,6 +1,9 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useTransition } from "react";
+import { toast } from "sonner";
+import { FileOutput } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { generateInvoices } from "./actions";
 
 export default function GenerateButton({
@@ -11,33 +14,30 @@ export default function GenerateButton({
   alreadyInvoiced: boolean;
 }) {
   const [pending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
 
   function handleClick() {
-    setError(null);
     startTransition(async () => {
       try {
         await generateInvoices(budgetId);
+        toast.success("Invoices generated", {
+          description: "Each occupant's statement has been updated.",
+        });
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to generate invoices");
+        toast.error("Could not generate invoices", {
+          description: e instanceof Error ? e.message : "Unexpected error.",
+        });
       }
     });
   }
 
   return (
-    <div className="flex items-center gap-3">
-      {error && <span className="text-sm text-red-600">{error}</span>}
-      <button
-        onClick={handleClick}
-        disabled={pending}
-        className="rounded-lg btn-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-      >
-        {pending
-          ? "Generating…"
-          : alreadyInvoiced
-            ? "Regenerate invoices"
-            : "Generate invoices"}
-      </button>
-    </div>
+    <Button onClick={handleClick} disabled={pending} variant="brand" size="sm">
+      <FileOutput />
+      {pending
+        ? "Generating…"
+        : alreadyInvoiced
+          ? "Regenerate invoices"
+          : "Generate invoices"}
+    </Button>
   );
 }

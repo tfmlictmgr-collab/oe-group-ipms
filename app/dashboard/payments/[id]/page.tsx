@@ -1,15 +1,18 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { ArrowLeft, Check, X, AlertTriangle } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
 import { formatNaira } from "@/lib/currency";
 import { averageComposite, scoreBand } from "@/lib/vendor-score";
-import {
-  GATE_STAGES,
-  PAYMENT_STATUS_STYLES,
-  statusLabel,
-  type PaymentRow,
-} from "@/lib/payment";
+import { cn } from "@/lib/utils";
+import { GATE_STAGES, statusLabel, type PaymentRow } from "@/lib/payment";
+import { PageHeader } from "@/components/patterns/page-header";
+import { StatusBadge } from "@/components/patterns/status-badge";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 import PaymentActions from "./PaymentActions";
 
 // Gate progress is derived from `status` alone — it is the authoritative state
@@ -72,6 +75,7 @@ export default async function PaymentDetailPage({
     .eq("vendor_id", p.vendor_id);
   const avg = averageComposite(evals ?? []);
   const band = avg != null ? scoreBand(avg) : null;
+  const passesGate = avg != null && avg >= threshold;
 
   const stages = stageState(p);
   const canAct =
@@ -79,13 +83,6 @@ export default async function PaymentDetailPage({
     session.profile?.role === "facility_manager" ||
     session.profile?.role === "finance_approver";
 
-  const stageBadge = (state: boolean | string) => {
-    if (state === "failed")
-      return "bg-red-100 text-red-700 ring-red-200";
-    if (state === true || state === "done")
-      return "bg-emerald-100 text-emerald-700 ring-emerald-200";
-    return "bg-neutral-100 text-neutral-400 ring-neutral-200";
-  };
   const stateValues = [
     stages.verification,
     stages.performance,
@@ -94,116 +91,132 @@ export default async function PaymentDetailPage({
   ];
 
   return (
-    <div className="mx-auto max-w-2xl">
-      <Link
-        href="/dashboard/payments"
-        className="mb-4 inline-block text-sm text-neutral-500 hover:text-neutral-800"
-      >
-        ← Back to payments
-      </Link>
+    <div className="mx-auto max-w-3xl space-y-6">
+      <PageHeader
+        title={vendor?.name ?? "Payment"}
+        description={p.invoice_reference ?? "no reference"}
+        actions={
+          <Button asChild variant="ghost" size="sm">
+            <Link href="/dashboard/payments">
+              <ArrowLeft /> Back
+            </Link>
+          </Button>
+        }
+      />
 
-      <div className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-black/5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-          <div className="min-w-0">
-            <h1 className="text-lg font-semibold text-neutral-800">
-              {vendor?.name}
-            </h1>
-            <p className="truncate text-sm text-neutral-500">
-              {p.invoice_reference ?? "no reference"}
-            </p>
-          </div>
-          <div className="flex-shrink-0 sm:text-right">
-            <div className="text-2xl font-bold tabular-nums text-neutral-800">
-              {formatNaira(p.amount)}
+      <Card>
+        <CardContent className="space-y-5 pt-5">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Invoice amount
+              </p>
+              <p className="text-3xl font-semibold tabular-nums">
+                {formatNaira(p.amount)}
+              </p>
             </div>
-            <span
-              className={`mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-medium capitalize ring-1 ${
-                PAYMENT_STATUS_STYLES[p.status] ??
-                "bg-neutral-100 text-neutral-600 ring-neutral-200"
-              }`}
-            >
-              {statusLabel(p.status)}
-            </span>
+            <StatusBadge status={p.status} label={statusLabel(p.status)} />
           </div>
-        </div>
 
-        {/* Performance context */}
-        <div className="mt-5 flex items-center justify-between rounded-lg bg-neutral-50 px-4 py-3 text-sm">
-          <span className="text-neutral-500">
-            Vendor composite score vs. threshold ({threshold})
-          </span>
-          <span className="flex items-center gap-2">
-            {band && (
+          <Separator />
+
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="space-y-0.5">
+              <p className="text-sm font-medium">Vendor performance</p>
+              <p className="text-xs text-muted-foreground">
+                Composite score vs. threshold of {threshold}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              {band && avg != null && (
+                <Badge variant={passesGate ? "success" : "destructive"}>{band.label}</Badge>
+              )}
               <span
-                className={`rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${band.style}`}
+                className={cn(
+                  "text-xl font-semibold tabular-nums",
+                  passesGate ? "text-success" : "text-destructive"
+                )}
               >
-                {band.label}
+                {avg != null ? avg.toFixed(1) : "—"}
               </span>
-            )}
-            <span
-              className={`font-semibold tabular-nums ${
-                avg != null && avg >= threshold
-                  ? "text-emerald-700"
-                  : "text-red-600"
-              }`}
-            >
-              {avg != null ? avg.toFixed(1) : "—"}
-            </span>
-          </span>
-        </div>
-      </div>
-
-      {/* Gate stepper */}
-      <div className="mt-6 rounded-xl bg-white p-6 shadow-sm ring-1 ring-black/5">
-        <h2 className="mb-4 text-sm font-semibold text-neutral-700">
-          B4 payment gate
-        </h2>
-        <ol className="space-y-3">
-          {GATE_STAGES.map((stage, i) => {
-            const state = stateValues[i];
-            const done = state === true || state === "done";
-            const failed = state === "failed";
-            return (
-              <li key={stage.key} className="flex items-center gap-3">
-                <span
-                  className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ring-1 ${stageBadge(state)}`}
-                >
-                  {failed ? "×" : done ? "✓" : i + 1}
-                </span>
-                <span
-                  className={`text-sm ${
-                    done
-                      ? "font-medium text-neutral-800"
-                      : failed
-                        ? "font-medium text-red-600"
-                        : "text-neutral-400"
-                  }`}
-                >
-                  {stage.label}
-                </span>
-              </li>
-            );
-          })}
-        </ol>
-
-        {canAct && (
-          <div className="mt-5 border-t border-neutral-100 pt-4">
-            <PaymentActions paymentId={p.id} status={p.status} />
-          </div>
-        )}
-
-        {p.status === "remitted" && p.remittance_reference && (
-          <div className="mt-4 rounded-lg bg-amber-50 px-4 py-3 text-sm">
-            <div className="font-semibold text-amber-800">
-              SIMULATED — POC ONLY
-            </div>
-            <div className="text-amber-700">
-              Remittance reference: {p.remittance_reference}. No live gateway
-              (Paystack/Flutterwave) is integrated.
             </div>
           </div>
-        )}
-      </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">B4 payment gate</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <ol className="space-y-0">
+            {GATE_STAGES.map((stage, i) => {
+              const state = stateValues[i];
+              const done = state === true || state === "done";
+              const failed = state === "failed";
+              const isLast = i === GATE_STAGES.length - 1;
+              return (
+                <li key={stage.key} className="flex gap-3">
+                  <div className="flex flex-col items-center">
+                    <span
+                      className={cn(
+                        "flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-xs font-semibold",
+                        failed
+                          ? "bg-destructive text-destructive-foreground"
+                          : done
+                            ? "bg-success text-success-foreground"
+                            : "border border-border bg-muted text-muted-foreground"
+                      )}
+                    >
+                      {failed ? <X className="size-3.5" /> : done ? <Check className="size-3.5" /> : i + 1}
+                    </span>
+                    {!isLast && (
+                      <span
+                        className={cn(
+                          "my-1 w-px flex-1",
+                          done ? "bg-success/40" : "bg-border"
+                        )}
+                      />
+                    )}
+                  </div>
+                  <span
+                    className={cn(
+                      "pb-5 pt-1 text-sm",
+                      done
+                        ? "font-medium"
+                        : failed
+                          ? "font-medium text-destructive"
+                          : "text-muted-foreground"
+                    )}
+                  >
+                    {stage.label}
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
+
+          {canAct && (
+            <>
+              <Separator />
+              <PaymentActions paymentId={p.id} status={p.status} />
+            </>
+          )}
+
+          {p.status === "remitted" && p.remittance_reference && (
+            <div className="flex items-start gap-2 rounded-md bg-warning/10 p-3 text-sm">
+              <AlertTriangle className="mt-0.5 size-4 flex-shrink-0 text-warning" />
+              <div>
+                <p className="font-semibold">SIMULATED — POC ONLY</p>
+                <p className="text-muted-foreground">
+                  Remittance reference: {p.remittance_reference}. No live gateway
+                  (Paystack/Flutterwave) is integrated.
+                </p>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

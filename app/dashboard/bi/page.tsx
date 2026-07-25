@@ -1,8 +1,13 @@
 import { redirect } from "next/navigation";
+import { Inbox, CheckCircle2, TrendingUp, Wallet, Banknote, BarChart3 } from "lucide-react";
 import { getSessionProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { formatNaira } from "@/lib/currency";
 import { averageComposite } from "@/lib/vendor-score";
+import { PageHeader } from "@/components/patterns/page-header";
+import { StatCard } from "@/components/patterns/stat-card";
+import { EmptyState } from "@/components/patterns/empty-state";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CountBar, ScoreBar, BudgetBar, type NamedValue, type BudgetRow } from "./Charts";
 
 // B7 "Exec / BI dashboard" column:
@@ -32,24 +37,6 @@ function titleize(s: string) {
   return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function StatTile({
-  label,
-  value,
-  hint,
-}: {
-  label: string;
-  value: string;
-  hint?: string;
-}) {
-  return (
-    <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-black/5">
-      <div className="text-xs text-neutral-500">{label}</div>
-      <div className="mt-1 text-2xl font-semibold text-neutral-900">{value}</div>
-      {hint && <div className="mt-0.5 text-xs text-neutral-400">{hint}</div>}
-    </div>
-  );
-}
-
 function Panel({
   title,
   subtitle,
@@ -60,11 +47,13 @@ function Panel({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-black/5">
-      <h2 className="text-sm font-semibold text-neutral-800">{title}</h2>
-      {subtitle && <p className="mb-2 text-xs text-neutral-500">{subtitle}</p>}
-      <div className="mt-2">{children}</div>
-    </section>
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">{title}</CardTitle>
+        {subtitle && <CardDescription>{subtitle}</CardDescription>}
+      </CardHeader>
+      <CardContent className="pt-2">{children}</CardContent>
+    </Card>
   );
 }
 
@@ -79,15 +68,15 @@ export default async function BiDashboardPage() {
     scope.requests || scope.vendorPerf || scope.collection || scope.liabilities || scope.budget;
   if (!hasAnyWidget) {
     return (
-      <div className="mx-auto max-w-xl">
-        <h1 className="text-xl font-semibold text-neutral-800">
-          Executive Dashboard
-        </h1>
-        <p className="mt-2 text-sm text-neutral-500">
-          The executive dashboard isn&apos;t available for the{" "}
-          <span className="capitalize">{titleize(role ?? "current")}</span> role.
-          Your requests and statements are available from the menu above.
-        </p>
+      <div className="space-y-6">
+        <PageHeader title="Executive Dashboard" />
+        <EmptyState
+          icon={<BarChart3 />}
+          title="Not available for your role"
+          description={`The executive dashboard isn't available for the ${titleize(
+            role ?? "current"
+          )} role. Your requests and statements are available from the menu.`}
+        />
       </div>
     );
   }
@@ -172,40 +161,52 @@ export default async function BiDashboardPage() {
   }));
 
   return (
-    <div>
-      <div className="mb-6">
-        <h1 className="text-xl font-semibold text-neutral-800">
-          Executive Dashboard
-        </h1>
-        <p className="text-sm text-neutral-500">
-          Live from Supabase · scoped to the{" "}
-          <span className="capitalize">{titleize(role ?? "")}</span> role.
-        </p>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="Executive Dashboard"
+        description={`Live data, scoped to the ${titleize(role ?? "")} role.`}
+      />
 
       {/* KPI tiles */}
-      <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {scope.requests && (
           <>
-            <StatTile label="Open requests" value={String(openCount)} hint="open + in progress" />
-            <StatTile label="Closed requests" value={String(closedCount)} hint="resolved + closed" />
+            <StatCard
+              label="Open requests"
+              value={openCount}
+              icon={<Inbox />}
+              hint="open + in progress"
+            />
+            <StatCard
+              label="Closed requests"
+              value={closedCount}
+              icon={<CheckCircle2 />}
+              hint="resolved + closed"
+            />
           </>
         )}
         {scope.collection && (
           <>
-            <StatTile
+            <StatCard
               label="Collection rate"
               value={`${collectionRate.toFixed(1)}%`}
+              icon={<TrendingUp />}
               hint={`${formatNaira(totalPaid)} of ${formatNaira(totalInvoiced)}`}
             />
-            <StatTile label="Outstanding receivables" value={formatNaira(outstanding)} />
+            <StatCard
+              label="Outstanding"
+              value={formatNaira(outstanding)}
+              icon={<Wallet />}
+              hint="receivables"
+            />
           </>
         )}
         {scope.liabilities && (
-          <StatTile
+          <StatCard
             label="Vendor liabilities"
             value={formatNaira(vendorLiabilities)}
-            hint="approved / in-flight, not yet remitted"
+            icon={<Banknote />}
+            hint="in-flight, not yet remitted"
           />
         )}
       </div>

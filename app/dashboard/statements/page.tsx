@@ -1,7 +1,20 @@
 import { redirect } from "next/navigation";
+import { FileText } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
 import { formatNaira } from "@/lib/currency";
+import { PageHeader } from "@/components/patterns/page-header";
+import { EmptyState } from "@/components/patterns/empty-state";
+import { StatusBadge } from "@/components/patterns/status-badge";
+import { Card } from "@/components/ui/card";
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from "@/components/ui/table";
 
 type Charge = {
   id: string;
@@ -31,73 +44,103 @@ export default async function StatementsPage() {
 
   const charges = (data as Charge[]) ?? [];
   const total = charges.reduce((a, c) => a + Number(c.amount), 0);
+  const outstanding = charges
+    .filter((c) => c.status !== "paid")
+    .reduce((a, c) => a + Number(c.amount), 0);
 
   return (
-    <div className="mx-auto max-w-3xl">
-      <div className="mb-6">
-        <h1 className="text-xl font-semibold text-neutral-800">
-          {isStaff ? "Service Charge Statements" : "My Service Charge Statement"}
-        </h1>
-        <p className="text-sm text-neutral-500">
-          {isStaff
+    <div className="space-y-6">
+      <PageHeader
+        title={isStaff ? "Service Charge Statements" : "My Service Charge Statement"}
+        description={
+          isStaff
             ? "All issued service-charge invoices you have access to."
-            : "Charges apportioned to your unit."}
-        </p>
-      </div>
+            : "Charges apportioned to your unit."
+        }
+      />
 
       {charges.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-neutral-300 bg-white/60 p-10 text-center text-sm text-neutral-500">
-          No service-charge invoices yet.
-        </div>
+        <EmptyState
+          icon={<FileText />}
+          title="No service-charge invoices yet"
+          description="Invoices appear here once a billing cycle is issued for your property."
+        />
       ) : (
-        <div className="overflow-x-auto rounded-xl bg-white shadow-sm ring-1 ring-black/5">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-neutral-100 text-left text-xs text-neutral-400">
-                <th className="px-4 py-2 font-medium">Property / Unit</th>
-                <th className="px-3 py-2 font-medium">Period</th>
-                <th className="px-3 py-2 text-right font-medium">Share</th>
-                <th className="px-3 py-2 font-medium">Status</th>
-                <th className="px-4 py-2 text-right font-medium">Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {charges.map((c) => (
-                <tr key={c.id} className="border-b border-neutral-50 last:border-0">
-                  <td className="px-4 py-2 text-neutral-700">
-                    {c.property_or_unit ?? "—"}
-                  </td>
-                  <td className="px-3 py-2 text-neutral-600">
-                    {c.billing_period ?? "—"}
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums text-neutral-500">
-                    {c.apportionment_pct != null
-                      ? `${Number(c.apportionment_pct).toFixed(2)}%`
-                      : "—"}
-                  </td>
-                  <td className="px-3 py-2">
-                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium capitalize text-amber-700 ring-1 ring-amber-200">
-                      {c.status}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2 text-right font-medium tabular-nums text-neutral-800">
-                    {formatNaira(c.amount)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr className="border-t border-neutral-200 font-semibold">
-                <td className="px-4 py-2 text-neutral-700" colSpan={4}>
-                  Total
-                </td>
-                <td className="px-4 py-2 text-right tabular-nums text-neutral-800">
-                  {formatNaira(total)}
-                </td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
+        <>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Card className="p-4 sm:p-5">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Total billed
+              </p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums">
+                {formatNaira(total)}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {charges.length} invoice{charges.length === 1 ? "" : "s"}
+              </p>
+            </Card>
+            <Card className="p-4 sm:p-5">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Outstanding
+              </p>
+              <p
+                className={`mt-1 text-2xl font-semibold tabular-nums ${
+                  outstanding > 0 ? "text-warning" : "text-success"
+                }`}
+              >
+                {formatNaira(outstanding)}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {outstanding > 0 ? "Payment due" : "All settled"}
+              </p>
+            </Card>
+          </div>
+
+          <Card>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Property / Unit</TableHead>
+                  <TableHead>Period</TableHead>
+                  <TableHead className="text-right">Share</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {charges.map((c) => (
+                  <TableRow key={c.id}>
+                    <TableCell className="font-medium">
+                      {c.property_or_unit ?? "—"}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {c.billing_period ?? "—"}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-muted-foreground">
+                      {c.apportionment_pct != null
+                        ? `${Number(c.apportionment_pct).toFixed(2)}%`
+                        : "—"}
+                    </TableCell>
+                    <TableCell>
+                      <StatusBadge status={c.status} />
+                    </TableCell>
+                    <TableCell className="text-right font-medium tabular-nums">
+                      {formatNaira(c.amount)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+                <TableRow className="bg-muted/40 hover:bg-muted/40">
+                  <TableCell colSpan={4} className="font-semibold">
+                    Total
+                  </TableCell>
+                  <TableCell className="text-right font-semibold tabular-nums">
+                    {formatNaira(total)}
+                  </TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </Card>
+        </>
       )}
     </div>
   );
