@@ -16,10 +16,12 @@ export default function BrandingForm({
   orgId,
   initial,
   defaults,
+  logoSlot,
 }: {
   orgId: string;
   initial: { name: string; primary: string; accent: string; logoText: string };
   defaults: { name: string; primary: string; accent: string; logoText: string };
+  logoSlot?: React.ReactNode;
 }) {
   const [name, setName] = React.useState(initial.name);
   const [primary, setPrimary] = React.useState(initial.primary);
@@ -115,6 +117,8 @@ export default function BrandingForm({
             <span className="text-xs text-muted-foreground">Live preview</span>
           </div>
         </div>
+
+        {logoSlot}
 
         <form onSubmit={onSubmit} className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">

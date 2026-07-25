@@ -10,9 +10,27 @@ export type BrandTheme = {
   accent: string;
   surface: string;
   logoText: string | null;
+  // No-code branding (0015): all optional, all admin-editable.
+  logoUrl: string | null;
+  portalName: string;
+  tagline: string | null;
+  supportEmail: string | null;
+  supportPhone: string | null;
+  loginHeadline: string;
 };
 
-const BASE_THEMES: Record<DeliveryBrand, BrandTheme> = {
+export const DEFAULT_PORTAL_NAME = "FM / PM Portal";
+export const DEFAULT_LOGIN_HEADLINE =
+  "Facilities and property management, unified.";
+
+// The hard-coded brand palettes. The no-code fields (logo, copy) are not part
+// of a brand default — they are filled in by withDefaults() below.
+type BaseBrand = Omit<
+  BrandTheme,
+  "logoUrl" | "portalName" | "tagline" | "supportEmail" | "supportPhone" | "loginHeadline"
+>;
+
+const BASE_THEMES: Record<DeliveryBrand, BaseBrand> = {
   TFML: {
     name: "Total Facilities Management",
     primary: "#003366", // navy
@@ -45,10 +63,29 @@ export type BrandOverrides = {
   theme_primary?: string | null;
   theme_accent?: string | null;
   theme_logo_text?: string | null;
+  logo_url?: string | null;
+  portal_name?: string | null;
+  tagline?: string | null;
+  support_email?: string | null;
+  support_phone?: string | null;
+  login_headline?: string | null;
 };
 
 function normalizeBrand(brand: string | null | undefined): DeliveryBrand {
   return brand === "TFML" || brand === "OEA" || brand === "direct" ? brand : "direct";
+}
+
+// Fills the no-code branding fields with their product defaults.
+function withDefaults(base: BaseBrand): BrandTheme {
+  return {
+    ...base,
+    logoUrl: null,
+    portalName: DEFAULT_PORTAL_NAME,
+    tagline: null,
+    supportEmail: null,
+    supportPhone: null,
+    loginHeadline: DEFAULT_LOGIN_HEADLINE,
+  };
 }
 
 // Accepts a hex colour or returns the fallback. Guards the CSS var against junk.
@@ -57,11 +94,21 @@ function safeHex(value: string | null | undefined, fallback: string): string {
   return fallback;
 }
 
+// Only ever render a logo we host. Blocks a stored value pointing at an
+// arbitrary third-party (or javascript:) URL from being injected into <img src>.
+function safeLogoUrl(value: string | null | undefined): string | null {
+  const v = value?.trim();
+  if (!v) return null;
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (base && v.startsWith(`${base}/storage/v1/object/public/org-logos/`)) return v;
+  return null;
+}
+
 export function getBrandTheme(
   brand: string | null | undefined,
   overrides?: BrandOverrides | null
 ): BrandTheme {
-  const base = BASE_THEMES[normalizeBrand(brand)];
+  const base = withDefaults(BASE_THEMES[normalizeBrand(brand)]);
   if (!overrides) return base;
   return {
     ...base,
@@ -69,12 +116,18 @@ export function getBrandTheme(
     primary: safeHex(overrides.theme_primary, base.primary),
     accent: safeHex(overrides.theme_accent, base.accent),
     logoText: overrides.theme_logo_text?.trim()?.slice(0, 2) || base.logoText,
+    logoUrl: safeLogoUrl(overrides.logo_url),
+    portalName: overrides.portal_name?.trim() || base.portalName,
+    tagline: overrides.tagline?.trim() || null,
+    supportEmail: overrides.support_email?.trim() || null,
+    supportPhone: overrides.support_phone?.trim() || null,
+    loginHeadline: overrides.login_headline?.trim() || base.loginHeadline,
   };
 }
 
 // Base palette used by the Settings preview to show "reset to brand default".
 export function getBaseTheme(brand: string | null | undefined): BrandTheme {
-  return BASE_THEMES[normalizeBrand(brand)];
+  return withDefaults(BASE_THEMES[normalizeBrand(brand)]);
 }
 
 // Kept for backwards compatibility with any existing import.

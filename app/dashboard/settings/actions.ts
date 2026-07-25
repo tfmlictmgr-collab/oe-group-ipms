@@ -60,3 +60,61 @@ export async function updateOrgBranding(
   // The shell reads the theme on every dashboard route → revalidate the subtree.
   revalidatePath("/dashboard", "layout");
 }
+
+// Records the uploaded logo's public URL (or clears it). The file itself is
+// uploaded client-side straight to Storage, where bucket policies already
+// restrict writes to the org's own prefix and to admins. We re-validate here
+// that the URL is one of ours, so a crafted value can't point the <img> at a
+// third-party host. Pass null to remove.
+export async function saveLogoUrl(orgId: string, url: string | null) {
+  let value: string | null = null;
+  if (url) {
+    const base = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+    const prefix = `${base}/storage/v1/object/public/org-logos/${orgId}/`;
+    if (!base || !url.startsWith(prefix)) {
+      throw new Error("Rejected logo URL — it must be an uploaded file for this organisation.");
+    }
+    value = url;
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("orgs").update({ logo_url: value }).eq("id", orgId);
+  if (error) throw new Error(error.message);
+  revalidatePath("/dashboard", "layout");
+}
+
+// Editable portal copy: what the portal is called, its tagline, the login
+// headline, and support contacts. All optional — blank clears back to default.
+export async function updateOrgContent(
+  orgId: string,
+  input: {
+    portalName: string;
+    tagline: string;
+    supportEmail: string;
+    supportPhone: string;
+  }
+) {
+  const email = input.supportEmail.trim();
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new Error("Support email is not a valid address.");
+  }
+  const limit = (s: string, n: number) => {
+    const v = s.trim();
+    if (v.length > n) throw new Error(`Value too long (max ${n} characters).`);
+    return v || null;
+  };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("orgs")
+    .update({
+      portal_name: limit(input.portalName, 40),
+      tagline: limit(input.tagline, 120),
+      support_email: email || null,
+      support_phone: limit(input.supportPhone, 40),
+    })
+    .eq("id", orgId);
+
+  if (error) throw new Error(error.message);
+  revalidatePath("/dashboard", "layout");
+}

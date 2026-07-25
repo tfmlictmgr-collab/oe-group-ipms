@@ -8,6 +8,8 @@ import { EmptyState } from "@/components/patterns/empty-state";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import SettingsForm from "./SettingsForm";
 import BrandingForm from "./BrandingForm";
+import ContentForm from "./ContentForm";
+import LogoUpload from "./LogoUpload";
 
 export default async function SettingsPage() {
   const session = await getSessionProfile();
@@ -58,7 +60,34 @@ export default async function SettingsPage() {
           accent: defaults.accent,
           logoText: defaults.logoText ?? "",
         }}
+        logoSlot={
+          <LogoUpload
+            orgId={session.profile.org_id}
+            currentLogoUrl={theme.logoUrl}
+          />
+        }
       />
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Portal text</CardTitle>
+          <CardDescription>
+            Rename the portal and set the copy your people see — no code required.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ContentForm
+            orgId={session.profile.org_id}
+            initial={{
+              portalName: org?.portal_name ?? "",
+              tagline: org?.tagline ?? "",
+              supportEmail: org?.support_email ?? "",
+              supportPhone: org?.support_phone ?? "",
+            }}
+            placeholders={{ portalName: defaults.portalName }}
+          />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

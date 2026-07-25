@@ -20,6 +20,10 @@ export function AppShell({
   brandName,
   orgName,
   logoText,
+  logoUrl,
+  portalName,
+  supportEmail,
+  supportPhone,
   user,
   ctx,
   children,
@@ -27,6 +31,10 @@ export function AppShell({
   brandName: string;
   orgName: string;
   logoText?: string | null;
+  logoUrl?: string | null;
+  portalName: string;
+  supportEmail?: string | null;
+  supportPhone?: string | null;
   user: ShellUser;
   ctx: NavContext;
   children: React.ReactNode;
@@ -38,12 +46,22 @@ export function AppShell({
       {/* Desktop sidebar */}
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-sidebar-border bg-sidebar lg:flex">
         <div className="flex h-16 items-center border-b border-sidebar-border px-5">
-          <BrandMark name={brandName} logoText={logoText} subtitle="FM / PM Portal" />
+          <BrandMark name={brandName} logoText={logoText} logoUrl={logoUrl} subtitle={portalName} />
         </div>
         <SidebarNav ctx={ctx} />
-        <div className="border-t border-sidebar-border px-5 py-3">
+        <div className="space-y-0.5 border-t border-sidebar-border px-5 py-3">
           <p className="truncate text-xs text-sidebar-muted">{orgName}</p>
-          <p className="text-[0.7rem] text-sidebar-muted/70">Powered by OE Group</p>
+          {supportEmail && (
+            <a
+              href={`mailto:${supportEmail}`}
+              className="block truncate text-[0.7rem] text-sidebar-muted/80 hover:text-white"
+            >
+              {supportEmail}
+            </a>
+          )}
+          {supportPhone && (
+            <p className="truncate text-[0.7rem] text-sidebar-muted/80">{supportPhone}</p>
+          )}
         </div>
       </aside>
 
@@ -61,7 +79,7 @@ export function AppShell({
             <SheetContent side="left" className="p-0">
               <SheetTitle className="sr-only">Navigation</SheetTitle>
               <div className="flex h-16 items-center border-b border-sidebar-border px-5">
-                <BrandMark name={brandName} logoText={logoText} subtitle="FM / PM Portal" />
+                <BrandMark name={brandName} logoText={logoText} logoUrl={logoUrl} subtitle={portalName} />
               </div>
               <SidebarNav ctx={ctx} onNavigate={() => setMobileOpen(false)} />
               <div className="border-t border-sidebar-border px-5 py-3">
@@ -72,7 +90,7 @@ export function AppShell({
 
           {/* Brand on mobile (sidebar hidden) */}
           <div className="flex min-w-0 flex-1 items-center lg:hidden">
-            <BrandMark name={brandName} logoText={logoText} onDark={false} />
+            <BrandMark name={brandName} logoText={logoText} logoUrl={logoUrl} onDark={false} />
           </div>
           <div className="hidden flex-1 lg:block" />
 

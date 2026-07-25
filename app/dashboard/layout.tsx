@@ -37,6 +37,10 @@ export default async function DashboardLayout({
         brandName={theme.name}
         orgName={org?.name ?? theme.name}
         logoText={theme.logoText}
+        logoUrl={theme.logoUrl}
+        portalName={theme.portalName}
+        supportEmail={theme.supportEmail}
+        supportPhone={theme.supportPhone}
         user={{
           name: profile?.full_name ?? profile?.email ?? "",
           email: profile?.email ?? "",
