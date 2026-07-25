@@ -1,3 +1,8 @@
+"use client";
+
+// Client component: `asChild` uses @radix-ui/react-slot, which calls
+// createContext and therefore cannot be evaluated in a Server Component.
+// Purely presentational, so shipping it to the client costs nothing.
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";

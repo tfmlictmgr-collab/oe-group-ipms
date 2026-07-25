@@ -1,6 +1,9 @@
 import Link from "next/link";
+import { Plus } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { type Ticket } from "@/lib/ticket-format";
+import { PageHeader } from "@/components/patterns/page-header";
+import { Button } from "@/components/ui/button";
 import TicketList from "./TicketList";
 
 export default async function DashboardPage() {
@@ -13,24 +16,18 @@ export default async function DashboardPage() {
     .order("created_at", { ascending: false });
 
   return (
-    <div>
-      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-neutral-800">
-            Service Requests
-          </h1>
-          <p className="text-sm text-neutral-500">
-            Requests you have access to, updating in real time.
-          </p>
-        </div>
-        <Link
-          href="/dashboard/new"
-          className="self-start whitespace-nowrap rounded-lg btn-brand px-4 py-2 text-sm font-medium text-white sm:self-auto"
-        >
-          + New Request
-        </Link>
-      </div>
-
+    <div className="space-y-6">
+      <PageHeader
+        title="Service Requests"
+        description="Requests you have access to, updating in real time."
+        actions={
+          <Button asChild variant="brand">
+            <Link href="/dashboard/new">
+              <Plus /> New Request
+            </Link>
+          </Button>
+        }
+      />
       <TicketList initialTickets={(tickets as Ticket[]) ?? []} />
     </div>
   );
