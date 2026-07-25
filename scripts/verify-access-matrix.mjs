@@ -92,10 +92,15 @@ try {
   // ── B. ROLE SCOPING (within the POC org) ─────────────────────────────────
   console.log("\nB. ROLE SCOPING — restricted roles see less than admin, in-org");
   const pocUsers = users.filter((u) => u.org_name.includes("Foundation POC"));
-  const admin = pocUsers.find((u) => u.role === "admin");
-  const tenant = pocUsers.find((u) => u.role === "tenant");
-  const vendor = pocUsers.find((u) => u.role === "vendor");
-  const finance = pocUsers.find((u) => u.role === "finance_approver");
+  // Select the SEEDED principals by email, not by "first user with this role".
+  // A real org has many users per role, and a newly-invited FM with no property
+  // assignment yet legitimately sees nothing — picking one of those would make
+  // this script fail on correct behaviour.
+  const byEmail = (e) => pocUsers.find((u) => u.email === e);
+  const admin = byEmail("demo@oegroup.test") ?? pocUsers.find((u) => u.role === "admin");
+  const tenant = byEmail("resident@oegroup.test") ?? pocUsers.find((u) => u.role === "tenant");
+  const vendor = byEmail("vendor@oegroup.test") ?? pocUsers.find((u) => u.role === "vendor");
+  const finance = byEmail("finance@oegroup.test") ?? pocUsers.find((u) => u.role === "finance_approver");
 
   if (admin && tenant) {
     const a = visibleCounts[admin.id].tickets;
@@ -123,8 +128,8 @@ try {
 
   // Property scoping: FM sees managed-property tickets/budgets only; owner sees
   // owned-property only; both strictly less than admin.
-  const fm = pocUsers.find((u) => u.role === "facility_manager");
-  const owner = pocUsers.find((u) => u.role === "property_owner");
+  const fm = byEmail("fm@oegroup.test") ?? pocUsers.find((u) => u.role === "facility_manager");
+  const owner = byEmail("owner@oegroup.test") ?? pocUsers.find((u) => u.role === "property_owner");
   if (fm && admin) {
     const ft = visibleCounts[fm.id].tickets;
     const at = visibleCounts[admin.id].tickets;

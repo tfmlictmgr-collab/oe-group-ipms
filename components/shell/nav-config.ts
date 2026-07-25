@@ -8,6 +8,7 @@ import {
   FileText,
   ShieldCheck,
   Settings,
+  UserPlus,
   type LucideIcon,
 } from "lucide-react";
 
@@ -21,6 +22,8 @@ export type NavContext = {
   seesAudit: boolean;
   /** Asset register readers: admin, FM/PM, finance, owners. */
   seesAssets: boolean;
+  /** Enrolment is an admin / FM-PM responsibility. */
+  canEnroll: boolean;
 };
 
 export type NavItem = {
@@ -83,6 +86,12 @@ export const NAV_GROUPS: NavGroup[] = [
         href: "/dashboard/audit",
         icon: ShieldCheck,
         show: (c) => c.seesAudit,
+      },
+      {
+        label: "People",
+        href: "/dashboard/people",
+        icon: UserPlus,
+        show: (c) => c.canEnroll,
       },
       {
         label: "Settings",

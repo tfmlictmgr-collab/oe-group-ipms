@@ -24,6 +24,7 @@ export default async function DashboardLayout({
     // B7 "Exec / BI dashboard" column
     seesBi: ["admin", "facility_manager", "finance_approver", "property_owner"].includes(role),
     seesAssets: ["admin", "facility_manager", "finance_approver", "property_owner"].includes(role),
+    canEnroll: ["admin", "facility_manager"].includes(role),
   };
 
   return (

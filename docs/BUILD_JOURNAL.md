@@ -119,3 +119,68 @@ splitting the role would double every RLS policy for no security gain.
 
 📌 Carried to Day 3: FM/PM **attaché** assignment (staff or vendor) is defined
 during onboarding — `property_stakeholders` already models it.
+
+---
+
+## 2026-07-25 · Phase 2 tagging seam corrected — barcodes, not just QR
+🟢 `0019` `asset_identifiers` (qr · barcode_1d · rfid · nfc · oem_serial · legacy)
+replaces the single `assets.qr_code` column, plus `find_asset_by_identifier()`
+for symbology-agnostic scan lookup. Dropped `qr_code` (nothing written to it yet).
+
+⚖️ **An asset carries several identifiers at once** — the OEM barcode on the
+rating plate, a legacy tag from a previous system, your own printed label,
+sometimes RFID. One column could hold exactly one and would have forced
+re-labelling of already-tagged equipment. Barcodes are still widespread in FM
+(cheap 1D scanners, existing labels), so QR-only was wrong.
+
+🔎 Same asset resolved from a QR payload, a Code 128 barcode and an OEM serial;
+an unknown value matched nothing. Uniqueness is per-org, since two orgs may
+legitimately hold the same OEM barcode.
+
+---
+
+## 2026-07-25 · Phase 1 Day 3 — self-service onboarding
+Closes the "no in-app way for an org to enroll its own people" gap: until now
+users existed only because a service-role seed script created them.
+
+🟢 `0020` invitations (hashed token, expiry, single-use, revocable) +
+`invitation_preview()` / `accept_invitation()`; vendor `approval_status`.
+🟢 Public `/invite/[token]` accept flow; `/dashboard/people` for issuing
+invitations, revoking them, approving vendors and assigning unit occupancy;
+People nav entry for admin + FM/PM.
+
+⚖️ **The raw token is never stored** — only its SHA-256 hash, so a database read
+cannot be replayed as an invitation (password-reset pattern).
+⚖️ **The role is fixed at issue time** and applied by a SECURITY DEFINER function,
+so nobody can self-assign elevated access during sign-up. An FM/PM cannot mint
+an administrator.
+⚖️ **Email is optional.** Resend is not configured, so invitations return a
+one-time link the inviter can share over any channel; the moment
+`RESEND_API_KEY` is set the same action also emails, and the link stays as a
+fallback. Shipping link-only beats blocking on a key.
+
+🔎 14 checks: hash-not-token storage; preview leaks nothing for a bad token;
+FM cannot invite an admin; a tenant cannot invite at all; a forwarded link is
+refused for a different email; the accepted user gets exactly the invited role,
+org and attaché assignment; single-use enforced; **a newly-onboarded FM reads
+only their attached property**; acceptance audited. Verified in-browser: the FM's
+role list correctly omits Administrator, and an invalid token reveals neither
+email nor org.
+
+⚠️ **A regression the suite caught — and it was the test, not the product.**
+`verify-access-matrix` sampled "the first user with role facility_manager". The
+invitation test left an accepted invitee behind, that invitee had no properties,
+and the script picked it — reporting 5 scoping failures while the REST-based
+check still passed. Two fixes: the script now targets the **seeded principals by
+email** (a real org has many users per role, and a newly-invited FM without
+assignments legitimately sees nothing — the old assumption was simply wrong),
+and the invitation test now strips scope and demotes its leftover instead of
+pretending to delete it.
+
+⚖️ **An accepted invitee cannot be deleted, and shouldn't be.**
+`audit_log.actor_id` references them; the FK refusal is the immutable audit
+trail working as designed. Tests neutralise rather than erase.
+
+📌 Still open for Day 3+: vendor **self**-registration is currently
+invitation-based (admin/FM issues the link) — a public application form remains
+to be built; Resend key needed for automatic emails.
