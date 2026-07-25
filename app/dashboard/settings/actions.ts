@@ -20,3 +20,43 @@ export async function updatePaymentSettings(
   if (error) throw new Error(error.message);
   revalidatePath("/dashboard/settings");
 }
+
+// Per-org branding. RLS (orgs_admin_update) restricts writes to the caller's own
+// org and to admins; this action additionally validates the values and touches
+// ONLY the theme columns + display name, so no other org field can be edited
+// through this path. Empty/blank values clear the override and fall back to the
+// delivery_brand defaults in lib/brands.ts.
+const HEX = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+
+export async function updateOrgBranding(
+  orgId: string,
+  input: { name: string; primary: string; accent: string; logoText: string }
+) {
+  const name = input.name.trim();
+  if (name.length < 2 || name.length > 80) {
+    throw new Error("Organisation name must be between 2 and 80 characters.");
+  }
+  const primary = input.primary.trim();
+  const accent = input.accent.trim();
+  if (primary && !HEX.test(primary)) {
+    throw new Error("Primary colour must be a hex value like #8B1D1D.");
+  }
+  if (accent && !HEX.test(accent)) {
+    throw new Error("Accent colour must be a hex value like #C9A227.");
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("orgs")
+    .update({
+      name,
+      theme_primary: primary || null,
+      theme_accent: accent || null,
+      theme_logo_text: input.logoText.trim().slice(0, 2) || null,
+    })
+    .eq("id", orgId);
+
+  if (error) throw new Error(error.message);
+  // The shell reads the theme on every dashboard route → revalidate the subtree.
+  revalidatePath("/dashboard", "layout");
+}

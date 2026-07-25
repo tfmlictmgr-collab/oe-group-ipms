@@ -1,0 +1,96 @@
+"use client";
+
+import * as React from "react";
+import { Menu } from "lucide-react";
+import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
+import { Button } from "@/components/ui/button";
+import { BrandMark } from "./brand-mark";
+import { SidebarNav } from "./sidebar-nav";
+import { ThemeToggle } from "./theme-toggle";
+import { UserMenu } from "./user-menu";
+import type { NavContext } from "./nav-config";
+
+export type ShellUser = {
+  name: string;
+  email: string;
+  roleLabel: string;
+};
+
+export function AppShell({
+  brandName,
+  orgName,
+  logoText,
+  user,
+  ctx,
+  children,
+}: {
+  brandName: string;
+  orgName: string;
+  logoText?: string | null;
+  user: ShellUser;
+  ctx: NavContext;
+  children: React.ReactNode;
+}) {
+  const [mobileOpen, setMobileOpen] = React.useState(false);
+
+  return (
+    <div className="min-h-screen bg-background">
+      {/* Desktop sidebar */}
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-sidebar-border bg-sidebar lg:flex">
+        <div className="flex h-16 items-center border-b border-sidebar-border px-5">
+          <BrandMark name={brandName} logoText={logoText} subtitle="FM / PM Portal" />
+        </div>
+        <SidebarNav ctx={ctx} />
+        <div className="border-t border-sidebar-border px-5 py-3">
+          <p className="truncate text-xs text-sidebar-muted">{orgName}</p>
+          <p className="text-[0.7rem] text-sidebar-muted/70">Powered by OE Group</p>
+        </div>
+      </aside>
+
+      {/* Main column */}
+      <div className="lg:pl-64">
+        {/* Top bar */}
+        <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-border bg-background/85 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/70 sm:px-6">
+          {/* Mobile: hamburger + drawer */}
+          <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+            <SheetTrigger asChild>
+              <Button variant="ghost" size="icon" className="lg:hidden" aria-label="Open menu">
+                <Menu className="size-5" />
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="left" className="p-0">
+              <SheetTitle className="sr-only">Navigation</SheetTitle>
+              <div className="flex h-16 items-center border-b border-sidebar-border px-5">
+                <BrandMark name={brandName} logoText={logoText} subtitle="FM / PM Portal" />
+              </div>
+              <SidebarNav ctx={ctx} onNavigate={() => setMobileOpen(false)} />
+              <div className="border-t border-sidebar-border px-5 py-3">
+                <p className="truncate text-xs text-sidebar-muted">{orgName}</p>
+              </div>
+            </SheetContent>
+          </Sheet>
+
+          {/* Brand on mobile (sidebar hidden) */}
+          <div className="flex min-w-0 flex-1 items-center lg:hidden">
+            <BrandMark name={brandName} logoText={logoText} onDark={false} />
+          </div>
+          <div className="hidden flex-1 lg:block" />
+
+          <div className="flex items-center gap-1 sm:gap-2">
+            <ThemeToggle />
+            <UserMenu
+              name={user.name}
+              email={user.email}
+              roleLabel={user.roleLabel}
+              isAdmin={ctx.isAdmin}
+            />
+          </div>
+        </header>
+
+        <main className="mx-auto w-full max-w-6xl animate-fade-in px-4 py-6 sm:px-6 sm:py-8">
+          {children}
+        </main>
+      </div>
+    </div>
+  );
+}

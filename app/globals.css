@@ -2,50 +2,101 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─────────────────────────────────────────────────────────────────────────
+   Design tokens. Neutral scale is a warm-cool slate; brand tokens (--brand*)
+   are injected at runtime from the org theme (lib/brands.ts) with the OE Group
+   dark-red as the default, so login/landing and the shell share one language.
+   ───────────────────────────────────────────────────────────────────────── */
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 0 0% 9%;
+    --background: 220 20% 98%;
+    --foreground: 222 22% 12%;
+
     --card: 0 0% 100%;
-    --card-foreground: 0 0% 9%;
+    --card-foreground: 222 22% 12%;
     --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 9%;
-    --primary: 0 0% 9%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 0 0% 96%;
-    --secondary-foreground: 0 0% 9%;
-    --muted: 0 0% 96%;
-    --muted-foreground: 0 0% 45%;
-    --accent: 0 0% 96%;
-    --accent-foreground: 0 0% 9%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 90%;
-    --input: 0 0% 90%;
-    --ring: 0 0% 63%;
-    --radius: 0.5rem;
+    --popover-foreground: 222 22% 12%;
+
+    --primary: 222 22% 12%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 16% 95%;
+    --secondary-foreground: 222 22% 18%;
+    --muted: 220 16% 95%;
+    --muted-foreground: 220 9% 46%;
+    --accent: 220 16% 95%;
+    --accent-foreground: 222 22% 18%;
+
+    --destructive: 0 72% 48%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 152 55% 38%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 48%;
+    --warning-foreground: 40 90% 12%;
+    --info: 212 80% 48%;
+    --info-foreground: 0 0% 100%;
+
+    --border: 220 16% 90%;
+    --input: 220 16% 88%;
+    --ring: 222 22% 24%;
+
+    /* Sidebar surface — a distinct, deeper neutral. */
+    --sidebar: 224 26% 13%;
+    --sidebar-foreground: 220 16% 82%;
+    --sidebar-muted: 220 12% 58%;
+    --sidebar-border: 222 20% 22%;
+
+    --radius: 0.7rem;
+
+    /* Brand (runtime-overridden per org). Defaults = OE Group house colours. */
+    --brand: #8b1d1d;
+    --brand-fg: #ffffff;
+    --brand-accent: #c9a227;
+
+    /* Elevation */
+    --shadow-sm: 0 1px 2px 0 rgb(16 24 40 / 0.05);
+    --shadow-md: 0 4px 12px -2px rgb(16 24 40 / 0.08), 0 2px 6px -2px rgb(16 24 40 / 0.05);
+    --shadow-lg: 0 12px 32px -8px rgb(16 24 40 / 0.14), 0 4px 12px -4px rgb(16 24 40 / 0.08);
   }
 
   .dark {
-    --background: 0 0% 9%;
-    --foreground: 0 0% 98%;
-    --card: 0 0% 9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 0 0% 9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 0 0% 9%;
-    --secondary: 0 0% 15%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 0 0% 15%;
-    --muted-foreground: 0 0% 64%;
-    --accent: 0 0% 15%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 63% 31%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 15%;
-    --input: 0 0% 15%;
-    --ring: 0 0% 45%;
+    --background: 224 24% 8%;
+    --foreground: 220 16% 92%;
+
+    --card: 224 22% 11%;
+    --card-foreground: 220 16% 92%;
+    --popover: 224 22% 11%;
+    --popover-foreground: 220 16% 92%;
+
+    --primary: 220 16% 92%;
+    --primary-foreground: 224 24% 10%;
+    --secondary: 222 18% 17%;
+    --secondary-foreground: 220 16% 92%;
+    --muted: 222 18% 16%;
+    --muted-foreground: 220 10% 60%;
+    --accent: 222 18% 18%;
+    --accent-foreground: 220 16% 92%;
+
+    --destructive: 0 62% 52%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 152 48% 45%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 90% 55%;
+    --warning-foreground: 40 90% 12%;
+    --info: 212 74% 58%;
+    --info-foreground: 224 24% 10%;
+
+    --border: 222 16% 20%;
+    --input: 222 16% 22%;
+    --ring: 220 16% 70%;
+
+    --sidebar: 224 30% 9%;
+    --sidebar-foreground: 220 16% 78%;
+    --sidebar-muted: 220 10% 52%;
+    --sidebar-border: 222 20% 18%;
+
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+    --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.4);
+    --shadow-lg: 0 16px 40px -8px rgb(0 0 0 / 0.55);
   }
 }
 
@@ -53,8 +104,17 @@
   * {
     @apply border-border;
   }
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+  /* Consistent, visible keyboard focus everywhere. */
+  :focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
   }
 }
 
@@ -62,30 +122,44 @@
   .text-balance {
     text-wrap: balance;
   }
+  .bg-brand {
+    background-color: var(--brand);
+    color: var(--brand-fg);
+  }
+  .text-brand {
+    color: var(--brand);
+  }
+  .border-brand {
+    border-color: var(--brand);
+  }
+  /* Subtle dotted texture for hero surfaces. */
+  .bg-grid {
+    background-image: radial-gradient(hsl(var(--foreground) / 0.05) 1px, transparent 1px);
+    background-size: 22px 22px;
+  }
 }
 
-/* Brand-driven chrome. --brand/--brand-fg/--brand-accent are set on the
-   dashboard shell from the org's delivery_brand (lib/brands.ts), so primary
-   actions and accents follow the brand rather than a hard-coded neutral. */
 @layer components {
+  /* Legacy brand helpers kept for markup not yet migrated to <Button>. */
   .btn-brand {
     background-color: var(--brand, #8b1d1d);
     color: var(--brand-fg, #ffffff);
-    transition: opacity 150ms ease;
+    transition: opacity 150ms ease, transform 120ms ease;
   }
   .btn-brand:hover {
-    opacity: 0.9;
+    opacity: 0.92;
+  }
+  .btn-brand:active {
+    transform: translateY(0.5px);
   }
   .btn-brand:disabled {
     opacity: 0.5;
   }
-
   .ring-brand:focus {
     border-color: var(--brand, #8b1d1d);
     box-shadow: 0 0 0 1px var(--brand, #8b1d1d);
     outline: none;
   }
-
   .chip-brand-active {
     background-color: var(--brand, #8b1d1d);
     color: var(--brand-fg, #ffffff);

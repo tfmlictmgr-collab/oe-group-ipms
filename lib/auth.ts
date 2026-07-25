@@ -19,7 +19,7 @@ export async function getSessionProfile() {
 
   const { data: org } = await supabase
     .from("orgs")
-    .select("id, name, delivery_brand")
+    .select("id, name, delivery_brand, theme_primary, theme_accent, theme_logo_text")
     .eq("id", profile?.org_id)
     .single();
 
@@ -27,6 +27,6 @@ export async function getSessionProfile() {
     user,
     profile,
     org,
-    theme: getBrandTheme(org?.delivery_brand),
+    theme: getBrandTheme(org?.delivery_brand, org),
   };
 }
