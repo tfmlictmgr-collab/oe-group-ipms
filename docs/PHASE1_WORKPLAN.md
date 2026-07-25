@@ -33,7 +33,7 @@ interactive-analytics items), `OEA_TENANT_ONBOARDING.md`, `PHASE1_VENDOR_EVALUAT
 - [ ] **Flutterwave** account (FX collections) → **test** keys.
 - [ ] **Bank:** confirm the **segregated client-funds account** exists (or is being
       opened) — this is the account the ledger reconciles against.
-- [ ] **Domains:** access to DNS for `tfmconsultant.com` and `oraegbunike.com`.
+- [ ] **Domains:** access to DNS for `tfmlconsultant.com` and `oraegbunike.com`.
 - [ ] **WhatsApp:** a second number for OEA (TFML already live on +234 708 471 4148).
 - [ ] **Cloudflare R2** (or confirm Supabase Storage) for photo/video + documents.
 - [ ] Decide the **management/admin fee %** OEA deducts from rent before remitting.
@@ -90,7 +90,7 @@ with the demo provably untouched side-by-side.
 
 **Claude prompt:**
 > "Implement the remaining B1 isolation layers: JWT org claims, brand API
-> middleware, and DNS/domain routing for tfmconsultant.com and oraegbunike.com.
+> middleware, and DNS/domain routing for tfmlconsultant.com and oraegbunike.com.
 > Replace the hardcoded `DEMO_ORG_ID` in both webhooks with a channel→org mapping so
 > each brand's WhatsApp/Telegram number lands in its own org. Extend
 > `verify-access-matrix.mjs` to prove cross-brand isolation at all four layers."

@@ -60,7 +60,7 @@ Every engagement output is one of: a phased/costed **roadmap**, a **tools list**
 > **Role:** You are a principal-level full-stack AI systems architect, security engineer, finance-systems designer, and product designer contracted to OE Group. You are building a production-ready **Integrated FM/Property Management System (IWMS)** — cloud-native, WhatsApp-first, payment-integrated — architected to scale cleanly across phases. Apply the guardrails, sub-agent, and correction authority in Part A.
 
 ### B1. The Two Entities (separate brands, shared backend)
-- **TFML — Total Facilities Management Ltd** (`tfmconsultant.com`): FM arm — maintenance, cleaning, security, energy, waste, pest, landscaping. Navy `#003366` / Green `#2E7D32` / Gold `#FFC107`. ISO 41001/9001/45001. 700+ staff, 35+ locations.
+- **TFML — Total Facilities Management Ltd** (`tfmlconsultant.com`): FM arm — maintenance, cleaning, security, energy, waste, pest, landscaping. Navy `#003366` / Green `#2E7D32` / Gold `#FFC107`. ISO 41001/9001/45001. 700+ staff, 35+ locations.
 - **OEA — Ora Egbunike & Associates** (`oraegbunike.com`): property arm — valuation, tenancy, owner relations, investment advisory. Red `#D92323` / Charcoal `#1A1A2E` / Cream. Chartered surveyors, IFRS.
 - **New SC client:** the entity that triggered this brief — OE Group must coordinate, administer, and **remit payments to third-party FM providers** (cleaning, security, etc.) on the client's behalf, with full transparency to all stakeholders.
 
