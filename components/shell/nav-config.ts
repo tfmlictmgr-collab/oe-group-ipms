@@ -1,5 +1,6 @@
 import {
   Inbox,
+  Package,
   LayoutDashboard,
   Building2,
   ReceiptText,
@@ -18,6 +19,8 @@ export type NavContext = {
   isAdmin: boolean;
   seesBi: boolean;
   seesAudit: boolean;
+  /** Asset register readers: admin, FM/PM, finance, owners. */
+  seesAssets: boolean;
 };
 
 export type NavItem = {
@@ -45,6 +48,12 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     heading: "Operations",
     items: [
+      {
+        label: "Assets",
+        href: "/dashboard/assets",
+        icon: Package,
+        show: (c) => c.seesAssets,
+      },
       {
         label: "Vendors",
         href: "/dashboard/vendors",

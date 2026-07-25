@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getSessionProfile } from "@/lib/auth";
 import { AppShell } from "@/components/shell/app-shell";
+import { roleLabel } from "@/lib/roles";
 import type { NavContext } from "@/components/shell/nav-config";
 
 export default async function DashboardLayout({
@@ -13,7 +14,8 @@ export default async function DashboardLayout({
 
   const { profile, org, theme } = session;
   const role = profile?.role ?? "member";
-  const roleLabel = role.replace(/_/g, " ");
+  // Brand-aware: OEA renders facility_manager as "Properties Manager".
+  const label = roleLabel(role, org?.delivery_brand);
 
   const ctx: NavContext = {
     isStaff: ["admin", "facility_manager", "finance_approver"].includes(role),
@@ -21,6 +23,7 @@ export default async function DashboardLayout({
     seesAudit: role === "admin" || role === "finance_approver",
     // B7 "Exec / BI dashboard" column
     seesBi: ["admin", "facility_manager", "finance_approver", "property_owner"].includes(role),
+    seesAssets: ["admin", "facility_manager", "finance_approver", "property_owner"].includes(role),
   };
 
   return (
@@ -44,7 +47,7 @@ export default async function DashboardLayout({
         user={{
           name: profile?.full_name ?? profile?.email ?? "",
           email: profile?.email ?? "",
-          roleLabel,
+          roleLabel: label,
         }}
         ctx={ctx}
       >

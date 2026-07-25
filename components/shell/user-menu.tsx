@@ -64,7 +64,7 @@ export function UserMenu({
           </Avatar>
           <div className="min-w-0">
             <p className="truncate text-sm font-medium">{name || email}</p>
-            <p className="truncate text-xs capitalize text-muted-foreground">{roleLabel}</p>
+            <p className="truncate text-xs text-muted-foreground">{roleLabel}</p>
           </div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
