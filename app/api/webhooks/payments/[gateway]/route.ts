@@ -39,7 +39,19 @@ export async function POST(
 
   const rawBody = await request.text();
 
-  const adapter = getGateway(name === "flutterwave" ? "USD" : "NGN");
+  // getGateway throws in production when that gateway has no key — deliberately,
+  // so nothing silently falls back to simulation. Here that means we have no way
+  // to verify the signature, so the only safe answer is to refuse. Caught rather
+  // than allowed to become a 500: an unhandled error makes gateways retry
+  // indefinitely, and it hints at the internal state to whoever is probing.
+  let adapter;
+  try {
+    adapter = getGateway(name === "flutterwave" ? "USD" : "NGN");
+  } catch {
+    console.warn(`Rejected ${name} webhook: gateway not configured, cannot verify`);
+    return new NextResponse("Forbidden", { status: 403 });
+  }
+
   const signature =
     request.headers.get("x-paystack-signature") ??
     request.headers.get("verif-hash") ??
