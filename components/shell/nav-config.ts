@@ -94,10 +94,13 @@ export const NAV_GROUPS: NavGroup[] = [
         show: (c) => c.canEnroll,
       },
       {
+        // Open to everyone: personal notification preferences live here. The
+        // organisation-configuration tabs inside are filtered by role, and each
+        // re-checks server-side.
         label: "Settings",
         href: "/dashboard/settings",
         icon: Settings,
-        show: (c) => c.isAdmin,
+        show: () => true,
       },
     ],
   },

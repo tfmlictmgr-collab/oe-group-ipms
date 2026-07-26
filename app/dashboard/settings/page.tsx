@@ -1,75 +1,22 @@
 import { redirect } from "next/navigation";
-import { ShieldAlert } from "lucide-react";
 import { getSessionProfile } from "@/lib/auth";
-import { createClient } from "@/lib/supabase/server";
 import { getBaseTheme } from "@/lib/brands";
-import { PageHeader } from "@/components/patterns/page-header";
-import { EmptyState } from "@/components/patterns/empty-state";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import SettingsForm from "./SettingsForm";
 import BrandingForm from "./BrandingForm";
 import ContentForm from "./ContentForm";
-import NotificationPrefs from "./NotificationPrefs";
-import BankAccountForm from "./BankAccountForm";
 import LogoUpload from "./LogoUpload";
+import AdminOnly from "./AdminOnly";
 
-export default async function SettingsPage() {
+export default async function BrandingSettingsPage() {
   const session = await getSessionProfile();
   if (!session) redirect("/login");
-
-  // Admin-only page (B7: admin configures approver limits/thresholds + branding).
-  if (session.profile?.role !== "admin") {
-    return (
-      <div className="space-y-6">
-        <PageHeader title="Settings" />
-        <EmptyState
-          icon={<ShieldAlert />}
-          title="Administrator access required"
-          description="Only administrators can configure payment gate thresholds and portal branding."
-        />
-      </div>
-    );
-  }
-
-  const supabase = await createClient();
-  // Own row only — RLS already restricts users_select to self for non-staff,
-  // and we filter by id regardless.
-  const { data: me } = await supabase
-    .from("users")
-    .select("phone, telegram_chat_id, notify_email, notify_whatsapp, notify_sms, notify_telegram")
-    .eq("id", session.profile.id)
-    .single();
-
-  const [{ data: bankAccount }, { data: ledgerAccounts }] = await Promise.all([
-    supabase
-      .from("bank_accounts")
-      .select("id, label, bank_name, account_name, account_number_last4, purpose, opening_balance, opening_date, opening_entry_id, ledger_account_id")
-      .eq("purpose", "client_funds")
-      .eq("active", true)
-      .maybeSingle(),
-    supabase
-      .from("ledger_accounts")
-      .select("id, code, name, class")
-      .eq("active", true)
-      .order("code"),
-  ]);
-
-  const { data: settings } = await supabase
-    .from("payment_settings")
-    .select("min_performance_score, approval_threshold_amount")
-    .eq("org_id", session.profile.org_id)
-    .single();
+  if (session.profile?.role !== "admin") return <AdminOnly what="branding and portal text" />;
 
   const { org, theme } = session;
   const defaults = getBaseTheme(org?.delivery_brand);
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Settings"
-        description="Configure your organisation's portal branding and the vendor payment gate."
-      />
-
+    <div className="space-y-4">
       <BrandingForm
         orgId={session.profile.org_id}
         initial={{
@@ -85,10 +32,7 @@ export default async function SettingsPage() {
           logoText: defaults.logoText ?? "",
         }}
         logoSlot={
-          <LogoUpload
-            orgId={session.profile.org_id}
-            currentLogoUrl={theme.logoUrl}
-          />
+          <LogoUpload orgId={session.profile.org_id} currentLogoUrl={theme.logoUrl} />
         }
       />
 
@@ -113,64 +57,6 @@ export default async function SettingsPage() {
               emailFromAddress: org?.email_from_address ?? "",
             }}
             placeholders={{ portalName: defaults.portalName }}
-          />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>My notifications</CardTitle>
-          <CardDescription>
-            How we reach you personally. These settings apply to your account
-            only, not the whole organisation.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <NotificationPrefs
-            initial={{
-              phone: me?.phone ?? "",
-              telegramChatId: me?.telegram_chat_id ?? "",
-              email: me?.notify_email ?? true,
-              whatsapp: me?.notify_whatsapp ?? false,
-              sms: me?.notify_sms ?? false,
-              telegram: me?.notify_telegram ?? false,
-            }}
-          />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Client funds &amp; banking</CardTitle>
-          <CardDescription>
-            The segregated account holding money that belongs to tenants,
-            landlords and owners — and where the ledger starts counting from.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <BankAccountForm
-            account={bankAccount ?? null}
-            hasChart={(ledgerAccounts ?? []).length > 0}
-            liabilityAccounts={(ledgerAccounts ?? [])
-              .filter((a) => a.class === "liability")
-              .map((a) => ({ id: a.id, code: a.code, name: a.name }))}
-          />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Payment gate</CardTitle>
-          <CardDescription>
-            Admin-configurable thresholds for the B4 vendor payment gate. Payments
-            above the approval limit require an administrator.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <SettingsForm
-            orgId={session.profile.org_id}
-            initialMinScore={Number(settings?.min_performance_score ?? 70)}
-            initialThreshold={Number(settings?.approval_threshold_amount ?? 1000000)}
           />
         </CardContent>
       </Card>
