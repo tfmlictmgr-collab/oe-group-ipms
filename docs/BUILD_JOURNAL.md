@@ -378,3 +378,21 @@ tabs, and the leftover test invitees no longer appear in Members.
 
 ⚠️ Cleared the 5 test-invitee rows from the Members list by deactivating them —
 they were visible in the client's UI, left by an earlier verification run.
+
+---
+
+## 2026-07-26 · Analytics sequencing confirmed (Day 10)
+📌 Client asked why the BI charts are still static and when the locked
+interactive analytics console arrives. It is **Day 10**, spec'd as requested
+(filters by date range / vendor / classification / property / status;
+completion rate by vendor and by classification; best/worst performer; average
+time-to-resolve; weekly/monthly/quarterly/yearly toggles with period-over-period;
+CSV/PDF export).
+
+⚖️ **Held at Day 10 rather than pulled forward.** Days 4–6 create the financial
+data the console must report on — collection rate, receivables, budget
+utilisation, vendor liabilities, remittance flow. Building the filter engine,
+aggregation layer and exports before the ledger exists would mean building them
+twice. The operational half of the data (requests, vendors, assets, timestamps)
+is already in place and waiting. Trade-off surfaced explicitly to the client,
+who chose to keep the order.

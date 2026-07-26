@@ -277,6 +277,15 @@ landlord, and an **automated renewal notice**.
 # TRACK D — Intelligence & experience (Days 10–11)
 
 ## Day 10 — Interactive analytics dashboard + role reporting
+
+> **Sequencing confirmed 2026-07-26.** The BI charts stay static until this day,
+> deliberately. Days 4–6 create the financial data the console must report on —
+> collection rate, receivables, budget utilisation, vendor liabilities and
+> remittance flow all come from the ledger. Building the filter engine,
+> aggregation layer and exports before that data exists would mean building them
+> twice. The operational half (requests, vendors, assets, timestamps) is already
+> in place and waiting.
+
 **Claude prompt:**
 > "Build the locked interactive analytics dashboard for both brands: filters (date
 > range, vendor, classification, property, status); completion rate % by vendor and
