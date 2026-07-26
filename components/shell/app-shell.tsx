@@ -8,6 +8,7 @@ import { BrandMark } from "./brand-mark";
 import { SidebarNav } from "./sidebar-nav";
 import { ThemeToggle } from "./theme-toggle";
 import { UserMenu } from "./user-menu";
+import { NotificationBell, type UserNotification } from "./notification-bell";
 import type { NavContext } from "./nav-config";
 
 export type ShellUser = {
@@ -26,6 +27,7 @@ export function AppShell({
   supportPhone,
   user,
   ctx,
+  notifications,
   children,
 }: {
   brandName: string;
@@ -37,6 +39,7 @@ export function AppShell({
   supportPhone?: string | null;
   user: ShellUser;
   ctx: NavContext;
+  notifications: UserNotification[];
   children: React.ReactNode;
 }) {
   const [mobileOpen, setMobileOpen] = React.useState(false);
@@ -95,6 +98,7 @@ export function AppShell({
           <div className="hidden flex-1 lg:block" />
 
           <div className="flex items-center gap-1 sm:gap-2">
+            <NotificationBell initial={notifications} />
             <ThemeToggle />
             <UserMenu
               name={user.name}

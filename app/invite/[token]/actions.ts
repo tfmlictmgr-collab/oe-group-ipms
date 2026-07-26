@@ -35,11 +35,28 @@ export async function previewInvitation(token: string): Promise<InvitePreview> {
  * from the invitation the inviter created, never from this request, so nobody
  * can sign up into a role they weren't granted.
  */
-export async function redeemInvitation(token: string, fullName: string) {
+export type EnrolmentChannels = {
+  phone: string;
+  telegramChatId: string;
+  whatsapp: boolean;
+  sms: boolean;
+  telegram: boolean;
+};
+
+export async function redeemInvitation(
+  token: string,
+  fullName: string,
+  channels?: EnrolmentChannels
+) {
   const supabase = await createClient();
   const { error } = await supabase.rpc("accept_invitation", {
     p_token_hash: hashInviteToken(token),
     p_full_name: fullName,
+    p_phone: channels?.phone ?? null,
+    p_telegram_chat_id: channels?.telegramChatId ?? null,
+    p_notify_whatsapp: channels?.whatsapp ?? false,
+    p_notify_sms: channels?.sms ?? false,
+    p_notify_telegram: channels?.telegram ?? false,
   });
   if (error) throw new Error(error.message);
 }

@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ChannelPicker, EMPTY_PREFS, type ChannelPrefs } from "@/components/patterns/channel-picker";
 import { redeemInvitation } from "./actions";
 
 // Two steps in one submit: create the auth account for the invited address, then
@@ -27,6 +28,7 @@ export default function AcceptForm({
   const [password, setPassword] = React.useState("");
   const [confirm, setConfirm] = React.useState("");
   const [show, setShow] = React.useState(false);
+  const [prefs, setPrefs] = React.useState<ChannelPrefs>(EMPTY_PREFS);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -62,7 +64,7 @@ export default function AcceptForm({
         );
       }
 
-      await redeemInvitation(token, fullName);
+      await redeemInvitation(token, fullName, prefs);
       toast.success("Welcome aboard", { description: "Your account is ready." });
       router.push("/dashboard");
       router.refresh();
@@ -140,6 +142,10 @@ export default function AcceptForm({
             <CheckCircle2 className="size-3.5" /> Passwords match
           </p>
         )}
+      </div>
+
+      <div className="space-y-3 border-t border-border pt-4">
+        <ChannelPicker value={prefs} onChange={setPrefs} />
       </div>
 
       {error && (

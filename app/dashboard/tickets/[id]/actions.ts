@@ -35,6 +35,19 @@ export async function assignTicket(
     .eq("id", ticketId);
   if (error) throw new Error(error.message);
 
+  // Let the assignee know in-app, not only through the outbound cascade.
+  if (opsUserId) {
+    await supabase.rpc("notify_user", {
+      p_user_id: opsUserId,
+      p_kind: "assignment",
+      p_title: "A job has been assigned to you",
+      p_body: "Open it to acknowledge and get started.",
+      p_link: `/dashboard/tickets/${ticketId}`,
+      p_entity_type: "ticket",
+      p_entity_id: ticketId,
+    });
+  }
+
   revalidatePath(`/dashboard/tickets/${ticketId}`);
   revalidatePath("/dashboard");
 }

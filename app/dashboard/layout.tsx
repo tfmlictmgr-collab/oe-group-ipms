@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getSessionProfile } from "@/lib/auth";
+import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/shell/app-shell";
 import { roleLabel } from "@/lib/roles";
 import type { NavContext } from "@/components/shell/nav-config";
@@ -16,6 +17,14 @@ export default async function DashboardLayout({
   const role = profile?.role ?? "member";
   // Brand-aware: OEA renders facility_manager as "Properties Manager".
   const label = roleLabel(role, org?.delivery_brand);
+
+  // RLS restricts this to the caller's own rows — no role logic needed here.
+  const supabase = await createClient();
+  const { data: notifications } = await supabase
+    .from("user_notifications")
+    .select("id, kind, title, body, link, read_at, created_at")
+    .order("created_at", { ascending: false })
+    .limit(30);
 
   const ctx: NavContext = {
     isStaff: ["admin", "facility_manager", "finance_approver"].includes(role),
@@ -51,6 +60,7 @@ export default async function DashboardLayout({
           roleLabel: label,
         }}
         ctx={ctx}
+        notifications={notifications ?? []}
       >
         {children}
       </AppShell>

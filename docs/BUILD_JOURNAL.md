@@ -333,3 +333,48 @@ quality is free — there is no reason to keep it terse.
 🔎 Live end-to-end on the dev deployment: Resend accepted both sends
 ("Emailed to …"), From resolved to `TFML Nigeria <no-reply@notify.tfmlconsultant.com>`,
 and no "OE Group" string remains anywhere in outbound copy.
+
+---
+
+## 2026-07-26 · Notification centre, channel preferences, People sub-navigation
+🟢 `0025` `user_notifications` — a per-recipient inbox, distinct from the 0007
+`notifications` table which is a per-channel DELIVERY LOG ("did it go out?").
+This one answers "what does this person still need to deal with?", so it is
+addressed to a user, carries read state, and is readable only by that user.
+Bell in the top bar with unread count, live INSERT subscription, mark-one/all
+read, deep links.
+
+🟢 `0025`/`0026` channel preferences — per-user email/WhatsApp/SMS/Telegram
+opt-in, **captured during enrolment** on the accept-invite screen and editable
+later in Settings.
+
+🟢 People split into **Members · Invitations · Vendor Applications · Unit
+Occupancy**, with pending counts on the tabs. Members gains search and
+activate/deactivate.
+
+⚖️ **Scoping by recipient, not by role.** A notification row is either yours or
+invisible — there is no role logic to get wrong, and it cannot drift as roles
+change.
+⚖️ **Preferences are RPCs, not an RLS policy.** RLS is ROW-level: a policy
+allowing `id = auth.uid()` to UPDATE `users` would let anyone edit *any column
+of their own row*, including `role`. That is straight privilege escalation. The
+RPCs expose exactly the columns each caller may touch.
+⚖️ **A channel can't be enabled without an identifier** — no phone, no
+WhatsApp/SMS. Preferences can never claim a route that fails at send time.
+⚖️ **Deactivate, never delete.** Anyone who has acted is referenced by
+`audit_log.actor_id`; deleting them would put holes in the audit trail. An admin
+also cannot deactivate themselves — the classic way to lock an org out.
+⚖️ **Notification links must be relative**, so a notification can never redirect
+someone off-site.
+
+🔎 21 checks: recipient-only reads (cross-user AND cross-org); a user cannot
+fabricate a notification for themselves or anyone else; marking read cannot
+reassign a row; `notify_role` reaches exactly the active roster with no
+cross-org leakage; absolute URLs rejected; a tenant can set their own channels
+but the role is untouched and direct self-promotion is blocked; deactivation is
+admin-only and never self-inflicted; a deactivated member receives nothing.
+Verified live: bell reads "Notifications, 2 unread", sub-nav renders all four
+tabs, and the leftover test invitees no longer appear in Members.
+
+⚠️ Cleared the 5 test-invitee rows from the Members list by deactivating them —
+they were visible in the client's UI, left by an earlier verification run.

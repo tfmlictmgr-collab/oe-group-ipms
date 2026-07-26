@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import SettingsForm from "./SettingsForm";
 import BrandingForm from "./BrandingForm";
 import ContentForm from "./ContentForm";
+import NotificationPrefs from "./NotificationPrefs";
 import LogoUpload from "./LogoUpload";
 
 export default async function SettingsPage() {
@@ -30,6 +31,14 @@ export default async function SettingsPage() {
   }
 
   const supabase = await createClient();
+  // Own row only — RLS already restricts users_select to self for non-staff,
+  // and we filter by id regardless.
+  const { data: me } = await supabase
+    .from("users")
+    .select("phone, telegram_chat_id, notify_email, notify_whatsapp, notify_sms, notify_telegram")
+    .eq("id", session.profile.id)
+    .single();
+
   const { data: settings } = await supabase
     .from("payment_settings")
     .select("min_performance_score, approval_threshold_amount")
@@ -89,6 +98,28 @@ export default async function SettingsPage() {
               emailFromAddress: org?.email_from_address ?? "",
             }}
             placeholders={{ portalName: defaults.portalName }}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>My notifications</CardTitle>
+          <CardDescription>
+            How we reach you personally. These settings apply to your account
+            only, not the whole organisation.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <NotificationPrefs
+            initial={{
+              phone: me?.phone ?? "",
+              telegramChatId: me?.telegram_chat_id ?? "",
+              email: me?.notify_email ?? true,
+              whatsapp: me?.notify_whatsapp ?? false,
+              sms: me?.notify_sms ?? false,
+              telegram: me?.notify_telegram ?? false,
+            }}
           />
         </CardContent>
       </Card>

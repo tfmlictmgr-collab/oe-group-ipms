@@ -127,6 +127,24 @@ export async function submitVendorApplication(input: ApplyInput): Promise<ApplyR
     return { ok: false, error: "We couldn't submit your application. Please try again." };
   }
 
+  // Tell the people who must act on it. Uses the service role because the
+  // applicant is anonymous and has no rights to notify anyone.
+  try {
+    const { supabaseAdmin } = await import("@/lib/supabase/admin");
+    await supabaseAdmin.rpc("notify_role", {
+      p_org_id: input.orgId,
+      p_roles: ["admin", "facility_manager"],
+      p_kind: "application",
+      p_title: "New vendor application",
+      p_body: `${businessName} has applied to work with you.`,
+      p_link: "/dashboard/people/applications",
+      p_entity_type: "vendor_application",
+    });
+  } catch (e) {
+    // A notification failure must never fail the applicant's submission.
+    console.error("could not raise application notification:", e);
+  }
+
   await trySendVerificationEmail(email, verificationToken, businessName, input.orgId);
   return { ok: true };
 }
