@@ -9,6 +9,7 @@ import {
   buildInviteUrl,
 } from "@/lib/invitation";
 import { sendEmail } from "@/lib/email";
+import { roleLabel } from "@/lib/roles";
 
 // Enrolment writes go through the caller's own session so RLS decides what is
 // permitted. The one exception is acceptance itself (a SECURITY DEFINER function
@@ -37,10 +38,9 @@ export type InviteInput = {
 /**
  * Issues an invitation and returns the one-time link.
  *
- * The link is returned to the inviter rather than only emailed, because email
- * delivery (Resend) is not yet configured — an admin can share it over
- * WhatsApp today. Once RESEND_API_KEY is set, this also sends the email; the
- * link is still returned so there is always a fallback.
+ * The link is returned to the inviter as well as emailed, so onboarding still
+ * works if mail is unconfigured, bounces, or the recipient never sees it — an
+ * admin can always share it directly (WhatsApp is common here).
  */
 export async function inviteMember(input: InviteInput): Promise<{
   url: string;
@@ -51,7 +51,7 @@ export async function inviteMember(input: InviteInput): Promise<{
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Your session expired. Please sign in again.");
   const { data: me } = await supabase
-    .from("users").select("org_id, role").eq("id", user.id).single();
+    .from("users").select("org_id, role, full_name").eq("id", user.id).single();
   if (!me) throw new Error("Could not resolve your profile.");
 
   if (!["admin", "facility_manager"].includes(me.role)) {
@@ -110,7 +110,19 @@ export async function inviteMember(input: InviteInput): Promise<{
     `${h.get("x-forwarded-proto") ?? "https"}://${h.get("host")}`;
   const url = buildInviteUrl(origin, token);
 
-  const emailed = await trySendInviteEmail(email, url, input.role, me.org_id);
+  // delivery_brand decides whether the role reads "Operations Staff" (TFML) or
+  // "Property Operations Staff" (OEA).
+  const { data: org } = await supabase
+    .from("orgs").select("delivery_brand").eq("id", me.org_id).single();
+
+  const emailed = await trySendInviteEmail(
+    email,
+    url,
+    input.role,
+    me.org_id,
+    org?.delivery_brand ?? null,
+    me.full_name ?? null
+  );
   revalidatePath("/dashboard/people");
   return { url, emailed };
 }
@@ -120,29 +132,40 @@ export async function inviteMember(input: InviteInput): Promise<{
  * the caller still has the shareable link, so onboarding is never blocked.
  * Category "account", so replies reach the org's support inbox rather than the
  * unmonitored sending subdomain.
+ *
+ * The copy names the CLIENT-FACING BRAND, never the holding entity (B1): a TFML
+ * recipient reads "TFML Nigeria portal". The role is rendered with the
+ * brand-aware label, so TFML says "Operations Staff" where OEA says "Property
+ * Operations Staff" — not the raw database value.
  */
 async function trySendInviteEmail(
   to: string,
   url: string,
   role: string,
-  orgId: string
+  orgId: string,
+  brand: string | null,
+  invitedByName: string | null
 ): Promise<boolean> {
+  const roleName = roleLabel(role, brand);
+
   const res = await sendEmail({
     to,
     orgId,
     category: "account",
-    subject: "You've been invited to the OE Group portal",
-    text: [
-      `You have been invited to join the OE Group portal as ${role.replace(/_/g, " ")}.`,
-      ``,
-      `Set your password and get started:`,
-      url,
-      ``,
-      `This link expires in 14 days and can only be used once.`,
-      ``,
-      `If you weren't expecting this, you can safely ignore it — or reply to this`,
-      `email if you'd like to check it's genuine.`,
-    ].join("\n"),
+    subject: ({ brandName }) => `You've been invited to the ${brandName} portal`,
+    text: ({ brandName }) =>
+      [
+        `You've been invited to join the ${brandName} portal as ${roleName}.`,
+        ...(invitedByName ? [``, `Invited by ${invitedByName}.`] : []),
+        ``,
+        `Set your password to get started:`,
+        url,
+        ``,
+        `This link expires in 14 days and can only be used once.`,
+        ``,
+        `If you weren't expecting this invitation you can safely ignore this email`,
+        `— or reply to it if you'd like to confirm it's genuine.`,
+      ].join("\n"),
   });
   return res.sent;
 }

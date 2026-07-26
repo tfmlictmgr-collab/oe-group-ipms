@@ -25,6 +25,7 @@ export type MailCategory =
 export type SendResult = { sent: boolean; reason?: string };
 
 type OrgMailIdentity = {
+  name: string | null;
   support_email: string | null;
   finance_email: string | null;
   it_email: string | null;
@@ -64,7 +65,7 @@ async function loadMailIdentity(orgId: string | null): Promise<OrgMailIdentity |
   try {
     const { data } = await supabaseAdmin
       .from("orgs")
-      .select("support_email, finance_email, it_email, email_from_name, email_from_address")
+      .select("name, support_email, finance_email, it_email, email_from_name, email_from_address")
       .eq("id", orgId)
       .single();
     return (data as OrgMailIdentity) ?? null;
@@ -73,10 +74,20 @@ async function loadMailIdentity(orgId: string | null): Promise<OrgMailIdentity |
   }
 }
 
+/** What recipients should understand themselves to be dealing with. */
+export type MailContext = { brandName: string };
+
+/**
+ * Copy may be a plain string, or a function of the brand context. Use the
+ * function form whenever the wording names the organisation — a recipient of a
+ * TFML property must read "TFML Nigeria", never the holding entity (B1).
+ */
+type Copy = string | ((ctx: MailContext) => string);
+
 export async function sendEmail(opts: {
   to: string;
-  subject: string;
-  text: string;
+  subject: Copy;
+  text: Copy;
   category: MailCategory;
   /** Used to look up this org's reply addresses. */
   orgId?: string | null;
@@ -98,6 +109,15 @@ export async function sendEmail(opts: {
 
   const replyTo = opts.replyTo?.trim() || replyToFor(opts.category, identity);
 
+  // The sender display name IS the client-facing brand, so it is the right
+  // thing to put in the copy too. Falls back to the org's own name.
+  const ctx: MailContext = {
+    brandName:
+      identity?.email_from_name?.trim() || identity?.name?.trim() || "the portal",
+  };
+  const subject = typeof opts.subject === "function" ? opts.subject(ctx) : opts.subject;
+  const text = typeof opts.text === "function" ? opts.text(ctx) : opts.text;
+
   try {
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -105,8 +125,8 @@ export async function sendEmail(opts: {
       body: JSON.stringify({
         from,
         to: opts.to,
-        subject: opts.subject,
-        text: opts.text,
+        subject,
+        text,
         // Omit entirely rather than send an empty header.
         ...(replyTo ? { reply_to: replyTo } : {}),
       }),

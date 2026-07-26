@@ -151,16 +151,19 @@ async function trySendVerificationEmail(
     to,
     orgId,
     category: "account",
-    subject: "Confirm your vendor application",
-    text: [
-      `We received a vendor application for ${business}.`,
-      ``,
-      `Confirm this email address to move it forward:`,
-      `${origin}/apply/confirm/${token}`,
-      ``,
-      `If you didn't apply, ignore this message — nothing will happen.`,
-      ``,
-      `Questions? Just reply to this email.`,
-    ].join("\n"),
+    subject: ({ brandName }) => `Confirm your vendor application to ${brandName}`,
+    text: ({ brandName }) =>
+      [
+        `We've received a vendor application from ${business} to ${brandName}.`,
+        ``,
+        `Confirm this email address to move your application forward:`,
+        `${origin}/apply/confirm/${token}`,
+        ``,
+        `Confirming only verifies your address — every application is reviewed by`,
+        `a person before any decision is made.`,
+        ``,
+        `If you didn't apply you can safely ignore this email; nothing will happen.`,
+        `Any questions, just reply.`,
+      ].join("\n"),
   });
 }

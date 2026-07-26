@@ -309,3 +309,27 @@ into two addresses.
 OEA as `"Ora Egbunike & Associates" <no-reply@notify.oraegbunike.com>`, the two
 identities are distinct, neither exposes the holding entity, and a punctuated
 brand name stays inside its quotes.
+
+---
+
+## 2026-07-26 · Email copy is brand-specific too
+⚠️ **Half-fixed brand leak.** The From header was corrected to "TFML Nigeria",
+but the subject and body still read "the OE Group portal" — the same B1
+violation, just in the copy rather than the header. The role also rendered as
+raw database text (`fm ops staff`) instead of the brand-aware label.
+
+🟢 `sendEmail` now accepts subject/text as functions of a `MailContext`
+carrying `brandName` (the org's sender name, falling back to its own name), so
+any copy that names the organisation resolves per brand at send time. Roles
+render through `roleLabel(role, brand)` — TFML "Operations Staff",
+OEA "Property Operations Staff". Added "Invited by <name>" as a trust signal,
+since the most common reply to an invitation is "is this genuine?".
+
+⚖️ **No LLM in outbound mail.** Templates are static strings; nothing is
+generated at send time, so email costs zero Anthropic tokens. Claude is used
+only for inbound triage classification. Worth stating because it means copy
+quality is free — there is no reason to keep it terse.
+
+🔎 Live end-to-end on the dev deployment: Resend accepted both sends
+("Emailed to …"), From resolved to `TFML Nigeria <no-reply@notify.tfmlconsultant.com>`,
+and no "OE Group" string remains anywhere in outbound copy.
