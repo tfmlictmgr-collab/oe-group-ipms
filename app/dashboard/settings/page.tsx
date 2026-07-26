@@ -83,6 +83,8 @@ export default async function SettingsPage() {
               tagline: org?.tagline ?? "",
               supportEmail: org?.support_email ?? "",
               supportPhone: org?.support_phone ?? "",
+              financeEmail: org?.finance_email ?? "",
+              itEmail: org?.it_email ?? "",
             }}
             placeholders={{ portalName: defaults.portalName }}
           />

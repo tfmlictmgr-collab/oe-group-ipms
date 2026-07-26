@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { checkRateLimit, clientIp } from "@/lib/rate-limit";
 import { verifyTurnstile } from "@/lib/turnstile";
 import { generateInviteToken, hashInviteToken } from "@/lib/invitation";
+import { sendEmail } from "@/lib/email";
 
 // The public vendor application endpoint — the only unauthenticated write in the
 // system. Layers, in order of cost, so an abusive request is dropped as early as
@@ -126,41 +127,40 @@ export async function submitVendorApplication(input: ApplyInput): Promise<ApplyR
     return { ok: false, error: "We couldn't submit your application. Please try again." };
   }
 
-  await trySendVerificationEmail(email, verificationToken, businessName);
+  await trySendVerificationEmail(email, verificationToken, businessName, input.orgId);
   return { ok: true };
 }
 
 /**
- * Sends the confirm-your-email link. Returns quietly when Resend isn't
- * configured — the application is already queued, and human approval remains
- * the gate, so a missing key degrades verification rather than blocking intake.
+ * Sends the confirm-your-email link. Quiet when Resend isn't configured — the
+ * application is already queued and flagged "Email unverified" in the review
+ * queue, so a missing key degrades verification rather than blocking intake.
  */
-async function trySendVerificationEmail(to: string, token: string, business: string) {
-  const key = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM;
-  if (!key || !from) return;
-
+async function trySendVerificationEmail(
+  to: string,
+  token: string,
+  business: string,
+  orgId: string
+) {
   const h = await headers();
   const origin =
     process.env.NEXT_PUBLIC_SITE_URL ??
     `${h.get("x-forwarded-proto") ?? "https"}://${h.get("host")}`;
 
-  try {
-    await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        from,
-        to,
-        subject: "Confirm your vendor application",
-        text:
-          `We received a vendor application for ${business}.\n\n` +
-          `Confirm this email address to move it forward:\n` +
-          `${origin}/apply/confirm/${token}\n\n` +
-          `If you didn't apply, ignore this message — nothing will happen.`,
-      }),
-    });
-  } catch (e) {
-    console.error("vendor verification email failed (application still queued):", e);
-  }
+  await sendEmail({
+    to,
+    orgId,
+    category: "account",
+    subject: "Confirm your vendor application",
+    text: [
+      `We received a vendor application for ${business}.`,
+      ``,
+      `Confirm this email address to move it forward:`,
+      `${origin}/apply/confirm/${token}`,
+      ``,
+      `If you didn't apply, ignore this message — nothing will happen.`,
+      ``,
+      `Questions? Just reply to this email.`,
+    ].join("\n"),
+  });
 }

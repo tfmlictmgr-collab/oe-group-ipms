@@ -18,6 +18,8 @@ export default function ContentForm({
     tagline: string;
     supportEmail: string;
     supportPhone: string;
+    financeEmail: string;
+    itEmail: string;
   };
   placeholders: { portalName: string };
 }) {
@@ -92,11 +94,39 @@ export default function ContentForm({
             placeholder="+234 800 000 0000"
           />
         </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="finance-email">Finance / accounts email</Label>
+          <Input
+            id="finance-email"
+            type="email"
+            value={form.financeEmail}
+            onChange={set("financeEmail")}
+            placeholder="accounts@yourorg.com"
+          />
+          <p className="text-xs text-muted-foreground">
+            Replies to invoices, statements and remittance advice go here.
+          </p>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="it-email">IT / technical email</Label>
+          <Input
+            id="it-email"
+            type="email"
+            value={form.itEmail}
+            onChange={set("itEmail")}
+            placeholder="admin@yourorg.com"
+          />
+          <p className="text-xs text-muted-foreground">
+            For system and technical notices.
+          </p>
+        </div>
       </div>
 
       <p className="text-xs text-muted-foreground">
-        Support details appear in the sidebar so your people know who to contact.
-        Leave any field blank to use the default.
+        Outbound mail is sent from a dedicated sending address, so replies are
+        routed to the inboxes above. Leave a field blank and it falls back to the
+        support address.
       </p>
 
       <Button type="submit" variant="brand" disabled={saving}>

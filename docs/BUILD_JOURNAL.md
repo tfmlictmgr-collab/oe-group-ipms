@@ -238,3 +238,49 @@ table must not assume the caller can see it.**
 invitation and verification emails; `TURNSTILE_SECRET_KEY` +
 `NEXT_PUBLIC_TURNSTILE_SITE_KEY` for bot resistance. Both are read at runtime —
 adding them needs no code change.
+
+---
+
+## 2026-07-25 · Email sending domain + reply routing
+⚠️ **The master brief had the wrong TFML domain.** `CLAUDE.md` B1 and the Day 0/2
+workplan carried `tfmconsultant.com`, which DNS shows **does not exist** (no A,
+no MX). The real domain is `tfmlconsultant.com`. Corrected at source, so Day 2's
+DNS/brand routing targets the right domain. `oraegbunike.com` was already right.
+
+⚠️ **Nearly broke TFML's live business email.** Their root SPF already chains to
+~9–10 DNS lookups (`+a`, `+mx`, `include:websitewelcome.com` → 4 nested,
+`include:_spf.google.com`) against an RFC limit of 10, and ends `-all` with DMARC
+`p=reject`. Adding Resend to the root would have tipped it into SPF PermError —
+which under `-all` + `p=reject` means existing staff mail gets **rejected**, not
+spam-foldered.
+
+⚖️ **Send from a subdomain** (`notify.tfmlconsultant.com`): root SPF untouched,
+lookup limit sidestepped, sending reputation isolated from business mail. DMARC
+has no `sp=` tag so the subdomain still inherits `p=reject`, and relaxed
+alignment (`adkim=r`/`aspf=r`) means DKIM `d=notify.…` and the SES return-path
+both align — strict protection retained *and* mail delivers.
+🔎 Verified live: SPF, MX and the full DKIM key resolve on the subdomain with no
+cPanel name-append typo; root MX/SPF byte-for-byte unchanged.
+
+⚖️ **No `no-reply`.** Almost everything this system sends is client-facing and
+money-adjacent — SC invoices, remittance advice to landlords, renewal notices.
+A dead reply address silently loses genuine disputes and reads as evasive.
+Instead: `From` on the sending subdomain (reputation), `Reply-To` on a real
+monitored inbox (relationship). No extra DNS — it's a header.
+
+🟢 `lib/email.ts` — one outbound path, category-routed Reply-To
+(account/finance/operations/it), so the policy is decided once rather than
+re-derived per call site. `0023` adds per-org `finance_email` + `it_email`
+alongside `support_email`; all three are admin-editable in Settings, so TFML and
+OEA control their own inboxes with no deploy. Invitations and vendor-application
+verification now route through it.
+
+🔎 Routing verified without sending mail: TFML resolves account→info@,
+finance→accounts@, it→admin@projects…; an unset category falls back to support;
+an org with nothing set omits the header rather than sending a broken one; and
+finance never silently falls through to the IT inbox.
+
+📌 The `notify.` MX + cPanel catch-all forwarder is **deliberately deferred** —
+Reply-To covers virtually every client, and all three inboxes have working MX.
+Revisit **before Day 5**, when remittance advice starts going to landlords and a
+bounced reply becomes costly.

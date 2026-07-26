@@ -8,6 +8,7 @@ import {
   hashInviteToken,
   buildInviteUrl,
 } from "@/lib/invitation";
+import { sendEmail } from "@/lib/email";
 
 // Enrolment writes go through the caller's own session so RLS decides what is
 // permitted. The one exception is acceptance itself (a SECURITY DEFINER function
@@ -109,35 +110,41 @@ export async function inviteMember(input: InviteInput): Promise<{
     `${h.get("x-forwarded-proto") ?? "https"}://${h.get("host")}`;
   const url = buildInviteUrl(origin, token);
 
-  const emailed = await trySendInviteEmail(email, url, input.role);
+  const emailed = await trySendInviteEmail(email, url, input.role, me.org_id);
   revalidatePath("/dashboard/people");
   return { url, emailed };
 }
 
-/** Best-effort email. Returns false (not an error) when Resend isn't configured. */
-async function trySendInviteEmail(to: string, url: string, role: string): Promise<boolean> {
-  const key = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM;
-  if (!key || !from) return false;
-  try {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        from,
-        to,
-        subject: "You've been invited to the OE Group portal",
-        text:
-          `You have been invited to join the OE Group portal as ${role.replace(/_/g, " ")}.\n\n` +
-          `Set your password and get started:\n${url}\n\n` +
-          `This link expires in 14 days and can only be used once.`,
-      }),
-    });
-    return res.ok;
-  } catch {
-    // Never fail the invitation because email failed — the link still works.
-    return false;
-  }
+/**
+ * Best-effort email. Returns false (not an error) when Resend isn't configured —
+ * the caller still has the shareable link, so onboarding is never blocked.
+ * Category "account", so replies reach the org's support inbox rather than the
+ * unmonitored sending subdomain.
+ */
+async function trySendInviteEmail(
+  to: string,
+  url: string,
+  role: string,
+  orgId: string
+): Promise<boolean> {
+  const res = await sendEmail({
+    to,
+    orgId,
+    category: "account",
+    subject: "You've been invited to the OE Group portal",
+    text: [
+      `You have been invited to join the OE Group portal as ${role.replace(/_/g, " ")}.`,
+      ``,
+      `Set your password and get started:`,
+      url,
+      ``,
+      `This link expires in 14 days and can only be used once.`,
+      ``,
+      `If you weren't expecting this, you can safely ignore it — or reply to this`,
+      `email if you'd like to check it's genuine.`,
+    ].join("\n"),
+  });
+  return res.sent;
 }
 
 export async function revokeInvitation(invitationId: string) {

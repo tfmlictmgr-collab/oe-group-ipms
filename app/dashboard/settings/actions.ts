@@ -92,11 +92,20 @@ export async function updateOrgContent(
     tagline: string;
     supportEmail: string;
     supportPhone: string;
+    financeEmail: string;
+    itEmail: string;
   }
 ) {
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   const email = input.supportEmail.trim();
-  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    throw new Error("Support email is not a valid address.");
+  const financeEmail = input.financeEmail.trim();
+  const itEmail = input.itEmail.trim();
+  for (const [label, v] of [
+    ["Support", email],
+    ["Finance", financeEmail],
+    ["IT", itEmail],
+  ] as const) {
+    if (v && !EMAIL_RE.test(v)) throw new Error(`${label} email is not a valid address.`);
   }
   const limit = (s: string, n: number) => {
     const v = s.trim();
@@ -112,6 +121,8 @@ export async function updateOrgContent(
       tagline: limit(input.tagline, 120),
       support_email: email || null,
       support_phone: limit(input.supportPhone, 40),
+      finance_email: financeEmail || null,
+      it_email: itEmail || null,
     })
     .eq("id", orgId);
 
