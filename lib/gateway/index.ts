@@ -227,12 +227,29 @@ class SimulatedAdapter implements PaymentGatewayAdapter {
   }
 
   /**
-   * The simulated "server-to-server" check. It returns nothing on its own — the
-   * caller supplies the amount from OUR record, which keeps the same rule as
-   * the live adapters: the amount never comes from the request body.
+   * The simulated server-to-server check. It reads the gateway's own record of
+   * the charge (`simulated_charges`, written by the checkout page), exactly as
+   * the live adapters query Paystack or Flutterwave. The amount therefore still
+   * never comes from the webhook body — which is the rule this whole design
+   * exists to enforce, and which a stub returning `success` would quietly break.
    */
-  async verifyTransaction(): Promise<VerifyResult> {
-    return { ok: true, status: "success" };
+  async verifyTransaction(reference: string): Promise<VerifyResult> {
+    const { supabaseAdmin } = await import("@/lib/supabase/admin");
+    const { data } = await supabaseAdmin
+      .from("simulated_charges")
+      .select("amount, currency, status, paid_at")
+      .eq("reference", reference)
+      .maybeSingle();
+
+    // No record means nothing was ever presented at checkout.
+    if (!data) return { ok: true, status: "pending" };
+    return {
+      ok: true,
+      amount: Number(data.amount),
+      currency: data.currency,
+      status: data.status === "success" ? "success" : "failed",
+      paidAt: data.paid_at,
+    };
   }
 
   verifySignature(rawBody: string, signature: string | null): boolean {

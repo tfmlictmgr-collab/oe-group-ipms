@@ -43,12 +43,17 @@ const made = { intents: [], entries: [] };
 
 // Ensure a chart of accounts exists for this org.
 await svc.rpc("ensure_default_ledger_accounts", { p_org_id: orgId });
-const { data: bankAcct } = await svc
-  .from("ledger_accounts").select("id").eq("org_id", orgId).eq("purpose", "client_funds").limit(1).single();
+
+// Resolved by the same function record_collection uses, deliberately. An org can
+// hold several client-funds ledger accounts (0028: one per configured bank
+// account), so picking one here independently would mean watching a balance the
+// posting never touches — which is precisely how this test passed while the
+// posting was landing in the wrong account.
+const { data: bankAcctId } = await svc.rpc("collection_bank_account", { p_org_id: orgId });
 
 const heldBefore = async () => {
   const { data } = await svc
-    .from("ledger_account_balances").select("natural_balance").eq("account_id", bankAcct.id).single();
+    .from("ledger_account_balances").select("natural_balance").eq("account_id", bankAcctId).single();
   return Number(data.natural_balance);
 };
 

@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Scale, BookOpen, Landmark } from "lucide-react";
+import { Scale, BookOpen, Landmark, CreditCard } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const TABS = [
   { href: "/dashboard/ledger", label: "Balances", icon: Scale, exact: true },
+  { href: "/dashboard/ledger/collections", label: "Collections", icon: CreditCard },
   { href: "/dashboard/ledger/journal", label: "Journal", icon: BookOpen },
   { href: "/dashboard/ledger/reconciliation", label: "Reconciliation", icon: Landmark },
 ];

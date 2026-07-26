@@ -119,8 +119,8 @@ export async function POST(
     return new NextResponse("OK", { status: 200 });
   }
 
-  // The simulated adapter cannot know an amount, so our own expected figure is
-  // used. That is the same rule the live adapters follow: never the payload.
+  // Every adapter returns the amount from its own server-side lookup. The
+  // fallback is our invoiced figure — never the payload, under any adapter.
   const amount = verified.amount ?? Number(intent.amount_expected);
 
   const { data: entryId, error: postErr } = await supabaseAdmin.rpc("record_collection", {

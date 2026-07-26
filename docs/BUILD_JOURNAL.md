@@ -450,3 +450,60 @@ masked by the overpayment rule firing first.
 📌 Placeholders until the client supplies them: bank name/last-4, opening
 balance and its allocation, and the management/admin fee percentages — all
 default to zero or blank so nothing is ever deducted or assumed by accident.
+
+## 2026-07-27 · Phase 1 Day 5 — collections, checkout, receipts
+
+Money coming in, end to end: raise a request against an invoice → checkout →
+signed webhook → server-to-server verification → ledger posting → branded PDF
+receipt. Gateway adapters for Paystack (Naira) and Flutterwave (FX), plus a
+simulated adapter for environments with no keys.
+
+⚖️ **`verifySignature` and `verifyTransaction` are separate calls, and both are
+required.** A signature proves WHO sent the message. It says nothing about
+whether the contents are true. Only a server-to-server lookup proves WHAT was
+paid, so the amount that reaches the ledger always comes from that lookup —
+never from the request body, under any adapter.
+⚖️ **The amount is fixed server-side from our own invoice** before the gateway
+is contacted. Nothing the payer sends can change what is charged.
+⚖️ **Posting is idempotent by construction**: `ledger_entry_id` on the intent IS
+the "already posted" flag, set under a row lock, so there is no separate boolean
+to drift. Three concurrent deliveries produce one entry.
+⚖️ **A webhook always answers 200 once the signature is valid.** A non-2xx makes
+gateways retry, and retrying a message we already understood adds load without
+changing the outcome. The stored event carries the real result.
+⚖️ **An unconfigured gateway refuses with 403, not 500.** A 500 makes gateways
+retry indefinitely and hints at internal state to whoever is probing.
+⚖️ **Receipts are generated on demand, never stored**, so a receipt can never
+disagree with the ledger it was drawn from — and are served through the caller's
+own session, so RLS decides who may see one. A hidden receipt and a
+non-existent one answer identically.
+⚖️ **The simulated gateway is not a stub that returns success.** It writes the
+charge to its own record (`simulated_charges`, 0034) and its `verifyTransaction`
+reads it back — the same shape as asking Paystack. A stub returning `success`
+would have quietly broken the one rule the design exists to enforce.
+
+🔎 The end-to-end suite posts a webhook whose payload claims **₦999,999,999**
+against a ₦400,000 invoice where ₦250,000 was actually presented. The ledger
+takes ₦250,000, flags the shortfall, leaves the invoice open, and the receipt
+never carries the forged figure. 17 checks over real HTTP against a running
+server; `verify-checkout-e2e.mjs`.
+
+⚠️ **A live run debited the wrong bank account.** `record_collection` resolved
+the debit side with `... where purpose = 'client_funds' and active limit 1` —
+no ORDER BY, so the planner chose, and it chose a leftover test account. An org
+may legitimately hold several client-funds LEDGER accounts (one per configured
+bank account) while holding exactly one active client-funds BANK account, and
+reconciliation compares the statement against `bank_accounts.ledger_account_id`.
+A collection posted anywhere else is money that exists in the books but can
+never be matched to the bank — a permanent variance on a system whose whole
+purpose is daily agreement. Fixed in `0035` with `collection_bank_account()`,
+which reads the bank account reconciliation actually uses. **`LIMIT 1` without
+`ORDER BY` is not a choice; it is a coin toss with the planner.**
+
+⚠️ The collections suite had been passing throughout, because it picked the
+account to watch the same arbitrary way. **A test that re-derives what the
+system should do, instead of asking the system what it did, verifies nothing.**
+Both now resolve through the same function.
+
+📌 Live test-card run on the dev deployment is the remaining Day-5 step; the
+Paystack test webhook URL is saved and the adapter is live, not simulated.
