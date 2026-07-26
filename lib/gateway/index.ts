@@ -293,6 +293,37 @@ export function getGateway(currency = "NGN"): PaymentGatewayAdapter {
   return new SimulatedAdapter(process.env.SIMULATED_GATEWAY_SECRET ?? "dev-simulated-secret");
 }
 
+/**
+ * Picks the adapter for a NAMED gateway — used by the webhook route, which
+ * knows which gateway called it from the URL and must not infer it.
+ *
+ * Selecting by currency there happened to fail closed, but only incidentally:
+ * a Paystack notification was being verified with whichever adapter "NGN"
+ * resolved to. Verification must use the credentials of the gateway that
+ * actually sent the message, so the caller names it.
+ *
+ * Throws when that gateway has no key. The caller answers 403 — we cannot
+ * verify the sender, so the only safe response is to refuse.
+ */
+export function getAdapterByName(name: GatewayName): PaymentGatewayAdapter {
+  if (name === "paystack") {
+    const key = process.env.PAYSTACK_SECRET_KEY;
+    if (!key) throw new Error("Paystack is not configured.");
+    return new PaystackAdapter(key);
+  }
+  if (name === "flutterwave") {
+    const key = process.env.FLUTTERWAVE_SECRET_KEY;
+    if (!key) throw new Error("Flutterwave is not configured.");
+    return new FlutterwaveAdapter(key, process.env.FLUTTERWAVE_WEBHOOK_HASH ?? "");
+  }
+  // Simulation must be unreachable wherever real money is possible — otherwise
+  // it is an endpoint that marks invoices paid without money arriving.
+  if (isProduction() || process.env.PAYSTACK_SECRET_KEY || process.env.FLUTTERWAVE_SECRET_KEY) {
+    throw new Error("The simulated gateway is disabled here.");
+  }
+  return new SimulatedAdapter(process.env.SIMULATED_GATEWAY_SECRET ?? "dev-simulated-secret");
+}
+
 export function gatewayConfigured(currency = "NGN"): boolean {
   return currency.toUpperCase() === "NGN"
     ? Boolean(process.env.PAYSTACK_SECRET_KEY)

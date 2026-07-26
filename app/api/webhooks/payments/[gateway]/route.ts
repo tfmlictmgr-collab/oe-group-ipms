@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { checkRateLimit, clientIp } from "@/lib/rate-limit";
-import { getGateway, type GatewayName } from "@/lib/gateway";
+import { getAdapterByName, type GatewayName } from "@/lib/gateway";
 
 // Inbound payment webhooks. The order of operations here is the security
 // design, so it is worth stating plainly:
@@ -39,14 +39,17 @@ export async function POST(
 
   const rawBody = await request.text();
 
-  // getGateway throws in production when that gateway has no key — deliberately,
-  // so nothing silently falls back to simulation. Here that means we have no way
-  // to verify the signature, so the only safe answer is to refuse. Caught rather
-  // than allowed to become a 500: an unhandled error makes gateways retry
-  // indefinitely, and it hints at the internal state to whoever is probing.
+  // Selected by the gateway that called us, which the URL tells us — never
+  // inferred from a currency. A message must be verified with the credentials
+  // of its actual sender.
+  //
+  // Throws when that gateway has no key: we then have no way to verify the
+  // signature, so the only safe answer is to refuse. Caught rather than allowed
+  // to become a 500 — an unhandled error makes gateways retry indefinitely, and
+  // it hints at internal state to whoever is probing.
   let adapter;
   try {
-    adapter = getGateway(name === "flutterwave" ? "USD" : "NGN");
+    adapter = getAdapterByName(name);
   } catch {
     console.warn(`Rejected ${name} webhook: gateway not configured, cannot verify`);
     return new NextResponse("Forbidden", { status: 403 });
