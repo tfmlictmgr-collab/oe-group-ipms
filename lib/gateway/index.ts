@@ -1,0 +1,289 @@
+import crypto from "node:crypto";
+
+// One interface over Paystack (Naira) and Flutterwave (FX), plus a simulated
+// adapter used when no keys are configured.
+//
+// The simulated adapter is not a stub that pretends to succeed — it exercises
+// the same code path end to end (intent → checkout → webhook → verify → post),
+// so the flow, the idempotency guard and the ledger posting are all genuinely
+// proven before a real key exists. Swapping in live keys changes which adapter
+// is selected and nothing else.
+//
+// Note the deliberate split between `verifySignature` and `verifyTransaction`:
+// a signature proves WHO sent the message; only a server-to-server lookup
+// proves WHAT was actually paid. Both are required before money is posted.
+
+export type GatewayName = "paystack" | "flutterwave" | "simulated";
+
+export type InitResult = {
+  ok: boolean;
+  checkoutUrl?: string;
+  reference: string;
+  error?: string;
+};
+
+export type VerifyResult = {
+  ok: boolean;
+  /** Authoritative amount, in major units (Naira, not kobo). */
+  amount?: number;
+  currency?: string;
+  status?: "success" | "failed" | "pending";
+  paidAt?: string;
+  error?: string;
+};
+
+export interface PaymentGatewayAdapter {
+  readonly name: GatewayName;
+  initialise(input: {
+    reference: string;
+    amount: number;      // major units
+    currency: string;
+    email: string;
+    callbackUrl: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<InitResult>;
+  /** Server-to-server confirmation. The only trustworthy source of the amount. */
+  verifyTransaction(reference: string): Promise<VerifyResult>;
+  verifySignature(rawBody: string, signature: string | null): boolean;
+}
+
+// ── Paystack ───────────────────────────────────────────────────────────────
+// Amounts are in KOBO. Getting this wrong by a factor of 100 is the classic
+// Paystack bug, so conversion happens in exactly one place each way.
+const toKobo = (naira: number) => Math.round(naira * 100);
+const fromKobo = (kobo: number) => kobo / 100;
+
+class PaystackAdapter implements PaymentGatewayAdapter {
+  readonly name = "paystack" as const;
+  constructor(private secret: string) {}
+
+  async initialise(input: Parameters<PaymentGatewayAdapter["initialise"]>[0]) {
+    try {
+      const res = await fetch("https://api.paystack.co/transaction/initialize", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.secret}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          reference: input.reference,
+          amount: toKobo(input.amount),
+          currency: input.currency,
+          email: input.email,
+          callback_url: input.callbackUrl,
+          metadata: input.metadata ?? {},
+        }),
+      });
+      const json = (await res.json()) as {
+        status?: boolean;
+        message?: string;
+        data?: { authorization_url?: string };
+      };
+      if (!res.ok || !json.status) {
+        return { ok: false, reference: input.reference, error: json.message ?? `HTTP ${res.status}` };
+      }
+      return { ok: true, reference: input.reference, checkoutUrl: json.data?.authorization_url };
+    } catch (e) {
+      return {
+        ok: false,
+        reference: input.reference,
+        error: e instanceof Error ? e.message : "gateway unreachable",
+      };
+    }
+  }
+
+  async verifyTransaction(reference: string): Promise<VerifyResult> {
+    try {
+      const res = await fetch(
+        `https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`,
+        { headers: { Authorization: `Bearer ${this.secret}` } }
+      );
+      const json = (await res.json()) as {
+        status?: boolean;
+        message?: string;
+        data?: { amount?: number; currency?: string; status?: string; paid_at?: string };
+      };
+      if (!res.ok || !json.status || !json.data) {
+        return { ok: false, error: json.message ?? `HTTP ${res.status}` };
+      }
+      return {
+        ok: true,
+        amount: fromKobo(json.data.amount ?? 0),
+        currency: json.data.currency,
+        status: json.data.status === "success" ? "success" : json.data.status === "failed" ? "failed" : "pending",
+        paidAt: json.data.paid_at,
+      };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : "gateway unreachable" };
+    }
+  }
+
+  verifySignature(rawBody: string, signature: string | null): boolean {
+    if (!signature) return false;
+    // Paystack signs the raw body with HMAC-SHA512 using the secret key.
+    const expected = crypto.createHmac("sha512", this.secret).update(rawBody).digest("hex");
+    const a = Buffer.from(expected);
+    const b = Buffer.from(signature);
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
+  }
+}
+
+// ── Flutterwave (FX / international) ───────────────────────────────────────
+class FlutterwaveAdapter implements PaymentGatewayAdapter {
+  readonly name = "flutterwave" as const;
+  constructor(private secret: string, private webhookHash: string) {}
+
+  async initialise(input: Parameters<PaymentGatewayAdapter["initialise"]>[0]) {
+    try {
+      const res = await fetch("https://api.flutterwave.com/v3/payments", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.secret}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          tx_ref: input.reference,
+          amount: input.amount,          // major units, unlike Paystack
+          currency: input.currency,
+          redirect_url: input.callbackUrl,
+          customer: { email: input.email },
+          meta: input.metadata ?? {},
+        }),
+      });
+      const json = (await res.json()) as {
+        status?: string;
+        message?: string;
+        data?: { link?: string };
+      };
+      if (!res.ok || json.status !== "success") {
+        return { ok: false, reference: input.reference, error: json.message ?? `HTTP ${res.status}` };
+      }
+      return { ok: true, reference: input.reference, checkoutUrl: json.data?.link };
+    } catch (e) {
+      return {
+        ok: false,
+        reference: input.reference,
+        error: e instanceof Error ? e.message : "gateway unreachable",
+      };
+    }
+  }
+
+  async verifyTransaction(reference: string): Promise<VerifyResult> {
+    try {
+      const res = await fetch(
+        `https://api.flutterwave.com/v3/transactions/verify_by_reference?tx_ref=${encodeURIComponent(reference)}`,
+        { headers: { Authorization: `Bearer ${this.secret}` } }
+      );
+      const json = (await res.json()) as {
+        status?: string;
+        message?: string;
+        data?: { amount?: number; currency?: string; status?: string; created_at?: string };
+      };
+      if (!res.ok || json.status !== "success" || !json.data) {
+        return { ok: false, error: json.message ?? `HTTP ${res.status}` };
+      }
+      return {
+        ok: true,
+        amount: Number(json.data.amount ?? 0),
+        currency: json.data.currency,
+        status: json.data.status === "successful" ? "success" : json.data.status === "failed" ? "failed" : "pending",
+        paidAt: json.data.created_at,
+      };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : "gateway unreachable" };
+    }
+  }
+
+  verifySignature(_rawBody: string, signature: string | null): boolean {
+    // Flutterwave sends a shared secret in `verif-hash` rather than an HMAC of
+    // the body. Compared in constant time all the same.
+    if (!signature || !this.webhookHash) return false;
+    const a = Buffer.from(signature);
+    const b = Buffer.from(this.webhookHash);
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
+  }
+}
+
+// ── Simulated ──────────────────────────────────────────────────────────────
+/**
+ * Used when no keys are configured. Checkout is an in-app page that posts a
+ * webhook back to us, so the full path is exercised for real.
+ *
+ * It refuses to run in production: a simulated gateway that reached live would
+ * mark invoices paid without money arriving, which is far worse than an outage.
+ */
+class SimulatedAdapter implements PaymentGatewayAdapter {
+  readonly name = "simulated" as const;
+  constructor(private secret: string) {}
+
+  async initialise(input: Parameters<PaymentGatewayAdapter["initialise"]>[0]): Promise<InitResult> {
+    return {
+      ok: true,
+      reference: input.reference,
+      checkoutUrl: `/pay/${encodeURIComponent(input.reference)}`,
+    };
+  }
+
+  /**
+   * The simulated "server-to-server" check. It returns nothing on its own — the
+   * caller supplies the amount from OUR record, which keeps the same rule as
+   * the live adapters: the amount never comes from the request body.
+   */
+  async verifyTransaction(): Promise<VerifyResult> {
+    return { ok: true, status: "success" };
+  }
+
+  verifySignature(rawBody: string, signature: string | null): boolean {
+    if (!signature) return false;
+    const expected = crypto.createHmac("sha256", this.secret).update(rawBody).digest("hex");
+    const a = Buffer.from(expected);
+    const b = Buffer.from(signature);
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
+  }
+}
+
+// ── Selection ──────────────────────────────────────────────────────────────
+
+export function isProduction(): boolean {
+  const v = process.env.VERCEL_ENV;
+  if (v) return v === "production";
+  return process.env.NODE_ENV === "production";
+}
+
+/**
+ * Picks the adapter for a currency. Naira goes to Paystack, anything else to
+ * Flutterwave (the B3 split). Falls back to the simulated adapter only outside
+ * production.
+ */
+export function getGateway(currency = "NGN"): PaymentGatewayAdapter {
+  const paystack = process.env.PAYSTACK_SECRET_KEY;
+  const flutterwave = process.env.FLUTTERWAVE_SECRET_KEY;
+  const fwHash = process.env.FLUTTERWAVE_WEBHOOK_HASH ?? "";
+
+  if (currency.toUpperCase() === "NGN" && paystack) return new PaystackAdapter(paystack);
+  if (currency.toUpperCase() !== "NGN" && flutterwave) {
+    return new FlutterwaveAdapter(flutterwave, fwHash);
+  }
+  // A live deployment must never silently fall back to simulation.
+  if (isProduction()) {
+    throw new Error(
+      `No payment gateway configured for ${currency}. Set PAYSTACK_SECRET_KEY (NGN) or FLUTTERWAVE_SECRET_KEY (FX).`
+    );
+  }
+  return new SimulatedAdapter(process.env.SIMULATED_GATEWAY_SECRET ?? "dev-simulated-secret");
+}
+
+export function gatewayConfigured(currency = "NGN"): boolean {
+  return currency.toUpperCase() === "NGN"
+    ? Boolean(process.env.PAYSTACK_SECRET_KEY)
+    : Boolean(process.env.FLUTTERWAVE_SECRET_KEY);
+}
+
+/** Our own reference. Prefixed so it is recognisable on a bank statement. */
+export function newPaymentReference(purpose: string): string {
+  const tag = purpose.slice(0, 2).toUpperCase();
+  return `OE-${tag}-${Date.now().toString(36).toUpperCase()}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
+}
