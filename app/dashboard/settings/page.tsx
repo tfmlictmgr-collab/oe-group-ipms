@@ -10,6 +10,7 @@ import SettingsForm from "./SettingsForm";
 import BrandingForm from "./BrandingForm";
 import ContentForm from "./ContentForm";
 import NotificationPrefs from "./NotificationPrefs";
+import BankAccountForm from "./BankAccountForm";
 import LogoUpload from "./LogoUpload";
 
 export default async function SettingsPage() {
@@ -38,6 +39,20 @@ export default async function SettingsPage() {
     .select("phone, telegram_chat_id, notify_email, notify_whatsapp, notify_sms, notify_telegram")
     .eq("id", session.profile.id)
     .single();
+
+  const [{ data: bankAccount }, { data: ledgerAccounts }] = await Promise.all([
+    supabase
+      .from("bank_accounts")
+      .select("id, label, bank_name, account_name, account_number_last4, purpose, opening_balance, opening_date, opening_entry_id, ledger_account_id")
+      .eq("purpose", "client_funds")
+      .eq("active", true)
+      .maybeSingle(),
+    supabase
+      .from("ledger_accounts")
+      .select("id, code, name, class")
+      .eq("active", true)
+      .order("code"),
+  ]);
 
   const { data: settings } = await supabase
     .from("payment_settings")
@@ -120,6 +135,25 @@ export default async function SettingsPage() {
               sms: me?.notify_sms ?? false,
               telegram: me?.notify_telegram ?? false,
             }}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Client funds &amp; banking</CardTitle>
+          <CardDescription>
+            The segregated account holding money that belongs to tenants,
+            landlords and owners — and where the ledger starts counting from.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <BankAccountForm
+            account={bankAccount ?? null}
+            hasChart={(ledgerAccounts ?? []).length > 0}
+            liabilityAccounts={(ledgerAccounts ?? [])
+              .filter((a) => a.class === "liability")
+              .map((a) => ({ id: a.id, code: a.code, name: a.name }))}
           />
         </CardContent>
       </Card>
