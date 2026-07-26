@@ -396,3 +396,57 @@ aggregation layer and exports before the ledger exists would mean building them
 twice. The operational half of the data (requests, vendors, assets, timestamps)
 is already in place and waiting. Trade-off surfaced explicitly to the client,
 who chose to keep the order.
+
+---
+
+## 2026-07-26 · Phase 1 Day 4 — client-funds ledger + reconciliation
+🟢 `0027` double-entry ledger; `0028` org-configurable bank account + opening
+balance; `0029`/`0030` statement import, conservative auto-matching and
+reconciliation; ledger UI (Balances · Journal · Reconciliation).
+
+⚖️ **Four invariants enforced by the DATABASE**, not application code: entries
+must balance, the ledger is append-only, client funds cannot go negative, and a
+counterparty cannot be overpaid. The last is the segregation guarantee, and it
+is why accounts are per-landlord/per-vendor rather than pooled.
+⚖️ **Balances are a view, never stored.** A stored total can drift from its
+postings, and a ledger whose balance disagrees with its own history is worse
+than no ledger.
+⚖️ **Statement lines stay separate from postings.** The statement is third-party
+evidence; the ledger is our record. Merging them would let an import rewrite the
+books and leave nothing independent to reconcile against.
+⚖️ **Dedupe on the bank's reference, not date+amount+description.** Two real
+₦500 charges on one day are normal; dropping the second would understate the
+account. Un-referenced repeats are a warning, and a person decides.
+⚖️ **Auto-match only when exactly one entry fits.** A wrong match is worse than
+none — it makes the books look reconciled when they are not.
+⚖️ **Every reconciliation run is kept**, balanced or not. One only saved on
+success is one nobody can audit.
+⚖️ **Last four digits only** for bank accounts. The app never initiates
+transfers from stored details, so the full number is risk with no benefit.
+
+🔎 The workplan's Day-4 gate verbatim: a clean statement reconciles to ZERO
+variance, then an unrecorded ₦75,000 debit is introduced and correctly flagged,
+the line reported unmatched, both runs retained. 39 checks across ledger +
+reconciliation. All twelve suites green.
+
+⚠️ **Two functions in `0029` were broken despite the migration applying
+cleanly** — `min(uuid)` does not exist in Postgres, and a CASE returning text
+was inserted into an enum column. Both surfaced only when called with real data.
+**A migration that applies says nothing about whether its functions run.**
+
+⚠️ **`accept_invitation` had TWO live definitions.** `CREATE OR REPLACE
+FUNCTION` only replaces an identical signature — 0026's extra parameters created
+an overload alongside 0020's original, and every argument after the first two
+has a default, so a two-argument call was ambiguous and Postgres refused it. The
+app always passed all seven, so it kept working and the fault was invisible
+there. Dropped the stale version in `0031`. **When changing a function's
+signature, DROP the old one explicitly.**
+
+⚠️ Two test defects fixed while verifying: immutability was asserted on error
+presence (RLS filters the row before the trigger fires, so the call is a silent
+no-op — only a STATE assertion proves it), and the insufficient-funds case was
+masked by the overpayment rule firing first.
+
+📌 Placeholders until the client supplies them: bank name/last-4, opening
+balance and its allocation, and the management/admin fee percentages — all
+default to zero or blank so nothing is ever deducted or assumed by accident.

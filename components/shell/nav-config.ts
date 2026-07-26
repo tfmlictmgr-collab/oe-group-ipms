@@ -5,6 +5,7 @@ import {
   Building2,
   ReceiptText,
   Banknote,
+  Scale,
   FileText,
   ShieldCheck,
   Settings,
@@ -24,6 +25,8 @@ export type NavContext = {
   seesAssets: boolean;
   /** Enrolment is an admin / FM-PM responsibility. */
   canEnroll: boolean;
+  /** The client-funds ledger is finance + admin only. */
+  seesLedger: boolean;
 };
 
 export type NavItem = {
@@ -68,6 +71,12 @@ export const NAV_GROUPS: NavGroup[] = [
         href: "/dashboard/sc",
         icon: ReceiptText,
         show: (c) => c.isStaff,
+      },
+      {
+        label: "Client Funds",
+        href: "/dashboard/ledger",
+        icon: Scale,
+        show: (c) => c.seesLedger,
       },
       {
         label: "Payments",

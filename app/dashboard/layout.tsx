@@ -34,6 +34,7 @@ export default async function DashboardLayout({
     seesBi: ["admin", "facility_manager", "finance_approver", "property_owner"].includes(role),
     seesAssets: ["admin", "facility_manager", "finance_approver", "property_owner"].includes(role),
     canEnroll: ["admin", "facility_manager"].includes(role),
+    seesLedger: ["admin", "finance_approver"].includes(role),
   };
 
   return (

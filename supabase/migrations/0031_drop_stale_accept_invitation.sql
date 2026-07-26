@@ -1,0 +1,26 @@
+-- Removes a stale overload of accept_invitation.
+--
+-- 0026 redefined accept_invitation with extra parameters for the enrolment
+-- channel preferences. But CREATE OR REPLACE FUNCTION only replaces a function
+-- with an IDENTICAL signature — a different argument list creates a second,
+-- overloaded function instead. Both then existed:
+--
+--   accept_invitation(text, text)
+--   accept_invitation(text, text, text, text, boolean, boolean, boolean)
+--
+-- Every argument after the first two has a default, so a two-argument call
+-- matches both and Postgres refuses:
+--   Could not choose the best candidate function between: ...
+--
+-- The application always passes all seven, so it kept working and the fault was
+-- invisible there — but any two-argument caller (an integration, a script, a
+-- future refactor) would break, and the old body is stale anyway: it does not
+-- record channel preferences or raise the welcome notification.
+--
+-- Dropping the two-argument version leaves exactly one definition, so the call
+-- is unambiguous and there is only one implementation to keep correct.
+--
+-- General lesson, recorded because it will recur: when changing a function's
+-- signature, DROP the old one explicitly. CREATE OR REPLACE will not do it.
+
+drop function if exists public.accept_invitation(text, text);
