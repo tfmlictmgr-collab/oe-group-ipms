@@ -284,3 +284,28 @@ finance never silently falls through to the IT inbox.
 Reply-To covers virtually every client, and all three inboxes have working MX.
 Revisit **before Day 5**, when remittance advice starts going to landlords and a
 bounced reply becomes costly.
+
+---
+
+## 2026-07-26 · Sender identity is per-brand, not "OE Group"
+⚠️ **I had the From header wrong.** I proposed a single `RESEND_FROM` of
+`OE Group <…>`. Per B1, OE Group is the holding entity and is **not
+client-facing** — a TFML tenant receiving mail from "OE Group" doesn't recognise
+the sender (reads as phishing) and it leaks the group structure the isolation
+rule says they should never see.
+
+The correction runs deeper than a label: each brand sends from **its own verified
+subdomain** (`notify.tfmlconsultant.com` vs `notify.oraegbunike.com`), so one env
+var cannot express the sender at all.
+
+🟢 `0024` adds per-org `email_from_name` + `email_from_address`, admin-editable in
+Settings beside the reply routes. `RESEND_FROM` survives only as a last-resort
+fallback for orgs with no sender configured; if that is unset too, `sendEmail`
+**declines to send** rather than delivering under the wrong brand.
+Display names are quoted, so a comma in a brand name cannot split the header
+into two addresses.
+
+🔎 Verified: TFML sends as `"TFML Nigeria" <no-reply@notify.tfmlconsultant.com>`,
+OEA as `"Ora Egbunike & Associates" <no-reply@notify.oraegbunike.com>`, the two
+identities are distinct, neither exposes the holding entity, and a punctuated
+brand name stays inside its quotes.

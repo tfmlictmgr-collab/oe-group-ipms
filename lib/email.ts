@@ -24,14 +24,30 @@ export type MailCategory =
 
 export type SendResult = { sent: boolean; reason?: string };
 
-type OrgReplyRoutes = {
+type OrgMailIdentity = {
   support_email: string | null;
   finance_email: string | null;
   it_email: string | null;
+  email_from_name: string | null;
+  email_from_address: string | null;
 };
 
+/**
+ * The From header for this org, as `Display Name <address>`. Returns null when
+ * the org has no sender configured, so the caller can decline rather than send
+ * under someone else's brand.
+ */
+function senderFor(identity: OrgMailIdentity | null): string | null {
+  const address = identity?.email_from_address?.trim();
+  if (!address) return null;
+  const name = identity?.email_from_name?.trim();
+  // Quote the display name so a comma or period in a brand name can't break the
+  // header into two addresses.
+  return name ? `"${name.replace(/"/g, "")}" <${address}>` : address;
+}
+
 /** Category → the org's configured inbox, falling back to support. */
-function replyToFor(category: MailCategory, routes: OrgReplyRoutes | null): string | null {
+function replyToFor(category: MailCategory, routes: OrgMailIdentity | null): string | null {
   if (!routes) return null;
   const chosen =
     category === "finance"
@@ -43,15 +59,15 @@ function replyToFor(category: MailCategory, routes: OrgReplyRoutes | null): stri
   return (chosen || routes.support_email || null)?.trim() || null;
 }
 
-async function loadReplyRoutes(orgId: string | null): Promise<OrgReplyRoutes | null> {
+async function loadMailIdentity(orgId: string | null): Promise<OrgMailIdentity | null> {
   if (!orgId) return null;
   try {
     const { data } = await supabaseAdmin
       .from("orgs")
-      .select("support_email, finance_email, it_email")
+      .select("support_email, finance_email, it_email, email_from_name, email_from_address")
       .eq("id", orgId)
       .single();
-    return (data as OrgReplyRoutes) ?? null;
+    return (data as OrgMailIdentity) ?? null;
   } catch {
     return null;
   }
@@ -68,12 +84,19 @@ export async function sendEmail(opts: {
   replyTo?: string | null;
 }): Promise<SendResult> {
   const key = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM;
-  if (!key || !from) return { sent: false, reason: "email not configured" };
+  const envFrom = process.env.RESEND_FROM?.trim() || null;
+  if (!key) return { sent: false, reason: "email not configured" };
 
-  const replyTo =
-    opts.replyTo?.trim() ||
-    replyToFor(opts.category, await loadReplyRoutes(opts.orgId ?? null));
+  const identity = await loadMailIdentity(opts.orgId ?? null);
+
+  // The client-facing BRAND sends the mail, never the holding entity (B1). Fall
+  // back to the env default only for orgs with no sender configured — if that is
+  // also unset there is nothing safe to send as, so we decline rather than send
+  // under the wrong brand.
+  const from = senderFor(identity) ?? envFrom;
+  if (!from) return { sent: false, reason: "no sender identity configured for this organisation" };
+
+  const replyTo = opts.replyTo?.trim() || replyToFor(opts.category, identity);
 
   try {
     const res = await fetch("https://api.resend.com/emails", {

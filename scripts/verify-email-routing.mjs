@@ -18,7 +18,15 @@ const resolve = (category, r) => {
 };
 
 const svc = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
-const { data: orgs } = await svc.from("orgs").select("name, delivery_brand, support_email, finance_email, it_email");
+const { data: orgs } = await svc.from("orgs")
+  .select("name, delivery_brand, support_email, finance_email, it_email, email_from_name, email_from_address");
+
+// Mirrors senderFor() in lib/email.ts.
+const sender = (i) => {
+  const a = i?.email_from_address?.trim(); if (!a) return null;
+  const n = i?.email_from_name?.trim();
+  return n ? `"${n.replace(/"/g, "")}" <${a}>` : a;
+};
 const tfml = orgs.find(o => o.delivery_brand === "TFML");
 const unset = orgs.find(o => !o.support_email && !o.finance_email);
 
@@ -49,6 +57,25 @@ console.log("\nD. Finance never silently falls back to a personal/IT inbox");
 {
   const r = { support_email: "info@x.test", finance_email: null, it_email: "it@x.test" };
   resolve("finance", r) !== "it@x.test" ? ok("finance does not leak to the IT inbox") : bad("finance fell through to IT");
+}
+
+console.log("\nE. Each brand sends as ITSELF, never as the holding entity");
+{
+  const oea = orgs.find(o => o.delivery_brand === "OEA");
+  const t = sender(tfml), o = sender(oea);
+  t === '"TFML Nigeria" <no-reply@notify.tfmlconsultant.com>'
+    ? ok(`TFML sends as ${t}`) : bad(`TFML sender is ${t}`);
+  o && o.includes("oraegbunike.com") ? ok(`OEA sends as ${o}`) : bad(`OEA sender is ${o}`);
+  [t, o].every(v => v && !/OE Group/i.test(v))
+    ? ok("neither brand exposes the holding entity in the From header")
+    : bad("a brand is sending as OE Group");
+  t && o && t !== o ? ok("the two brands have distinct sender identities") : bad("brands share a sender");
+}
+
+console.log("\nF. Display names are quoted so punctuation can't split the header");
+{
+  const risky = sender({ email_from_name: 'Ora Egbunike, Assoc.', email_from_address: "x@y.test" });
+  risky === '"Ora Egbunike, Assoc." <x@y.test>' ? ok("comma in a brand name stays inside quotes") : bad(`got ${risky}`);
 }
 
 console.log(failures === 0

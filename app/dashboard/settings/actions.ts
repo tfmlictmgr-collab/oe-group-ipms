@@ -94,6 +94,8 @@ export async function updateOrgContent(
     supportPhone: string;
     financeEmail: string;
     itEmail: string;
+    emailFromName: string;
+    emailFromAddress: string;
   }
 ) {
   const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -104,6 +106,7 @@ export async function updateOrgContent(
     ["Support", email],
     ["Finance", financeEmail],
     ["IT", itEmail],
+    ["Sending", input.emailFromAddress.trim()],
   ] as const) {
     if (v && !EMAIL_RE.test(v)) throw new Error(`${label} email is not a valid address.`);
   }
@@ -123,6 +126,8 @@ export async function updateOrgContent(
       support_phone: limit(input.supportPhone, 40),
       finance_email: financeEmail || null,
       it_email: itEmail || null,
+      email_from_name: limit(input.emailFromName, 60),
+      email_from_address: input.emailFromAddress.trim() || null,
     })
     .eq("id", orgId);
 

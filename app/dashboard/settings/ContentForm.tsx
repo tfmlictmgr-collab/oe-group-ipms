@@ -20,6 +20,8 @@ export default function ContentForm({
     supportPhone: string;
     financeEmail: string;
     itEmail: string;
+    emailFromName: string;
+    emailFromAddress: string;
   };
   placeholders: { portalName: string };
 }) {
@@ -123,10 +125,40 @@ export default function ContentForm({
         </div>
       </div>
 
+      <div className="grid gap-4 border-t border-border pt-4 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="from-name">Sender name</Label>
+          <Input
+            id="from-name"
+            value={form.emailFromName}
+            onChange={set("emailFromName")}
+            maxLength={60}
+            placeholder="e.g. TFML Nigeria"
+          />
+          <p className="text-xs text-muted-foreground">
+            What recipients see in their inbox. Use your client-facing brand.
+          </p>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="from-address">Sending address</Label>
+          <Input
+            id="from-address"
+            type="email"
+            value={form.emailFromAddress}
+            onChange={set("emailFromAddress")}
+            placeholder="no-reply@notify.yourbrand.com"
+          />
+          <p className="text-xs text-muted-foreground">
+            Must be on a domain verified with the email provider.
+          </p>
+        </div>
+      </div>
+
       <p className="text-xs text-muted-foreground">
-        Outbound mail is sent from a dedicated sending address, so replies are
-        routed to the inboxes above. Leave a field blank and it falls back to the
-        support address.
+        Mail is sent from the address above, so replies are routed to the inboxes
+        set here. Leave a reply field blank and it falls back to the support
+        address.
       </p>
 
       <Button type="submit" variant="brand" disabled={saving}>
