@@ -26,9 +26,13 @@ export default async function DashboardLayout({
     .order("created_at", { ascending: false })
     .limit(30);
 
+  // A viewer is outside the organisation, so it is listed in none of the sets
+  // below rather than added to any of them. The nav is presentation; RLS is what
+  // actually decides, and 0038 grants a viewer no policy on any of these tables.
   const ctx: NavContext = {
     isStaff: ["admin", "facility_manager", "finance_approver"].includes(role),
     isAdmin: role === "admin",
+    isViewer: role === "viewer",
     seesAudit: role === "admin" || role === "finance_approver",
     // B7 "Exec / BI dashboard" column
     seesBi: ["admin", "facility_manager", "finance_approver", "property_owner"].includes(role),

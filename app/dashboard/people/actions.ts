@@ -24,6 +24,9 @@ const INVITABLE_ROLES = [
   "tenant",
   "vendor",
   "admin",
+  // Read-only, org-wide, no money and no personal data. Intended for someone
+  // outside the organisation who needs to see progress, not operate anything.
+  "viewer",
 ] as const;
 
 export type InviteInput = {

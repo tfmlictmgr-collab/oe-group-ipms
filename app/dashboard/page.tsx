@@ -1,12 +1,20 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Plus } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import { getSessionProfile } from "@/lib/auth";
 import { type Ticket } from "@/lib/ticket-format";
 import { PageHeader } from "@/components/patterns/page-header";
 import { Button } from "@/components/ui/button";
 import TicketList from "./TicketList";
 
 export default async function DashboardPage() {
+  // A viewer has no policy on tickets, so this page would render an empty list
+  // that reads as a broken build rather than a withheld one. Send them to the
+  // page that is actually theirs.
+  const session = await getSessionProfile();
+  if (session?.profile?.role === "viewer") redirect("/dashboard/overview");
+
   const supabase = await createClient();
   const { data: tickets } = await supabase
     .from("tickets")

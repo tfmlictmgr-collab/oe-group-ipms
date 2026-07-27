@@ -15,6 +15,7 @@ const BASE_LABELS: Record<string, string> = {
   finance_approver: "Finance / Approver",
   property_owner: "Property Owner",
   admin: "Administrator",
+  viewer: "Read-only Observer",
 };
 
 // Per-brand overrides. Only where the brand genuinely changes the job title.

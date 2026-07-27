@@ -19,6 +19,16 @@ import {
 export type NavContext = {
   isStaff: boolean;
   isAdmin: boolean;
+  /**
+   * A read-only observer from outside the organisation.
+   *
+   * Given ONE destination rather than degraded versions of several. The
+   * operational screens read tables a viewer has no policy on — the requests
+   * list would be empty, and the analytics page would render a financial
+   * dashboard of ₦0, which reads as "the build is broken" rather than "you may
+   * not see this". A single honest page beats four that half-work.
+   */
+  isViewer: boolean;
   seesBi: boolean;
   seesAudit: boolean;
   /** Asset register readers: admin, FM/PM, finance, owners. */
@@ -42,7 +52,13 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     heading: "Overview",
     items: [
-      { label: "Requests", href: "/dashboard", icon: Inbox, show: () => true },
+      {
+        label: "Programme Overview",
+        href: "/dashboard/overview",
+        icon: LayoutDashboard,
+        show: (c) => c.isViewer,
+      },
+      { label: "Requests", href: "/dashboard", icon: Inbox, show: (c) => !c.isViewer },
       {
         label: "Analytics",
         href: "/dashboard/bi",
@@ -89,7 +105,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     heading: "Records",
     items: [
-      { label: "Statements", href: "/dashboard/statements", icon: FileText, show: () => true },
+      { label: "Statements", href: "/dashboard/statements", icon: FileText, show: (c) => !c.isViewer },
       {
         label: "Audit Trail",
         href: "/dashboard/audit",
@@ -109,6 +125,9 @@ export const NAV_GROUPS: NavGroup[] = [
         label: "Settings",
         href: "/dashboard/settings",
         icon: Settings,
+        // A viewer still has their own notification preferences to manage; the
+        // organisation-configuration tabs inside are role-filtered and each
+        // re-checks server-side.
         show: () => true,
       },
     ],

@@ -611,3 +611,53 @@ including the checkout end-to-end.
 📌 **The reason this needed a check rather than a review**: `next dev` shows the
 real message, so the fault is invisible in the only environment where it is ever
 noticed. It survived every local test of every one of these screens.
+
+## 2026-07-27 · A read-only observer role — and a credential it exposed
+
+🟢 New `viewer` role (0037/0038) for showing progress to someone OUTSIDE the
+organisation. Every existing role was wrong for it: `finance_approver` is the
+only one that sees org-wide, and it sees the entire client-funds ledger and bank
+configuration.
+
+⚖️ **Deny by default, then add back.** Every existing SELECT policy names the
+roles it admits, so a new role starts able to read almost nothing. That is the
+right footing — the migration lists what it grants and, explicitly, what it
+withholds and why.
+⚖️ **Withheld columns go through DEFINER views, not application filtering.** RLS
+is row-level, and column-level GRANTs are per database role — every signed-in
+user shares `authenticated`, so a grant hiding ticket free text from a viewer
+hides it from finance too. `ticket_overview` and `vendor_overview` omit the
+columns entirely and the viewer gets no policy on the base tables, which makes
+the omission real rather than cosmetic. Because a definer view bypasses RLS, its
+WHERE clause IS the boundary and must test the ROLE as well as the org —
+otherwise a tenant reads every ticket in the org through it. Tested directly.
+⚖️ **One honest page beats four that half-work.** A viewer gets a purpose-built
+Programme Overview rather than degraded versions of the operational screens: the
+requests list would be empty and the analytics page would render a financial
+dashboard of ₦0, which reads as a broken build rather than withheld access.
+
+⚠️ **The verification found a live credential leak that predates this work.**
+`channel_routes_select` was `using (org_id = current_user_org_id())` with no role
+test, so **any signed-in user — including a tenant — could read
+`channel_routes.external_id`**. For Telegram that column IS the per-bot secret
+token, which is simultaneously the authentication and the routing key for the
+inbound webhook. Holding it lets someone forge service requests into a chosen
+org, attributed to any sender.
+
+⚖️ **Fixed by removal, not restriction (0039).** `resolveOrgForChannel` runs
+under the service role inside the webhook handler, and no UI reads the table —
+so the policy granted access nothing needed, which is the strongest kind of
+permission to delete. RLS stays on with zero policies.
+
+🔎 `verify-viewer-access.mjs` — 40+ assertions, all against a live viewer
+session: reads structure; returns nothing from twelve money tables, the audit
+log, invitations or applications; cannot reach `tickets.message_text` or
+`vendors.contact_email` directly; cannot insert into eight tables, cannot update
+or delete a property it CAN read, cannot escalate its own role, cannot see
+another org; and a tenant gets zero rows through the new views. Channel routing,
+access matrix and JWT-claims suites still green after the fix.
+
+📌 **This role is defined more by absences than permissions, and an absence is
+the easiest thing in a schema to lose by accident** — which is exactly why every
+denial is asserted against the database rather than inferred from reading the
+policies.
