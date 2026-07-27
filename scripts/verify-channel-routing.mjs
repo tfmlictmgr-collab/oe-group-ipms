@@ -139,9 +139,50 @@ console.log("\nE. Telegram: valid secret token routes; bad token is rejected");
   else bad(`wrong token → ${badRes.status}`);
 }
 
+// ── Outbound: a reply must never leave on another brand's number ───────────
+//
+// Inbound routing was correct while the OUTBOUND number was a single global env
+// var, so every reply — whichever brand received it — went out from that one
+// number: someone who messaged OEA was answered by TFML, in the TFML thread.
+// Tests that only look inbound cannot see that. This closes the loop.
+console.log("\nF. Each brand answers from its OWN number");
+{
+  const { whatsappSenderForOrg } = await import("../lib/notify.ts");
+
+  const { data: orgs } = await svc.from("orgs").select("id, portal_name, name");
+  const { data: routes } = await svc
+    .from("channel_routes").select("org_id, external_id").eq("channel", "whatsapp");
+
+  for (const org of orgs ?? []) {
+    const label = org.portal_name || org.name;
+    const expected = (routes ?? []).find((r) => r.org_id === org.id)?.external_id ?? null;
+    const sender = await whatsappSenderForOrg(org.id);
+
+    if (!expected) {
+      sender === null
+        ? ok(`${label}: no number registered → resolves to nothing, cascade falls back`)
+        : bad(`${label}: resolved a number it does not own (${sender.phoneNumberId})`);
+    } else if (!process.env.WHATSAPP_ACCESS_TOKEN) {
+      sender === null
+        ? ok(`${label}: no access token configured → nothing is sent`)
+        : bad(`${label}: resolved a sender with no token`);
+    } else {
+      sender?.phoneNumberId === expected
+        ? ok(`${label}: answers from its own number (${expected})`)
+        : bad(`${label}: would answer from ${sender?.phoneNumberId ?? "nothing"}, expected ${expected}`);
+    }
+  }
+
+  // The whole failure mode in one assertion.
+  const real = (routes ?? []).filter((r) => /^\d{10,}$/.test(r.external_id));
+  new Set(real.map((r) => r.external_id)).size === real.length
+    ? ok(`${real.length} real number(s) registered, none shared between brands`)
+    : bad("two organisations share the SAME number — replies will cross brands");
+}
+
 console.log(
   failures === 0
-    ? "\n\x1b[32mALL CHECKS PASSED\x1b[0m — inbound messages route to the right org; unknown/forged are refused."
+    ? "\n\x1b[32mALL CHECKS PASSED\x1b[0m — inbound routes to the right org; outbound answers from its own number."
     : `\n\x1b[31m${failures} CHECK(S) FAILED\x1b[0m`
 );
 process.exit(failures === 0 ? 0 : 1);

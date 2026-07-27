@@ -127,6 +127,12 @@ export async function POST(request: NextRequest) {
       entityId: ticket.id,
       message: buildAcknowledgement(ticket),
       whatsapp: senderWaId,
+      // Answer on the number they wrote to. `phoneNumberId` came from a payload
+      // already HMAC-verified as Meta's, and it is the whole point: a person who
+      // messaged OEA must hear back from OEA.
+      whatsappSender: process.env.WHATSAPP_ACCESS_TOKEN && phoneNumberId
+        ? { phoneNumberId, accessToken: process.env.WHATSAPP_ACCESS_TOKEN }
+        : null,
     });
   } catch (error) {
     console.error("Failed to classify/create ticket or send reply:", error);

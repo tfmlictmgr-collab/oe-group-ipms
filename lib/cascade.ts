@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { supabaseAdmin } from "./supabase/admin";
-import { sendReply } from "./notify";
+import { sendReply, whatsappSenderForOrg, type WhatsAppSender } from "./notify";
 
 // B8 notification cascade (server-side only). Attempts channels in the required
 // order — WhatsApp → SMS → Email — stopping at the first success. Telegram runs
@@ -18,6 +18,12 @@ export type CascadeTarget = {
   message: string;
   // Whatever contact points are known for the recipient:
   whatsapp?: string | null; // WhatsApp phone id / msisdn
+  /**
+   * The number to answer FROM. Supplied when replying to an inbound message, so
+   * the reply leaves on the number the person actually wrote to. Omitted for
+   * proactive sends, which resolve the org's own number instead.
+   */
+  whatsappSender?: WhatsAppSender | null;
   phone?: string | null; // for SMS
   email?: string | null;
   telegram?: string | null; // chat id (parallel, opt-in)
@@ -25,13 +31,27 @@ export type CascadeTarget = {
 
 type Attempt = { status: "sent" | "failed" | "skipped"; detail: string };
 
-async function tryWhatsApp(to: string, message: string): Promise<Attempt> {
-  if (!process.env.WHATSAPP_ACCESS_TOKEN || !process.env.WHATSAPP_PHONE_NUMBER_ID) {
+async function tryWhatsApp(
+  to: string,
+  message: string,
+  sender: WhatsAppSender | null
+): Promise<Attempt> {
+  if (!process.env.WHATSAPP_ACCESS_TOKEN) {
     return { status: "skipped", detail: "stubbed: no WhatsApp credentials" };
   }
+  // An org with no number of its own is SKIPPED, not sent from someone else's.
+  // The cascade then falls through to SMS and email, which is the B8 behaviour
+  // for an unavailable channel — and far better than the recipient hearing from
+  // a brand they have never dealt with.
+  if (!sender) {
+    return {
+      status: "skipped",
+      detail: "no WhatsApp number registered for this organisation",
+    };
+  }
   try {
-    await sendReply("whatsapp", to, message);
-    return { status: "sent", detail: "delivered via WhatsApp Cloud API" };
+    await sendReply("whatsapp", to, message, sender);
+    return { status: "sent", detail: `delivered via WhatsApp from ${sender.phoneNumberId}` };
   } catch (e) {
     return { status: "failed", detail: e instanceof Error ? e.message : "WhatsApp send failed" };
   }
@@ -115,7 +135,10 @@ export async function sendCascade(
   // Primary → SMS → Email, stopping at the first success.
   if (target.whatsapp) {
     order++;
-    const a = await tryWhatsApp(target.whatsapp, target.message);
+    // Answer on the number that received the message; otherwise the org's own.
+    // Never a global default — that is what crossed the brands.
+    const sender = target.whatsappSender ?? (await whatsappSenderForOrg(target.orgId));
+    const a = await tryWhatsApp(target.whatsapp, target.message, sender);
     await log(target, cascadeId, "whatsapp", target.whatsapp, a, order);
     if (a.status === "sent") delivered = true;
   }
