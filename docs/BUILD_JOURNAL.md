@@ -710,3 +710,61 @@ board-approved matrix.
 specified in `PHASE1_WORKPLAN.md` Day 6.5, with its gate: *a toggle changes what
 the DATABASE returns; locked permissions cannot be moved by UI or direct API
 call; a brand admin cannot reach the editor.*
+
+## 2026-07-27 · Invitations could not be accepted — three faults, one symptom
+
+⚠️ **The screen said "Something went wrong. Please try again." That was mine.**
+`describeError` returned the generic fallback for anything that was not an
+`ActionError`. But only errors crossing the SERVER ACTION boundary are masked by
+Next — an error thrown in the browser keeps its message, and here that message
+was the whole answer. The real text, *"Your account was created but needs email
+confirmation…"*, was thrown away by the very helper written to stop messages
+being thrown away. **The rule is not "trust ActionError"; it is "suppress what
+Next has masked"** — now detected by the `digest` property, everything else is
+shown.
+
+⚠️ **The underlying fault: enrolment was built on `supabase.auth.signUp`.** With
+email confirmation enabled — the Supabase default — that returns a user but NO
+session, so acceptance failed at the last step and left a half-made account
+behind. The retry then hit "already registered", sign-in refused an unconfirmed
+address, and the invitee was permanently stuck. One real person was in that
+state.
+
+⚖️ **The confirmation round trip was never earning anything.** The invitation
+link was EMAILED to that address, so possession of it already proves control of
+the mailbox. Asking again establishes no new fact and adds a step that can fail.
+The login is now created server-side, already confirmed, and the invitee signs
+straight in.
+⚖️ **But an invitation must never set a password on a LIVE account** — that is
+account takeover with extra steps. A confirmed, previously-used account is left
+untouched and the invitee is asked to use their own password. An unconfirmed,
+never-used shell is completed, which is what unsticks anyone the old flow
+stranded. Both cases are asserted.
+
+⚠️ **A third fault, found while fixing the second:** the new code asked "does
+this address already have a login?" via the admin SDK's paginated `listUsers`,
+then searched the page. Past the page size the account is simply not found, so
+the code would create one and the invitee would be told their address is already
+registered. TFML alone has 700+ staff. Replaced with `auth_account_state()`
+(0043) — an exact, service-role-only lookup returning three booleans and nothing
+else.
+
+⚠️ **Two test defects, both the familiar kind.** `verify-invitations` created its
+accounts with the admin API, which confirms the email as a side effect — so it
+exercised a path the browser never took, which is exactly why this survived.
+**A test that stages its fixtures differently from the real path is not testing
+the real path.** And the new script compared emails case-sensitively while
+Supabase lower-cases them on write, so a check silently failed AND its cleanup
+never matched — twelve probe accounts had accumulated.
+
+⚖️ **Cleanup now retires rather than deletes what it cannot remove.** A probe
+that redeemed an invitation is referenced by `audit_log.actor_id`, and the audit
+trail raises on DELETE for the service role too (0005). 0025 had already noted
+the consequence. Deleting it would mean weakening the audit design to suit a
+test — so the fixture is deactivated and labelled, exactly as a real departing
+member is, and the script reports "N removed, M retired" instead of claiming a
+clean sweep.
+
+🔎 `verify-invite-acceptance.mjs` — 17 checks: a fresh invitee gets in first
+time; a stranded shell is repaired; a live account's password survives an
+invitation aimed at it; revoked, expired and forged links provision nothing.

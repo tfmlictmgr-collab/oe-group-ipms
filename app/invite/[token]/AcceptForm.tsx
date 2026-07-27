@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ChannelPicker, EMPTY_PREFS, type ChannelPrefs } from "@/components/patterns/channel-picker";
-import { redeemInvitation } from "./actions";
+import { provisionInviteAccount, redeemInvitation } from "./actions";
 import { runAction, describeError } from "@/lib/run-action";
 
 // Two steps in one submit: create the auth account for the invited address, then
@@ -45,23 +45,21 @@ export default function AcceptForm({
     const supabase = createClient();
 
     try {
-      // The email is fixed by the invitation — the field is read-only above.
-      const { error: signUpError } = await supabase.auth.signUp({ email, password });
+      // The login is created server-side, already confirmed: the invitation was
+      // emailed to this address, so control of the mailbox is already proven.
+      // Signing up in the browser instead returned no session whenever email
+      // confirmation was enabled, and stranded a half-made account behind it.
+      const { existingAccount } = await runAction(provisionInviteAccount(token, password));
 
-      if (signUpError) {
-        // An existing account is fine: sign in and redeem with it.
-        const { error: signInError } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
-        if (signInError) throw new Error(signUpError.message);
-      }
-
-      // Some projects require email confirmation before a session exists.
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      if (signInError) {
         throw new Error(
-          "Your account was created but needs email confirmation before you can continue. Check your inbox, then open this link again."
+          existingAccount
+            ? "You already have an account with this email. Enter its existing password to continue — this invitation will be applied to it."
+            : signInError.message
         );
       }
 
