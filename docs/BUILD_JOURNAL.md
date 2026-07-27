@@ -507,3 +507,37 @@ Both now resolve through the same function.
 
 📌 Live test-card run on the dev deployment is the remaining Day-5 step; the
 Paystack test webhook URL is saved and the adapter is live, not simulated.
+
+## 2026-07-27 · The same `LIMIT 1` bug, in a third place — and it hit live config
+
+⚠️ An admin configured the client-funds bank account for all three orgs. Two
+linked correctly. The third was wired to **"Client funds (recon test)"** — a fake
+account left behind by `verify-reconciliation.mjs`, because
+`saveBankAccount` resolved the ledger counterpart with `.limit(1)` and no
+ordering, exactly as `record_collection` had.
+
+That link is not cosmetic: `bank_accounts.ledger_account_id` is both what
+reconciliation compares the statement against **and** where the opening balance
+is posted. A wrong link silently misdirects both, and the org would have
+reconciled a real bank statement against a test account forever.
+
+⚖️ **One resolver, `canonical_ledger_account(org, purpose)` (0036).** Three
+independent `LIMIT 1`s meant three chances to disagree about which account holds
+the client's money. Deterministic ordering: numeric chart codes first, then code,
+then age.
+
+⚖️ **The stray account was deactivated, not deleted.** It carries two test
+postings that net to zero; removing them would edit the ledger, which the whole
+design forbids. Deactivating puts it out of reach of every resolver while
+leaving it auditable.
+
+⚠️ **The test script printed "(cleaned up)" while cleaning nothing** — six
+deletes, no error checks, no assertion. It now checks each delete and then reads
+back to confirm the rows are gone; two consecutive runs leave nothing behind.
+**A test that litters the database it verifies eventually verifies the litter** —
+this debris caused a real collection to be debited to a test account, then
+caused a real configuration to point at one.
+
+🔎 All three orgs now resolve to `1000 Client funds (bank)`, each linked to its
+own Providus account. Ledger, reconciliation, collections and checkout suites
+green after the repair.

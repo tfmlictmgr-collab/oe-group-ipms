@@ -10,6 +10,38 @@ interactive-analytics items), `OEA_TENANT_ONBOARDING.md`, `PHASE1_VENDOR_EVALUAT
 
 ---
 
+## Status board
+
+Where the build actually is. Updated at each day's gate. The narrative record —
+what was verified, what broke, what was decided — is `BUILD_JOURNAL.md`; this is
+the one-glance version.
+
+| Day | Deliverable | Status | Gate evidence |
+|-----|-------------|--------|---------------|
+| 0 | Preconditions (accounts, keys, domains) | 🟢 done | dev Supabase, Upstash, Sentry, Vercel dev project, Paystack test keys |
+| 1 | Environment split (demo frozen / phase-1 dev) | 🟢 done | seeding dev left demo untouched; limiter + Sentry proven live |
+| 2 | Brand isolation (routing, JWT claims, RLS, middleware) | 🟢 done | `verify-channel-routing`, `verify-jwt-claims` |
+| 3 | Omnichannel intake + AI triage, notification centre | 🟢 done | `verify-notifications`, `verify-cascade`, `verify-email-routing` |
+| — | *(inserted)* UI redesign, org branding, asset register, vendor applications | 🟢 done | `verify-org-theming`, `verify-asset-access`, `verify-asset-import`, `verify-vendor-applications`, `verify-invitations` |
+| 4 | Segregated client-funds ledger + reconciliation | 🟢 done | `verify-ledger`, `verify-reconciliation` — clean statement reconciles to 0, planted ₦75,000 debit flagged |
+| 5 | Live collections (checkout → webhook → ledger → receipt) | 🟢 done | `verify-collections`, `verify-checkout-e2e` — payload claiming ₦999,999,999 ignored; exactly-once under concurrency |
+| 6 | Live remittance (vendor payouts + landlord rent) | ⬜ next | gate: no transfer without verification + KPI + approvals, server-side threshold |
+| 7 | OEA tenant application + KYC intake | ⬜ | |
+| 8 | Two-tier human review + approval | ⬜ | |
+| 9 | Lease admin + rent roll | ⬜ | |
+| 10 | Interactive analytics dashboard (filters, drill-down) | ⬜ | |
+| 11 | Vendor KPI/SLA evaluation, work-order media, UX pass | ⬜ | |
+| 12 | Security audit, NDPA pack, UAT, go-live | ⬜ | |
+
+**Open items carried forward** (none blocking Day 6):
+- Client-funds **opening balance** and its allocation — placeholder ₦0 in all three orgs.
+- **Management/admin fee %** OEA deducts from rent — needed *by* Day 6.
+- **OEA WhatsApp number** — Meta business verification outstanding; needed by Days 7–9.
+- **Flutterwave (FX)** keys — not set, so non-Naira collections refuse cleanly (403).
+- `oraegbunike.com` sending domain — DNS is on Zoho, not HostGator; subdomain steps pending.
+
+---
+
 ## Standing rules (carried from the POC)
 
 1. **Never touch the demo.** All work on the `phase-1` branch against the **dev**

@@ -209,14 +209,47 @@ console.log("\nF. Reconciliation is finance/admin only");
   error ? ok(`FM/PM cannot run a reconciliation (${error.message.slice(0, 45)})`) : bad("ALLOWED — an FM reconciled");
 }
 
-// Cleanup
-await svc.from("reconciliations").delete().eq("bank_account_id", cleanup.bank);
-await svc.from("bank_statement_lines").delete().eq("bank_account_id", cleanup.bank);
-await svc.from("bank_accounts").delete().eq("id", cleanup.bank);
-await svc.from("ledger_postings").delete().in("entry_id", cleanup.entries);
-await svc.from("ledger_entries").delete().in("id", cleanup.entries);
-await svc.from("ledger_accounts").delete().in("id", cleanup.accounts);
-console.log("\n(cleaned up)");
+// ── Cleanup ────────────────────────────────────────────────────────────────
+// Checked, not assumed. This block used to print "(cleaned up)" while leaving
+// its fake client-funds account behind, and that debris was not harmless: a
+// real collection was later debited to it, and an admin configuring the org's
+// actual client-funds account had it linked to it. A test that litters the
+// database it verifies eventually verifies the litter.
+async function purge(label, run) {
+  const { error } = await run();
+  if (error) { failures++; console.log(`  \x1b[31mFAIL\x1b[0m cleanup — ${label}: ${error.message}`); }
+}
+
+await purge("reconciliations", () =>
+  svc.from("reconciliations").delete().eq("bank_account_id", cleanup.bank));
+await purge("statement lines", () =>
+  svc.from("bank_statement_lines").delete().eq("bank_account_id", cleanup.bank));
+await purge("bank account", () =>
+  svc.from("bank_accounts").delete().eq("id", cleanup.bank));
+await purge("postings", () =>
+  svc.from("ledger_postings").delete().in("entry_id", cleanup.entries));
+await purge("entries", () =>
+  svc.from("ledger_entries").delete().in("id", cleanup.entries));
+await purge("accounts", () =>
+  svc.from("ledger_accounts").delete().in("id", cleanup.accounts));
+
+// Prove it, rather than trusting the deletes returned no error.
+{
+  const { data: left } = await svc
+    .from("ledger_accounts").select("id, code").in("id", cleanup.accounts);
+  const { data: banks } = await svc
+    .from("bank_accounts").select("id").eq("id", cleanup.bank);
+  (left ?? []).length === 0 && (banks ?? []).length === 0
+    ? console.log("\n(cleaned up — verified nothing left behind)")
+    : (() => {
+        failures++;
+        console.log(
+          `\n  \x1b[31mFAIL\x1b[0m cleanup left ${(left ?? []).length} ledger account(s) ` +
+          `and ${(banks ?? []).length} bank account(s) behind: ` +
+          `${(left ?? []).map((a) => a.code).join(", ")}`
+        );
+      })();
+}
 
 console.log(
   failures === 0

@@ -54,14 +54,17 @@ export async function saveBankAccount(input: BankAccountInput) {
   }
 
   // Point the account at its ledger counterpart so reconciliation knows what to
-  // compare the statement against.
-  const { data: ledgerAcct } = await supabase
-    .from("ledger_accounts")
-    .select("id")
-    .eq("org_id", me.org_id)
-    .eq("purpose", input.purpose === "client_funds" ? "client_funds" : "suspense")
-    .limit(1)
-    .maybeSingle();
+  // compare the statement against — and so the opening balance posts to the
+  // right place.
+  //
+  // Resolved by canonical_ledger_account rather than picking a row here: this
+  // used to be `.limit(1)` with no ordering, and it linked a real client-funds
+  // account to a leftover test account. Whichever row the planner returns is
+  // not an acceptable answer to "which account holds the client's money".
+  const { data: ledgerAccountId } = await supabase.rpc("canonical_ledger_account", {
+    p_org_id: me.org_id,
+    p_purpose: input.purpose === "client_funds" ? "client_funds" : "suspense",
+  });
 
   const row = {
     org_id: me.org_id,
@@ -70,7 +73,7 @@ export async function saveBankAccount(input: BankAccountInput) {
     bank_name: input.bankName.trim() || null,
     account_name: input.accountName.trim() || null,
     account_number_last4: last4 || null,
-    ledger_account_id: ledgerAcct?.id ?? null,
+    ledger_account_id: (ledgerAccountId as string | null) ?? null,
     created_by: user.id,
   };
 
