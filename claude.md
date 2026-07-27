@@ -1,13 +1,17 @@
 # OE GROUP — AI-POWERED INTEGRATED FM / PROPERTY MANAGEMENT SYSTEM (IWMS)
-### Streamlined AI Instructions · Master Build Prompt v3.1 · Step-by-Step Design Workflow
+### Streamlined AI Instructions · Master Build Prompt v3.2 · Step-by-Step Design Workflow
 **Classification: Board Confidential · July 2026 · TFML + OEA**
-> ### ✅ Locked Scope Decisions (v3.1 — July 2026)
+> ### ✅ Locked Scope Decisions (v3.2 — July 2026)
 > 1. **Scale:** 100+ properties from day one; architecture must stay flexible and scalable.
 > 2. **Funds:** client funds are held in OE Group's **own designated bank accounts**; OE Group manages and authorises disbursement. This is a managed client-funds account + authorisation workflow (not licensed custody/escrow) → keep a **segregated** client-funds account, an in-app segregated ledger, the authorisation workflow, and **daily bank reconciliation**.
 > 3. **Approvals:** approval hierarchy and thresholds are **admin-configurable** (add/update approvers and limits via an admin user).
 > 4. **Payments:** **Paystack** (Collections + Transfers/remittance) **+ Flutterwave** (FX / international collections) — multi-currency retained.
 > 5. **Build model:** in-house **hybrid**, **AI-led end-to-end** — most cost-effective workable model (≈ ₦5.9M–₦8.9M one-time vs ₦11.7M–₦22M human-hybrid).
 > 6. **Aidra:** Phase 2 (reporting pilot).
+> 7. **Permissions are operator-governed, not org-governed (v3.2, 27 Jul 2026).** Role privileges become an admin-toggled **permission matrix** (Day 6.5) rather than role names hardcoded into policy — but the editor lives **only on the OE Group operator portal**. TFML and OEA administrators see the matrix **read-only**; they cannot change what their own staff may reach. This introduces a **platform operator org** (`orgs.is_platform_operator`), distinct from a brand org, and is the single deliberate crossing of the org-isolation boundary — routed through one audited `SECURITY DEFINER` function, never a cross-org policy.
+>     - **Non-delegable controls stay hardwired** and never appear as toggles: payment approval (incl. the threshold escalation to admin), remittance execution, ledger read/write, bank configuration, audit visibility, admin invitation, permission editing itself, and channel-route credentials. These are what an auditor checks; they are not preferences.
+>     - **Defaults are the most restrictive workable state.** A capability is granted only where **B7** explicitly names the role; where B7 is silent the default is OFF. A new org starts locked down and is opened deliberately.
+>     - **B7 remains the approved baseline.** Any deviation is badged with a per-capability diff and a one-click reset, so drift from the board-approved matrix is visible and intentional.
 
 *Supersedes: Master Build Prompt v2.0. Integrates the AURA Upgrade functional specification (6 modules) and the end-to-end IWMS/IFMS brief (live client-facing service-charge administration + third-party vendor payment coordination & remittance).*
 

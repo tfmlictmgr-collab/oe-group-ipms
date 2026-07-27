@@ -661,3 +661,52 @@ access matrix and JWT-claims suites still green after the fix.
 the easiest thing in a schema to lose by accident** — which is exactly why every
 denial is asserted against the database rather than inferred from reading the
 policies.
+
+## 2026-07-27 · Permissions become operator-governed (scheduled, Day 6.5)
+
+⚠️ **"Read-only Observer" was invisible in the invite dropdown.** The roles
+offered came from a private `ROLE_CHOICES` array in `InviteDialog.tsx`; the
+server validated against a separate `INVITABLE_ROLES` array in the action.
+Adding the role to one did nothing for the other. Now one exported list.
+**Two lists that must agree will eventually disagree** — and the failure is
+silent, because each half is individually correct.
+
+⚖️ **Role privileges become an admin-toggled permission matrix — Day 6.5**,
+after remittance rather than before it. The permission system must know which
+capabilities are non-delegable, and that list is not final until the B4 approval
+gate is complete; building it first means guessing, then reworking.
+
+⚖️ **The editor lives only on the OE Group operator portal.** Brand admins see
+the matrix read-only — transparency without control. This needs a **platform
+operator org**, a concept the model does not have: `orgs.is_platform_operator`,
+explicit rather than inferred from `delivery_brand = 'direct'`, because that
+field describes who delivers the service, not who governs the platform, and a
+future direct-delivery client would otherwise inherit operator rights silently.
+
+⚖️ **Editing another org's permissions is the ONE deliberate crossing of the
+org-isolation boundary.** Routed through a single audited `SECURITY DEFINER`
+function that verifies operator status, writes to exactly one target org, and
+records both orgs — never through a cross-org RLS policy. A policy would leave
+the boundary permanently weakened; a function leaves it intact with one guarded
+door.
+
+⚖️ **Some switches must not exist.** Payment approval and its threshold
+escalation, remittance execution, ledger read/write, bank configuration, audit
+visibility, admin invitation, permission editing itself, and channel-route
+credentials stay hardwired. These are the controls an auditor checks — a toggle
+granting `ledger.read` to Tenant exposes every client's money, and one granting
+`payment.approve` to whoever raises the invoice destroys segregation of duties.
+Shown as locked with the reason, not hidden: an admin should see the boundary.
+
+⚖️ **Default to the most restrictive workable state.** Seeded from B7, and OFF
+wherever B7 is silent. A new org starts locked down and is opened deliberately,
+rather than starting open and being closed from memory.
+
+⚖️ **B7 stays the approved baseline.** Deviation is badged with a per-capability
+diff and a one-click reset, so the running system cannot silently drift from the
+board-approved matrix.
+
+📌 Recorded in `CLAUDE.md` as locked scope decision 7 (**v3.1 → v3.2**) and
+specified in `PHASE1_WORKPLAN.md` Day 6.5, with its gate: *a toggle changes what
+the DATABASE returns; locked permissions cannot be moved by UI or direct API
+call; a brand admin cannot reach the editor.*

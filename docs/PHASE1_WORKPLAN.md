@@ -26,6 +26,7 @@ the one-glance version.
 | 4 | Segregated client-funds ledger + reconciliation | 🟢 done | `verify-ledger`, `verify-reconciliation` — clean statement reconciles to 0, planted ₦75,000 debit flagged |
 | 5 | Live collections (checkout → webhook → ledger → receipt) | 🟢 done | `verify-collections`, `verify-checkout-e2e` — payload claiming ₦999,999,999 ignored; exactly-once under concurrency |
 | 6 | Live remittance (vendor payouts + landlord rent) | ⬜ next | gate: no transfer without verification + KPI + approvals, server-side threshold |
+| 6.5 | Operator-governed permission matrix (toggles) | ⬜ | gate: a toggle changes what the DATABASE returns; locked permissions cannot be moved; brand admins cannot reach the editor |
 | 7 | OEA tenant application + KYC intake | ⬜ | |
 | 8 | Two-tier human review + approval | ⬜ | |
 | 9 | Lease admin + rent roll | ⬜ | |
@@ -241,6 +242,86 @@ the ledger shows fee retained and balance remitted.
 **remittance advice PDF**, fully reconciled.
 
 **Done when:** no transfer executes without the gate; ledger + bank agree.
+
+---
+
+## Day 6.5 — Operator-governed permission matrix
+
+Replaces role names hardcoded into RLS policies with a permission catalogue an
+administrator toggles. Sequenced **after** Day 6 deliberately: the permission
+system has to know which permissions are non-delegable, and that list is not
+final until the B4 approval gate is complete.
+
+**Claude prompt:**
+> "Introduce a per-org permission matrix. RLS policies stop naming roles and
+> instead ask `has_permission('<capability>')`, resolved against a
+> `role_permissions` table seeded from the B7 matrix. Build the toggle UI, the
+> locked-permission set, the deviation badge, and a verification suite that
+> proves a toggle changes what the DATABASE returns."
+
+### Locked decisions (agreed 27 July 2026)
+
+**1. Only the OE Group operator portal may change permissions.**
+TFML and OEA administrators **cannot** reach the editor. They see the matrix
+**read-only**, so they know what applies to their staff without being able to
+alter it — transparency without control.
+
+This needs a concept the model does not yet have: a **platform operator org**,
+distinct from a brand org. Add an explicit `orgs.is_platform_operator boolean
+not null default false`, set true for OE Group only. **Do not** infer it from
+`delivery_brand = 'direct'` — that field describes who delivers the service, not
+who governs the platform, and a future direct-delivery client would silently
+inherit operator rights.
+
+Editing another org's permissions is the **only** deliberate crossing of the
+org-isolation boundary in the system. It therefore goes through a single
+`SECURITY DEFINER` function that (a) verifies the caller is an admin of an org
+with `is_platform_operator`, (b) writes to exactly one target org, (c) writes an
+audit row naming both orgs. No table-level cross-org policy is added.
+
+**2. Locked — never appears as a toggle, hardwired in policy.**
+Each is a control someone external audits, not a preference:
+
+| Capability | Fixed to | Why it cannot be delegated |
+|---|---|---|
+| `payment.approve` | finance_approver + admin; above threshold **admin only** | B4 approval gate |
+| `payment.remit` | finance_approver + admin | executes a real transfer |
+| `ledger.write` | **no role** — system only | the ledger is written by collections/remittance, never by hand |
+| `ledger.read` | admin + finance_approver | client funds |
+| `bank.configure` | admin | defines what reconciliation compares against |
+| `audit.read` | admin + finance_approver | the trail must not be readable by those it records |
+| `permissions.edit` | operator admin only | the toggle that grants toggles |
+| `invitation.create_admin` | admin | prevents privilege escalation by invitation |
+| channel routing | service role only | `external_id` is a webhook credential (0039) |
+
+Cross-org isolation is **not** a permission at any level — it is an invariant.
+
+**3. Every configurable permission defaults to its most restrictive workable
+state.** The seed grants a capability only where B7 explicitly names the role;
+anywhere B7 is silent, the default is OFF. A new org therefore starts locked
+down and is opened deliberately, rather than starting open and being closed by
+memory.
+
+**4. B7 remains the approved baseline.** Any org whose matrix differs shows a
+**"differs from approved matrix"** badge with a per-capability diff, and a
+one-click reset to the B7 default. Drift must be visible and deliberate.
+
+**You do:** confirm the capability catalogue before the RLS rewrite begins.
+
+**You verify:** toggle `assets.write` off for FM/PM → an FM's asset save is
+refused **by the database**, not just hidden in the UI; toggle it back → the save
+succeeds. Attempt the same edit signed in as a TFML admin → the editor is
+unreachable. Attempt to move `payment.approve` → no toggle exists, and a direct
+API call still refuses.
+
+**👁 Visible deliverable:** a **permission matrix screen on the OE Group portal**
+with per-role toggles, locked rows shown as locked with their reason, and the
+deviation badge.
+
+**Done when:** a toggle changes what the database returns; locked permissions
+cannot be moved by UI or by direct API call; a brand admin cannot reach the
+editor; and every change is in the audit trail naming who changed what, for
+which org.
 
 ---
 
