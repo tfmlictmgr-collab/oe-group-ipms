@@ -25,8 +25,8 @@ the one-glance version.
 | — | *(inserted)* UI redesign, org branding, asset register, vendor applications | 🟢 done | `verify-org-theming`, `verify-asset-access`, `verify-asset-import`, `verify-vendor-applications`, `verify-invitations` |
 | 4 | Segregated client-funds ledger + reconciliation | 🟢 done | `verify-ledger`, `verify-reconciliation` — clean statement reconciles to 0, planted ₦75,000 debit flagged |
 | 5 | Live collections (checkout → webhook → ledger → receipt) | 🟢 done | `verify-collections`, `verify-checkout-e2e` — payload claiming ₦999,999,999 ignored; exactly-once under concurrency |
-| 6 | Live remittance (vendor payouts + landlord rent) | ⬜ next | gate: no transfer without verification + KPI + approvals, server-side threshold |
-| 6.5 | Operator-governed permission matrix (toggles) | ⬜ | gate: a toggle changes what the DATABASE returns; locked permissions cannot be moved; brand admins cannot reach the editor |
+| 6 | Live remittance (vendor payouts + landlord rent) | 🟢 done | `verify-remittance` — gate refuses every incomplete payment; 3 concurrent claims → 1 winner; re-confirming posts once; cannot pay more than is owed; `unknown` stays unknown |
+| 6.5 | Operator-governed permission matrix (toggles) | ⬜ next | gate: a toggle changes what the DATABASE returns; locked permissions cannot be moved; brand admins cannot reach the editor |
 | 7 | OEA tenant application + KYC intake | ⬜ | |
 | 8 | Two-tier human review + approval | ⬜ | |
 | 9 | Lease admin + rent roll | ⬜ | |
@@ -34,7 +34,17 @@ the one-glance version.
 | 11 | Vendor KPI/SLA evaluation, work-order media, UX pass | ⬜ | |
 | 12 | Security audit, NDPA pack, UAT, go-live | ⬜ | |
 
-**Open items carried forward** (none blocking Day 6):
+**Open items carried forward** (none blocking Day 6.5):
+- **Resend webhook** — add the endpoint + `RESEND_WEBHOOK_SECRET` so invitation
+  delivery outcomes (delivered / bounced) are recorded rather than assumed.
+- **`recordOpeningBalance` is not atomic** — a failed postings insert leaves a
+  ledger entry with nothing under it. Move into an RPC.
+- **`record_remittance_sent` resolves accounts inline** rather than through
+  `canonical_ledger_account`. Deterministic, but the "one resolver" rule does
+  not hold until it conforms.
+- **Migration numbering collision** — `0040_email_deliveries` and
+  `0040_remittance` share a number. Both applied; renaming would re-run them.
+  Leave, and keep numbering unique from 0047.
 - Client-funds **opening balance** and its allocation — placeholder ₦0 in all three orgs.
 - **Management/admin fee %** OEA deducts from rent — needed *by* Day 6.
 - **OEA WhatsApp number** — Meta business verification outstanding; needed by Days 7–9.

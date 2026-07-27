@@ -823,3 +823,54 @@ PL/pgSQL that only fails when called, read-then-insert as a uniqueness claim,
 discarded error returns, duplicated lists, and thrown Server Action errors — so
 each review starts from what has actually gone wrong here rather than from first
 principles.
+
+## 2026-07-27 · Phase 1 Day 6 (2/2) — remittance actually moves money
+
+🟢 The remittance domain built in part 1 had no caller. "Execute Remittance"
+flipped a status and touched nothing else, so a vendor payment could read
+**remitted with zero ledger effect** — the kind of thing discovered at
+reconciliation, months later. Now wired end to end.
+
+⚖️ **Post only on a CONFIRMED success.** Paystack may answer `pending`: accepted,
+outcome unknown. Posting then would record money as having left on a transfer
+that can still fail. A `pending` transfer stays `sending` and is settled by the
+`transfer.success` webhook, resolved by OUR reference.
+⚖️ **A transport failure is `unknown`, not `failed`.** If the instruction may or
+may not have reached the gateway, guessing either way is worse than admitting
+it: `failed` invites a retry that could pay twice, `sent` records money that may
+still be in the account. It is held for a person, and cannot be re-claimed.
+⚖️ **If the money left but the ledger write failed, never report failure.** That
+message would invite a retry, and a second transfer is unrecoverable. The user
+is told it was sent, told not to retry, and given the reference.
+⚖️ **The account number is not stored.** It goes to the gateway; what comes back
+is a recipient code, and that code is the only thing money can be sent to. The
+gateway is the system of record for where money goes, so a compromise here
+yields no payable details. Only the last four digits are kept.
+⚖️ **The bank's name enquiry wins over the form.** What gets stored is the
+account's real holder, and a mismatch is surfaced rather than accepted — a
+trading name legitimately differs from a registered one, so a person decides.
+⚖️ **Replacing bank details supersedes rather than edits.** Rewriting a
+recipient that past remittances point at would silently restate where money went.
+⚖️ **Flutterwave refuses payouts outright.** B3 scopes it to FX collections. A
+fake success on an unimplemented payout path is exactly how money appears to
+have moved when it has not.
+
+🔎 `verify-remittance`: the gate refuses unverified, unscored and unapproved
+payments; 3 concurrent claims produce exactly 1 winner; re-confirming returns
+the same entry and moves nothing; a sent remittance cannot be restated or walked
+back; fees land in fee income and the landlord receives the net; an unrecognised
+₦5,000,000 liability is refused by the overpayment guard; `unknown` stays
+unknown. Seven money suites green.
+
+⚠️ **Three test defects, all the same shape: a test that does not own its
+state.** The remittance suite ran against an unfunded service-charge account and
+read the overpayment guard's *correct* refusal as a broken gate. It identified a
+ledger entry as `made.entries[0]` — an index into a shared cleanup array, which
+became the wrong entry the moment a fixture pushed something ahead of it. And
+the ledger suite asserted absolute org-wide totals, so residue from any other
+suite — or a real payment — failed a correct system. All three now assert
+DELTAS against a captured baseline and verify their own cleanup.
+
+📌 **The live Paystack test payment is in the books.** TFML: ₦285,000 invoiced,
+₦287,000 received, flagged as a mismatch, posted to the client-funds ledger.
+Day 5 is proven against the real gateway, not just the simulator.
