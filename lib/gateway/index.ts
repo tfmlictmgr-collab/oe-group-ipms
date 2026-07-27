@@ -32,6 +32,32 @@ export type VerifyResult = {
   error?: string;
 };
 
+/** A payee the gateway will accept an instruction for. */
+export type RecipientResult = {
+  ok: boolean;
+  recipientCode?: string;
+  /** The bank's own record of the account holder, from name enquiry. */
+  resolvedName?: string;
+  error?: string;
+};
+
+export type TransferResult = {
+  ok: boolean;
+  transferCode?: string;
+  /**
+   * `success`  — the gateway has executed it; safe to post to the ledger.
+   * `pending`  — accepted, outcome unknown. MUST NOT be posted; the transfer
+   *              webhook decides. Posting on `pending` would record money as
+   *              having left on a transfer that may still fail.
+   * `failed`   — it will not happen.
+   * `otp`      — the account requires an OTP per transfer, which no unattended
+   *              system can supply. Treated as a configuration fault, not a
+   *              transient error.
+   */
+  status?: "success" | "pending" | "failed" | "otp";
+  error?: string;
+};
+
 export interface PaymentGatewayAdapter {
   readonly name: GatewayName;
   initialise(input: {
@@ -45,6 +71,27 @@ export interface PaymentGatewayAdapter {
   /** Server-to-server confirmation. The only trustworthy source of the amount. */
   verifyTransaction(reference: string): Promise<VerifyResult>;
   verifySignature(rawBody: string, signature: string | null): boolean;
+
+  /**
+   * Registers a payee. Money can only ever be sent to a recipient code, never
+   * to raw account details held here — so the gateway, not this application, is
+   * the system of record for where money goes.
+   */
+  createRecipient(input: {
+    name: string;
+    accountNumber: string;
+    bankCode: string;
+    currency: string;
+  }): Promise<RecipientResult>;
+
+  /** Sends money. `reference` is OUR idempotency key. */
+  transfer(input: {
+    reference: string;
+    recipientCode: string;
+    amount: number;      // major units
+    currency: string;
+    reason: string;
+  }): Promise<TransferResult>;
 }
 
 // ── Paystack ───────────────────────────────────────────────────────────────
@@ -127,6 +174,98 @@ class PaystackAdapter implements PaymentGatewayAdapter {
     if (a.length !== b.length) return false;
     return crypto.timingSafeEqual(a, b);
   }
+
+  async createRecipient(
+    input: Parameters<PaymentGatewayAdapter["createRecipient"]>[0]
+  ): Promise<RecipientResult> {
+    try {
+      const res = await fetch("https://api.paystack.co/transferrecipient", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.secret}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          type: "nuban",
+          name: input.name,
+          account_number: input.accountNumber,
+          bank_code: input.bankCode,
+          currency: input.currency,
+        }),
+      });
+      const json = (await res.json()) as {
+        status?: boolean;
+        message?: string;
+        data?: { recipient_code?: string; details?: { account_name?: string } };
+      };
+      if (!res.ok || !json.status || !json.data?.recipient_code) {
+        return { ok: false, error: json.message ?? `HTTP ${res.status}` };
+      }
+      return {
+        ok: true,
+        recipientCode: json.data.recipient_code,
+        // Paystack performs a name enquiry against the bank. This is the
+        // account's REAL holder, which is what should be shown for confirmation
+        // — not the name someone typed into our form.
+        resolvedName: json.data.details?.account_name,
+      };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : "gateway unreachable" };
+    }
+  }
+
+  async transfer(
+    input: Parameters<PaymentGatewayAdapter["transfer"]>[0]
+  ): Promise<TransferResult> {
+    try {
+      const res = await fetch("https://api.paystack.co/transfer", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.secret}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          source: "balance",
+          amount: toKobo(input.amount),
+          recipient: input.recipientCode,
+          reason: input.reason,
+          currency: input.currency,
+          // Our reference. Paystack rejects a repeat, so a retry cannot pay
+          // twice even if our own guard were bypassed.
+          reference: input.reference,
+        }),
+      });
+      const json = (await res.json()) as {
+        status?: boolean;
+        message?: string;
+        data?: { transfer_code?: string; status?: string };
+      };
+
+      if (!res.ok || !json.status) {
+        return { ok: false, status: "failed", error: json.message ?? `HTTP ${res.status}` };
+      }
+
+      const raw = json.data?.status ?? "pending";
+      // `otp` means the account is configured to require a one-time code per
+      // transfer. Nothing unattended can satisfy that, so it is reported as a
+      // configuration fault rather than retried forever.
+      const status: TransferResult["status"] =
+        raw === "success"
+          ? "success"
+          : raw === "failed" || raw === "reversed"
+            ? "failed"
+            : raw === "otp"
+              ? "otp"
+              : "pending";
+
+      return { ok: true, transferCode: json.data?.transfer_code, status };
+    } catch (e) {
+      // A network failure here is the dangerous case: the instruction may or may
+      // not have reached them. `ok: false` with no status leaves the remittance
+      // unresolved for a human rather than guessing either way.
+      return { ok: false, error: e instanceof Error ? e.message : "gateway unreachable" };
+    }
+  }
 }
 
 // ── Flutterwave (FX / international) ───────────────────────────────────────
@@ -195,6 +334,22 @@ class FlutterwaveAdapter implements PaymentGatewayAdapter {
     }
   }
 
+  // B3 scopes Flutterwave to FX COLLECTIONS. Payouts go through Paystack
+  // Transfers. Refusing here is deliberate: silently returning a fake success
+  // for an unimplemented payout path is how money appears to have moved when it
+  // has not.
+  async createRecipient(): Promise<RecipientResult> {
+    return { ok: false, error: "Flutterwave is configured for collections only, not payouts." };
+  }
+
+  async transfer(): Promise<TransferResult> {
+    return {
+      ok: false,
+      status: "failed",
+      error: "Flutterwave is configured for collections only, not payouts.",
+    };
+  }
+
   verifySignature(_rawBody: string, signature: string | null): boolean {
     // Flutterwave sends a shared secret in `verif-hash` rather than an HMAC of
     // the body. Compared in constant time all the same.
@@ -259,6 +414,32 @@ class SimulatedAdapter implements PaymentGatewayAdapter {
     const b = Buffer.from(signature);
     if (a.length !== b.length) return false;
     return crypto.timingSafeEqual(a, b);
+  }
+
+  async createRecipient(
+    input: Parameters<PaymentGatewayAdapter["createRecipient"]>[0]
+  ): Promise<RecipientResult> {
+    // Derived from the account number so the same account always yields the same
+    // code, as Paystack does — a re-registration must not create a second payee.
+    const digest = crypto.createHash("sha256").update(input.accountNumber).digest("hex");
+    return {
+      ok: true,
+      recipientCode: `RCP_SIM_${digest.slice(0, 16).toUpperCase()}`,
+      resolvedName: input.name,
+    };
+  }
+
+  async transfer(
+    input: Parameters<PaymentGatewayAdapter["transfer"]>[0]
+  ): Promise<TransferResult> {
+    // Reports `success` so the ledger path is exercised end to end without keys.
+    // Safe because this adapter is unreachable once any real key is present, and
+    // refuses outright in production (getAdapterByName).
+    return {
+      ok: true,
+      transferCode: `TRF_SIM_${input.reference}`,
+      status: "success",
+    };
   }
 }
 

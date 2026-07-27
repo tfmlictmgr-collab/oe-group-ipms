@@ -18,7 +18,7 @@ const LABELS: Record<Action, string> = {
   verify: "Service verified",
   performance: "Performance check complete",
   approve: "Payment approved",
-  remit: "Remittance executed (simulated)",
+  remit: "Transfer sent",
 };
 
 export default function PaymentActions({
@@ -36,7 +36,21 @@ export default function PaymentActions({
         if (action === "verify") await runAction(verifyService(paymentId));
         else if (action === "performance") await runAction(runPerformanceCheck(paymentId));
         else if (action === "approve") await runAction(approvePayment(paymentId));
-        else if (action === "remit") await runAction(executeRemittance(paymentId));
+        else if (action === "remit") {
+          const r = await runAction(executeRemittance(paymentId));
+          // A `pending` transfer has been accepted but has NOT moved money yet;
+          // saying "sent" would be a claim the gateway has not made.
+          if (r.status === "pending") {
+            toast.info("Transfer accepted — awaiting confirmation", {
+              description: `${r.reference}. The ledger will be updated when the bank confirms it. Do not send again.`,
+              duration: Infinity,
+              closeButton: true,
+            });
+          } else {
+            toast.success("Transfer sent", { description: r.reference });
+          }
+          return;
+        }
         toast.success(LABELS[action]);
       } catch (e) {
         // The gate's own reason, not a generic failure. Kept on screen: these
@@ -63,7 +77,7 @@ export default function PaymentActions({
     return (
       <p className="flex items-start gap-2 rounded-md bg-success/10 px-3 py-2 text-sm text-success">
         <CheckCircle2 className="mt-0.5 size-4 flex-shrink-0" />
-        Remitted (simulated). Flow complete.
+        Remitted. The transfer has been sent and posted to the ledger.
       </p>
     );
   }
@@ -72,7 +86,7 @@ export default function PaymentActions({
     pending_verification: { action: "verify", label: "Verify service", icon: <ShieldCheck /> },
     verified: { action: "performance", label: "Run performance check", icon: <Gauge /> },
     recommended: { action: "approve", label: "Approve payment", icon: <BadgeCheck /> },
-    approved: { action: "remit", label: "Execute remittance (simulated)", icon: <Send /> },
+    approved: { action: "remit", label: "Send payment", icon: <Send /> },
   };
 
   const step = config[status];

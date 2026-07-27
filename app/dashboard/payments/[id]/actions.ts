@@ -138,6 +138,20 @@ export async function approvePayment(paymentId: string): Promise<ActionResult> {
     .eq("id", paymentId);
   if (error) return failFromDb(error, "approve this payment");
 
+  // Approving IS the moment the obligation arises, so that is when it enters the
+  // books (0042). Idempotent, and deliberately not fatal: an approval that has
+  // been recorded must not be undone because the ledger posting failed — the
+  // remittance path recognises it again before paying anything out.
+  {
+    const { supabaseAdmin } = await import("@/lib/supabase/admin");
+    const { error: payableErr } = await supabaseAdmin.rpc("recognise_vendor_payable", {
+      p_payment_id: paymentId,
+    });
+    if (payableErr) {
+      console.error("could not recognise vendor payable:", payableErr.message);
+    }
+  }
+
   // Notify the vendor of approval via the B8 cascade (best-effort; never blocks
   // the approval itself).
   try {
@@ -164,22 +178,168 @@ export async function approvePayment(paymentId: string): Promise<ActionResult> {
   return ok();
 }
 
-// Stage 4 — Remittance (SIMULATED — POC ONLY; no live gateway).
-export async function executeRemittance(paymentId: string): Promise<ActionResult> {
+// Stage 4 — Remittance. Real money.
+//
+// The order here is the control, and it is worth stating plainly:
+//
+//   1. authorise         — finance or admin, checked here because the functions
+//                          below run under the service role and would otherwise
+//                          make the gate optional
+//   2. create            — `create_vendor_remittance` re-checks the ENTIRE B4
+//                          gate in the database (verified, performance passed,
+//                          approved, approved-status, a verified recipient on
+//                          file) and recognises the liability. The UI cannot
+//                          skip a step by calling this directly.
+//   3. claim             — flips queued → sending under a row lock. Two clicks
+//                          race here, and the loser is refused, so the gateway
+//                          is only ever instructed once.
+//   4. send              — the transfer itself
+//   5. post              — ONLY on a confirmed success. A `pending` transfer is
+//                          left for the webhook; posting it would record money
+//                          as having left on a transfer that may still fail.
+export type RemittanceResult = ActionResult<{
+  status: "sent" | "pending";
+  reference: string;
+}>;
+
+export async function executeRemittance(paymentId: string): Promise<RemittanceResult> {
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return fail("Your session expired. Please sign in again.");
+
+  const { data: me } = await supabase
+    .from("users").select("role").eq("id", user.id).single();
+  if (!me || !["admin", "finance_approver"].includes(me.role)) {
+    return fail("Only finance or an administrator can send a remittance.");
+  }
+
   const payment = await loadPayment(supabase, paymentId);
   if (!payment) return fail("That payment could not be found.");
 
-  if (payment.status !== "approved") {
-    return fail("Only an approved payment can be remitted.");
+  const { supabaseAdmin } = await import("@/lib/supabase/admin");
+  const { getGateway, newPaymentReference } = await import("@/lib/gateway");
+
+  const reference = newPaymentReference("remittance");
+
+  // 2 — the database re-checks the whole gate. Its refusals are written for a
+  // person, so they are surfaced as-is.
+  const { data: remittanceId, error: createErr } = await supabaseAdmin.rpc(
+    "create_vendor_remittance",
+    { p_payment_id: paymentId, p_reference: reference }
+  );
+  if (createErr) {
+    return fail(
+      createErr.message.replace(/^.*?:\s*/, ""),
+      "Nothing has been sent. Resolve the reason above and try again."
+    );
   }
 
-  const fakeRef = `SIMULATED-POC-${Date.now()}`;
-  const { error } = await supabase
+  // 3 — claim it. Losing this race is not an error worth alarming anyone about:
+  // it means the transfer is already on its way.
+  const { data: claimed, error: claimErr } = await supabaseAdmin.rpc(
+    "claim_remittance_for_sending",
+    { p_id: remittanceId }
+  );
+  if (claimErr) {
+    return fail(
+      "This remittance is already being sent.",
+      "Refresh in a moment to see the outcome."
+    );
+  }
+
+  const row = (Array.isArray(claimed) ? claimed[0] : claimed) as {
+    recipient_id: string;
+    net_amount: number | string;
+    currency: string;
+    reference: string;
+  };
+
+  // The payee comes from the remittance's own recipient, not from anything
+  // passed in. Money can only go to a code the gateway already holds.
+  const { data: recipient } = await supabaseAdmin
+    .from("payout_recipients")
+    .select("recipient_code, display_name")
+    .eq("id", row.recipient_id)
+    .single();
+
+  if (!recipient?.recipient_code) {
+    await supabaseAdmin.rpc("record_remittance_outcome", {
+      p_id: remittanceId, p_status: "failed",
+      p_message: "the payee has no verified gateway recipient",
+    });
+    return fail(
+      "This vendor has no verified bank recipient on file.",
+      "Add their bank details on the vendor's page first. Nothing has been sent."
+    );
+  }
+
+  // 4 — the amount comes from the remittance record, never from the request.
+  const gateway = getGateway(row.currency);
+  const result = await gateway.transfer({
+    reference: row.reference,
+    recipientCode: recipient.recipient_code,
+    amount: Number(row.net_amount),
+    currency: row.currency,
+    reason: `Vendor payment ${row.reference} — ${recipient.display_name}`,
+  });
+
+  // A transport failure is the dangerous case: the instruction may or may not
+  // have arrived. Recorded as `unknown` so a person reconciles it, rather than
+  // being guessed either way.
+  if (!result.ok && !result.status) {
+    await supabaseAdmin.rpc("record_remittance_outcome", {
+      p_id: remittanceId, p_status: "unknown", p_message: result.error ?? "gateway unreachable",
+    });
+    revalidatePath(`/dashboard/payments/${paymentId}`);
+    return fail(
+      "The gateway could not be reached, and it is not known whether the transfer was accepted.",
+      "This has been flagged for reconciliation. Do NOT retry — check the gateway before sending again."
+    );
+  }
+
+  if (result.status === "failed" || result.status === "otp") {
+    await supabaseAdmin.rpc("record_remittance_outcome", {
+      p_id: remittanceId,
+      p_status: "failed",
+      p_message: result.error ?? (result.status === "otp" ? "the account requires an OTP per transfer" : null),
+    });
+    revalidatePath(`/dashboard/payments/${paymentId}`);
+    return fail(
+      result.status === "otp"
+        ? "This gateway account requires a one-time code for every transfer, which the system cannot supply."
+        : `The transfer was refused: ${result.error ?? "no reason given"}`,
+      result.status === "otp"
+        ? "Disable OTP for transfers in the Paystack dashboard, or send this one manually."
+        : "No money has left the account."
+    );
+  }
+
+  // 5 — only a confirmed success posts to the ledger.
+  if (result.status !== "success") {
+    revalidatePath(`/dashboard/payments/${paymentId}`);
+    return ok({ status: "pending", reference: row.reference });
+  }
+
+  const { error: postErr } = await supabaseAdmin.rpc("record_remittance_sent", {
+    p_id: remittanceId,
+    p_transfer_code: result.transferCode ?? row.reference,
+  });
+  if (postErr) {
+    // The money HAS left. Never report this as a failure — that would invite a
+    // retry, and a second transfer is unrecoverable.
+    console.error("remittance posted at the gateway but not in the ledger:", postErr.message);
+    return fail(
+      "The transfer was sent, but it could not be recorded in the ledger.",
+      "Do NOT retry. Give this reference to whoever maintains the books: " + row.reference
+    );
+  }
+
+  await supabaseAdmin
     .from("payments")
-    .update({ status: "remitted", remittance_reference: fakeRef })
+    .update({ status: "remitted", remittance_reference: row.reference })
     .eq("id", paymentId);
-  if (error) return failFromDb(error, "record this remittance");
+
   revalidatePath(`/dashboard/payments/${paymentId}`);
-  return ok();
+  revalidatePath("/dashboard/ledger");
+  return ok({ status: "sent", reference: row.reference });
 }

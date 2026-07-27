@@ -41,6 +41,19 @@ const tenant = await login("resident@oegroup.test");
 const { data: me } = await svc.from("users").select("org_id").eq("id", finance.id).single();
 const orgId = me.org_id;
 
+// The org's position BEFORE this suite runs. Every assertion about segregation
+// below is a DELTA against this, not an absolute.
+//
+// It used to assert absolute totals — "held must be exactly 120,000" — which is
+// only true against a pristine database. The moment any other suite, or a real
+// test payment, left a balance behind, a correct system reported a failure.
+// A test that owns only part of the state must assert only its own effect.
+const baseline = await (async () => {
+  const { data } = await svc.from("client_funds_position")
+    .select("funds_held, funds_owed").eq("org_id", orgId).maybeSingle();
+  return { held: Number(data?.funds_held ?? 0), owed: Number(data?.funds_owed ?? 0) };
+})();
+
 const stamp = Date.now().toString(36).toUpperCase().slice(-5);
 const made = { accounts: [], entries: [] };
 
@@ -202,19 +215,23 @@ console.log("\nG. Balances and the segregation position are correct");
     .from("client_funds_position")
     .select("funds_held, funds_owed, unallocated").eq("org_id", orgId).single();
 
-  const held = Number(pos.funds_held);
-  const owed = Number(pos.funds_owed);
-  const unallocated = Number(pos.unallocated);
+  const held = Number(pos.funds_held) - baseline.held;
+  const owed = Number(pos.funds_owed) - baseline.owed;
+  // Absolute, for the alarm; and as a delta, for the arithmetic check — the
+  // view computes held − owed over the WHOLE org, so only the movement this
+  // suite caused can be predicted.
+  const unallocatedAbs = Number(pos.unallocated);
+  const unallocated = unallocatedAbs - (baseline.held - baseline.owed);
 
   held === 120000 && owed === 900000
-    ? ok(`position reads held ₦${held.toLocaleString()} vs owed ₦${owed.toLocaleString()}`)
-    : bad(`position reads held ${held}, owed ${owed} — expected 120000 / 900000`);
+    ? ok(`this suite moved held by ₦${held.toLocaleString()} and owed by ₦${owed.toLocaleString()} — the shortfall is reported`)
+    : bad(`this suite moved held by ${held}, owed by ${owed} — expected 120000 / 900000`);
 
   unallocated === held - owed
     ? ok(`shortfall computed correctly (₦${unallocated.toLocaleString()})`)
     : bad(`unallocated is ${unallocated}, expected ${held - owed}`);
 
-  unallocated < 0
+  unallocatedAbs < 0
     ? ok("segregation alarm FIRES on a shortfall — this is the number to watch daily")
     : bad("the alarm stayed silent while liabilities exceeded funds held");
 }

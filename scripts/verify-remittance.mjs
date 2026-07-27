@@ -58,6 +58,19 @@ const { data: vendor } = await svc.from("vendors").select("id")
 const { data: landlord } = await svc.from("users").select("id")
   .eq("email", "owner@oegroup.test").single();
 
+// One ACTIVE recipient per vendor is enforced by payout_recipients_vendor_uidx,
+// so a previous run that died before cleanup blocks this one. Clear the fixture's
+// own rows first rather than assuming a clean database.
+{
+  const { data: stale } = await svc.from("payout_recipients")
+    .select("id").like("display_name", "Test % Payouts");
+  const ids = (stale ?? []).map((r) => r.id);
+  if (ids.length > 0) {
+    await svc.from("remittances").delete().in("recipient_id", ids);
+    await svc.from("payout_recipients").delete().in("id", ids);
+  }
+}
+
 const { data: vRec } = await svc.from("payout_recipients").insert({
   org_id: orgId, party: "vendor", vendor_id: vendor.id,
   display_name: "Test Vendor Payouts", bank_name: "Test Bank",
@@ -71,6 +84,32 @@ const { data: lRec } = await svc.from("payout_recipients").insert({
   verified_at: new Date().toISOString(), created_by: fin.id,
 }).select("id").single();
 made.recipients.push(vRec.id, lRec.id);
+
+// Fund the service-charge account before anything is committed against it.
+//
+// Recognising a vendor payable DEBITS the service charge fund (0042): vendor
+// costs are met from what was collected for the property. On an empty fund the
+// overpayment guard correctly refuses — "account 2000 would be overpaid" — and
+// this suite was reading that refusal as a broken gate rather than as the
+// control doing its job. A test that starts from an impossible state proves
+// nothing about the possible one.
+const { data: seedEntry } = await svc.from("ledger_entries").insert({
+  org_id: orgId, entry_date: new Date().toISOString().slice(0, 10),
+  description: `Fixture funding ${stamp}`, source: "opening_balance",
+  created_by: fin.id,
+}).select("id").single();
+made.entries.push(seedEntry.id);
+{
+  const { data: fundAcct } = await svc.rpc("canonical_ledger_account",
+    { p_org_id: orgId, p_purpose: "service_charge_fund" });
+  const { error } = await svc.from("ledger_postings").insert([
+    { org_id: orgId, entry_id: seedEntry.id, account_id: bankAcctId, amount: 2_000_000,
+      memo: "fixture: funds collected" },
+    { org_id: orgId, entry_id: seedEntry.id, account_id: fundAcct, amount: -2_000_000,
+      memo: "fixture: held for the service charge fund" },
+  ]);
+  if (error) { bad(`could not fund the fixture — ${error.message}`); process.exit(1); }
+}
 
 async function newPayment(status, opts = {}) {
   const { data } = await svc.from("payments").insert({
@@ -146,6 +185,11 @@ console.log("\nD. An instruction can be claimed for sending exactly once");
     : bad(`${won} callers each believed they were sending`);
 }
 
+// Held by name. This was `made.entries[0]`, which silently became the wrong
+// entry the moment a fixture pushed something ahead of it — an index into a
+// shared cleanup list is not an identity.
+let vendorRemEntryId = null;
+
 console.log("\nE. Posting the send moves the money and settles the obligation");
 {
   const { data: entry, error } = await svc.rpc("record_remittance_sent", {
@@ -154,6 +198,7 @@ console.log("\nE. Posting the send moves the money and settles the obligation");
   if (error) { bad(`posting failed — ${error.message}`); }
   else {
     made.entries.push(entry);
+    vendorRemEntryId = entry;
     const after = await held();
     heldBefore - after === 180000
       ? ok(`client funds fell by exactly ₦180,000 (${heldBefore} → ${after})`)
@@ -178,7 +223,9 @@ console.log("\nF. Re-confirming does not post a second time");
     p_id: vendorRemId, p_transfer_code: `TRF_TEST_${stamp}`,
   });
   const after = await held();
-  again === made.entries[0] ? ok("the same ledger entry is returned") : bad(`different entry ${again}`);
+  again === vendorRemEntryId
+    ? ok("the same ledger entry is returned")
+    : bad(`different entry ${again} (expected ${vendorRemEntryId})`);
   before === after ? ok("funds unchanged — no double posting") : bad(`DOUBLE POSTED: ${before - after}`);
 }
 

@@ -73,6 +73,17 @@ export async function POST(
   }
 
   const { eventId, eventType, reference } = extractEvent(name, payload);
+
+  // ── Outbound: transfers ──────────────────────────────────────────────────
+  // Money LEAVING is settled here, not when the instruction was accepted. A
+  // transfer that came back `pending` has not moved anything yet, and posting it
+  // then would record a payout that may still fail. Handled before the inbound
+  // path because a transfer event has no payment intent to resolve.
+  if (eventType.startsWith("transfer.")) {
+    await handleTransferEvent(name, eventId, eventType, reference, payload);
+    return new NextResponse("OK", { status: 200 });
+  }
+
   if (!reference) {
     await logEvent(name, eventId, eventType, null, true, payload, null, "no reference in payload");
     return new NextResponse("OK", { status: 200 });
@@ -143,6 +154,84 @@ export async function POST(
   return new NextResponse("OK", { status: 200 });
 }
 
+/**
+ * Settles an outbound transfer from the gateway's own report.
+ *
+ * `reference` is OUR reference, echoed back — the same rule as collections: the
+ * remittance is resolved by something we generated, never by anything the
+ * payload chose. Posting is idempotent in `record_remittance_sent`, so a
+ * redelivered success cannot pay twice or post twice.
+ */
+async function handleTransferEvent(
+  gateway: GatewayName,
+  eventId: string,
+  eventType: string,
+  reference: string | null,
+  payload: Record<string, unknown>
+) {
+  await supabaseAdmin.from("gateway_events").insert({
+    gateway, event_id: eventId, event_type: eventType, reference,
+    signature_valid: true, payload,
+  });
+
+  if (!reference) {
+    await finishEvent(gateway, eventId, null, "transfer event carried no reference");
+    return;
+  }
+
+  const { data: remittance } = await supabaseAdmin
+    .from("remittances")
+    .select("id, status, ledger_entry_id")
+    .eq("reference", reference)
+    .maybeSingle();
+
+  if (!remittance) {
+    await finishEvent(gateway, eventId, null, "no matching remittance");
+    return;
+  }
+
+  const data = (payload.data ?? {}) as Record<string, unknown>;
+  const transferCode = String(data.transfer_code ?? reference);
+
+  if (eventType === "transfer.success") {
+    if (remittance.ledger_entry_id) {
+      await finishEvent(gateway, eventId, null, "already posted");
+      return;
+    }
+    const { data: entryId, error } = await supabaseAdmin.rpc("record_remittance_sent", {
+      p_id: remittance.id,
+      p_transfer_code: transferCode,
+    });
+    await finishEvent(
+      gateway, eventId, null,
+      error ? `posting failed: ${error.message}` : `posted entry ${entryId}`
+    );
+    return;
+  }
+
+  // failed / reversed. A reversal after a successful posting is NOT handled
+  // here: reversing money that has already been recorded as sent requires a
+  // compensating ledger entry and a human decision, so it is left flagged
+  // rather than quietly undone.
+  if (remittance.ledger_entry_id) {
+    await finishEvent(
+      gateway, eventId, null,
+      `${eventType} arrived AFTER posting — needs a reversing entry and review`
+    );
+    return;
+  }
+
+  const { error } = await supabaseAdmin.rpc("record_remittance_outcome", {
+    p_id: remittance.id,
+    p_status: "failed",
+    p_message: String(data.reason ?? data.message ?? eventType),
+  });
+  await finishEvent(
+    gateway, eventId, null,
+    error ? `could not record outcome: ${error.message}` : `recorded ${eventType}`
+  );
+}
+
 function extractEvent(name: GatewayName, payload: Record<string, unknown>) {
   const data = (payload.data ?? {}) as Record<string, unknown>;
 
@@ -150,6 +239,7 @@ function extractEvent(name: GatewayName, payload: Record<string, unknown>) {
     return {
       eventId: String(data.id ?? payload.id ?? `${data.reference ?? "unknown"}`),
       eventType: String(payload.event ?? "unknown"),
+      // Charges and transfers both echo our reference here.
       reference: (data.reference as string) ?? null,
     };
   }

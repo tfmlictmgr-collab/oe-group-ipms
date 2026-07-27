@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { ArrowLeft, Mail, Phone } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
+import PayoutRecipientForm from "./PayoutRecipientForm";
 import {
   WEIGHT_LABELS,
   SCORE_WEIGHTS,
@@ -13,7 +14,7 @@ import { PageHeader } from "@/components/patterns/page-header";
 import { EmptyState } from "@/components/patterns/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
   TableHeader,
@@ -68,6 +69,18 @@ export default async function VendorDetailPage({
     .single();
 
   if (!vendor) notFound();
+
+  // Where this vendor is paid. Finance and admin only — an FM/PM runs the work,
+  // not the bank details.
+  const isFinanceOrAdmin = ["admin", "finance_approver"].includes(session.profile?.role ?? "");
+  const { data: recipient } = isFinanceOrAdmin
+    ? await supabase
+        .from("payout_recipients")
+        .select("display_name, bank_name, account_number_last4, verified_at")
+        .eq("vendor_id", id)
+        .eq("active", true)
+        .maybeSingle()
+    : { data: null };
 
   const { data: evalData } = await supabase
     .from("vendor_evaluations")
@@ -196,6 +209,26 @@ export default async function VendorDetailPage({
           )}
         </CardContent>
       </Card>
+
+      {isFinanceOrAdmin && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Payout details</CardTitle>
+            <CardDescription>
+              A vendor cannot be remitted until a bank account has been verified
+              against their name.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <PayoutRecipientForm
+              vendorId={vendor.id}
+              vendorName={vendor.name}
+              existing={recipient ?? null}
+              canEdit={session.profile?.role === "admin"}
+            />
+          </CardContent>
+        </Card>
+      )}
 
       {canEvaluate && (
         <Card>
