@@ -69,17 +69,42 @@ async function ticketOrgFor(sender) {
 const stamp = Date.now();
 console.log(`Channel routing E2E against ${TARGET}\n`);
 
+// Resolve each brand's number from what is ACTUALLY registered rather than
+// hardcoding a fixture id. This suite used to post `TFML_WA_TEST_1000`, and the
+// moment those placeholders were replaced by the real Meta phone_number_ids it
+// reported a routing failure that did not exist. A test of the live
+// configuration must read the live configuration.
+const { data: waRoutes } = await svc
+  .from("channel_routes").select("org_id, external_id").eq("channel", "whatsapp");
+
+const numberForBrand = (brand) => {
+  const org = orgs.find((o) => o.delivery_brand === brand);
+  return (waRoutes ?? []).find((r) => r.org_id === org?.id)?.external_id ?? null;
+};
+
+const TFML_NUMBER = numberForBrand("TFML");
+const OEA_NUMBER = numberForBrand("OEA");
+
+if (!TFML_NUMBER || !OEA_NUMBER) {
+  console.log(
+    `  \x1b[31mFAIL\x1b[0m a brand has no WhatsApp number registered ` +
+    `(TFML: ${TFML_NUMBER ?? "none"}, OEA: ${OEA_NUMBER ?? "none"}) — ` +
+    `inbound to it is dropped and it can never reply.`
+  );
+  process.exit(1);
+}
+
 console.log("A. WhatsApp routes by phone_number_id → correct org");
 {
   const sender = `+234TFML${stamp}`;
-  const status = await postWhatsApp("TFML_WA_TEST_1000", sender, "Broken generator at the plant room");
+  const status = await postWhatsApp(TFML_NUMBER, sender, "Broken generator at the plant room");
   const org = await ticketOrgFor(sender);
   if (status === 200 && org && brandOf(org) === "TFML") ok(`TFML number → ticket in TFML org (${brandOf(org)})`);
   else bad(`TFML number → status ${status}, org ${org ? brandOf(org) : "none"}`);
 }
 {
   const sender = `+234OEA${stamp}`;
-  const status = await postWhatsApp("OEA_WA_TEST_2000", sender, "Rent statement query for my unit");
+  const status = await postWhatsApp(OEA_NUMBER, sender, "Rent statement query for my unit");
   const org = await ticketOrgFor(sender);
   if (status === 200 && org && brandOf(org) === "OEA") ok(`OEA number → ticket in OEA org (${brandOf(org)})`);
   else bad(`OEA number → status ${status}, org ${org ? brandOf(org) : "none"}`);
@@ -107,7 +132,7 @@ console.log("\nC. Unknown WhatsApp number is DROPPED (no ticket, still 200 to Me
 
 console.log("\nD. WhatsApp forged signature is rejected (403), unaffected by routing");
 {
-  const raw = JSON.stringify(waPayload("TFML_WA_TEST_1000", "+234BAD", "forged"));
+  const raw = JSON.stringify(waPayload(TFML_NUMBER, "+234BAD", "forged"));
   const res = await fetch(`${TARGET}/api/webhooks/whatsapp`, {
     method: "POST",
     headers: { "content-type": "application/json", "x-hub-signature-256": "sha256=deadbeef" },

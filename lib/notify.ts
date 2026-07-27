@@ -32,11 +32,20 @@ export async function whatsappSenderForOrg(orgId: string): Promise<WhatsAppSende
   const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
   if (!accessToken) return null;
 
+  // Ordered, not just limited. An org may hold more than one number (a second
+  // line, a migration in progress), and `limit(1)` with no ORDER BY lets the
+  // planner decide which brand's number a proactive message goes out from. The
+  // oldest registered route is the org's established number.
+  //
+  // This is only the fallback for messages WE initiate. A reply always uses the
+  // number the message arrived on, passed explicitly by the webhook.
   const { data, error } = await supabaseAdmin
     .from("channel_routes")
     .select("external_id")
     .eq("channel", "whatsapp")
     .eq("org_id", orgId)
+    .order("created_at", { ascending: true })
+    .order("external_id", { ascending: true })
     .limit(1)
     .maybeSingle();
 
