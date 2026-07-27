@@ -63,13 +63,13 @@ const fmtDate = (d: string | null) =>
     : "—";
 
 export default function CollectionsClient({
-  intents, billable, returnedRef, returnedIntentId, live,
+  intents, billable, returnedRef, returnedIntentId, mode,
 }: {
   intents: IntentRow[];
   billable: BillableRow[];
   returnedRef: string | null;
   returnedIntentId: string | null;
-  live: boolean;
+  mode: "live" | "test" | "simulated";
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState<string | null>(null);
@@ -188,7 +188,10 @@ export default function CollectionsClient({
         <StatCard label="Amount mismatches" value={String(flagged)} icon={<TriangleAlert />} />
       </div>
 
-      {!live && (
+      {/* Which gateway mode is in force. Nothing else on screen distinguishes a
+          test key from a live one, and the difference is whether real cards are
+          charged. */}
+      {mode === "simulated" && (
         <div className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/8 px-4 py-3 text-sm">
           <FlaskConical className="mt-0.5 size-4 flex-shrink-0 text-warning" />
           <p className="text-muted-foreground">
@@ -196,6 +199,30 @@ export default function CollectionsClient({
             No Paystack key is configured for this environment, so checkout runs
             in-app. The intent, webhook, verification and ledger posting are all
             real — only the card is not.
+          </p>
+        </div>
+      )}
+      {mode === "test" && (
+        <div className="flex items-start gap-2 rounded-lg border border-info/40 bg-info/8 px-4 py-3 text-sm">
+          <FlaskConical className="mt-0.5 size-4 flex-shrink-0 text-info" />
+          <p className="text-muted-foreground">
+            <span className="font-medium text-foreground">Paystack test mode.</span>{" "}
+            Checkout is the real Paystack page, but no card is charged. Use test
+            card <span className="font-mono">4084 0840 8408 4081</span>, any future
+            expiry, CVV <span className="font-mono">408</span>, OTP{" "}
+            <span className="font-mono">123456</span>.
+          </p>
+        </div>
+      )}
+      {mode === "live" && (
+        <div className="flex items-start gap-2 rounded-lg border border-destructive/50 bg-destructive/8 px-4 py-3 text-sm">
+          <TriangleAlert className="mt-0.5 size-4 flex-shrink-0 text-destructive" />
+          <p className="text-muted-foreground">
+            <span className="font-semibold text-destructive">Live keys — real money.</span>{" "}
+            Any payment raised here charges a real card and settles to the
+            client-funds account. If this is a demonstration environment, replace{" "}
+            <span className="font-mono">PAYSTACK_SECRET_KEY</span> with the{" "}
+            <span className="font-mono">sk_test_…</span> key before continuing.
           </p>
         </div>
       )}

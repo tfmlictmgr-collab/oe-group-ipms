@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
-import { gatewayConfigured } from "@/lib/gateway";
+import { gatewayMode } from "@/lib/gateway";
 import CollectionsClient, { type IntentRow, type BillableRow } from "./CollectionsClient";
 
 export default async function CollectionsPage({
@@ -50,7 +50,7 @@ export default async function CollectionsPage({
       billable={billable}
       returnedRef={ref ?? null}
       returnedIntentId={requested?.id ?? null}
-      live={gatewayConfigured("NGN")}
+      mode={gatewayMode("NGN")}
     />
   );
 }

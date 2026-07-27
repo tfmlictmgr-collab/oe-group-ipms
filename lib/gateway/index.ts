@@ -324,6 +324,29 @@ export function getAdapterByName(name: GatewayName): PaymentGatewayAdapter {
   return new SimulatedAdapter(process.env.SIMULATED_GATEWAY_SECRET ?? "dev-simulated-secret");
 }
 
+/**
+ * Whether the configured gateway will move REAL money.
+ *
+ * Both Paystack and Flutterwave distinguish test from live purely by which
+ * secret key is set — same endpoints, same code path, same success response.
+ * Nothing in the application can tell the difference at runtime, which means a
+ * live key pasted into a demo environment charges real cards and looks
+ * completely normal while doing it.
+ *
+ * So the mode is surfaced on screen rather than assumed. This is a label, not
+ * a control: it cannot stop a live key being used, only stop it being used
+ * unknowingly.
+ */
+export function gatewayMode(currency = "NGN"): "live" | "test" | "simulated" {
+  const key =
+    currency.toUpperCase() === "NGN"
+      ? process.env.PAYSTACK_SECRET_KEY
+      : process.env.FLUTTERWAVE_SECRET_KEY;
+  if (!key) return "simulated";
+  // Paystack: sk_test_… / sk_live_…   Flutterwave: FLWSECK_TEST-… / FLWSECK-…
+  return /(^sk_test_)|(_TEST-)|(^FLWSECK_TEST)/i.test(key) ? "test" : "live";
+}
+
 export function gatewayConfigured(currency = "NGN"): boolean {
   return currency.toUpperCase() === "NGN"
     ? Boolean(process.env.PAYSTACK_SECRET_KEY)
