@@ -22,7 +22,20 @@ export type MailCategory =
   | "operations" // job/notice updates
   | "it";        // system + technical notices
 
-export type SendResult = { sent: boolean; reason?: string };
+/**
+ * `sent` means the PROVIDER ACCEPTED the message — not that it arrived. Nothing
+ * observable at this point can tell us the latter, so no caller should phrase it
+ * as delivery. The outcome lands later, on the provider webhook, against
+ * `deliveryId`.
+ */
+export type SendResult = {
+  sent: boolean;
+  reason?: string;
+  /** Our email_deliveries row, for callers that want to show its status. */
+  deliveryId?: string;
+  /** The provider's message id — how its webhook correlates back to us. */
+  providerMessageId?: string;
+};
 
 type OrgMailIdentity = {
   name: string | null;
@@ -93,6 +106,9 @@ export async function sendEmail(opts: {
   orgId?: string | null;
   /** Explicit override, e.g. when the org row isn't to hand. */
   replyTo?: string | null;
+  /** What this email is about, so a bounce can be shown beside it. */
+  entityType?: string | null;
+  entityId?: string | null;
 }): Promise<SendResult> {
   const key = process.env.RESEND_API_KEY;
   const envFrom = process.env.RESEND_FROM?.trim() || null;
@@ -134,12 +150,75 @@ export async function sendEmail(opts: {
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
       console.error("Resend rejected the message:", res.status, detail.slice(0, 200));
+      await recordDelivery({
+        orgId: opts.orgId ?? null, to: opts.to, category: opts.category, subject,
+        entityType: opts.entityType ?? null, entityId: opts.entityId ?? null,
+        providerMessageId: null, status: "failed",
+        detail: `provider returned ${res.status}: ${detail.slice(0, 300)}`,
+      });
       return { sent: false, reason: `provider returned ${res.status}` };
     }
-    return { sent: true };
+
+    // Keep the provider's id. Without it a bounce webhook cannot be tied back to
+    // anything, which is exactly how "we told them it was emailed" became
+    // unfalsifiable.
+    const body = (await res.json().catch(() => ({}))) as { id?: string };
+    const deliveryId = await recordDelivery({
+      orgId: opts.orgId ?? null, to: opts.to, category: opts.category, subject,
+      entityType: opts.entityType ?? null, entityId: opts.entityId ?? null,
+      providerMessageId: body.id ?? null, status: "accepted", detail: null,
+    });
+
+    return { sent: true, deliveryId, providerMessageId: body.id };
   } catch (e) {
     // Never let a mail failure break the action that triggered it.
     console.error("Email send failed:", e);
+    await recordDelivery({
+      orgId: opts.orgId ?? null, to: opts.to, category: opts.category, subject,
+      entityType: opts.entityType ?? null, entityId: opts.entityId ?? null,
+      providerMessageId: null, status: "failed",
+      detail: e instanceof Error ? e.message.slice(0, 300) : "send failed",
+    });
     return { sent: false, reason: "send failed" };
+  }
+}
+
+/** Best-effort. A missing delivery record must never fail the send it describes. */
+async function recordDelivery(row: {
+  orgId: string | null;
+  to: string;
+  category: MailCategory;
+  subject: string;
+  entityType: string | null;
+  entityId: string | null;
+  providerMessageId: string | null;
+  status: "accepted" | "failed";
+  detail: string | null;
+}): Promise<string | undefined> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("email_deliveries")
+      .insert({
+        org_id: row.orgId,
+        to_email: row.to,
+        category: row.category,
+        subject: row.subject.slice(0, 300),
+        entity_type: row.entityType,
+        entity_id: row.entityId,
+        provider_message_id: row.providerMessageId,
+        status: row.status,
+        detail: row.detail,
+        resolved_at: row.status === "failed" ? new Date().toISOString() : null,
+      })
+      .select("id")
+      .single();
+    if (error) {
+      console.error("could not record email delivery:", error.message);
+      return undefined;
+    }
+    return data.id as string;
+  } catch (e) {
+    console.error("could not record email delivery:", e);
+    return undefined;
   }
 }

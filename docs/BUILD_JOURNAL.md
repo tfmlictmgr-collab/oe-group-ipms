@@ -768,3 +768,58 @@ clean sweep.
 🔎 `verify-invite-acceptance.mjs` — 17 checks: a fresh invitee gets in first
 time; a stranded shell is repaired; a live account's password survives an
 invitation aimed at it; revoked, expired and forged links provision nothing.
+
+## 2026-07-27 · Review of the day's work, and email delivery told the truth
+
+🔎 Ran the code-reviewer agent over the day's commits. Three findings were real
+defects in code written **today**, two of them repeats of mistakes this build had
+already made and documented.
+
+⚠️ **A cross-tenant leak in the very functions written to fix a different bug.**
+`canonical_ledger_account()` and `collection_bank_account()` (0035/0036) are
+`SECURITY DEFINER` — they bypass RLS by design — take a `p_org_id`, are granted
+to `authenticated`, and **never checked that org belonged to the caller**. Any
+signed-in user could ask for another org's client-funds ledger account id. Only
+a UUID escapes, so the blast radius is small; the lapse is not. Hours earlier,
+writing the viewer views, the rule had been stated explicitly: *a definer object
+bypasses RLS, so its body is the entire security boundary*. It was then
+reintroduced in a function instead of a view. **Knowing a rule and applying it
+are separate acts.** Fixed in 0044 (service role exempt, as elsewhere).
+
+⚠️ **Invoice regeneration could double-bill.** `generateInvoices` deleted the
+budget's existing `service_charges` and discarded the delete's error.
+`payment_intents.service_charge_id` has no ON DELETE clause, so once a payment
+has been requested the delete FAILS — and the code carried on to insert a second
+invoice for the same unit and period, beside one that may already be paid. Now
+refused, with the reason and the alternative.
+
+⚠️ **"One live request per invoice" was a comment, not a guarantee.** A read
+then an insert is not atomic; two staff, or one double-click, produced two
+payable checkout links for one invoice. 0045 adds the partial unique index, and
+losing the race now returns the other person's link rather than an error.
+
+⚠️ **An invitation could take over a real account.** The gate protecting
+existing logins was `is_confirmed && has_signed_in`, but `createUser` and every
+seed script pass `email_confirm: true` — so a colleague enrolled but not yet
+logged in looked exactly like a stranded shell, and whoever held an invitation
+for that address could overwrite its password. The reliable discriminator is the
+**profile**: `accept_invitation` creates the `users` row, so an auth account with
+one belongs to somebody. Gating on `is_confirmed` alone would have blocked the
+genuine recovery path, since this flow confirms on creation.
+
+⚖️ **"Emailed to <address>" was a claim the system could not support.** Resend
+returning 2xx means ACCEPTED FOR DELIVERY. A message can be accepted and then
+bounce, and the provider's message id — the only handle that could ever tell us
+which — was being discarded. Now: `email_deliveries` (0040) records every send,
+a signed Resend webhook records what became of it, and the invitations list shows
+`delivered` / `bounced` / `sent — not yet confirmed` instead of asserting
+success. The copy no longer says emailed; it says sent, and always offers the
+link.
+
+📌 The reviewer's own instructions (`.claude/agents/code-reviewer.md`) now carry
+the defect patterns this build keeps producing — `LIMIT 1` without `ORDER BY`,
+definer objects trusting their arguments, RLS policies with no role test,
+PL/pgSQL that only fails when called, read-then-insert as a uniqueness claim,
+discarded error returns, duplicated lists, and thrown Server Action errors — so
+each review starts from what has actually gone wrong here rather than from first
+principles.

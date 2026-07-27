@@ -14,7 +14,14 @@ export function PendingInvites({
   invites,
   brand,
 }: {
-  invites: { id: string; email: string; role: string; expires_at: string }[];
+  invites: {
+    id: string;
+    email: string;
+    role: string;
+    expires_at: string;
+    /** What became of the invitation email. Null when none was attempted. */
+    delivery: { status: string; detail: string | null } | null;
+  }[];
   brand: string | null;
 }) {
   const router = useRouter();
@@ -53,6 +60,7 @@ export function PendingInvites({
               <p className="text-xs text-muted-foreground">
                 {roleLabel(i.role, brand)} · expires in {days} day{days === 1 ? "" : "s"}
               </p>
+              {i.delivery && <DeliveryNote delivery={i.delivery} />}
             </div>
             <Button
               variant="ghost" size="sm" disabled={busy === i.id}
@@ -64,6 +72,38 @@ export function PendingInvites({
         );
       })}
     </ul>
+  );
+}
+
+/**
+ * The honest state of the invitation email.
+ *
+ * "Accepted" is not "delivered" — the provider taking a message says nothing
+ * about it reaching a mailbox. Showing the difference is the point: an
+ * administrator chasing a colleague who "never got the invite" needs to see
+ * `bounced` rather than be told it was emailed.
+ */
+function DeliveryNote({ delivery }: { delivery: { status: string; detail: string | null } }) {
+  const LOOK: Record<string, { variant: "success" | "warning" | "destructive" | "muted"; text: string }> = {
+    delivered: { variant: "success", text: "Email delivered" },
+    accepted: { variant: "muted", text: "Sent — delivery not yet confirmed" },
+    delayed: { variant: "warning", text: "Delayed by the recipient's server" },
+    bounced: { variant: "destructive", text: "Bounced — that address did not accept it" },
+    complained: { variant: "warning", text: "Marked as spam by the recipient" },
+    failed: { variant: "destructive", text: "Could not be sent" },
+  };
+  const look = LOOK[delivery.status] ?? { variant: "muted" as const, text: delivery.status };
+  const actionable = ["bounced", "failed", "complained"].includes(delivery.status);
+
+  return (
+    <p className="mt-1 flex flex-wrap items-center gap-1.5">
+      <Badge variant={look.variant}>{look.text}</Badge>
+      {actionable && (
+        <span className="text-xs text-muted-foreground">
+          Send them the link directly instead.
+        </span>
+      )}
+    </p>
   );
 }
 

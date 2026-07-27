@@ -13,7 +13,7 @@ export default async function InvitationsPage() {
   const brand = session.org?.delivery_brand ?? null;
 
   const supabase = await createClient();
-  const [invitesRes, vendorsRes, unitsRes, props] = await Promise.all([
+  const [invitesRes, vendorsRes, unitsRes, props, deliveriesRes] = await Promise.all([
     supabase
       .from("invitations")
       .select("id, email, role, expires_at")
@@ -22,7 +22,22 @@ export default async function InvitationsPage() {
     supabase.from("vendors").select("id, name").order("name"),
     supabase.from("units").select("id, label, property_id, properties(name)").order("label"),
     writableProperties(),
+    // What actually became of each invitation email. `accepted` means the
+    // provider took it, not that it arrived — a bounce lands here minutes later.
+    supabase
+      .from("email_deliveries")
+      .select("entity_id, status, detail, sent_at")
+      .eq("entity_type", "invitation")
+      .order("sent_at", { ascending: false }),
   ]);
+
+  // Most recent attempt per invitation.
+  const delivery = new Map<string, { status: string; detail: string | null }>();
+  for (const d of deliveriesRes.data ?? []) {
+    if (d.entity_id && !delivery.has(d.entity_id)) {
+      delivery.set(d.entity_id, { status: d.status, detail: d.detail });
+    }
+  }
 
   const writableIds = new Set(props.map((p) => p.id));
   const units = (unitsRes.data ?? [])
@@ -48,7 +63,13 @@ export default async function InvitationsPage() {
           <CardDescription>Invitations that haven&apos;t been used yet.</CardDescription>
         </CardHeader>
         <CardContent>
-          <PendingInvites invites={invitesRes.data ?? []} brand={brand} />
+          <PendingInvites
+            invites={(invitesRes.data ?? []).map((i) => ({
+              ...i,
+              delivery: delivery.get(i.id) ?? null,
+            }))}
+            brand={brand}
+          />
         </CardContent>
       </Card>
     </div>

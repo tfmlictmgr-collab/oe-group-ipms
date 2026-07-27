@@ -157,7 +157,27 @@ export async function raisePaymentRequest(input: RaiseInput): Promise<RaiseResul
     checkout_url: init.checkoutUrl ?? null,
     created_by: user.id,
   });
-  if (error) return failFromDb(error, "save this payment request");
+  if (error) {
+    // 0045 enforces one live intent per invoice. Losing that race means someone
+    // else raised the request a moment ago — hand back theirs rather than
+    // reporting a failure for something that has, in fact, been done.
+    if (error.message.includes("payment_intents_one_live_per_charge")) {
+      const { data: theirs } = await supabase
+        .from("payment_intents")
+        .select("gateway_reference, checkout_url")
+        .eq("service_charge_id", input.serviceChargeId!)
+        .in("status", ["pending", "part_paid"])
+        .maybeSingle();
+      if (theirs) {
+        return ok({
+          reference: theirs.gateway_reference,
+          checkoutUrl: theirs.checkout_url,
+          simulated: gateway.name === "simulated",
+        });
+      }
+    }
+    return failFromDb(error, "save this payment request");
+  }
 
   revalidatePath("/dashboard/ledger/collections");
   return ok({

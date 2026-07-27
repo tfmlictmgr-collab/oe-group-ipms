@@ -111,14 +111,31 @@ export async function provisionInviteAccount(
     return ok({ email, existingAccount: false });
   }
 
-  // A confirmed account that has been used is somebody's. Never touch it.
-  if (account.is_confirmed && account.has_signed_in) {
+  // Is this account SOMEBODY'S, or a shell stranded by a failed run of this
+  // same flow?
+  //
+  // "Confirmed and signed in" was too narrow a test. `createUser` below passes
+  // `email_confirm: true`, and so do the seed scripts, so a real account that
+  // simply has not been used yet — a colleague enrolled last week who hasn't
+  // logged in — looked identical to a shell. Whoever held an invitation for that
+  // address could then overwrite its password and take the account over.
+  //
+  // The reliable discriminator is the PROFILE. `accept_invitation` creates the
+  // `users` row, so an auth account with one has completed enrolment into an org
+  // and belongs to a person. A shell from a half-finished acceptance has none.
+  const { data: profile } = await supabaseAdmin
+    .from("users")
+    .select("id")
+    .eq("id", account.user_id)
+    .maybeSingle();
+
+  if (account.has_signed_in || profile) {
     return ok({ email, existingAccount: true });
   }
 
   // Otherwise it is a stranded shell from a failed attempt at this same flow —
-  // created, never confirmed, never used. Complete it rather than leaving the
-  // invitee permanently unable to accept.
+  // created, never used, never enrolled anywhere. Complete it rather than
+  // leaving the invitee permanently unable to accept.
   const { error } = await supabaseAdmin.auth.admin.updateUserById(account.user_id, {
     password,
     email_confirm: true,

@@ -36,7 +36,7 @@ export type InviteInput = {
  */
 export async function inviteMember(
   input: InviteInput
-): Promise<ActionResult<{ url: string; emailed: boolean }>> {
+): Promise<ActionResult<{ url: string; accepted: boolean }>> {
   const supabase = await createClient();
 
   const { data: { user } } = await supabase.auth.getUser();
@@ -81,7 +81,7 @@ export async function inviteMember(
 
   const token = generateInviteToken();
 
-  const { error } = await supabase.from("invitations").insert({
+  const { data: invitation, error } = await supabase.from("invitations").insert({
     org_id: me.org_id,
     email,
     role: input.role,
@@ -92,7 +92,7 @@ export async function inviteMember(
     vendor_id: input.vendorId || null,
     token_hash: hashInviteToken(token),
     invited_by: user.id,
-  });
+  }).select("id").single();
   if (error) return failFromDb(error, "issue that invitation");
 
   const h = await headers();
@@ -106,21 +106,26 @@ export async function inviteMember(
   const { data: org } = await supabase
     .from("orgs").select("delivery_brand").eq("id", me.org_id).single();
 
-  const emailed = await trySendInviteEmail(
+  // `accepted` is what the provider tells us synchronously; whether it ARRIVED
+  // is decided later, by the delivery webhook, against this invitation.
+  const accepted = await trySendInviteEmail(
     email,
     url,
     input.role,
     me.org_id,
     org?.delivery_brand ?? null,
-    me.full_name ?? null
+    me.full_name ?? null,
+    invitation?.id ?? null
   );
   revalidatePath("/dashboard/people");
-  return ok({ url, emailed });
+  return ok({ url, accepted });
 }
 
 /**
- * Best-effort email. Returns false (not an error) when Resend isn't configured —
- * the caller still has the shareable link, so onboarding is never blocked.
+ * Best-effort email. Returns whether the provider ACCEPTED it — never whether it
+ * arrived; that is only known once the delivery webhook reports back. Returns
+ * false (not an error) when Resend isn't configured: the caller still has the
+ * shareable link, so onboarding is never blocked.
  * Category "account", so replies reach the org's support inbox rather than the
  * unmonitored sending subdomain.
  *
@@ -135,7 +140,8 @@ async function trySendInviteEmail(
   role: string,
   orgId: string,
   brand: string | null,
-  invitedByName: string | null
+  invitedByName: string | null,
+  invitationId: string | null
 ): Promise<boolean> {
   const roleName = roleLabel(role, brand);
 
@@ -143,6 +149,8 @@ async function trySendInviteEmail(
     to,
     orgId,
     category: "account",
+    entityType: "invitation",
+    entityId: invitationId,
     subject: ({ brandName }) => `You've been invited to the ${brandName} portal`,
     text: ({ brandName }) =>
       [

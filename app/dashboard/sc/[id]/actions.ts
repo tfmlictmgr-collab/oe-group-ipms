@@ -49,7 +49,27 @@ export async function generateInvoices(budgetId: string): Promise<ActionResult> 
   );
 
   // Regenerate cleanly: clear prior invoices for this budget first.
-  await supabase.from("service_charges").delete().eq("budget_id", budgetId);
+  //
+  // The delete's error was previously discarded, and that was a double-billing
+  // bug waiting to happen. `payment_intents.service_charge_id` has no ON DELETE
+  // clause, so once a payment has been requested against any of these invoices
+  // the delete FAILS — and the insert below would then have added a second
+  // invoice for the same unit and period, alongside one that may already be
+  // paid. A budget cannot be silently re-invoiced over live collections.
+  const { error: delErr } = await supabase
+    .from("service_charges")
+    .delete()
+    .eq("budget_id", budgetId);
+
+  if (delErr) {
+    if (/foreign key/i.test(delErr.message)) {
+      return fail(
+        "These invoices cannot be regenerated: a payment has already been requested against at least one of them.",
+        "Regenerating would raise a second invoice for the same unit and period. Cancel the outstanding payment requests first, or issue an adjustment instead."
+      );
+    }
+    return failFromDb(delErr, "clear the previous invoices");
+  }
 
   const rows = shares.map((s) => ({
     org_id: budget.org_id,

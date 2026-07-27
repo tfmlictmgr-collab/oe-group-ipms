@@ -35,7 +35,7 @@ export default function InviteDialog({
   const [unitId, setUnitId] = React.useState("");
   const [vendorId, setVendorId] = React.useState("");
   const [busy, setBusy] = React.useState(false);
-  const [issued, setIssued] = React.useState<{ url: string; emailed: boolean } | null>(null);
+  const [issued, setIssued] = React.useState<{ url: string; accepted: boolean } | null>(null);
   const [copied, setCopied] = React.useState(false);
 
   // Attaché assignment only applies to the roles that are scoped to properties.
@@ -64,10 +64,14 @@ export default function InviteDialog({
         })
       );
       setIssued(res);
-      toast.success("Invitation issued", {
-        description: res.emailed
-          ? `Emailed to ${email}.`
-          : "Copy the link below and send it to them.",
+      // Deliberately NOT "emailed to X". The provider accepting a message is
+      // not the same as the person receiving it, and saying otherwise sent
+      // administrators looking for a fault at the recipient's end when the
+      // message had bounced. The link is always offered.
+      toast.success("Invitation created", {
+        description: res.accepted
+          ? `Sent to ${email}. Copy the link below in case it doesn't arrive.`
+          : "Email wasn't sent — copy the link below and share it directly.",
       });
       setEmail(""); setFullName(""); setPropertyIds([]); setUnitId(""); setVendorId("");
       router.refresh();
@@ -202,14 +206,14 @@ export default function InviteDialog({
           <div className="space-y-2 rounded-md border border-border bg-muted/40 p-4">
             <p className="flex items-center gap-2 text-sm font-medium">
               <Mail className="size-4 text-brand" />
-              {issued.emailed ? "Invitation emailed" : "Send this link to them"}
+              {issued.accepted ? "Invitation sent" : "Send this link to them"}
             </p>
-            {!issued.emailed && (
-              <p className="text-xs text-muted-foreground">
-                Email delivery isn&apos;t configured yet, so share this link directly
-                (WhatsApp is fine). It works once and expires in 14 days.
-              </p>
-            )}
+            <p className="text-xs text-muted-foreground">
+              {issued.accepted
+                ? "Handed to the mail provider. Delivery is confirmed separately — check the Invitations list for the outcome. If it hasn't arrived in a few minutes, send this link directly (WhatsApp is fine)."
+                : "Email wasn't sent, so share this link directly (WhatsApp is fine)."}{" "}
+              It works once and expires in 14 days.
+            </p>
             <div className="flex gap-2">
               <Input readOnly value={issued.url} className="font-mono text-xs" />
               <Button type="button" variant="outline" onClick={copy} className="flex-shrink-0">
