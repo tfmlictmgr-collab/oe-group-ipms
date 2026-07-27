@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { ok, fail, failFromDb, type ActionResult } from "@/lib/action-result";
 
 // Dispatch a ticket to a vendor and/or an FM ops person. Runs under the caller's
 // session, so RLS restricts this to admin/FM. Sets status to 'assigned' and
@@ -12,14 +13,14 @@ export async function assignTicket(
   ticketId: string,
   vendorId: string | null,
   opsUserId: string | null
-) {
+): Promise<ActionResult> {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
   if (!vendorId && !opsUserId) {
-    throw new Error("Pick a vendor or an ops person to assign to.");
+    return fail("Pick a vendor or an ops person to assign this to.");
   }
 
   const { error } = await supabase
@@ -33,7 +34,7 @@ export async function assignTicket(
       status: "assigned",
     })
     .eq("id", ticketId);
-  if (error) throw new Error(error.message);
+  if (error) return failFromDb(error, "assign this job");
 
   // Let the assignee know in-app, not only through the outbound cascade.
   if (opsUserId) {
@@ -50,11 +51,12 @@ export async function assignTicket(
 
   revalidatePath(`/dashboard/tickets/${ticketId}`);
   revalidatePath("/dashboard");
+  return ok();
 }
 
 // The assignee acknowledges the job. RLS lets only the assigned vendor/ops user
 // (or admin/FM) update this ticket, so the acknowledgement is authentic.
-export async function acknowledgeJob(ticketId: string) {
+export async function acknowledgeJob(ticketId: string): Promise<ActionResult> {
   const supabase = await createClient();
 
   const { error } = await supabase
@@ -65,8 +67,9 @@ export async function acknowledgeJob(ticketId: string) {
     })
     .eq("id", ticketId)
     .eq("status", "assigned");
-  if (error) throw new Error(error.message);
+  if (error) return failFromDb(error, "acknowledge this job");
 
   revalidatePath(`/dashboard/tickets/${ticketId}`);
   revalidatePath("/dashboard");
+  return ok();
 }

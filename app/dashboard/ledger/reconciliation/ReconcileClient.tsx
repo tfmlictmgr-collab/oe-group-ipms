@@ -17,6 +17,8 @@ import {
   Table, TableHeader, TableBody, TableRow, TableHead, TableCell,
 } from "@/components/ui/table";
 import { validateStatementCsv, type StatementRow } from "@/lib/statement-import";
+import { runAction, messageOf, hintOf } from "@/lib/run-action";
+import type { ActionResult } from "@/lib/action-result";
 import { commitStatementImport, autoMatch, runReconciliation, type ReconciliationResult } from "../actions";
 
 export default function ReconcileClient({
@@ -62,15 +64,13 @@ export default function ReconcileClient({
   const blocked = rows.length - valid.length;
   const warned = rows.filter((r) => r.possibleDuplicate).length;
 
-  async function run<T>(fn: () => Promise<T>, onOk: (r: T) => void) {
+  async function run<T>(fn: () => Promise<ActionResult<T>>, onOk: (r: T) => void) {
     setBusy(true);
     try {
-      onOk(await fn());
+      onOk(await runAction(fn()));
       router.refresh();
     } catch (e) {
-      toast.error("Something went wrong", {
-        description: e instanceof Error ? e.message : "Unexpected error.",
-      });
+      toast.error(messageOf(e), { description: hintOf(e), duration: Infinity, closeButton: true });
     } finally {
       setBusy(false);
     }

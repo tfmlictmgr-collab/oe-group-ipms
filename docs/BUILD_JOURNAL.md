@@ -575,3 +575,39 @@ same wall. Collections is converted as the reference implementation; the rest is
 tracked separately. **Error handling that is only exercised in development is
 not error handling** — it looked correct locally in every test I ran, because
 `next dev` shows the real message.
+
+## 2026-07-27 · Every server action now tells the user what went wrong
+
+Converted all 13 `"use server"` modules — 28 actions, 95 throw sites — from
+throwing user-facing messages to returning them.
+
+⚖️ **`ActionResult<T>` and two helpers.** `fail(message, hint?)` on the server;
+`runAction()` on the client, which re-throws so the ~20 existing
+`catch (e) { toast(e.message) }` blocks keep working while finally showing the
+real reason. Messages are not masked on the client — only across the Server
+Action boundary — so re-throwing there is safe.
+⚖️ **`failFromDb` translates Postgres, once.** "new row violates row-level
+security policy" is not a sentence to put in front of a facilities manager; it
+now reads "You do not have permission to assign that occupant."
+⚖️ **Two files still throw, deliberately.** `buildImportContext` is awaited
+during a server render for a state middleware already prevents, and
+`app/pay/[reference]` is dev-only. Masking is correct for both — they are bugs,
+not user errors, and the audit records them as exceptions by name.
+⚖️ **Messages that name a fix are pinned until dismissed.** A four-second toast
+saying which approval step is missing cannot be acted on.
+
+⚠️ The audit found a file I had missed entirely — `app/apply/[orgId]`, the
+public vendor application. It already returned results, in its own `{ok, error}`
+shape, as did collections in a third shape. Three shapes for one idea is how the
+next one gets missed; all now share the type.
+
+🔎 `verify-action-errors.mjs` — a STATIC audit, and honest about it: it proves
+failures are returned, not that a toast renders. It checks no action throws
+outside the two documented exceptions, that every action module uses the shared
+result type, and that no client discards a result (accepting either
+`runAction()` or an explicit `.ok` check). All 12 suites green afterwards,
+including the checkout end-to-end.
+
+📌 **The reason this needed a check rather than a review**: `next dev` shows the
+real message, so the fault is invisible in the only environment where it is ever
+noticed. It survived every local test of every one of these screens.

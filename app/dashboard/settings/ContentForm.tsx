@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { updateOrgContent } from "./actions";
+import { runAction, describeError } from "@/lib/run-action";
 
 export default function ContentForm({
   orgId,
@@ -35,11 +36,11 @@ export default function ContentForm({
     e.preventDefault();
     setSaving(true);
     try {
-      await updateOrgContent(orgId, form);
+      await runAction(updateOrgContent(orgId, form));
       toast.success("Portal text updated");
     } catch (err) {
       toast.error("Could not save", {
-        description: err instanceof Error ? err.message : "Unexpected error.",
+        description: describeError(err),
       });
     } finally {
       setSaving(false);

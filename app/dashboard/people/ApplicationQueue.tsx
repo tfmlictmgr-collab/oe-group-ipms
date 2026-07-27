@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/patterns/empty-state";
 import { decideVendorApplication } from "./actions";
+import { runAction, describeError } from "@/lib/run-action";
 
 export type Application = {
   id: string;
@@ -32,7 +33,7 @@ export default function ApplicationQueue({ applications }: { applications: Appli
   async function decide(id: string, approve: boolean, name: string) {
     setBusy(id);
     try {
-      await decideVendorApplication(id, approve);
+      await runAction(decideVendorApplication(id, approve));
       toast.success(approve ? `${name} approved` : `${name} rejected`, {
         description: approve
           ? "A vendor record was created. They can now be assigned work."
@@ -41,7 +42,7 @@ export default function ApplicationQueue({ applications }: { applications: Appli
       router.refresh();
     } catch (e) {
       toast.error("Could not record the decision", {
-        description: e instanceof Error ? e.message : "Unexpected error.",
+        description: describeError(e),
       });
     } finally {
       setBusy(null);

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { ok, fail, failFromDb, type ActionResult } from "@/lib/action-result";
 
 /**
  * Fees the organisation retains from rent before remitting to the landlord
@@ -13,14 +14,14 @@ export async function updateFeeSettings(
   orgId: string,
   managementFeePercent: number,
   adminFeePercent: number
-) {
+): Promise<ActionResult> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error("Your session expired. Please sign in again.");
+  if (!user) return fail("Your session expired. Please sign in again.");
   const { data: me } = await supabase
     .from("users").select("org_id, role").eq("id", user.id).single();
   if (me?.role !== "admin" || me.org_id !== orgId) {
-    throw new Error("Only an administrator of this organisation can change fees.");
+    return fail("Only an administrator of this organisation can change fees.");
   }
 
   for (const [label, v] of [
@@ -28,11 +29,14 @@ export async function updateFeeSettings(
     ["Admin fee", adminFeePercent],
   ] as const) {
     if (!Number.isFinite(v) || v < 0 || v > 100) {
-      throw new Error(`${label} must be between 0 and 100.`);
+      return fail(`${label} must be between 0 and 100.`);
     }
   }
   if (managementFeePercent + adminFeePercent > 100) {
-    throw new Error("Fees cannot total more than 100% — the landlord would receive nothing.");
+    return fail(
+      "Fees cannot total more than 100%.",
+      "At 100% the landlord receives nothing — check the two percentages."
+    );
   }
 
   const { error } = await supabase
@@ -43,7 +47,8 @@ export async function updateFeeSettings(
       updated_at: new Date().toISOString(),
     })
     .eq("org_id", orgId);
-  if (error) throw new Error(error.message);
+  if (error) return failFromDb(error, "save these fees");
 
   revalidatePath("/dashboard/settings/payments");
+  return ok();
 }

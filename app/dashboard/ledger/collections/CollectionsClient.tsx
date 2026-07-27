@@ -89,15 +89,15 @@ export default function CollectionsClient({
       try {
         const r = await refreshPaymentStatus(id);
         if (!r.ok) {
-          toast.error("Could not check that payment", { description: r.message });
-        } else if (r.posted) {
+          toast.error(r.message, { description: r.hint });
+        } else if (r.data.posted) {
           toast.success("Payment confirmed", {
             description: "It has been posted to the client-funds ledger.",
           });
           router.refresh();
         } else if (!quiet) {
           toast.info("Not yet received", {
-            description: `The gateway reports this as ${r.status}. Nothing has been posted.`,
+            description: `The gateway reports this as ${r.data.status}. Nothing has been posted.`,
           });
         }
       } catch {
@@ -133,13 +133,13 @@ export default function CollectionsClient({
         return;
       }
 
-      if (r.checkoutUrl) {
-        await navigator.clipboard.writeText(absolute(r.checkoutUrl)).catch(() => {});
+      if (r.data.checkoutUrl) {
+        await navigator.clipboard.writeText(absolute(r.data.checkoutUrl)).catch(() => {});
         toast.success("Payment request raised", {
-          description: `${r.reference} — checkout link copied to the clipboard.`,
+          description: `${r.data.reference} — checkout link copied to the clipboard.`,
         });
       } else {
-        toast.success("Payment request raised", { description: r.reference });
+        toast.success("Payment request raised", { description: r.data.reference });
       }
       router.refresh();
     } catch {

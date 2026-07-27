@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { formatNaira } from "@/lib/currency";
+import { runAction, describeError } from "@/lib/run-action";
 import {
   ensureChartOfAccounts,
   saveBankAccount,
@@ -69,7 +70,7 @@ export default function BankAccountForm({
       router.refresh();
     } catch (e) {
       toast.error("Couldn't save", {
-        description: e instanceof Error ? e.message : "Unexpected error.",
+        description: describeError(e),
       });
     } finally {
       setBusy(false);
@@ -163,7 +164,7 @@ export default function BankAccountForm({
           disabled={busy}
           onClick={() =>
             run(
-              () => saveBankAccount({ id: account?.id, purpose: "client_funds", ...form }),
+              () => runAction(saveBankAccount({ id: account?.id, purpose: "client_funds", ...form })),
               account ? "Bank account updated" : "Bank account added"
             )
           }
@@ -286,13 +287,15 @@ export default function BankAccountForm({
                   onClick={() =>
                     run(
                       () =>
-                        recordOpeningBalance(
-                          account.id,
-                          asOf,
-                          rows.map((r) => ({
-                            accountId: r.accountId,
-                            amount: Number(r.amount.replace(/[,\s₦]/g, "")) || 0,
-                          }))
+                        runAction(
+                          recordOpeningBalance(
+                            account.id,
+                            asOf,
+                            rows.map((r) => ({
+                              accountId: r.accountId,
+                              amount: Number(r.amount.replace(/[,\s₦]/g, "")) || 0,
+                            }))
+                          )
                         ),
                       "Opening balance recorded"
                     )

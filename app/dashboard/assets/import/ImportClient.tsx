@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/table";
 import { validateAssetCsv, type ValidatedRow } from "@/lib/asset-import";
 import { commitAssetImport } from "../actions";
+import { runAction, describeError } from "@/lib/run-action";
 
 type RawCtx = {
   properties: [string, string][];
@@ -85,7 +86,7 @@ export default function ImportClient({
     try {
       // The server re-validates from scratch — the preview is a courtesy, not
       // the authority.
-      const res = await commitAssetImport(csvText);
+      const res = await runAction(commitAssetImport(csvText));
       if (res.inserted > 0) {
         toast.success(`Imported ${res.inserted} asset${res.inserted === 1 ? "" : "s"}`, {
           description: res.failed.length
@@ -101,7 +102,7 @@ export default function ImportClient({
       }
     } catch (e) {
       toast.error("Import failed", {
-        description: e instanceof Error ? e.message : "Unexpected error.",
+        description: describeError(e),
       });
     } finally {
       setCommitting(false);

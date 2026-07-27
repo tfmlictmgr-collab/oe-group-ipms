@@ -6,6 +6,7 @@ import { checkRateLimit, clientIp } from "@/lib/rate-limit";
 import { verifyTurnstile } from "@/lib/turnstile";
 import { generateInviteToken, hashInviteToken } from "@/lib/invitation";
 import { sendEmail } from "@/lib/email";
+import { ok, fail, type ActionResult } from "@/lib/action-result";
 
 // The public vendor application endpoint — the only unauthenticated write in the
 // system. Layers, in order of cost, so an abusive request is dropped as early as
@@ -38,7 +39,7 @@ export type ApplyInput = {
   renderedAt?: number;    // epoch ms when the form was rendered
 };
 
-export type ApplyResult = { ok: true } | { ok: false; error: string };
+export type ApplyResult = ActionResult<void>;
 
 const MIN_FILL_SECONDS = 3;   // a human cannot complete this form faster
 const MAX_FORM_AGE_MS = 60 * 60 * 1000; // 1h — stale forms are re-rendered
@@ -50,30 +51,30 @@ export async function submitVendorApplication(input: ApplyInput): Promise<ApplyR
   // 1 — per-IP rate limit.
   const ipGate = await checkRateLimit("vendor-apply-ip", ip, 5, "10 m");
   if (!ipGate.allowed) {
-    return { ok: false, error: "Too many applications from this connection. Please try again later." };
+    return fail("Too many applications from this connection. Please try again later.");
   }
 
   // 2 — honeypot and timing. Both are silent-ish: a bot gets a generic refusal,
   // never a hint about which control it tripped.
   if (input.honeypot && input.honeypot.trim() !== "") {
     console.warn("vendor application rejected: honeypot filled", { ip });
-    return { ok: false, error: "We couldn't accept this submission. Please try again." };
+    return fail("We couldn't accept this submission. Please try again.");
   }
   if (input.renderedAt) {
     const elapsed = Date.now() - input.renderedAt;
     if (elapsed < MIN_FILL_SECONDS * 1000) {
       console.warn("vendor application rejected: submitted too fast", { ip, elapsed });
-      return { ok: false, error: "We couldn't accept this submission. Please try again." };
+      return fail("We couldn't accept this submission. Please try again.");
     }
     if (elapsed > MAX_FORM_AGE_MS) {
-      return { ok: false, error: "This form has expired. Please reload the page and try again." };
+      return fail("This form has expired. Please reload the page and try again.");
     }
   }
 
   // 3 — Turnstile (no-ops when unconfigured; see lib/turnstile.ts).
   const ts = await verifyTurnstile(input.turnstileToken, ip);
   if (!ts.ok) {
-    return { ok: false, error: "Bot check failed. Please reload the page and try again." };
+    return fail("Bot check failed. Please reload the page and try again.");
   }
 
   // 4/5 — validation.
@@ -81,17 +82,17 @@ export async function submitVendorApplication(input: ApplyInput): Promise<ApplyR
   const businessName = input.businessName.trim();
   const contactName = input.contactName.trim();
 
-  if (businessName.length < 2) return { ok: false, error: "Enter your registered business name." };
-  if (contactName.length < 2) return { ok: false, error: "Enter a contact name." };
+  if (businessName.length < 2) return fail("Enter your registered business name.");
+  if (contactName.length < 2) return fail("Enter a contact name.");
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    return { ok: false, error: "Enter a valid email address." };
+    return fail("Enter a valid email address.");
   }
   // Bound every free-text field so a single request cannot store megabytes.
   const cap = (v: string, n: number) => v.trim().slice(0, n);
 
   const emailGate = await checkRateLimit("vendor-apply-email", email, 3, "24 h");
   if (!emailGate.allowed) {
-    return { ok: false, error: "An application from this email is already being processed." };
+    return fail("An application from this email is already being processed.");
   }
 
   const supabase = await createClient();
@@ -116,15 +117,15 @@ export async function submitVendorApplication(input: ApplyInput): Promise<ApplyR
   if (error) {
     // Duplicate is a normal outcome, not a fault — say so plainly.
     if (error.message.includes("vendor_applications_open_uidx")) {
-      return { ok: false, error: "You already have an application with us awaiting a decision." };
+      return fail("You already have an application with us awaiting a decision.");
     }
     // An RLS refusal here means the org isn't accepting applications. Don't
     // reveal whether the org exists.
     if (error.message.includes("row-level security")) {
-      return { ok: false, error: "This organisation isn't accepting vendor applications right now." };
+      return fail("This organisation isn't accepting vendor applications right now.");
     }
     console.error("vendor application insert failed:", error.message);
-    return { ok: false, error: "We couldn't submit your application. Please try again." };
+    return fail("We couldn't submit your application. Please try again.");
   }
 
   // Tell the people who must act on it. Uses the service role because the
@@ -146,7 +147,7 @@ export async function submitVendorApplication(input: ApplyInput): Promise<ApplyR
   }
 
   await trySendVerificationEmail(email, verificationToken, businessName, input.orgId);
-  return { ok: true };
+  return ok();
 }
 
 /**

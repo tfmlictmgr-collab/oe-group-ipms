@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ChannelPicker, EMPTY_PREFS, type ChannelPrefs } from "@/components/patterns/channel-picker";
 import { redeemInvitation } from "./actions";
+import { runAction, describeError } from "@/lib/run-action";
 
 // Two steps in one submit: create the auth account for the invited address, then
 // redeem the invitation, which creates the profile in the right org with the
@@ -64,12 +65,12 @@ export default function AcceptForm({
         );
       }
 
-      await redeemInvitation(token, fullName, prefs);
+      await runAction(redeemInvitation(token, fullName, prefs));
       toast.success("Welcome aboard", { description: "Your account is ready." });
       router.push("/dashboard");
       router.refresh();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Something went wrong.";
+      const msg = describeError(err);
       setError(msg);
       toast.error("Could not complete sign-up", { description: msg });
     } finally {

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Select } from "@/components/ui/input";
 import { assignUnitOccupant } from "./actions";
+import { runAction, describeError } from "@/lib/run-action";
 
 type Unit = {
   id: string;
@@ -27,12 +28,12 @@ export default function UnitAssign({
   async function change(unitId: string, userId: string) {
     setBusy(unitId);
     try {
-      await assignUnitOccupant(unitId, userId || null);
+      await runAction(assignUnitOccupant(unitId, userId || null));
       toast.success(userId ? "Occupant assigned" : "Unit marked vacant");
       router.refresh();
     } catch (e) {
       toast.error("Could not update unit", {
-        description: e instanceof Error ? e.message : "Unexpected error.",
+        description: describeError(e),
       });
     } finally {
       setBusy(null);

@@ -4,6 +4,7 @@ import { useTransition } from "react";
 import { toast } from "sonner";
 import { ShieldCheck, Gauge, BadgeCheck, Send, Ban, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { runAction, messageOf, hintOf } from "@/lib/run-action";
 import {
   verifyService,
   runPerformanceCheck,
@@ -32,16 +33,18 @@ export default function PaymentActions({
   function run(action: Action) {
     startTransition(async () => {
       try {
-        if (action === "verify") await verifyService(paymentId);
-        else if (action === "performance") await runPerformanceCheck(paymentId);
-        else if (action === "approve") await approvePayment(paymentId);
-        else if (action === "remit") await executeRemittance(paymentId);
+        if (action === "verify") await runAction(verifyService(paymentId));
+        else if (action === "performance") await runAction(runPerformanceCheck(paymentId));
+        else if (action === "approve") await runAction(approvePayment(paymentId));
+        else if (action === "remit") await runAction(executeRemittance(paymentId));
         toast.success(LABELS[action]);
       } catch (e) {
-        // The DB state machine (migration 0010) is the real gate — surface its
-        // reason rather than a generic failure.
-        toast.error("Action blocked", {
-          description: e instanceof Error ? e.message : "Unexpected error.",
+        // The gate's own reason, not a generic failure. Kept on screen: these
+        // say which step is missing, and that cannot be acted on in four seconds.
+        toast.error(messageOf(e, "That step could not be completed."), {
+          description: hintOf(e),
+          duration: Infinity,
+          closeButton: true,
         });
       }
     });

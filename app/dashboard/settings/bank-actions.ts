@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { ok, fail, failFromDb, type ActionResult } from "@/lib/action-result";
 
 // Bank-account configuration. Admin-only at the RLS layer; these actions add
 // validation and keep the ledger consistent with what is configured.
@@ -16,40 +17,42 @@ export type BankAccountInput = {
 };
 
 /** Creates the standard chart of accounts if the org has none yet. */
-export async function ensureChartOfAccounts() {
+export async function ensureChartOfAccounts(): Promise<ActionResult> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error("Your session expired. Please sign in again.");
+  if (!user) return fail("Your session expired. Please sign in again.");
   const { data: me } = await supabase
     .from("users").select("org_id").eq("id", user.id).single();
-  if (!me) throw new Error("Could not resolve your profile.");
+  if (!me) return fail("Could not resolve your profile.");
 
   const { error } = await supabase.rpc("ensure_default_ledger_accounts", {
     p_org_id: me.org_id,
   });
-  if (error) throw new Error(error.message);
+  if (error) return failFromDb(error, "set up the chart of accounts");
   revalidatePath("/dashboard/settings");
   revalidatePath("/dashboard/ledger");
+  return ok();
 }
 
-export async function saveBankAccount(input: BankAccountInput) {
+export async function saveBankAccount(input: BankAccountInput): Promise<ActionResult> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error("Your session expired. Please sign in again.");
+  if (!user) return fail("Your session expired. Please sign in again.");
   const { data: me } = await supabase
     .from("users").select("org_id, role").eq("id", user.id).single();
   if (me?.role !== "admin") {
-    throw new Error("Only an administrator can configure bank accounts.");
+    return fail("Only an administrator can configure bank accounts.");
   }
 
   const label = input.label.trim();
-  if (label.length < 2) throw new Error("Give the account a label.");
+  if (label.length < 2) return fail("Give the account a label.");
 
   const last4 = input.accountNumberLast4.trim();
   if (last4 && !/^\d{4}$/.test(last4)) {
     // Catches the common mistake of pasting the whole number.
-    throw new Error(
-      "Enter the LAST FOUR digits only — we deliberately don't store full account numbers."
+    return fail(
+      "Enter the LAST FOUR digits only.",
+      "Full account numbers are deliberately never stored — the last four are all reconciliation needs."
     );
   }
 
@@ -83,15 +86,17 @@ export async function saveBankAccount(input: BankAccountInput) {
 
   if (error) {
     if (error.message.includes("one_client_funds")) {
-      throw new Error(
-        "This organisation already has an active client-funds account. Edit that one instead — two would make the segregated balance ambiguous."
+      return fail(
+        "This organisation already has an active client-funds account.",
+        "Edit that one instead — two would make the segregated balance ambiguous."
       );
     }
-    throw new Error(error.message);
+    return failFromDb(error, "save this bank account");
   }
 
   revalidatePath("/dashboard/settings");
   revalidatePath("/dashboard/ledger");
+  return ok();
 }
 
 export type OpeningAllocation = { accountId: string; amount: number };
@@ -110,14 +115,14 @@ export async function recordOpeningBalance(
   bankAccountId: string,
   asOfDate: string,
   allocations: OpeningAllocation[]
-) {
+): Promise<ActionResult<{ total: number; entryId: string }>> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error("Your session expired. Please sign in again.");
+  if (!user) return fail("Your session expired. Please sign in again.");
   const { data: me } = await supabase
     .from("users").select("org_id, role").eq("id", user.id).single();
   if (!me || !["admin", "finance_approver"].includes(me.role)) {
-    throw new Error("Only an administrator or finance approver can record an opening balance.");
+    return fail("Only an administrator or finance approver can record an opening balance.");
   }
 
   const { data: bank } = await supabase
@@ -125,15 +130,17 @@ export async function recordOpeningBalance(
     .select("id, label, ledger_account_id, opening_entry_id")
     .eq("id", bankAccountId)
     .single();
-  if (!bank) throw new Error("Bank account not found.");
+  if (!bank) return fail("That bank account could not be found.");
   if (bank.opening_entry_id) {
-    throw new Error(
-      "An opening balance has already been recorded for this account. Post an adjusting entry instead — the ledger is append-only."
+    return fail(
+      "An opening balance has already been recorded for this account.",
+      "Post an adjusting entry instead — the ledger is append-only, so an opening balance is never rewritten."
     );
   }
   if (!bank.ledger_account_id) {
-    throw new Error(
-      "This bank account isn't linked to a ledger account yet. Set up the chart of accounts first."
+    return fail(
+      "This bank account isn't linked to a ledger account yet.",
+      "Set up the chart of accounts first, on this same page."
     );
   }
 
@@ -141,8 +148,9 @@ export async function recordOpeningBalance(
   const total = lines.reduce((s, a) => s + Number(a.amount), 0);
 
   if (total <= 0) {
-    throw new Error(
-      "Enter what the account held and who it belongs to. If the account is new and empty, there's nothing to record."
+    return fail(
+      "Enter what the account held, and whose money it is.",
+      "If the account is new and empty, there is nothing to record."
     );
   }
 
@@ -159,7 +167,7 @@ export async function recordOpeningBalance(
     })
     .select("id")
     .single();
-  if (entryErr) throw new Error(entryErr.message);
+  if (entryErr) return failFromDb(entryErr, "record the opening balance");
 
   // Debit the bank for the total; credit each liability for its share. The
   // balancing trigger rejects the whole transaction if these disagree.
@@ -176,7 +184,7 @@ export async function recordOpeningBalance(
   ];
 
   const { error: postErr } = await supabase.from("ledger_postings").insert(postings);
-  if (postErr) throw new Error(postErr.message);
+  if (postErr) return failFromDb(postErr, "post the opening balance");
 
   await supabase
     .from("bank_accounts")
@@ -185,5 +193,5 @@ export async function recordOpeningBalance(
 
   revalidatePath("/dashboard/settings");
   revalidatePath("/dashboard/ledger");
-  return { total, entryId: entry.id as string };
+  return ok({ total, entryId: entry.id as string });
 }

@@ -73,7 +73,7 @@ export default async function ReconciliationPage() {
 
   return (
     <div className="space-y-4">
-      <ReconcileClient bankAccountId={bank.id} bankLabel={bank.label} existingRefs={refs} />
+      <ReconcileClient bankAccountId={bank.id} bankLabel={bank.label} existingRefs={refs.ok ? refs.data : []} />
 
       {unmatched.length > 0 && (
         <Card>

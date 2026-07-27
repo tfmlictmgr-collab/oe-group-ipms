@@ -11,6 +11,7 @@ import {
   ASSET_FIELDS, GROUP_LABELS, humanize, type AssetField,
 } from "@/lib/asset-schema";
 import { createAsset } from "../actions";
+import { runAction, describeError } from "@/lib/run-action";
 
 type Option = { id: string; label: string; propertyId?: string };
 type CustomDef = {
@@ -51,13 +52,13 @@ export default function AssetForm({
     try {
       const payload = { ...form };
       if (Object.keys(custom).length) payload.custom_fields = JSON.stringify(custom);
-      const id = await createAsset(payload);
+      const id = await runAction(createAsset(payload));
       toast.success("Asset added to the register");
       router.push(`/dashboard/assets/${id}`);
       router.refresh();
     } catch (err) {
       toast.error("Could not save asset", {
-        description: err instanceof Error ? err.message : "Unexpected error.",
+        description: describeError(err),
       });
     } finally {
       setSaving(false);

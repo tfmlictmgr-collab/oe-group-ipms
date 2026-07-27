@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { FileOutput } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { generateInvoices } from "./actions";
+import { runAction, describeError } from "@/lib/run-action";
 
 export default function GenerateButton({
   budgetId,
@@ -18,13 +19,13 @@ export default function GenerateButton({
   function handleClick() {
     startTransition(async () => {
       try {
-        await generateInvoices(budgetId);
+        await runAction(generateInvoices(budgetId));
         toast.success("Invoices generated", {
           description: "Each occupant's statement has been updated.",
         });
       } catch (e) {
         toast.error("Could not generate invoices", {
-          description: e instanceof Error ? e.message : "Unexpected error.",
+          description: describeError(e),
         });
       }
     });

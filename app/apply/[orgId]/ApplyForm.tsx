@@ -70,8 +70,8 @@ export default function ApplyForm({
         setDone(true);
         toast.success("Application submitted");
       } else {
-        setError(res.error);
-        toast.error("Not submitted", { description: res.error });
+        setError(res.message);
+        toast.error("Not submitted", { description: res.message });
       }
     } catch {
       setError("Something went wrong. Please try again.");

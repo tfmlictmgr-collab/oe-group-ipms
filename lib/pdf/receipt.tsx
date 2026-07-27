@@ -81,6 +81,9 @@ export function ReceiptDocument({ d }: { d: ReceiptData }) {
         <View style={s.header}>
           <View>
             {d.org.logoUrl ? (
+              /* eslint-disable-next-line jsx-a11y/alt-text --
+                 react-pdf's Image draws into a PDF, not the DOM. It has no alt
+                 prop, and a PDF has no screen-reader tree to put one in. */
               <Image src={d.org.logoUrl} style={s.logo} />
             ) : (
               <Text style={[s.orgName, { color: brand }]}>{d.org.name}</Text>

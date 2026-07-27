@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { updateOrgBranding } from "./actions";
+import { runAction, describeError } from "@/lib/run-action";
 
 const HEX = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 
@@ -37,13 +38,13 @@ export default function BrandingForm({
     e.preventDefault();
     setSaving(true);
     try {
-      await updateOrgBranding(orgId, { name, primary, accent, logoText });
+      await runAction(updateOrgBranding(orgId, { name, primary, accent, logoText }));
       toast.success("Branding updated", {
         description: "Your portal now uses the new theme.",
       });
     } catch (err) {
       toast.error("Could not save branding", {
-        description: err instanceof Error ? err.message : "Unexpected error.",
+        description: describeError(err),
       });
     } finally {
       setSaving(false);

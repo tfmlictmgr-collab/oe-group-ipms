@@ -5,11 +5,12 @@ import { createClient } from "@/lib/supabase/server";
 import { apportion } from "@/lib/apportionment";
 import { sendCascade } from "@/lib/cascade";
 import { formatNaira } from "@/lib/currency";
+import { ok, fail, failFromDb, type ActionResult } from "@/lib/action-result";
 
 // Generates (or regenerates) per-unit service-charge invoices for a budget by
 // apportioning its total across the property's units. Runs under the caller's
 // session, so RLS enforces that only admin/finance can do this.
-export async function generateInvoices(budgetId: string) {
+export async function generateInvoices(budgetId: string): Promise<ActionResult> {
   const supabase = await createClient();
 
   const { data: budget, error: bErr } = await supabase
@@ -17,7 +18,7 @@ export async function generateInvoices(budgetId: string) {
     .select("id, org_id, property_id, period, total_amount")
     .eq("id", budgetId)
     .single();
-  if (bErr || !budget) throw new Error(bErr?.message ?? "Budget not found");
+  if (bErr || !budget) return fail("That budget could not be found.");
 
   const { data: property } = await supabase
     .from("properties")
@@ -29,8 +30,13 @@ export async function generateInvoices(budgetId: string) {
     .from("units")
     .select("id, label, apportionment_factor, occupant_user_id")
     .eq("property_id", budget.property_id);
-  if (uErr) throw new Error(uErr.message);
-  if (!units || units.length === 0) throw new Error("No units to apportion to");
+  if (uErr) return failFromDb(uErr, "read the units for this property");
+  if (!units || units.length === 0) {
+    return fail(
+      "This property has no units, so there is nothing to apportion the budget across.",
+      "Add the units first, with their apportionment factors."
+    );
+  }
 
   const shares = apportion(
     Number(budget.total_amount),
@@ -58,7 +64,7 @@ export async function generateInvoices(budgetId: string) {
   }));
 
   const { error: insErr } = await supabase.from("service_charges").insert(rows);
-  if (insErr) throw new Error(insErr.message);
+  if (insErr) return failFromDb(insErr, "generate these invoices");
 
   await supabase
     .from("sc_budgets")
@@ -95,4 +101,5 @@ export async function generateInvoices(budgetId: string) {
 
   revalidatePath(`/dashboard/sc/${budgetId}`);
   revalidatePath("/dashboard/sc");
+  return ok();
 }

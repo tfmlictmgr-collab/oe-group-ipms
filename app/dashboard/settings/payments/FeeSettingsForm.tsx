@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatNaira } from "@/lib/currency";
 import { updateFeeSettings } from "./actions";
+import { runAction, describeError } from "@/lib/run-action";
 
 // A worked example is shown live, because a percentage on its own is easy to
 // mis-set and the consequence lands on a landlord's remittance.
@@ -37,12 +38,12 @@ export default function FeeSettingsForm({
   async function save() {
     setSaving(true);
     try {
-      await updateFeeSettings(orgId, m, a);
+      await runAction(updateFeeSettings(orgId, m, a));
       toast.success("Fee settings saved");
       router.refresh();
     } catch (e) {
       toast.error("Could not save fees", {
-        description: e instanceof Error ? e.message : "Unexpected error.",
+        description: describeError(e),
       });
     } finally {
       setSaving(false);

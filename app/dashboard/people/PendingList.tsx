@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { roleLabel } from "@/lib/roles";
 import { revokeInvitation, setVendorApproval } from "./actions";
+import { runAction, describeError } from "@/lib/run-action";
 
 export function PendingInvites({
   invites,
@@ -22,12 +23,12 @@ export function PendingInvites({
   async function revoke(id: string) {
     setBusy(id);
     try {
-      await revokeInvitation(id);
+      await runAction(revokeInvitation(id));
       toast.success("Invitation revoked");
       router.refresh();
     } catch (e) {
       toast.error("Could not revoke", {
-        description: e instanceof Error ? e.message : "Unexpected error.",
+        description: describeError(e),
       });
     } finally {
       setBusy(null);
@@ -77,7 +78,7 @@ export function VendorApprovals({
   async function decide(id: string, approve: boolean) {
     setBusy(id);
     try {
-      await setVendorApproval(id, approve);
+      await runAction(setVendorApproval(id, approve));
       toast.success(approve ? "Vendor approved" : "Vendor rejected", {
         description: approve
           ? "They can now be assigned work and paid."
@@ -86,7 +87,7 @@ export function VendorApprovals({
       router.refresh();
     } catch (e) {
       toast.error("Could not update vendor", {
-        description: e instanceof Error ? e.message : "Unexpected error.",
+        description: describeError(e),
       });
     } finally {
       setBusy(null);

@@ -10,6 +10,7 @@ import {
 } from "@/lib/invitation";
 import { sendEmail } from "@/lib/email";
 import { roleLabel } from "@/lib/roles";
+import { ok, fail, failFromDb, type ActionResult } from "@/lib/action-result";
 
 // Enrolment writes go through the caller's own session so RLS decides what is
 // permitted. The one exception is acceptance itself (a SECURITY DEFINER function
@@ -42,38 +43,42 @@ export type InviteInput = {
  * works if mail is unconfigured, bounces, or the recipient never sees it — an
  * admin can always share it directly (WhatsApp is common here).
  */
-export async function inviteMember(input: InviteInput): Promise<{
-  url: string;
-  emailed: boolean;
-}> {
+export async function inviteMember(
+  input: InviteInput
+): Promise<ActionResult<{ url: string; emailed: boolean }>> {
   const supabase = await createClient();
 
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error("Your session expired. Please sign in again.");
+  if (!user) return fail("Your session expired. Please sign in again.");
   const { data: me } = await supabase
     .from("users").select("org_id, role, full_name").eq("id", user.id).single();
-  if (!me) throw new Error("Could not resolve your profile.");
+  if (!me) return fail("Could not resolve your profile.");
 
   if (!["admin", "facility_manager"].includes(me.role)) {
-    throw new Error("Only an administrator or an FM/PM may invite people.");
+    return fail("Only an administrator or an FM/PM may invite people.");
   }
 
   const email = input.email.trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    throw new Error("Enter a valid email address.");
+    return fail("Enter a valid email address.");
   }
   if (!INVITABLE_ROLES.includes(input.role as (typeof INVITABLE_ROLES)[number])) {
-    throw new Error("That role cannot be invited.");
+    return fail("That role cannot be invited.");
   }
   // Defence in depth — the RLS policy enforces this too.
   if (input.role === "admin" && me.role !== "admin") {
-    throw new Error("Only an administrator may invite another administrator.");
+    return fail("Only an administrator may invite another administrator.");
   }
 
   // Someone already enrolled cannot be invited again.
   const { data: existing } = await supabase
     .from("users").select("id").eq("email", email).maybeSingle();
-  if (existing) throw new Error("That person is already a member of this organisation.");
+  if (existing) {
+    return fail(
+      "That person is already a member of this organisation.",
+      "Find them under People -> Members to change their role or access."
+    );
+  }
 
   // Re-inviting replaces any live invitation rather than colliding with it.
   await supabase
@@ -97,12 +102,7 @@ export async function inviteMember(input: InviteInput): Promise<{
     token_hash: hashInviteToken(token),
     invited_by: user.id,
   });
-  if (error) {
-    if (error.message.includes("row-level security")) {
-      throw new Error("You are not permitted to issue that invitation.");
-    }
-    throw new Error(error.message);
-  }
+  if (error) return failFromDb(error, "issue that invitation");
 
   const h = await headers();
   const origin =
@@ -124,7 +124,7 @@ export async function inviteMember(input: InviteInput): Promise<{
     me.full_name ?? null
   );
   revalidatePath("/dashboard/people");
-  return { url, emailed };
+  return ok({ url, emailed });
 }
 
 /**
@@ -170,21 +170,25 @@ async function trySendInviteEmail(
   return res.sent;
 }
 
-export async function revokeInvitation(invitationId: string) {
+export async function revokeInvitation(invitationId: string): Promise<ActionResult> {
   const supabase = await createClient();
   const { error } = await supabase
     .from("invitations")
     .update({ status: "revoked" })
     .eq("id", invitationId);
-  if (error) throw new Error(error.message);
+  if (error) return failFromDb(error, "revoke this invitation");
   revalidatePath("/dashboard/people");
+  return ok();
 }
 
 /** Admin decision on a vendor awaiting approval. */
-export async function setVendorApproval(vendorId: string, approve: boolean) {
+export async function setVendorApproval(
+  vendorId: string,
+  approve: boolean
+): Promise<ActionResult> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error("Your session expired. Please sign in again.");
+  if (!user) return fail("Your session expired. Please sign in again.");
 
   const { error } = await supabase
     .from("vendors")
@@ -194,29 +198,38 @@ export async function setVendorApproval(vendorId: string, approve: boolean) {
       approved_at: new Date().toISOString(),
     })
     .eq("id", vendorId);
-  if (error) throw new Error(error.message);
+  if (error) return failFromDb(error, approve ? "approve this vendor" : "reject this vendor");
   revalidatePath("/dashboard/people");
   revalidatePath("/dashboard/vendors");
+  return ok();
 }
 
 /** Assign (or clear) the occupant of a unit. */
-export async function assignUnitOccupant(unitId: string, userId: string | null) {
+export async function assignUnitOccupant(
+  unitId: string,
+  userId: string | null
+): Promise<ActionResult> {
   const supabase = await createClient();
   const { error } = await supabase
     .from("units")
     .update({ occupant_user_id: userId })
     .eq("id", unitId);
   if (error) {
-    if (error.message.includes("row-level security")) {
-      throw new Error("You can only assign occupants on properties you manage.");
+    if (/row-level security/i.test(error.message)) {
+      return fail("You can only assign occupants on properties you manage.");
     }
-    throw new Error(error.message);
+    return failFromDb(error, "assign that occupant");
   }
   revalidatePath("/dashboard/people");
+  return ok();
 }
 
 /** Approve or reject a public vendor application. Approval creates the vendor. */
-export async function decideVendorApplication(applicationId: string, approve: boolean, notes?: string) {
+export async function decideVendorApplication(
+  applicationId: string,
+  approve: boolean,
+  notes?: string
+): Promise<ActionResult> {
   const supabase = await createClient();
   const { error } = approve
     ? await supabase.rpc("approve_vendor_application", {
@@ -227,25 +240,29 @@ export async function decideVendorApplication(applicationId: string, approve: bo
         p_application_id: applicationId,
         p_notes: notes ?? null,
       });
-  if (error) throw new Error(error.message);
+  if (error) {
+    return failFromDb(error, approve ? "approve this application" : "reject this application");
+  }
   revalidatePath("/dashboard/people");
   revalidatePath("/dashboard/vendors");
+  return ok();
 }
 
 /** Open or close the org's public vendor-application link. Admin only. */
-export async function setVendorApplicationsOpen(open: boolean) {
+export async function setVendorApplicationsOpen(open: boolean): Promise<ActionResult> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error("Your session expired. Please sign in again.");
+  if (!user) return fail("Your session expired. Please sign in again.");
   const { data: me } = await supabase
     .from("users").select("org_id, role").eq("id", user.id).single();
   if (me?.role !== "admin") {
-    throw new Error("Only an administrator can open or close vendor applications.");
+    return fail("Only an administrator can open or close vendor applications.");
   }
   const { error } = await supabase
     .from("orgs")
     .update({ vendor_applications_open: open })
     .eq("id", me.org_id);
-  if (error) throw new Error(error.message);
+  if (error) return failFromDb(error, "change the application link");
   revalidatePath("/dashboard/people");
+  return ok();
 }

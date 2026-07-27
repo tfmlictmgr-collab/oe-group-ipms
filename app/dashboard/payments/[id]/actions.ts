@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { averageComposite } from "@/lib/vendor-score";
 import { sendCascade } from "@/lib/cascade";
 import { formatNaira } from "@/lib/currency";
+import { ok, fail, failFromDb, type ActionResult } from "@/lib/action-result";
 
 async function loadPayment(supabase: Awaited<ReturnType<typeof createClient>>, id: string) {
   const { data, error } = await supabase
@@ -14,12 +15,12 @@ async function loadPayment(supabase: Awaited<ReturnType<typeof createClient>>, i
     )
     .eq("id", id)
     .single();
-  if (error || !data) throw new Error(error?.message ?? "Payment not found");
+  if (error || !data) return null;
   return data;
 }
 
 // Stage 1 — Service verification (FM/admin, enforced by RLS update policy).
-export async function verifyService(paymentId: string) {
+export async function verifyService(paymentId: string): Promise<ActionResult> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -34,19 +35,21 @@ export async function verifyService(paymentId: string) {
     })
     .eq("id", paymentId)
     .eq("status", "pending_verification");
-  if (error) throw new Error(error.message);
+  if (error) return failFromDb(error, "verify this service");
   revalidatePath(`/dashboard/payments/${paymentId}`);
+  return ok();
 }
 
 // Stage 2 — Performance validation. Auto-pulls the vendor's composite score and
 // compares to the admin-configured threshold. Pass → recommended; fail →
 // rejected (blocked). This is the KPI gate.
-export async function runPerformanceCheck(paymentId: string) {
+export async function runPerformanceCheck(paymentId: string): Promise<ActionResult> {
   const supabase = await createClient();
   const payment = await loadPayment(supabase, paymentId);
+  if (!payment) return fail("That payment could not be found.");
 
   if (!payment.service_verified_at) {
-    throw new Error("Service must be verified before performance validation.");
+    return fail("Service must be verified before the performance check.");
   }
 
   const { data: settings } = await supabase
@@ -71,8 +74,9 @@ export async function runPerformanceCheck(paymentId: string) {
       status: passed ? "recommended" : "rejected",
     })
     .eq("id", paymentId);
-  if (error) throw new Error(error.message);
+  if (error) return failFromDb(error, "record the performance check");
   revalidatePath(`/dashboard/payments/${paymentId}`);
+  return ok();
 }
 
 // Stage 3 — Approval (finance/admin). Re-checks the gate from the DB so it
@@ -80,18 +84,25 @@ export async function runPerformanceCheck(paymentId: string) {
 // Enforces the admin-configured approval threshold (B4/B7): payments above the
 // limit require an admin, not just a finance approver — making
 // `approval_threshold_amount` an enforced control rather than display-only.
-export async function approvePayment(paymentId: string) {
+export async function approvePayment(paymentId: string): Promise<ActionResult> {
   const supabase = await createClient();
   const payment = await loadPayment(supabase, paymentId);
+  if (!payment) return fail("That payment could not be found.");
 
   if (!payment.service_verified_at) {
-    throw new Error("Gate not satisfied: service not verified.");
+    return fail(
+      "This payment cannot be approved: the service has not been verified.",
+      "Verify the service was delivered first — no payment is released without it."
+    );
   }
   if (!payment.performance_validated) {
-    throw new Error("Gate not satisfied: vendor failed the performance check.");
+    return fail(
+      "This payment cannot be approved: the vendor failed the performance check.",
+      "Review the vendor's scorecard, or raise the concern with an administrator."
+    );
   }
   if (payment.status !== "recommended") {
-    throw new Error(`Cannot approve from status '${payment.status}'.`);
+    return fail(`A payment at status '${payment.status}' cannot be approved.`);
   }
 
   const {
@@ -111,8 +122,9 @@ export async function approvePayment(paymentId: string) {
     .single();
   const threshold = Number(settings?.approval_threshold_amount ?? 1_000_000);
   if (Number(payment.amount) > threshold && approver?.role !== "admin") {
-    throw new Error(
-      `Approvals above ${formatNaira(threshold)} require an admin (this payment is ${formatNaira(payment.amount)}).`
+    return fail(
+      `Approvals above ${formatNaira(threshold)} require an administrator — this payment is ${formatNaira(payment.amount)}.`,
+      "Ask an administrator to approve it, or have the threshold reviewed in Settings."
     );
   }
 
@@ -124,7 +136,7 @@ export async function approvePayment(paymentId: string) {
       status: "approved",
     })
     .eq("id", paymentId);
-  if (error) throw new Error(error.message);
+  if (error) return failFromDb(error, "approve this payment");
 
   // Notify the vendor of approval via the B8 cascade (best-effort; never blocks
   // the approval itself).
@@ -149,15 +161,17 @@ export async function approvePayment(paymentId: string) {
   }
 
   revalidatePath(`/dashboard/payments/${paymentId}`);
+  return ok();
 }
 
 // Stage 4 — Remittance (SIMULATED — POC ONLY; no live gateway).
-export async function executeRemittance(paymentId: string) {
+export async function executeRemittance(paymentId: string): Promise<ActionResult> {
   const supabase = await createClient();
   const payment = await loadPayment(supabase, paymentId);
+  if (!payment) return fail("That payment could not be found.");
 
   if (payment.status !== "approved") {
-    throw new Error("Only approved payments can be remitted.");
+    return fail("Only an approved payment can be remitted.");
   }
 
   const fakeRef = `SIMULATED-POC-${Date.now()}`;
@@ -165,6 +179,7 @@ export async function executeRemittance(paymentId: string) {
     .from("payments")
     .update({ status: "remitted", remittance_reference: fakeRef })
     .eq("id", paymentId);
-  if (error) throw new Error(error.message);
+  if (error) return failFromDb(error, "record this remittance");
   revalidatePath(`/dashboard/payments/${paymentId}`);
+  return ok();
 }

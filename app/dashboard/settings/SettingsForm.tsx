@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { updatePaymentSettings } from "./actions";
+import { runAction, describeError } from "@/lib/run-action";
 
 export default function SettingsForm({
   orgId,
@@ -24,11 +25,11 @@ export default function SettingsForm({
     e.preventDefault();
     startTransition(async () => {
       try {
-        await updatePaymentSettings(orgId, Number(minScore), Number(threshold));
+        await runAction(updatePaymentSettings(orgId, Number(minScore), Number(threshold)));
         toast.success("Payment gate settings saved");
       } catch (err) {
         toast.error("Could not save settings", {
-          description: err instanceof Error ? err.message : "Unexpected error.",
+          description: describeError(err),
         });
       }
     });

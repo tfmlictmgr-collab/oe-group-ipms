@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { acknowledgeJob } from "./actions";
+import { runAction, describeError } from "@/lib/run-action";
 
 export default function AcknowledgeControl({ ticketId }: { ticketId: string }) {
   const [pending, startTransition] = useTransition();
@@ -12,11 +13,11 @@ export default function AcknowledgeControl({ ticketId }: { ticketId: string }) {
   function submit() {
     startTransition(async () => {
       try {
-        await acknowledgeJob(ticketId);
+        await runAction(acknowledgeJob(ticketId));
         toast.success("Job acknowledged");
       } catch (e) {
         toast.error("Could not acknowledge", {
-          description: e instanceof Error ? e.message : "Unexpected error.",
+          description: describeError(e),
         });
       }
     });

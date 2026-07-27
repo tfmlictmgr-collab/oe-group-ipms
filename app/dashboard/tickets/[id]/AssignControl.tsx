@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { assignTicket } from "./actions";
+import { runAction, describeError } from "@/lib/run-action";
 
 type Option = { id: string; label: string };
 
@@ -30,13 +31,13 @@ export default function AssignControl({
   function submit() {
     startTransition(async () => {
       try {
-        await assignTicket(ticketId, vendorId || null, opsUserId || null);
+        await runAction(assignTicket(ticketId, vendorId || null, opsUserId || null));
         toast.success("Request dispatched", {
           description: "The assignee has been notified.",
         });
       } catch (e) {
         toast.error("Could not assign", {
-          description: e instanceof Error ? e.message : "Unexpected error.",
+          description: describeError(e),
         });
       }
     });

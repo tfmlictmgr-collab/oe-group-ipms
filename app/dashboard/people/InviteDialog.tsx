@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { roleLabel } from "@/lib/roles";
 import { inviteMember } from "./actions";
+import { runAction, describeError } from "@/lib/run-action";
 
 type Option = { id: string; label: string; propertyId?: string };
 
@@ -61,15 +62,17 @@ export default function InviteDialog({
     e.preventDefault();
     setBusy(true);
     try {
-      const res = await inviteMember({
-        email,
-        role,
-        fullName,
-        propertyIds: needsProperties ? propertyIds : [],
-        propertyRelation: role === "property_owner" ? "owner" : "manager",
-        unitId: needsUnit ? unitId || null : null,
-        vendorId: needsVendor ? vendorId || null : null,
-      });
+      const res = await runAction(
+        inviteMember({
+          email,
+          role,
+          fullName,
+          propertyIds: needsProperties ? propertyIds : [],
+          propertyRelation: role === "property_owner" ? "owner" : "manager",
+          unitId: needsUnit ? unitId || null : null,
+          vendorId: needsVendor ? vendorId || null : null,
+        })
+      );
       setIssued(res);
       toast.success("Invitation issued", {
         description: res.emailed
@@ -80,7 +83,7 @@ export default function InviteDialog({
       router.refresh();
     } catch (err) {
       toast.error("Could not invite", {
-        description: err instanceof Error ? err.message : "Unexpected error.",
+        description: describeError(err),
       });
     } finally {
       setBusy(false);

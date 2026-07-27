@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { validateAssetCsv, type ImportContext } from "@/lib/asset-import";
 import { ASSET_FIELDS } from "@/lib/asset-schema";
+import { ok, fail, failFromDb, type ActionResult } from "@/lib/action-result";
 
 // Every write below goes through the caller's own session, so RLS decides what
 // is permitted. Nothing here uses the service role — the UI cannot grant itself
@@ -49,11 +50,15 @@ export async function buildImportContext(): Promise<{
 }> {
   const supabase = await createClient();
 
+  // These two THROW deliberately. Unlike the actions below, this is awaited
+  // during a server render, and middleware has already redirected anyone
+  // without a session — so reaching here is a bug, not something a user can
+  // act on. Masking is the correct treatment for it.
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error("Your session expired. Please sign in again.");
+  if (!user) throw new Error("buildImportContext called without a session");
   const { data: me } = await supabase
     .from("users").select("org_id, role").eq("id", user.id).single();
-  if (!me) throw new Error("Could not resolve your profile.");
+  if (!me) throw new Error("buildImportContext: signed-in user has no profile row");
 
   const [propsRes, unitsRes, vendorsRes, usersRes, assetsRes, defsRes, stakeRes] =
     await Promise.all([
@@ -118,19 +123,18 @@ function toImportContext(raw: Awaited<ReturnType<typeof buildImportContext>>["ct
  * could have been tampered with, and tags may have been taken since the preview.
  * Returns per-row outcomes so the UI can report exactly what happened.
  */
-export async function commitAssetImport(csvText: string): Promise<{
-  inserted: number;
-  failed: { rowNumber: number; reason: string }[];
-}> {
+export async function commitAssetImport(csvText: string): Promise<
+  ActionResult<{ inserted: number; failed: { rowNumber: number; reason: string }[] }>
+> {
   const supabase = await createClient();
 
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error("Your session expired. Please sign in again.");
+  if (!user) return fail("Your session expired. Please sign in again.");
   const { data: me } = await supabase
     .from("users").select("org_id, role").eq("id", user.id).single();
-  if (!me) throw new Error("Could not resolve your profile.");
+  if (!me) return fail("Could not resolve your profile.");
   if (!["admin", "facility_manager"].includes(me.role)) {
-    throw new Error("Only an administrator or the managing FM/PM may import assets.");
+    return fail("Only an administrator or the managing FM/PM may import assets.");
   }
 
   const { ctx: rawCtx } = await buildImportContext();
@@ -144,7 +148,7 @@ export async function commitAssetImport(csvText: string): Promise<{
       reason: r.issues.map((i) => `${i.column}: ${i.message}`).join("; "),
     }));
 
-  if (valid.length === 0) return { inserted: 0, failed };
+  if (valid.length === 0) return ok({ inserted: 0, failed });
 
   // Insert in batches so a large register doesn't hit statement limits. Each
   // batch is its own statement; RLS still vets every row.
@@ -170,21 +174,23 @@ export async function commitAssetImport(csvText: string): Promise<{
   }
 
   revalidatePath("/dashboard/assets");
-  return { inserted, failed };
+  return ok({ inserted, failed });
 }
 
 /** Single-asset create from the in-app form. */
-export async function createAsset(form: Record<string, string>) {
+export async function createAsset(
+  form: Record<string, string>
+): Promise<ActionResult<string>> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error("Your session expired. Please sign in again.");
+  if (!user) return fail("Your session expired. Please sign in again.");
   const { data: me } = await supabase
     .from("users").select("org_id").eq("id", user.id).single();
-  if (!me) throw new Error("Could not resolve your profile.");
+  if (!me) return fail("Could not resolve your profile.");
 
   const row: Record<string, unknown> = { org_id: me.org_id, created_by: user.id };
 
-  if (!form.property_id) throw new Error("Property is required.");
+  if (!form.property_id) return fail("Choose the property this asset belongs to.");
   row.property_id = form.property_id;
   if (form.unit_id) row.unit_id = form.unit_id;
 
@@ -194,7 +200,7 @@ export async function createAsset(form: Record<string, string>) {
     if (v == null || v === "") continue;
     if (f.type === "number") {
       const n = Number(String(v).replace(/[,\s₦]/g, ""));
-      if (!Number.isFinite(n) || n < 0) throw new Error(`${f.label} must be a positive number.`);
+      if (!Number.isFinite(n) || n < 0) return fail(`${f.label} must be a positive number.`);
       row[f.key] = n;
     } else if (f.type === "boolean") {
       row[f.key] = v === "true" || v === "yes" || v === "on";
@@ -210,21 +216,25 @@ export async function createAsset(form: Record<string, string>) {
     // Surface the real reason — a duplicate tag and an RLS refusal need
     // different fixes from the user.
     if (error.message.includes("assets_org_tag_uidx")) {
-      throw new Error("That asset tag is already in use in your organisation.");
+      return fail(
+        "That asset tag is already in use in your organisation.",
+        "Asset tags must be unique — check the register for the existing one."
+      );
     }
-    if (error.message.includes("row-level security")) {
-      throw new Error("You can only add assets to properties you manage.");
+    if (/row-level security/i.test(error.message)) {
+      return fail("You can only add assets to properties you manage.");
     }
-    throw new Error(error.message);
+    return failFromDb(error, "create this asset");
   }
 
   revalidatePath("/dashboard/assets");
-  return data.id as string;
+  return ok(data.id as string);
 }
 
-export async function archiveAsset(assetId: string) {
+export async function archiveAsset(assetId: string): Promise<ActionResult> {
   const supabase = await createClient();
   const { error } = await supabase.rpc("archive_asset", { p_asset_id: assetId });
-  if (error) throw new Error(error.message);
+  if (error) return failFromDb(error, "archive this asset");
   revalidatePath("/dashboard/assets");
+  return ok();
 }

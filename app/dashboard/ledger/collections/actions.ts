@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getGateway, gatewayConfigured, newPaymentReference } from "@/lib/gateway";
 import { unusableForCheckout } from "@/lib/email-address";
+import { ok, fail, failFromDb, type ActionResult } from "@/lib/action-result";
 
 // Raising a request for payment. Staff-only by RLS; this layer additionally
 // fixes the AMOUNT server-side from our own record before the gateway is ever
@@ -30,14 +31,16 @@ export type RaiseInput = {
   email?: string;
 };
 
-export type RaiseResult =
-  | { ok: true; reference: string; checkoutUrl: string | null; simulated: boolean }
-  | { ok: false; message: string; hint?: string };
+export type RaiseResult = ActionResult<{
+  reference: string;
+  checkoutUrl: string | null;
+  simulated: boolean;
+}>;
 
 export async function raisePaymentRequest(input: RaiseInput): Promise<RaiseResult> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { ok: false, message: "Your session expired. Please sign in again." };
+  if (!user) return fail("Your session expired. Please sign in again.");
 
   const { data: me } = await supabase
     .from("users").select("org_id, role, email").eq("id", user.id).single();
@@ -46,7 +49,7 @@ export async function raisePaymentRequest(input: RaiseInput): Promise<RaiseResul
   // and admin can SELECT them — an FM would pass the check blindly and could
   // raise a second checkout link for an invoice that already has one.
   if (!me || !["admin", "finance_approver"].includes(me.role)) {
-    return { ok: false, message: "Only finance or an administrator can request a payment." };
+    return fail("Only finance or an administrator can request a payment.");
   }
 
   const currency = (input.currency ?? "NGN").toUpperCase();
@@ -64,8 +67,8 @@ export async function raisePaymentRequest(input: RaiseInput): Promise<RaiseResul
       .select("id, amount, status, billed_to_user_id, unit_id, org_id")
       .eq("id", input.serviceChargeId)
       .single();
-    if (!sc) return { ok: false, message: "That service charge could not be found." };
-    if (sc.status === "paid") return { ok: false, message: "That service charge is already paid." };
+    if (!sc) return fail("That service charge could not be found.");
+    if (sc.status === "paid") return fail("That service charge is already paid.");
 
     amount = Number(sc.amount);
     payer = payer ?? sc.billed_to_user_id;
@@ -86,17 +89,16 @@ export async function raisePaymentRequest(input: RaiseInput): Promise<RaiseResul
       .in("status", ["pending", "part_paid"])
       .maybeSingle();
     if (existing) {
-      return {
-        ok: true,
+      return ok({
         reference: existing.gateway_reference,
         checkoutUrl: existing.checkout_url,
         simulated: !gatewayConfigured(currency),
-      };
+      });
     }
   }
 
   if (!Number.isFinite(amount) || amount <= 0) {
-    return { ok: false, message: "There is nothing to collect on that record." };
+    return fail("There is nothing to collect on that record.");
   }
 
   // Look up the payer's email for the gateway receipt; fall back to the
@@ -113,11 +115,10 @@ export async function raisePaymentRequest(input: RaiseInput): Promise<RaiseResul
   // say so plainly.
   const emailProblem = unusableForCheckout(receiptEmail);
   if (emailProblem) {
-    return {
-      ok: false,
-      message: `The payer's email address cannot be used for checkout: ${emailProblem}`,
-      hint: `Update ${receiptEmail || "the payer's record"} under People to a real, deliverable address. Payment gateways refuse reserved domains, and the payer needs a working address to receive the receipt.`,
-    };
+    return fail(
+      `The payer's email address cannot be used for checkout: ${emailProblem}`,
+      `Update ${receiptEmail || "the payer's record"} under People to a real, deliverable address. Payment gateways refuse reserved domains, and the payer needs a working address to receive the receipt.`
+    );
   }
 
   const reference = newPaymentReference(input.purpose);
@@ -137,10 +138,9 @@ export async function raisePaymentRequest(input: RaiseInput): Promise<RaiseResul
   });
 
   if (!init.ok) {
-    return {
-      ok: false,
-      message: `${gateway.name === "paystack" ? "Paystack" : gateway.name} rejected the request: ${init.error}`,
-    };
+    return fail(
+      `${gateway.name === "paystack" ? "Paystack" : gateway.name} rejected the request: ${init.error}`
+    );
   }
 
   const { error } = await supabase.from("payment_intents").insert({
@@ -157,20 +157,17 @@ export async function raisePaymentRequest(input: RaiseInput): Promise<RaiseResul
     checkout_url: init.checkoutUrl ?? null,
     created_by: user.id,
   });
-  if (error) return { ok: false, message: `The request could not be saved: ${error.message}` };
+  if (error) return failFromDb(error, "save this payment request");
 
   revalidatePath("/dashboard/ledger/collections");
-  return {
-    ok: true,
+  return ok({
     reference,
     checkoutUrl: init.checkoutUrl ?? null,
     simulated: gateway.name === "simulated",
-  };
+  });
 }
 
-export type RefreshResult =
-  | { ok: true; status: string; posted: boolean }
-  | { ok: false; message: string };
+export type RefreshResult = ActionResult<{ status: string; posted: boolean }>;
 
 /**
  * Re-checks a payment with the gateway and posts it if it succeeded.
@@ -183,12 +180,12 @@ export type RefreshResult =
 export async function refreshPaymentStatus(intentId: string): Promise<RefreshResult> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { ok: false, message: "Your session expired. Please sign in again." };
+  if (!user) return fail("Your session expired. Please sign in again.");
 
   const { data: me } = await supabase
     .from("users").select("role").eq("id", user.id).single();
   if (!me || !["admin", "finance_approver"].includes(me.role)) {
-    return { ok: false, message: "Only finance or an administrator can reconcile a payment." };
+    return fail("Only finance or an administrator can reconcile a payment.");
   }
 
   const { data: intent } = await supabase
@@ -196,14 +193,14 @@ export async function refreshPaymentStatus(intentId: string): Promise<RefreshRes
     .select("id, gateway, gateway_reference, currency, amount_expected, ledger_entry_id, status")
     .eq("id", intentId)
     .single();
-  if (!intent) return { ok: false, message: "Payment request not found." };
-  if (intent.ledger_entry_id) return { ok: true, status: intent.status, posted: true };
+  if (!intent) return fail("Payment request not found.");
+  if (intent.ledger_entry_id) return ok({ status: intent.status, posted: true });
 
   const gateway = getGateway(intent.currency);
   const verified = await gateway.verifyTransaction(intent.gateway_reference);
 
   if (!verified.ok || verified.status !== "success") {
-    return { ok: true, status: verified.status ?? "pending", posted: false };
+    return ok({ status: verified.status ?? "pending", posted: false });
   }
 
   // Posting needs the service role: record_collection is deliberately not
@@ -215,9 +212,9 @@ export async function refreshPaymentStatus(intentId: string): Promise<RefreshRes
     p_amount_verified: verified.amount ?? Number(intent.amount_expected),
     p_paid_at: verified.paidAt ?? new Date().toISOString(),
   });
-  if (error) return { ok: false, message: `The payment could not be posted: ${error.message}` };
+  if (error) return fail(`The payment could not be posted: ${error.message}`);
 
   revalidatePath("/dashboard/ledger/collections");
   revalidatePath("/dashboard/ledger");
-  return { ok: true, status: "paid", posted: true };
+  return ok({ status: "paid", posted: true });
 }

@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { saveLogoUrl } from "./actions";
+import { runAction, describeError } from "@/lib/run-action";
 
 const ACCEPTED = ["image/png", "image/jpeg", "image/svg+xml", "image/webp"];
 const MAX_BYTES = 1024 * 1024; // 1 MB — plenty for a logo, keeps the shell fast.
@@ -53,14 +54,14 @@ export default function LogoUpload({
       if (upErr) throw new Error(upErr.message);
 
       const { data } = supabase.storage.from("org-logos").getPublicUrl(path);
-      await saveLogoUrl(orgId, data.publicUrl);
+      await runAction(saveLogoUrl(orgId, data.publicUrl));
 
       setPreview(data.publicUrl);
       toast.success("Logo updated");
       router.refresh();
     } catch (e) {
       toast.error("Upload failed", {
-        description: e instanceof Error ? e.message : "Unexpected error.",
+        description: describeError(e),
       });
     } finally {
       setBusy(false);
@@ -71,13 +72,13 @@ export default function LogoUpload({
   async function removeLogo() {
     setBusy(true);
     try {
-      await saveLogoUrl(orgId, null);
+      await runAction(saveLogoUrl(orgId, null));
       setPreview(null);
       toast.success("Logo removed", { description: "Your monogram is shown instead." });
       router.refresh();
     } catch (e) {
       toast.error("Could not remove logo", {
-        description: e instanceof Error ? e.message : "Unexpected error.",
+        description: describeError(e),
       });
     } finally {
       setBusy(false);

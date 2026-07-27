@@ -7,6 +7,7 @@ import { Copy, Check, Link2, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { setVendorApplicationsOpen } from "./actions";
+import { runAction, describeError } from "@/lib/run-action";
 
 export default function ApplicationLink({
   orgId,
@@ -27,7 +28,7 @@ export default function ApplicationLink({
   async function toggle() {
     setBusy(true);
     try {
-      await setVendorApplicationsOpen(!isOpen);
+      await runAction(setVendorApplicationsOpen(!isOpen));
       toast.success(isOpen ? "Applications closed" : "Applications open", {
         description: isOpen
           ? "The public link no longer accepts submissions."
@@ -36,7 +37,7 @@ export default function ApplicationLink({
       router.refresh();
     } catch (e) {
       toast.error("Could not update", {
-        description: e instanceof Error ? e.message : "Unexpected error.",
+        description: describeError(e),
       });
     } finally {
       setBusy(false);
