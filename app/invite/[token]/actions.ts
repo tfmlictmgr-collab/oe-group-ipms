@@ -9,6 +9,12 @@ import { ok, fail, type ActionResult } from "@/lib/action-result";
 
 export type InvitePreview = {
   orgName: string;
+  /** What the inviting org calls its portal, e.g. "TFML Nigeria Portal". */
+  portalName: string | null;
+  logoUrl: string | null;
+  primary: string | null;
+  accent: string | null;
+  logoText: string | null;
   role: string;
   email: string;
   fullName: string | null;
@@ -24,6 +30,11 @@ export async function previewInvitation(token: string): Promise<InvitePreview> {
   const row = data[0];
   return {
     orgName: row.org_name,
+    portalName: row.portal_name,
+    logoUrl: row.logo_url,
+    primary: row.theme_primary,
+    accent: row.theme_accent,
+    logoText: row.theme_logo_text,
     role: row.role,
     email: row.email,
     fullName: row.full_name,

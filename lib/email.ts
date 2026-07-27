@@ -116,12 +116,22 @@ export async function sendEmail(opts: {
 
   const identity = await loadMailIdentity(opts.orgId ?? null);
 
-  // The client-facing BRAND sends the mail, never the holding entity (B1). Fall
-  // back to the env default only for orgs with no sender configured — if that is
-  // also unset there is nothing safe to send as, so we decline rather than send
-  // under the wrong brand.
-  const from = senderFor(identity) ?? envFrom;
-  if (!from) return { sent: false, reason: "no sender identity configured for this organisation" };
+  // The client-facing BRAND sends the mail, never the holding entity (B1).
+  //
+  // The env default is a fallback ONLY when there is no org context at all
+  // (system mail with no owner). It used to apply whenever an org had no sender
+  // of its own, and the result was an invitation from the OE Group operator org
+  // arriving From "TFML Nigeria" while its body named OE Group — two brands in
+  // one message, which reads as a phishing attempt and breaches B1. Borrowing
+  // another organisation's identity is never the safe default; declining is.
+  const from = identity ? senderFor(identity) : envFrom;
+  if (!from) {
+    return {
+      sent: false,
+      reason:
+        "this organisation has no sender address configured — set one under Settings → Organisation",
+    };
+  }
 
   const replyTo = opts.replyTo?.trim() || replyToFor(opts.category, identity);
 
