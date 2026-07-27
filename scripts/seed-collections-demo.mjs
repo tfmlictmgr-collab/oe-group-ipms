@@ -18,6 +18,21 @@ const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 config({ path: path.join(rootDir, ".env.local") });
 
 const PASSWORD = "OEGroupDemo2026!";
+
+// Payment gateways refuse reserved domains — Paystack answers "Invalid Email
+// Address Passed" for anything on `.test`, which is what the other seeds use.
+// So the demo TENANTS get addresses on the brands' real domains; staff logins
+// stay on `.test`, since they only ever authenticate.
+//
+// Set DEMO_PAYER_EMAIL to your own inbox to receive the gateway's test receipts
+// yourself — each brand gets a distinct sub-address:
+//   DEMO_PAYER_EMAIL=you@gmail.com  →  you+tfml@gmail.com / you+oea@gmail.com
+const PAYER_INBOX = process.env.DEMO_PAYER_EMAIL?.trim() || null;
+function payerEmail(tag, fallbackDomain) {
+  if (!PAYER_INBOX || !PAYER_INBOX.includes("@")) return `demo.tenant@${fallbackDomain}`;
+  const [local, domain] = PAYER_INBOX.split("@");
+  return `${local}+${tag}@${domain}`;
+}
 const svc = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY,
@@ -28,7 +43,8 @@ const BRANDS = [
   {
     orgName: "TFML — Total Facilities Management",
     finance: { email: "finance.tfml@oegroup.test", name: "Chidi Nwosu (TFML Finance)" },
-    tenant: { email: "tenant.tfml@oegroup.test", name: "Halima Yusuf" },
+    tenant: { email: payerEmail("tfml", "tfmlconsultant.com"), name: "Halima Yusuf" },
+    retiredTenantEmail: "tenant.tfml@oegroup.test",
     property: "Adeola Odeku Complex",
     unit: "Suite 3B",
     period: "2026 · Q3",
@@ -37,7 +53,8 @@ const BRANDS = [
   {
     orgName: "OEA — Ora Egbunike & Associates",
     finance: { email: "finance.oea@oegroup.test", name: "Ngozi Eze (OEA Finance)" },
-    tenant: { email: "tenant.oea@oegroup.test", name: "Segun Balogun" },
+    tenant: { email: payerEmail("oea", "oraegbunike.com"), name: "Segun Balogun" },
+    retiredTenantEmail: "tenant.oea@oegroup.test",
     property: "Banana Island Residences",
     unit: "Villa 7",
     period: "2026 · Q3",
@@ -67,6 +84,20 @@ for (const b of BRANDS) {
   const { data: org } = await svc.from("orgs").select("id, name")
     .eq("name", b.orgName).maybeSingle();
   if (!org) { console.log(`skip — ${b.orgName} not found (run seed-brands first)`); continue; }
+
+  // An earlier run of this script created the tenant on a `.test` address, which
+  // the gateway will not accept. Move that same account rather than leaving a
+  // dead one beside a new one — the unit and its invoice already point at it.
+  const stale = authList?.users?.find((u) => u.email === b.retiredTenantEmail);
+  if (stale && b.retiredTenantEmail !== b.tenant.email) {
+    const { error } = await svc.auth.admin.updateUserById(stale.id, {
+      email: b.tenant.email, email_confirm: true,
+    });
+    if (error) throw new Error(`moving ${b.retiredTenantEmail}: ${error.message}`);
+    await svc.from("users").update({ email: b.tenant.email }).eq("id", stale.id);
+    stale.email = b.tenant.email;
+    console.log(`  moved ${b.retiredTenantEmail} → ${b.tenant.email}`);
+  }
 
   const financeId = await ensureUser(b.finance.email, b.finance.name, "finance_approver", org.id);
   const tenantId = await ensureUser(b.tenant.email, b.tenant.name, "tenant", org.id);

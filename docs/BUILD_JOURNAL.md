@@ -541,3 +541,37 @@ caused a real configuration to point at one.
 🔎 All three orgs now resolve to `1000 Client funds (bank)`, each linked to its
 own Providus account. Ledger, reconciliation, collections and checkout suites
 green after the repair.
+
+## 2026-07-27 · The demo failed, and the failure message was invisible
+
+⚠️ **Paystack refused the checkout: "Invalid Email Address Passed".** The seeded
+demo tenants were on `@oegroup.test`, and `.test` is reserved by RFC 2606 —
+guaranteed undeliverable, so gateways reject it outright. Fine for Supabase auth,
+useless for anything that must actually receive mail. Demo tenants moved to the
+brands' real domains; staff logins stay on `.test` since they only authenticate.
+
+⚖️ **The address is now checked before the gateway is called**
+(`lib/email-address.ts`), because the fix is administrative — edit the person's
+record — and the message should say that rather than surfacing a gateway error
+mid-checkout. `DEMO_PAYER_EMAIL` routes the test receipts to a real inbox.
+
+⚠️ **The far worse defect: the user never saw that message.** Next.js replaces
+the message of any error thrown in a Server Action with an opaque digest in
+production builds. The screen said *"An error occurred… the specific message is
+omitted in production builds"*, while the real reason sat in the Vercel log with
+`digest: '843142770'`. Every carefully-worded message in the collections
+actions — "that invoice is already paid", "only finance can request a payment" —
+had been unreachable in the only environment that matters.
+
+⚖️ **Expected failures are RETURNED, not thrown.** Collections actions now use a
+discriminated result (`{ ok: false, message, hint }`); only unexpected faults
+throw, and the client shows a generic message for those. Error text that
+identifies what to change is pinned until dismissed — a four-second toast cannot
+be acted on.
+
+⚠️ **This is systemic: 95 `throw new Error` sites across 11 server-action files**,
+covering people, assets, banking, invitations and the payment gate. All show the
+same wall. Collections is converted as the reference implementation; the rest is
+tracked separately. **Error handling that is only exercised in development is
+not error handling** — it looked correct locally in every test I ran, because
+`next dev` shows the real message.

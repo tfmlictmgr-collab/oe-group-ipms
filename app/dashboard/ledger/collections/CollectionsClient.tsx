@@ -88,7 +88,9 @@ export default function CollectionsClient({
       setBusy(id);
       try {
         const r = await refreshPaymentStatus(id);
-        if (r.posted) {
+        if (!r.ok) {
+          toast.error("Could not check that payment", { description: r.message });
+        } else if (r.posted) {
           toast.success("Payment confirmed", {
             description: "It has been posted to the client-funds ledger.",
           });
@@ -98,9 +100,10 @@ export default function CollectionsClient({
             description: `The gateway reports this as ${r.status}. Nothing has been posted.`,
           });
         }
-      } catch (e) {
-        toast.error("Could not check that payment", {
-          description: e instanceof Error ? e.message : "Please try again.",
+      } catch {
+        // Only unexpected faults reach here; expected ones come back as ok:false.
+        toast.error("Something went wrong", {
+          description: "The check could not be completed. Please try again.",
         });
       } finally {
         setBusy(null);
@@ -122,6 +125,14 @@ export default function CollectionsClient({
     setBusy(serviceChargeId);
     try {
       const r = await raisePaymentRequest({ purpose: "service_charge", serviceChargeId });
+
+      if (!r.ok) {
+        // Kept on screen until dismissed: these say what to change, and a
+        // message that disappears in four seconds cannot be acted on.
+        toast.error(r.message, { description: r.hint, duration: Infinity, closeButton: true });
+        return;
+      }
+
       if (r.checkoutUrl) {
         await navigator.clipboard.writeText(absolute(r.checkoutUrl)).catch(() => {});
         toast.success("Payment request raised", {
@@ -131,9 +142,9 @@ export default function CollectionsClient({
         toast.success("Payment request raised", { description: r.reference });
       }
       router.refresh();
-    } catch (e) {
-      toast.error("Could not raise that request", {
-        description: e instanceof Error ? e.message : "Please try again.",
+    } catch {
+      toast.error("Something went wrong", {
+        description: "The request could not be raised. Please try again.",
       });
     } finally {
       setBusy(null);
