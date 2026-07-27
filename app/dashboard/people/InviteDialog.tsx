@@ -8,21 +8,11 @@ import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { roleLabel } from "@/lib/roles";
+import { roleLabel, INVITABLE_ROLES, ROLE_HINTS } from "@/lib/roles";
 import { inviteMember } from "./actions";
 import { runAction, describeError } from "@/lib/run-action";
 
 type Option = { id: string; label: string; propertyId?: string };
-
-const ROLE_CHOICES = [
-  "facility_manager",
-  "fm_ops_staff",
-  "finance_approver",
-  "property_owner",
-  "tenant",
-  "vendor",
-  "admin",
-];
 
 export default function InviteDialog({
   brand,
@@ -52,7 +42,7 @@ export default function InviteDialog({
   const needsProperties = role === "facility_manager" || role === "property_owner";
   const needsUnit = role === "tenant";
   const needsVendor = role === "vendor";
-  const roles = isAdmin ? ROLE_CHOICES : ROLE_CHOICES.filter((r) => r !== "admin");
+  const roles = isAdmin ? INVITABLE_ROLES : INVITABLE_ROLES.filter((r) => r !== "admin");
 
   function toggleProperty(id: string) {
     setPropertyIds((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
@@ -137,6 +127,9 @@ export default function InviteDialog({
                   <option key={r} value={r}>{roleLabel(r, brand)}</option>
                 ))}
               </Select>
+              {ROLE_HINTS[role] && (
+                <p className="text-xs text-muted-foreground">{ROLE_HINTS[role]}</p>
+              )}
               {!isAdmin && (
                 <p className="text-xs text-muted-foreground">
                   Only an administrator can invite another administrator.

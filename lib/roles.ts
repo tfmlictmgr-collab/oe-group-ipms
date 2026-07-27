@@ -26,6 +26,37 @@ const BRAND_LABELS: Partial<Record<DeliveryBrand, Record<string, string>>> = {
   },
 };
 
+/**
+ * Roles that may be issued through an invitation, in the order they are offered.
+ *
+ * ONE list. This was previously duplicated — a server-side validation array and
+ * a separate array driving the dropdown — and adding `viewer` to the first
+ * without the second produced a role that passed validation but was impossible
+ * to select. Two lists that must agree will eventually disagree.
+ */
+export const INVITABLE_ROLES = [
+  "facility_manager",
+  "fm_ops_staff",
+  "finance_approver",
+  "property_owner",
+  "tenant",
+  "vendor",
+  "viewer",
+  "admin",
+] as const;
+
+export type InvitableRole = (typeof INVITABLE_ROLES)[number];
+
+/** One line of context for the roles whose scope is not obvious from the name. */
+export const ROLE_HINTS: Partial<Record<string, string>> = {
+  viewer:
+    "Read-only, organisation-wide. Sees properties, assets, vendors and request volumes — never money, personal contact details, or the audit trail. Intended for someone outside the organisation.",
+  finance_approver:
+    "Sees and approves money: the client-funds ledger, collections, remittances and reconciliation.",
+  fm_ops_staff: "Works the jobs dispatched to them. No financial access.",
+  property_owner: "Their own portfolio only — summary, statements and vendor performance.",
+};
+
 export function roleLabel(
   role: string | null | undefined,
   brand?: string | null

@@ -9,25 +9,13 @@ import {
   buildInviteUrl,
 } from "@/lib/invitation";
 import { sendEmail } from "@/lib/email";
-import { roleLabel } from "@/lib/roles";
+import { roleLabel, INVITABLE_ROLES, type InvitableRole } from "@/lib/roles";
 import { ok, fail, failFromDb, type ActionResult } from "@/lib/action-result";
 
 // Enrolment writes go through the caller's own session so RLS decides what is
 // permitted. The one exception is acceptance itself (a SECURITY DEFINER function
 // in 0020), because the invitee is not yet a member of any org.
 
-const INVITABLE_ROLES = [
-  "facility_manager",
-  "fm_ops_staff",
-  "finance_approver",
-  "property_owner",
-  "tenant",
-  "vendor",
-  "admin",
-  // Read-only, org-wide, no money and no personal data. Intended for someone
-  // outside the organisation who needs to see progress, not operate anything.
-  "viewer",
-] as const;
 
 export type InviteInput = {
   email: string;
@@ -65,7 +53,7 @@ export async function inviteMember(
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return fail("Enter a valid email address.");
   }
-  if (!INVITABLE_ROLES.includes(input.role as (typeof INVITABLE_ROLES)[number])) {
+  if (!INVITABLE_ROLES.includes(input.role as InvitableRole)) {
     return fail("That role cannot be invited.");
   }
   // Defence in depth — the RLS policy enforces this too.
