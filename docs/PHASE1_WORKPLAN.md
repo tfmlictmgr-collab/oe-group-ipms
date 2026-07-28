@@ -466,6 +466,16 @@ checklist**, and a visibly **polished mobile UI**.
 static "needs human review", it does not fail over), and confirm the classifier
 model id is valid so classification can't silently go dark.
 
+**🧹 Clean-data go-live gate:** production is a **fresh, separate** Supabase + Vercel
+project, **stood up empty**. Run `npm run migrate` (schema only) and **do NOT run
+`npm run seed`** — the seed generates synthetic/test data. Every production record
+must arrive through real Day-3 self-service onboarding. All test/synthetic data stays
+in `oe-group-dev` and the frozen `poc-demo-v1` demo and is **never migrated in**. This
+removes any real-vs-test confusion *by construction* — not by deleting test rows later,
+which is unsafe here anyway (the `audit_log` is append-only, and financial/ledger rows
+are retained, not deletable). If a rehearsal ever writes test data into the prod env,
+**reset/re-provision it before the real cutover**, don't hand-delete rows.
+
 **You do:** designate the **DPO**, sign processor DPAs (Supabase, Vercel, Anthropic,
 Meta, Paystack, Flutterwave), publish the privacy notice, run UAT with real staff,
 and give the **go/no-go**.
@@ -476,7 +486,8 @@ and give the **go/no-go**.
 and the **production system live** for TFML and OEA.
 
 **Done when:** no critical findings, UAT signed off, production deployed, rollback
-confirmed.
+confirmed, and the **production DB verified clean** — migrations run, seed **not** run,
+zero synthetic rows before the first real onboarding.
 
 ---
 
