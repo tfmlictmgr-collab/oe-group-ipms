@@ -26,7 +26,8 @@ the one-glance version.
 | 4 | Segregated client-funds ledger + reconciliation | 🟢 done | `verify-ledger`, `verify-reconciliation` — clean statement reconciles to 0, planted ₦75,000 debit flagged |
 | 5 | Live collections (checkout → webhook → ledger → receipt) | 🟢 done | `verify-collections`, `verify-checkout-e2e` — payload claiming ₦999,999,999 ignored; exactly-once under concurrency |
 | 6 | Live remittance (vendor payouts + landlord rent) | 🟢 done | `verify-remittance` — gate refuses every incomplete payment; 3 concurrent claims → 1 winner; re-confirming posts once; cannot pay more than is owed; `unknown` stays unknown |
-| 6.5 | Operator-governed permission matrix (toggles) | ⬜ next | gate: a toggle changes what the DATABASE returns; locked permissions cannot be moved; brand admins cannot reach the editor |
+| 6.5 | Operator-governed permission matrix (toggles) | 🟢 done | `verify-permissions` — revoking a capability returns ZERO rows (RLS, not the menu); locked capabilities refuse to move; a brand admin reads but cannot edit; isolation and identity survive every capability being off |
+| 6.75 | Property & unit register *(gap found 27 Jul — was in no plan)* | 🟢 done | `verify-properties` — unique unit label per property, strictly positive apportionment factor, retire refuses while obligations remain, attaching an FM grants access and detaching removes it |
 | 7 | OEA tenant application + KYC intake | ⬜ | |
 | 8 | Two-tier human review + approval | ⬜ | |
 | 9 | Lease admin + rent roll | ⬜ | |
@@ -34,22 +35,31 @@ the one-glance version.
 | 11 | Vendor KPI/SLA evaluation, work-order media, UX pass | ⬜ | |
 | 12 | Security audit, NDPA pack, UAT, go-live | ⬜ | |
 
-**Open items carried forward** (none blocking Day 6.5):
+**Open items carried forward** (none blocking Day 7):
 - **Resend webhook** — add the endpoint + `RESEND_WEBHOOK_SECRET` so invitation
   delivery outcomes (delivered / bounced) are recorded rather than assumed.
-- **`recordOpeningBalance` is not atomic** — a failed postings insert leaves a
-  ledger entry with nothing under it. Move into an RPC.
-- **`record_remittance_sent` resolves accounts inline** rather than through
-  `canonical_ledger_account`. Deterministic, but the "one resolver" rule does
-  not hold until it conforms.
-- **Migration numbering collision** — `0040_email_deliveries` and
-  `0040_remittance` share a number. Both applied; renaming would re-run them.
-  Leave, and keep numbering unique from 0047.
+- **Telegram bots** — not yet created in BotFather. Per-brand routing, tokens and
+  interactive buttons are built and waiting; see `TELEGRAM_BOT_SETUP.md`, then
+  `node scripts/register-telegram-bot.mjs <TFML|OEA> <token>`.
 - Client-funds **opening balance** and its allocation — placeholder ₦0 in all three orgs.
-- **Management/admin fee %** OEA deducts from rent — needed *by* Day 6.
-- **OEA WhatsApp number** — Meta business verification outstanding; needed by Days 7–9.
+- **Management/admin fee %** OEA deducts from rent — needed *by* Day 9 (rent roll).
 - **Flutterwave (FX)** keys — not set, so non-Naira collections refuse cleanly (403).
 - `oraegbunike.com` sending domain — DNS is on Zoho, not HostGator; subdomain steps pending.
+- **Per-brand portal URLs** — `portal.tfmlconsultant.com` / `portal.oraegbunike.com`
+  CNAME to Vercel at go-live; email sending domains are unaffected (separate records).
+
+**Closed on 27 July** (were listed here, now fixed — kept briefly so a reader of an
+older copy is not misled):
+- `recordOpeningBalance` atomicity → one RPC (`0048`).
+- `record_remittance_sent` inline account resolution → `canonical_ledger_account`
+  (`0048`), and the COLLECTION credit side too (`0049`, after `0048` alone made
+  the two halves of the ledger disagree).
+- Migration numbering collision → renamed `0040a`/`0040b` with their ledger rows
+  retagged, plus a runner guard that now refuses two files claiming one number.
+- **WhatsApp cross-brand replies** → each number routes to its own brand; Meta's
+  callback URL was still pointing at the frozen POC deployment.
+- **`channel_routes` credential leak** → any signed-in user could read the
+  Telegram webhook secret. Policy removed (`0039`).
 
 ---
 
