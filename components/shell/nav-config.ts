@@ -3,6 +3,7 @@ import {
   Package,
   LayoutDashboard,
   Building2,
+  Building,
   ReceiptText,
   Banknote,
   Scale,
@@ -70,6 +71,14 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     heading: "Operations",
     items: [
+      {
+        label: "Properties",
+        href: "/dashboard/properties",
+        icon: Building,
+        // Everyone operational: RLS decides WHICH properties come back, so an
+        // FM/PM sees the ones they are attached to and nothing else.
+        show: (c) => c.isStaff || c.seesAssets,
+      },
       {
         label: "Assets",
         href: "/dashboard/assets",

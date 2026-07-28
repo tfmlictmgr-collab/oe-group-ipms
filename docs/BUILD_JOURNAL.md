@@ -971,3 +971,44 @@ is refused, four locked capabilities refuse to move, an invented capability is
 refused, a brand admin can read but not edit their own matrix and cannot see
 another's, a tenant cannot edit at all, isolation and identity survive every
 toggle off, and the trail names both organisations.
+
+## 2026-07-27 · Day 6.75 — properties and units become manageable
+
+⚠️ **Found by asking, not by testing: there was no way to enrol a property.**
+Every property in the system came from a seed script. Nothing in the application
+inserted into `properties` or `units` — only read them — though the write
+policies had been there since `0001`. It was not deferred; it was **missed**, and
+it was in neither the workplan nor the reconciled roadmap.
+
+The build sequenced by module — tickets, assets, vendors, service charges,
+ledger, collections, remittance — and treated the portfolio as fixtures the whole
+way through. **A dependency that is always already there in the test data is a
+dependency nobody notices is missing.**
+
+🟢 `0056` plus a full CRUD surface: property list and detail, units with
+occupancy, bulk unit import with a validating preview, and the attaché
+assignment as toggles.
+
+⚖️ **Two constraints exist purely to protect the apportionment.** A unit label is
+unique within its property — a second "Flat 2" makes every invoice for it
+ambiguous and doubles that property's share. And an apportionment factor must be
+positive: a zero-weighted unit pays nothing while still consuming, and the
+shortfall is redistributed across its neighbours **without anyone being told**.
+Both are enforced in the database, not the form.
+
+⚖️ **The import is all-or-nothing.** A partly imported block is worse than a
+refused one, because a budget apportions across whatever exists — so a silently
+missing unit inflates every other unit's share. The preview shows each row's
+resulting **percentage**, not just its factor: an apportionment mistake is
+invisible as a number and obvious as a share.
+
+⚖️ **Retiring refuses while obligations remain**, and names what is in the way —
+a property with live units, a unit with an occupant or an unpaid charge. Hard
+deletes are blocked outright: a deleted property orphans its assets, budgets,
+invoices and the ledger entries derived from them.
+
+🔎 `verify-properties.mjs` — 17 checks. The one worth keeping: attaching an FM to
+a property makes it visible to them and detaching removes it again, asserted
+against live sessions. **The attaché assignment is the access, not a label.**
+Access-matrix, permissions, asset, viewer, collections, remittance and ledger
+suites all still green after the policy rewrite.
