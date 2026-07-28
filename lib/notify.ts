@@ -74,17 +74,74 @@ export async function sendWhatsApp(sender: WhatsAppSender, to: string, text: str
   return response.json();
 }
 
-export async function sendTelegram(chatId: string, text: string) {
-  const url = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`;
+/**
+ * A row of tappable buttons. Telegram sends the `data` string back as a
+ * `callback_query` when one is pressed.
+ *
+ * `data` is caller-supplied and comes back from an untrusted client, so every
+ * handler MUST re-check that whatever it names belongs to the org the webhook
+ * resolved. A button is a suggestion, never an authorisation.
+ */
+export type TelegramButton = { label: string; data: string };
+
+/** The bot an org replies as. Null when it has no Telegram identity. */
+export async function telegramSenderForOrg(orgId: string): Promise<string | null> {
+  const { data, error } = await supabaseAdmin.rpc("channel_sender_for_org", {
+    p_org_id: orgId,
+    p_channel: "telegram",
+  });
+  if (error) return null;
+  const row = Array.isArray(data) ? data[0] : data;
+  // Falls back to the single-bot environment variable so an org configured
+  // before per-bot tokens existed keeps working.
+  return row?.outbound_token ?? process.env.TELEGRAM_BOT_TOKEN ?? null;
+}
+
+export async function sendTelegram(
+  botToken: string,
+  chatId: string,
+  text: string,
+  buttons?: TelegramButton[][]
+) {
+  const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
   const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, text }),
+    body: JSON.stringify({
+      chat_id: chatId,
+      text,
+      ...(buttons?.length
+        ? {
+            reply_markup: {
+              inline_keyboard: buttons.map((row) =>
+                row.map((b) => ({ text: b.label, callback_data: b.data }))
+              ),
+            },
+          }
+        : {}),
+    }),
   });
   if (!response.ok) {
     throw new Error(`Telegram send failed: ${response.status} ${await response.text()}`);
   }
   return response.json();
+}
+
+/**
+ * Clears the spinner on a tapped button. Telegram shows it until this is
+ * answered, so skipping it leaves the person looking at a hung message even
+ * when the work succeeded.
+ */
+export async function answerTelegramCallback(
+  botToken: string,
+  callbackQueryId: string,
+  text?: string
+) {
+  await fetch(`https://api.telegram.org/bot${botToken}/answerCallbackQuery`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ callback_query_id: callbackQueryId, ...(text ? { text } : {}) }),
+  }).catch(() => {});
 }
 
 /**
@@ -98,7 +155,9 @@ export async function sendReply(
   channel: "whatsapp" | "telegram",
   chatId: string,
   text: string,
-  sender?: WhatsAppSender | null
+  sender?: WhatsAppSender | null,
+  telegramBotToken?: string | null,
+  buttons?: TelegramButton[][]
 ) {
   if (channel === "whatsapp") {
     if (!sender) {
@@ -108,5 +167,11 @@ export async function sendReply(
     }
     return sendWhatsApp(sender, chatId, text);
   }
-  return sendTelegram(chatId, text);
+  if (!telegramBotToken) {
+    // Same rule as WhatsApp: silence is better than the wrong brand answering.
+    throw new Error(
+      "no Telegram bot for this organisation — refusing to answer as another brand's bot"
+    );
+  }
+  return sendTelegram(telegramBotToken, chatId, text, buttons);
 }

@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatNaira } from "@/lib/currency";
 import { simulatePayment } from "./actions";
+import { runAction, describeError } from "@/lib/run-action";
 
 // Deliberately lets the amount be edited: an underpayment is the case worth
 // being able to demonstrate, because it is the one that must NOT quietly mark
@@ -27,15 +28,13 @@ export default function SimulatedCheckout({
   async function pay() {
     setBusy(true);
     try {
-      const r = await simulatePayment(reference, paid);
+      const r = await runAction(simulatePayment(reference, paid));
       setDone(true);
       toast.success("Payment sent", { description: r.message });
       // Back to wherever this was raised from, which confirms and receipts it.
       setTimeout(() => { window.location.href = r.returnTo; }, 1200);
     } catch (e) {
-      toast.error("Payment failed", {
-        description: e instanceof Error ? e.message : "Please try again.",
-      });
+      toast.error("Payment failed", { description: describeError(e) });
       setBusy(false);
     }
   }

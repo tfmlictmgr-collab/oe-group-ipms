@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import { headers } from "next/headers";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { gatewayConfigured, isProduction } from "@/lib/gateway";
+import { ok, fail, type ActionResult } from "@/lib/action-result";
 
 /**
  * Stands in for a card being charged.
@@ -17,8 +18,12 @@ import { gatewayConfigured, isProduction } from "@/lib/gateway";
 export async function simulatePayment(
   reference: string,
   amount: number
-): Promise<{ message: string; returnTo: string }> {
-  if (isProduction()) throw new Error("Not available.");
+): Promise<ActionResult<{ message: string; returnTo: string }>> {
+  // Returned, not thrown, for the same reason as every other action: Next masks
+  // thrown Server Action messages on ANY deployment, and `isProduction()` only
+  // recognises VERCEL_ENV=production — so on a preview deployment this page
+  // would show the generic "an error occurred" wall instead of the reason.
+  if (isProduction()) return fail("This page is not available here.");
 
   const { data: intent } = await supabaseAdmin
     .from("payment_intents")
@@ -26,15 +31,18 @@ export async function simulatePayment(
     .eq("gateway_reference", reference)
     .maybeSingle();
 
-  if (!intent) throw new Error("That payment reference is not recognised.");
+  if (!intent) return fail("That payment reference is not recognised.");
   if (intent.gateway !== "simulated" || gatewayConfigured(intent.currency)) {
-    throw new Error("This payment must be made through the live gateway.");
+    return fail("This payment must be made through the live gateway.");
   }
   if (intent.ledger_entry_id) {
-    return { message: "Already received.", returnTo: `/dashboard/ledger/collections?ref=${reference}` };
+    return ok({
+      message: "Already received.",
+      returnTo: `/dashboard/ledger/collections?ref=${reference}`,
+    });
   }
   if (!Number.isFinite(amount) || amount <= 0) {
-    throw new Error("Enter an amount greater than zero.");
+    return fail("Enter an amount greater than zero.");
   }
 
   // The gateway's record. Verification reads this, not the message below.
@@ -45,7 +53,7 @@ export async function simulatePayment(
     status: "success",
     paid_at: new Date().toISOString(),
   });
-  if (chargeErr) throw new Error(chargeErr.message);
+  if (chargeErr) return fail(`The charge could not be recorded: ${chargeErr.message}`);
 
   const secret = process.env.SIMULATED_GATEWAY_SECRET ?? "dev-simulated-secret";
   const body = JSON.stringify({
@@ -69,11 +77,11 @@ export async function simulatePayment(
     body,
   });
   if (!res.ok) {
-    throw new Error(`The payment notification was rejected (${res.status}).`);
+    return fail(`The payment notification was rejected (${res.status}).`);
   }
 
-  return {
+  return ok({
     message: `₦${amount.toLocaleString("en-NG")} sent for confirmation.`,
     returnTo: `/dashboard/ledger/collections?ref=${encodeURIComponent(reference)}`,
-  };
+  });
 }

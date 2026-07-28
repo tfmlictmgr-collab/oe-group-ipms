@@ -4,6 +4,8 @@ import { buildAcknowledgement } from "@/lib/acknowledgement";
 import { sendCascade } from "@/lib/cascade";
 import { checkRateLimit, clientIp, INTAKE_LIMITS } from "@/lib/rate-limit";
 import { resolveOrgForChannel } from "@/lib/channel-routing";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { telegramSenderForOrg, sendTelegram, answerTelegramCallback } from "@/lib/notify";
 
 // Telegram doesn't require a GET verification handshake — POST only.
 export async function POST(request: NextRequest) {
@@ -36,11 +38,17 @@ export async function POST(request: NextRequest) {
     return new NextResponse("Forbidden", { status: 403 });
   }
 
-  let payload: { message?: Record<string, unknown> };
+  let payload: { message?: Record<string, unknown>; callback_query?: Record<string, unknown> };
   try {
     payload = await request.json();
   } catch {
     return new NextResponse("Bad Request", { status: 400 });
+  }
+
+  // ── A tapped button ──────────────────────────────────────────────────────
+  if (payload.callback_query) {
+    await handleCallback(payload.callback_query, route.orgId);
+    return new NextResponse("OK", { status: 200 });
   }
 
   const message = payload?.message as
@@ -90,16 +98,100 @@ export async function POST(request: NextRequest) {
     console.log("Ticket created:", ticket.id, ticket.category, ticket.urgency);
 
     // Acknowledge via the B8 cascade (Telegram channel here) — logged + audited.
+    // The buttons turn a receipt into something the reporter can act on without
+    // typing, which is the whole point of a chat-first intake on a phone.
     await sendCascade({
       orgId: route.orgId,
       entityType: "ticket",
       entityId: ticket.id,
       message: buildAcknowledgement(ticket),
       telegram: String(chatId),
+      telegramButtons: [[
+        { label: "📋 Check status", data: `status:${ticket.id}` },
+        { label: "🚨 It's urgent", data: `urgent:${ticket.id}` },
+      ]],
     });
   } catch (error) {
     console.error("Failed to classify/create ticket or send reply:", error);
   }
 
   return new NextResponse("OK", { status: 200 });
+}
+
+/**
+ * Handles a tapped inline button.
+ *
+ * `callback_data` comes back from a CLIENT and names a ticket. The secret token
+ * already proved which org the bot belongs to, so every lookup is additionally
+ * constrained to that org — otherwise someone could craft a callback naming a
+ * ticket in another brand and read its status through the wrong bot. The button
+ * is a suggestion; the org check is the authorisation.
+ */
+async function handleCallback(query: Record<string, unknown>, orgId: string) {
+  const id = String(query.id ?? "");
+  const data = String((query.data as string) ?? "");
+  const chatId = ((query.message as Record<string, unknown>)?.chat as { id?: number })?.id;
+
+  const botToken = await telegramSenderForOrg(orgId);
+  if (!botToken || !chatId) return;
+
+  const [action, ticketId] = data.split(":");
+  if (!ticketId || !/^[0-9a-f-]{36}$/i.test(ticketId)) {
+    await answerTelegramCallback(botToken, id, "That action is no longer available.");
+    return;
+  }
+
+  const { data: ticket } = await supabaseAdmin
+    .from("tickets")
+    .select("id, status, category, urgency, assigned_vendor_id, assigned_to_user_id, created_at")
+    .eq("id", ticketId)
+    .eq("org_id", orgId)          // the authorisation, not the callback data
+    .maybeSingle();
+
+  if (!ticket) {
+    await answerTelegramCallback(botToken, id, "That request could not be found.");
+    return;
+  }
+
+  if (action === "status") {
+    const assigned = ticket.assigned_vendor_id || ticket.assigned_to_user_id;
+    const lines = [
+      `Request ${ticket.id.slice(0, 8).toUpperCase()}`,
+      `Status: ${String(ticket.status).replace(/_/g, " ")}`,
+      `Category: ${ticket.category ?? "being classified"}`,
+      `Priority: ${ticket.urgency ?? "normal"}`,
+      assigned ? "It has been dispatched to a team." : "It is queued for dispatch.",
+    ];
+    await answerTelegramCallback(botToken, id);
+    await sendTelegram(botToken, String(chatId), lines.join("\n"));
+    return;
+  }
+
+  if (action === "urgent") {
+    // Raises priority and flags for a person. Deliberately does NOT jump
+    // straight to 'critical': that grade drives SLA and callout cost, and a
+    // reporter marking their own request is a signal, not a decision.
+    const { error } = await supabaseAdmin
+      .from("tickets")
+      .update({ urgency: "high", requires_human_review: true })
+      .eq("id", ticket.id)
+      .eq("org_id", orgId)
+      .in("status", ["open", "assigned", "acknowledged", "in_progress"]);
+
+    await answerTelegramCallback(
+      botToken,
+      id,
+      error ? "Could not update that request." : "Flagged as urgent."
+    );
+    if (!error) {
+      await sendTelegram(
+        botToken,
+        String(chatId),
+        "Thanks — this has been raised in priority and flagged for a person to look at."
+      );
+    }
+    return;
+  }
+
+  await answerTelegramCallback(botToken, id, "That action is no longer available.");
 }

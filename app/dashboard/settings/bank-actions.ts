@@ -119,79 +119,33 @@ export async function recordOpeningBalance(
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return fail("Your session expired. Please sign in again.");
-  const { data: me } = await supabase
-    .from("users").select("org_id, role").eq("id", user.id).single();
-  if (!me || !["admin", "finance_approver"].includes(me.role)) {
-    return fail("Only an administrator or finance approver can record an opening balance.");
-  }
-
-  const { data: bank } = await supabase
-    .from("bank_accounts")
-    .select("id, label, ledger_account_id, opening_entry_id")
-    .eq("id", bankAccountId)
-    .single();
-  if (!bank) return fail("That bank account could not be found.");
-  if (bank.opening_entry_id) {
-    return fail(
-      "An opening balance has already been recorded for this account.",
-      "Post an adjusting entry instead — the ledger is append-only, so an opening balance is never rewritten."
-    );
-  }
-  if (!bank.ledger_account_id) {
-    return fail(
-      "This bank account isn't linked to a ledger account yet.",
-      "Set up the chart of accounts first, on this same page."
-    );
-  }
 
   const lines = allocations.filter((a) => a.accountId && Number(a.amount) > 0);
-  const total = lines.reduce((s, a) => s + Number(a.amount), 0);
-
-  if (total <= 0) {
+  if (lines.length === 0) {
     return fail(
       "Enter what the account held, and whose money it is.",
       "If the account is new and empty, there is nothing to record."
     );
   }
 
-  const { data: entry, error: entryErr } = await supabase
-    .from("ledger_entries")
-    .insert({
-      org_id: me.org_id,
-      entry_date: asOfDate,
-      description: `Opening balance — ${bank.label}`,
-      source: "opening_balance",
-      entity_type: "bank_account",
-      entity_id: bank.id,
-      created_by: user.id,
-    })
-    .select("id")
-    .single();
-  if (entryErr) return failFromDb(entryErr, "record the opening balance");
+  // One call, one transaction. This used to insert the entry and then the
+  // postings separately, so a failure between them left an entry with no
+  // postings — invisible to the balancing trigger, which fires on postings.
+  // The function re-checks the caller's role and org itself, since it runs
+  // SECURITY DEFINER.
+  const { data, error } = await supabase.rpc("record_opening_balance", {
+    p_bank_account_id: bankAccountId,
+    p_as_of: asOfDate,
+    p_allocations: lines.map((a) => ({ accountId: a.accountId, amount: Number(a.amount) })),
+  });
 
-  // Debit the bank for the total; credit each liability for its share. The
-  // balancing trigger rejects the whole transaction if these disagree.
-  const postings = [
-    { org_id: me.org_id, entry_id: entry.id, account_id: bank.ledger_account_id, amount: total,
-      memo: "Funds held at go-live" },
-    ...lines.map((a) => ({
-      org_id: me.org_id,
-      entry_id: entry.id,
-      account_id: a.accountId,
-      amount: -Number(a.amount),
-      memo: "Opening allocation",
-    })),
-  ];
+  if (error) {
+    // The function's own refusals are written for a person to read.
+    return fail(error.message.replace(/^.*?:\s*/, ""));
+  }
 
-  const { error: postErr } = await supabase.from("ledger_postings").insert(postings);
-  if (postErr) return failFromDb(postErr, "post the opening balance");
-
-  await supabase
-    .from("bank_accounts")
-    .update({ opening_balance: total, opening_date: asOfDate, opening_entry_id: entry.id })
-    .eq("id", bank.id);
-
+  const result = data as { total: number; entryId: string };
   revalidatePath("/dashboard/settings");
   revalidatePath("/dashboard/ledger");
-  return ok({ total, entryId: entry.id as string });
+  return ok({ total: Number(result.total), entryId: String(result.entryId) });
 }

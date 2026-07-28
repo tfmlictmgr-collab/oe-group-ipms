@@ -13,6 +13,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import {
   Table, TableHeader, TableBody, TableRow, TableHead, TableCell,
 } from "@/components/ui/table";
+import { stuckRemittances } from "./actions";
+import StuckRemittances from "./StuckRemittances";
 
 type Balance = {
   account_id: string;
@@ -73,8 +75,15 @@ export default async function LedgerBalancesPage() {
   // Group by class so the page reads like a balance sheet rather than a list.
   const groups = ["asset", "liability", "income", "expense"] as const;
 
+  // Money that left the bank but never reached the books. Shown FIRST and above
+  // the position itself, because while one of these is outstanding the position
+  // below it is wrong.
+  const stuck = await stuckRemittances();
+
   return (
     <div className="space-y-6">
+      {stuck.ok && <StuckRemittances rows={stuck.data} />}
+
       {/* The segregation position — the single most important figure here. */}
       <Card className={cn(shortfall && "border-destructive/50")}>
         <CardHeader className="pb-3">

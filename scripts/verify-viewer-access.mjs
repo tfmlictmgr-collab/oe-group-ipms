@@ -104,6 +104,23 @@ for (const table of ["audit_log", "invitations", "vendor_applications", "channel
     : bad(`users: sees ${others.length} other people (${others[0].email})`);
 }
 
+console.log("\nD2. Reads granted by 0038 actually work, and nothing else does");
+{
+  // The review noted these were granted but never probed — a policy nobody
+  // tests is a policy nobody knows the state of.
+  for (const t of ["asset_identifiers", "asset_certificates", "asset_field_definitions",
+                   "vendor_properties"]) {
+    const { error } = await viewer.from(t).select("*", { head: true, count: "exact" });
+    error ? bad(`cannot read ${t} — ${error.message.slice(0, 50)}`) : ok(`reads ${t}`);
+  }
+  for (const t of ["remittances", "payout_recipients"]) {
+    const { data, error } = await viewer.from(t).select("*").limit(1);
+    (error || (data ?? []).length === 0)
+      ? ok(`${t}: nothing returned`)
+      : bad(`${t}: RETURNED ${data.length} ROW(S) — payout destinations exposed`);
+  }
+}
+
 console.log("\nE. The withheld COLUMNS are genuinely unreachable, not just hidden");
 {
   // The whole point of the view. If the underlying table is readable, the view
@@ -131,6 +148,14 @@ console.log("\nF. Cannot write ANYTHING");
                           gateway: "simulated", gateway_reference: `VP-${Date.now()}` }],
     ["ledger_entries", { org_id: orgId, entry_date: "2026-01-01", description: "probe", source: "adjustment" }],
     ["invitations", { org_id: orgId, email: "x@y.com", role: "admin", token_hash: "x" }],
+    // Configuration a viewer must never touch: where money is held, what the
+    // approval thresholds are, and where payouts land.
+    ["bank_accounts", { org_id: orgId, label: "Viewer probe", purpose: "operating" }],
+    ["payment_settings", { org_id: orgId, min_performance_score: 0, approval_threshold_amount: 0 }],
+    ["payout_recipients", { org_id: orgId, party: "vendor", display_name: "Probe",
+                            recipient_code: "RCP_PROBE_VIEWER" }],
+    ["remittances", { org_id: orgId, party: "vendor", gross_amount: 1, net_amount: 1,
+                      reference: "VP-PROBE", recipient_id: null }],
   ];
   for (const [table, row] of probes) {
     const { error } = await viewer.from(table).insert(row);

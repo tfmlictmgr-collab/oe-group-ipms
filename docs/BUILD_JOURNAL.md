@@ -874,3 +874,38 @@ DELTAS against a captured baseline and verify their own cleanup.
 📌 **The live Paystack test payment is in the books.** TFML: ₦285,000 invoiced,
 ₦287,000 received, flagged as a mismatch, posted to the client-funds ledger.
 Day 5 is proven against the real gateway, not just the simulator.
+
+## 2026-07-27 · Closing the code review
+
+🟢 All open review findings fixed: `0048` (one resolver in remittance posting,
+atomic opening balance, ordered auth lookup), `0049` (the collection credit side
+and vendor-payable recognition through the same resolver), a stuck-remittance
+recovery path, `simulatePayment` converted to `ActionResult`, and the viewer
+suite extended to the tables the review noted were granted but never probed.
+
+⚖️ **A transfer that leaves the bank but fails to post now has a way back.**
+Previously that state lived in a `console.error`: the money had gone, the ledger
+disagreed with the bank, and the only recovery was the gateway re-delivering a
+webhook — which never comes if the cause is persistent. Client Funds now shows
+those remittances first, above the position itself, because while one is
+outstanding **the position below it is wrong**. The action completes the
+POSTING and never re-instructs the gateway; re-sending is the one thing that
+must never happen, so it is not offered.
+
+⚠️ **Following the review literally introduced a regression, and the suite caught
+it in one run.** Switching `record_remittance_sent` to `canonical_ledger_account`
+was correct — but the COLLECTION side had never been converted, so rent was
+credited to the oldest account while the payout settled against the standard
+one, and the overpayment guard refused a legitimate remittance. `0048` predicted
+exactly this in its own comment and then caused it. **A resolver used in half
+the places is worse than no resolver at all** — the two halves now disagree
+where before they were consistently wrong together.
+
+⚖️ **Opening balances post in one function.** Entry-then-postings from the
+application meant a failure between them left an entry with no postings —
+invisible to the balancing trigger, which fires on postings. Every other money
+path was already a single function; this one had been missed.
+
+⚠️ More `REC-%` recon-test debris found, this time a landlord payable account —
+the same family cleaned earlier. Retired rather than deleted; it carries
+postings. **Test litter in a shared database keeps presenting as product bugs.**

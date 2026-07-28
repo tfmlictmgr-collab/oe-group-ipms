@@ -24,6 +24,33 @@ const files = readdirSync(migrationsDir)
   .filter((f) => f.endsWith(".sql"))
   .sort();
 
+// Two files once shared the number 0040. Nothing broke — they still sorted
+// deterministically, and both were recorded — but the ordering between them was
+// then decided by the rest of the filename rather than by intent, and the next
+// person to add "0040_something" would have had no warning. Migrations are
+// applied once, in order, forever; ambiguity about that order is not a thing to
+// leave lying around.
+//
+// Suffixed numbers (0040a, 0040b) are fine and deliberate: they state the order.
+// Two files claiming the SAME identifier are not.
+{
+  const byNumber = new Map();
+  for (const f of files) {
+    const id = f.match(/^(\d+[a-z]?)_/)?.[1];
+    if (!id) {
+      throw new Error(`Migration "${f}" does not start with a number — it cannot be ordered.`);
+    }
+    if (byNumber.has(id)) {
+      throw new Error(
+        `Two migrations claim "${id}": ${byNumber.get(id)} and ${f}.\n` +
+        `Give one a suffixed number (e.g. ${id}a, ${id}b) so the order is stated rather than inferred.\n` +
+        `If either has already been applied, rename its row in _migrations to match.`
+      );
+    }
+    byNumber.set(id, f);
+  }
+}
+
 await client.connect();
 try {
   await client.query(

@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { supabaseAdmin } from "./supabase/admin";
-import { sendReply, whatsappSenderForOrg, type WhatsAppSender } from "./notify";
+import {
+  sendReply, whatsappSenderForOrg, telegramSenderForOrg,
+  type WhatsAppSender, type TelegramButton,
+} from "./notify";
 
 // B8 notification cascade (server-side only). Attempts channels in the required
 // order — WhatsApp → SMS → Email — stopping at the first success. Telegram runs
@@ -27,6 +30,8 @@ export type CascadeTarget = {
   phone?: string | null; // for SMS
   email?: string | null;
   telegram?: string | null; // chat id (parallel, opt-in)
+  /** Tappable actions to attach to the Telegram message, if any. */
+  telegramButtons?: TelegramButton[][];
 };
 
 type Attempt = { status: "sent" | "failed" | "skipped"; detail: string };
@@ -92,12 +97,21 @@ async function tryEmail(to: string, message: string): Promise<Attempt> {
   }
 }
 
-async function tryTelegram(chatId: string, message: string): Promise<Attempt> {
-  if (!process.env.TELEGRAM_BOT_TOKEN) {
-    return { status: "skipped", detail: "stubbed: no Telegram token" };
+async function tryTelegram(
+  orgId: string,
+  chatId: string,
+  message: string,
+  buttons?: TelegramButton[][]
+): Promise<Attempt> {
+  // Resolved per ORG, not from a single environment variable. With one bot per
+  // brand, a shared token means every reply arrives from whichever bot that
+  // variable named — the same cross-brand fault WhatsApp had.
+  const botToken = await telegramSenderForOrg(orgId);
+  if (!botToken) {
+    return { status: "skipped", detail: "no Telegram bot registered for this organisation" };
   }
   try {
-    await sendReply("telegram", chatId, message);
+    await sendReply("telegram", chatId, message, null, botToken, buttons);
     return { status: "sent", detail: "delivered via Telegram" };
   } catch (e) {
     return { status: "failed", detail: e instanceof Error ? e.message : "Telegram send failed" };
@@ -158,7 +172,7 @@ export async function sendCascade(
   // Telegram runs in parallel for opt-in recipients (not part of the fallback).
   if (target.telegram) {
     order++;
-    const a = await tryTelegram(target.telegram, target.message);
+    const a = await tryTelegram(target.orgId, target.telegram, target.message, target.telegramButtons);
     await log(target, cascadeId, "telegram", target.telegram, a, order);
   }
 

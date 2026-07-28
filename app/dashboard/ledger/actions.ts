@@ -142,3 +142,113 @@ export async function ignoreStatementLine(lineId: string): Promise<ActionResult>
   revalidatePath("/dashboard/ledger/reconciliation");
   return ok();
 }
+
+/**
+ * Remittances that need a person.
+ *
+ * A transfer can succeed at the gateway and then fail to post to the ledger —
+ * a missing account, a constraint, a transient database fault. The money HAS
+ * left, so retrying the transfer is the one thing that must never happen; what
+ * is needed is to complete the posting. Until now the only recovery was the
+ * gateway re-delivering its webhook, which never comes if the cause is
+ * persistent, and the failure lived in a server log nobody reads.
+ *
+ * `sending`  — instructed, never confirmed.
+ * `unknown`  — the gateway was unreachable mid-instruction; it may or may not
+ *              have gone. This one is genuinely ambiguous and must be checked
+ *              at the gateway before anything is done.
+ *
+ * Only rows older than the grace period are returned: a remittance sent five
+ * seconds ago is in flight, not stuck.
+ */
+export type StuckRemittance = {
+  id: string;
+  reference: string;
+  party: string;
+  status: string;
+  net_amount: number | string;
+  transfer_code: string | null;
+  gateway_message: string | null;
+  created_at: string;
+};
+
+const STUCK_AFTER_MINUTES = 10;
+
+export async function stuckRemittances(): Promise<ActionResult<StuckRemittance[]>> {
+  const { ctx, denied } = await financeContext();
+  if (denied) return denied;
+
+  const cutoff = new Date(Date.now() - STUCK_AFTER_MINUTES * 60_000).toISOString();
+  const { data, error } = await ctx.supabase
+    .from("remittances")
+    .select("id, reference, party, status, net_amount, transfer_code, gateway_message, created_at")
+    .in("status", ["sending", "unknown"])
+    .is("ledger_entry_id", null)
+    .lt("created_at", cutoff)
+    .order("created_at", { ascending: true });
+
+  if (error) return failFromDb(error, "list remittances needing attention");
+  return ok((data ?? []) as StuckRemittance[]);
+}
+
+/**
+ * Completes the ledger posting for a transfer that already went out.
+ *
+ * Deliberately does NOT re-instruct the gateway. It calls the same idempotent
+ * posting function the webhook does, so if the webhook has since succeeded this
+ * returns the existing entry and changes nothing.
+ *
+ * The operator confirms the transfer really happened — we cannot, or we would
+ * have posted it already. That confirmation is the whole point of the human
+ * step, so it is recorded on the remittance.
+ */
+export async function completeRemittancePosting(
+  remittanceId: string,
+  transferCode: string
+): Promise<ActionResult<{ entryId: string }>> {
+  const { ctx, denied } = await financeContext();
+  if (denied) return denied;
+
+  const code = transferCode.trim();
+  if (code.length < 3) {
+    return fail(
+      "Enter the gateway's transfer reference.",
+      "Find it in the Paystack dashboard against this remittance. Recording it is what ties our ledger to their record."
+    );
+  }
+
+  const { data: remittance } = await ctx.supabase
+    .from("remittances")
+    .select("id, org_id, status, ledger_entry_id, reference")
+    .eq("id", remittanceId)
+    .maybeSingle();
+
+  if (!remittance) return fail("That remittance could not be found.");
+  if (remittance.ledger_entry_id) {
+    return fail(
+      "This one has already been posted.",
+      "The webhook confirmed it while you were looking. Nothing more to do."
+    );
+  }
+
+  const { supabaseAdmin } = await import("@/lib/supabase/admin");
+  const { data: entryId, error } = await supabaseAdmin.rpc("record_remittance_sent", {
+    p_id: remittanceId,
+    p_transfer_code: code,
+  });
+
+  if (error) {
+    // Still stuck, and now we know why — which is more than the log gave anyone.
+    await supabaseAdmin
+      .from("remittances")
+      .update({ gateway_message: `posting refused: ${error.message}` })
+      .eq("id", remittanceId);
+    return fail(
+      `The ledger refused the posting: ${error.message}`,
+      "Do NOT re-send the transfer. This usually means the chart of accounts is incomplete, or the obligation was never recognised."
+    );
+  }
+
+  revalidatePath("/dashboard/ledger");
+  return ok({ entryId: String(entryId) });
+}
