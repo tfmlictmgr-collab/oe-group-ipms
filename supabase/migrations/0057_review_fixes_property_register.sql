@@ -52,13 +52,26 @@ $$;
 -- invariant structural — it cannot be forgotten by the next policy author, and
 -- it holds for the service role too, which an RLS check never would.
 
--- Clear the probe row created while confirming the fault, plus anything else
--- already mismatched, or the constraint below cannot be added.
-delete from units u
- where exists (
-   select 1 from properties p
-    where p.id = u.property_id and p.org_id is distinct from u.org_id
- );
+-- Repair, rather than delete, anything already mismatched — the constraint
+-- below cannot be added while one exists.
+--
+-- The PROPERTY is authoritative about where a row belongs: if a unit or asset
+-- sits on property P and P belongs to org X, then it belongs to org X. Deleting
+-- was the first instinct and is wrong twice over — it discards a real record,
+-- and a unit that has ever been invoiced is referenced by `service_charges`, so
+-- the delete would fail and abort this whole migration before the
+-- `block_hard_delete()` restoration above had committed.
+update units u
+   set org_id = p.org_id
+  from properties p
+ where p.id = u.property_id
+   and p.org_id is distinct from u.org_id;
+
+update assets a
+   set org_id = p.org_id
+  from properties p
+ where p.id = a.property_id
+   and p.org_id is distinct from a.org_id;
 
 create unique index if not exists properties_id_org_uidx on properties (id, org_id);
 

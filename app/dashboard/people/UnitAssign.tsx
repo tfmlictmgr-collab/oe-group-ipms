@@ -4,7 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Select } from "@/components/ui/input";
-import { assignUnitOccupant } from "./actions";
+import { assignUnitOccupant } from "../properties/actions";
 import { runAction, describeError } from "@/lib/run-action";
 
 type Unit = {

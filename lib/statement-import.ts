@@ -1,4 +1,4 @@
-import { parseCsv, csvCell } from "./asset-schema";
+import { parseCsvLines, csvCell } from "./asset-schema";
 
 // Bank statement import. Nigerian bank exports vary a lot, so rather than
 // guessing at every format the importer accepts a small canonical shape and
@@ -75,11 +75,11 @@ export function validateStatementCsv(
   text: string,
   existingExternalIds: Set<string>
 ): { rows: StatementRow[]; headerIssues: string[] } {
-  const grid = parseCsv(text);
+  const grid = parseCsvLines(text);
   const headerIssues: string[] = [];
   if (grid.length === 0) return { rows: [], headerIssues: ["The file is empty."] };
 
-  const header = grid[0].map((h) => h.trim().toLowerCase());
+  const header = grid[0].cells.map((h) => h.trim().toLowerCase());
   const known = new Set(STATEMENT_COLUMNS.map((c) => c.key));
   const unknown = header.filter((h) => h && !known.has(h as never));
   if (unknown.length) headerIssues.push(`Ignoring unrecognised column(s): ${unknown.join(", ")}`);
@@ -91,7 +91,7 @@ export function validateStatementCsv(
   const seenRefs = new Set<string>();
   const seenFingerprints = new Map<string, number>();
 
-  const rows: StatementRow[] = grid.slice(1).map((cells, idx) => {
+  const rows: StatementRow[] = grid.slice(1).map(({ cells, line }) => {
     const raw: Record<string, string> = {};
     header.forEach((h, i) => { if (h) raw[h] = (cells[i] ?? "").trim(); });
 
@@ -147,12 +147,12 @@ export function validateStatementCsv(
       const fp = `${date}|${amount}|${(raw.description ?? "").toLowerCase()}`;
       const prev = seenFingerprints.get(fp);
       if (prev) possibleDuplicate = true;
-      else seenFingerprints.set(fp, idx + 2);
+      else seenFingerprints.set(fp, line);
     }
 
     const valid = issues.length === 0;
     return {
-      rowNumber: idx + 2,
+      rowNumber: line,   // the line in the bank's export, not our filtered index
       raw,
       values: valid && amount !== null
         ? {

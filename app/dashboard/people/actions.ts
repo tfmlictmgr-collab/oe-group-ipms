@@ -203,25 +203,13 @@ export async function setVendorApproval(
   return ok();
 }
 
-/** Assign (or clear) the occupant of a unit. */
-export async function assignUnitOccupant(
-  unitId: string,
-  userId: string | null
-): Promise<ActionResult> {
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("units")
-    .update({ occupant_user_id: userId })
-    .eq("id", unitId);
-  if (error) {
-    if (/row-level security/i.test(error.message)) {
-      return fail("You can only assign occupants on properties you manage.");
-    }
-    return failFromDb(error, "assign that occupant");
-  }
-  revalidatePath("/dashboard/people");
-  return ok();
-}
+// NOTE: occupant assignment used to live here too, with no role check, so the
+// "an occupant must be a tenant" rule was not an invariant and the two screens
+// disagreed about what was legal. There is now ONE implementation, in
+// `app/dashboard/properties/actions.ts`, and this page's UnitAssign imports it
+// directly — a "use server" file cannot re-export, so the caller points at the
+// canonical action rather than this file proxying it.
+
 
 /** Approve or reject a public vendor application. Approval creates the vendor. */
 export async function decideVendorApplication(

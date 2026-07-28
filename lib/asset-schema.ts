@@ -229,10 +229,46 @@ export function parseCsv(text: string): string[][] {
  * importer that says "row 4 is wrong" about row 6 is worse than saying nothing.
  */
 export function parseCsvLines(text: string): { cells: string[]; line: number }[] {
-  const all = parseCsvRaw(text);
-  return all
-    .map((cells, i) => ({ cells, line: i + 1 }))
-    .filter(
-      (r) => r.cells.some((c) => c.trim() !== "") && !r.cells[0]?.trim().startsWith("#")
-    );
+  const src = text.replace(/^﻿/, "");
+  const out: { cells: string[]; line: number }[] = [];
+  let row: string[] = [];
+  let field = "";
+  let inQuotes = false;
+  // The PHYSICAL line the current record started on. A quoted field may contain
+  // newlines — the parser supports that — so counting records would drift again,
+  // which is the very thing this helper exists to prevent.
+  let line = 1;
+  let recordStart = 1;
+
+  const endRecord = () => {
+    row.push(field);
+    field = "";
+    if (row.some((c) => c.trim() !== "") && !row[0]?.trim().startsWith("#")) {
+      out.push({ cells: row, line: recordStart });
+    }
+    row = [];
+    recordStart = line;
+  };
+
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (src[i + 1] === '"') { field += '"'; i++; }
+        else inQuotes = false;
+      } else {
+        if (ch === "\n") line++;      // a newline INSIDE a quoted field
+        field += ch;
+      }
+      continue;
+    }
+    if (ch === '"') { inQuotes = true; continue; }
+    if (ch === ",") { row.push(field); field = ""; continue; }
+    if (ch === "\r") continue;
+    if (ch === "\n") { line++; endRecord(); continue; }
+    field += ch;
+  }
+  if (field !== "" || row.length > 0) endRecord();
+
+  return out;
 }

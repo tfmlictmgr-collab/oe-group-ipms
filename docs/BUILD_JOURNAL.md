@@ -1071,3 +1071,52 @@ RLS still decides what is counted.
 and is safe because these functions are granted to `authenticated` and
 `service_role` but never `anon`; and the retire functions' org check is
 belt-and-braces behind that same grant.
+
+## 2026-07-28 · Second review pass — the fix that was worse than the bug
+
+⚠️ **`property_summary` multiplied every count.** 0058 left-joined BOTH `units`
+AND `assets` to `properties` in one grouped query — a cartesian product per
+property. Measured live before the fix: Lekki Gardens Estate reported **30 units
+where there are 6**, with the apportionment factor five times too large; Ikoyi
+Heights reported 8 where there are 4.
+
+⚖️ The JavaScript it replaced was **correct**. It carried a scaling risk — silent
+truncation past PostgREST's 1000-row cap — and I traded that for a value that was
+wrong at any size. **Fixing a scaling risk by introducing a correctness bug is
+not a fix.** Scalar subqueries now, so no table can multiply another.
+
+⚖️ **A fan-out hides in small data.** It was invisible for six of eight
+properties, because it only appears once a property has two of the *second*
+thing. The regression test therefore asserts specifically against properties
+that have units AND 2+ assets, rather than against whatever happens to be there.
+
+⚠️ **The occupancy/pricing split only covered UPDATE.** `units_insert` still
+admitted `units.assign_occupant`, so a role granted only occupancy could CREATE
+units with any apportionment factor and dilute every existing unit's share.
+Creating a unit is portfolio management; occupancy changes one column on a unit
+that already exists. Split properly in `0059`.
+
+⚠️ **Two functions named `assignUnitOccupant`.** The older one, on the People
+page, wrote `occupant_user_id` with no role check — so the "an occupant must be
+a tenant" rule was never an invariant and the two screens disagreed about what
+was legal. One implementation now, with the caller importing it directly: a
+`"use server"` file cannot re-export, which the build caught and `tsc` did not.
+
+⚠️ **0057 would have aborted on a fresh environment.** It deleted mismatched
+rows before adding the composite FK — but a unit that has ever been invoiced is
+referenced by `service_charges`, so the delete fails and rolls back the whole
+migration, including the `block_hard_delete()` restoration above it. Now it
+REPAIRS instead: the property is authoritative about which org a row belongs to.
+
+⚠️ `parseCsvLines` counted RECORDS, not physical lines — so a quoted field
+containing a newline reintroduced exactly the drift the helper existed to
+remove. It now tracks real line numbers through quoted newlines. The bank
+statement importer was the third one still on the old arithmetic.
+
+⚠️ `assignUnitOccupant` had no `.select()`, so an UPDATE matching zero rows —
+missing capability, retired unit — returned success and the UI silently snapped
+back on refresh. **A write that cannot fail is not the same as a write that
+succeeded.**
+
+📌 Eight findings this pass, all eight real. The most serious was mine, and it
+was introduced *while fixing* the previous review.

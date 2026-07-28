@@ -77,7 +77,7 @@ export default function UnitsPanel({
   async function assign(unitId: string, occupant: string) {
     setBusy(unitId);
     try {
-      await runAction(assignUnitOccupant(unitId, propertyId, occupant || null));
+      await runAction(assignUnitOccupant(unitId, occupant || null));
       router.refresh();
     } catch (e) {
       toast.error("Could not change the occupant", { description: describeError(e) });

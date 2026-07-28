@@ -137,7 +137,6 @@ export async function saveUnit(input: UnitInput): Promise<ActionResult<{ id: str
  */
 export async function assignUnitOccupant(
   unitId: string,
-  propertyId: string,
   occupantUserId: string | null
 ): Promise<ActionResult> {
   const supabase = await createClient();
@@ -158,14 +157,31 @@ export async function assignUnitOccupant(
     }
   }
 
-  const { error } = await supabase
+  // `.select().single()` deliberately: an UPDATE matching zero rows — a missing
+  // capability, a retired unit — returns no error, so without this the caller
+  // is told it worked and the UI silently snaps back on refresh.
+  const { data: updated, error } = await supabase
     .from("units")
     .update({ occupant_user_id: occupantUserId })
     .eq("id", unitId)
-    .eq("property_id", propertyId);
+    .select("id, property_id")
+    .maybeSingle();
 
-  if (error) return failFromDb(error, "change that unit's occupant");
-  revalidatePath(`/dashboard/properties/${propertyId}`);
+  if (error) {
+    if (/row-level security/i.test(error.message)) {
+      return fail("You can only change occupancy on properties you manage.");
+    }
+    return failFromDb(error, "change that unit's occupant");
+  }
+  if (!updated) {
+    return fail(
+      "That unit could not be updated.",
+      "It may have been retired, or you may not have permission to change occupancy on this property."
+    );
+  }
+
+  revalidatePath(`/dashboard/properties/${updated.property_id}`);
+  revalidatePath("/dashboard/people");
   return ok();
 }
 

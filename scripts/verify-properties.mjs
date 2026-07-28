@@ -199,10 +199,17 @@ console.log("\nH. The shared soft-delete rule still exempts the service role");
   // 0056 redefined the SHARED block_hard_delete() and dropped its exemption,
   // silently breaking cleanup for assets and service_charges as well. Asserted
   // here because the fault was invisible from the properties feature itself.
+  // assets.property_id is NOT NULL, so without a host property this check
+  // cannot run at all — and reporting that as a soft-delete failure would be a
+  // lie about which rule broke.
   const { data: host } = await svc.from("properties").select("id")
     .eq("org_id", orgId).is("deleted_at", null).limit(1).maybeSingle();
+
+  if (!host) {
+    console.log("  (no active property to hang a probe asset on — skipped)");
+  } else {
   const { data: a, error: insErr } = await svc.from("assets")
-    .insert({ org_id: orgId, property_id: host?.id ?? null,
+    .insert({ org_id: orgId, property_id: host.id,
               asset_tag: `VP-${stamp}`, name: "cleanup probe" })
     .select("id").maybeSingle();
 
@@ -214,6 +221,34 @@ console.log("\nH. The shared soft-delete rule still exempts the service role");
       ? bad(`the service role can no longer clean up assets — ${error.message.slice(0, 50)}`)
       : ok("the service role can still remove its own fixtures");
     if (error) await svc.from("assets").update({ deleted_at: new Date().toISOString() }).eq("id", a.id);
+  }
+  }
+}
+
+console.log("\nI. The portfolio summary counts each thing once");
+{
+  // A left join to BOTH units and assets fans out and multiplies every
+  // aggregate — 0058 shipped exactly that, and it read 30 units for a property
+  // with 6. Invisible until a property has two of the second thing, so this
+  // asserts against a property that has both.
+  const { data: rows } = await svc.from("property_summary")
+    .select("id, name, unit_count, asset_count, total_factor").eq("org_id", orgId);
+
+  const withBoth = (rows ?? []).filter(
+    (r) => Number(r.unit_count) > 0 && Number(r.asset_count) > 1
+  );
+
+  if (withBoth.length === 0) {
+    console.log("  (no property here has units AND 2+ assets — fan-out not exercised)");
+  } else {
+    for (const r of withBoth) {
+      const { count: realUnits } = await svc.from("units")
+        .select("id", { count: "exact", head: true })
+        .eq("property_id", r.id).is("deleted_at", null);
+      Number(r.unit_count) === realUnits
+        ? ok(`${r.name}: ${realUnits} unit(s) counted once despite ${r.asset_count} assets`)
+        : bad(`${r.name}: summary says ${r.unit_count} units, actually ${realUnits} — the join is fanning out`);
+    }
   }
 }
 
