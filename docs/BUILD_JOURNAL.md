@@ -909,3 +909,65 @@ path was already a single function; this one had been missed.
 ⚠️ More `REC-%` recon-test debris found, this time a landlord payable account —
 the same family cleaned earlier. Retired rather than deleted; it carries
 postings. **Test litter in a shared database keeps presenting as product bugs.**
+
+## 2026-07-27 · Day 6.5 — the permission matrix
+
+🟢 Role privileges are now data an operator toggles, not role names compiled into
+policies. `capabilities` catalogue + `role_permissions` per org (0050), policies
+rewritten to ask `has_permission()` (0051), seeded from B7.
+
+⚖️ **Locked capabilities are listed but never read by a policy.** Payments,
+ledger, bank configuration, audit, permission editing, admin invitation and
+channel credentials stay hardwired. They appear in the catalogue so the UI can
+show them as locked *with the reason* — an administrator should see that the
+boundary exists rather than wonder why a switch is missing.
+
+⚖️ **Org isolation and identity are not capabilities.** `org_id = current_user_org_id()`
+survives untouched in every policy, and a tenant reading their own request or a
+vendor their own job is identity, not privilege. The suite turns EVERY toggle off
+and proves both still hold.
+
+⚖️ **Editing another org's matrix is a FUNCTION, not a cross-org policy.** A
+policy would leave the isolation boundary permanently weakened for every query;
+a `SECURITY DEFINER` function leaves it intact with one guarded door that records
+who went through it, naming both organisations.
+
+⚠️ **The seed granted more than B7 does** — `tickets.read_all` to the FM, where
+B7 says "assigned properties". Caught by `verify-access-matrix` on the first run
+after the switch. **Moving to a matrix is only safe if the seed reproduces the
+PREVIOUS effective access exactly**; anything else re-grants access under cover
+of a refactor, and nobody reviews a seed as carefully as a policy. Corrected in
+0053 by deriving each default from the policy it replaced rather than from a
+reading of the matrix.
+
+⚠️ **A `FOR ALL` policy grants SELECT.** Revoking `vendors.read` left the FM
+still seeing every vendor: the read policy correctly denied, but `vendors_write`
+was `FOR ALL`, and permissive policies OR together. Invisible before today
+because the two role lists were identical — the moment they became independently
+toggleable, one silently overrode the other. **A permission screen that can be
+wrong about the database is worse than none, because it is believed.** Split into
+explicit INSERT/UPDATE/DELETE in 0055.
+
+⚠️ **`set_role_permission` wrote to a `metadata` column that does not exist.**
+The audit insert is inside the same transaction as the permission write, so every
+call rolled back — the toggle did nothing while reporting success. The migration
+applied cleanly, because PL/pgSQL bodies are not checked until executed. Fourth
+occurrence of that trap in this build. Then the SAME mistake appeared in the
+verification script, which selected `metadata` and read the resulting ERROR as
+"nothing was audited" while 22 rows sat in the table. **A test that does not
+check its own query's error reports the wrong fault.**
+
+⚖️ The audit write stays inside the transaction. A permission change that
+succeeded while its audit record failed is worse than one that failed cleanly.
+
+⚖️ **Permission checks are hoisted** — `(select has_permission('x'))` rather than
+a bare call, so the planner evaluates each once per statement instead of once per
+row. These policies sit in front of every read, and B5 puts 100+ properties on
+this system from day one.
+
+🔎 `verify-permissions.mjs` — 24 assertions: a toggle changes what the DATABASE
+returns (revoke → zero rows, restore → exactly what was there), a revoked write
+is refused, four locked capabilities refuse to move, an invented capability is
+refused, a brand admin can read but not edit their own matrix and cannot see
+another's, a tenant cannot edit at all, isolation and identity survive every
+toggle off, and the trail names both organisations.

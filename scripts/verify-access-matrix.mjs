@@ -62,6 +62,9 @@ try {
   const { rows: users } = await client.query(`
     select u.id, u.role, u.email, u.org_id, o.name as org_name, o.delivery_brand
     from users u join orgs o on o.id = u.org_id
+    -- Retired accounts cannot sign in, so sweeping them proves nothing and
+    -- costs a round trip per table. Test debris accumulates here quickly.
+    where u.deactivated_at is null
     order by o.delivery_brand, u.role;`);
 
   // ── A. ORG ISOLATION ──────────────────────────────────────────────────────

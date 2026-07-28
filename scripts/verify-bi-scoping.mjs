@@ -40,7 +40,9 @@ const TABLES = ["tickets", "service_charges", "payments", "vendors", "sc_budgets
 await client.connect();
 try {
   const { rows: users } = await client.query(
-    `select id, role, email from users order by
+    `select id, role, email from users
+      where deactivated_at is null      -- retired accounts cannot sign in
+      order by
        case role when 'admin' then 1 when 'facility_manager' then 2
                  when 'finance_approver' then 3 when 'property_owner' then 4
                  when 'fm_ops_staff' then 5 when 'vendor' then 6 else 7 end;`
