@@ -19,7 +19,9 @@ import { runAction, describeError } from "@/lib/run-action";
 import {
   validateUnitCsv, buildUnitTemplateCsv, previewShares, type ValidatedUnit,
 } from "@/lib/unit-import";
-import { saveUnit, retireUnit, commitUnitImport, unitImportContext } from "../actions";
+import {
+  saveUnit, retireUnit, commitUnitImport, unitImportContext, assignUnitOccupant,
+} from "../actions";
 
 export type UnitRow = {
   id: string;
@@ -72,14 +74,10 @@ export default function UnitsPanel({
     } finally { setBusy(null); }
   }
 
-  async function assign(unitId: string, label: string, factor: number, occupant: string) {
+  async function assign(unitId: string, occupant: string) {
     setBusy(unitId);
     try {
-      await runAction(saveUnit({
-        id: unitId, propertyId, label,
-        apportionmentFactor: String(factor),
-        occupantUserId: occupant || null,
-      }));
+      await runAction(assignUnitOccupant(unitId, propertyId, occupant || null));
       router.refresh();
     } catch (e) {
       toast.error("Could not change the occupant", { description: describeError(e) });
@@ -125,14 +123,22 @@ export default function UnitsPanel({
     try {
       const r = await runAction(commitUnitImport(propertyId, csv!));
       toast.success(`Imported ${r.inserted} unit${r.inserted === 1 ? "" : "s"}`);
-      setCsv(null); setRows([]); setHeaderIssues([]);
-      if (fileRef.current) fileRef.current.value = "";
+      discardImport();
       router.refresh();
     } catch (e) {
       toast.error("Nothing was imported", {
         description: describeError(e), duration: Infinity, closeButton: true,
       });
     } finally { setBusy(null); }
+  }
+
+  function discardImport() {
+    setRows([]);
+    setCsv(null);
+    setHeaderIssues([]);
+    // Without this, choosing the SAME filename again fires no change event —
+    // which is exactly what someone does after correcting the file in place.
+    if (fileRef.current) fileRef.current.value = "";
   }
 
   const validRows = rows.filter((r) => r.valid);
@@ -230,7 +236,7 @@ export default function UnitsPanel({
                             <Select
                               value={u.occupant_user_id ?? ""}
                               disabled={busy === u.id}
-                              onChange={(e) => assign(u.id, u.label, f, e.target.value)}
+                              onChange={(e) => assign(u.id, e.target.value)}
                               className="h-8 text-xs"
                             >
                               <option value="">— vacant —</option>
@@ -353,7 +359,7 @@ export default function UnitsPanel({
                   >
                     {busy === "import" ? "Importing…" : `Import ${validRows.length} unit(s)`}
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={() => { setRows([]); setCsv(null); setHeaderIssues([]); }}>
+                  <Button variant="ghost" size="sm" onClick={discardImport}>
                     Discard
                   </Button>
                 </div>

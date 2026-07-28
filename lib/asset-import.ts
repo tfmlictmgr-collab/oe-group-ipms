@@ -4,7 +4,7 @@ import {
   ASSET_CONDITIONS,
   ASSET_CRITICALITIES,
   ASSET_STATUSES,
-  parseCsv,
+  parseCsvLines,
 } from "./asset-schema";
 
 // Pure validation for the bulk importer. No I/O here so it can be unit-tested
@@ -78,11 +78,11 @@ export function validateAssetCsv(text: string, ctx: ImportContext): {
   rows: ValidatedRow[];
   headerIssues: string[];
 } {
-  const grid = parseCsv(text);
+  const grid = parseCsvLines(text);
   const headerIssues: string[] = [];
   if (grid.length === 0) return { rows: [], headerIssues: ["The file is empty."] };
 
-  const header = grid[0].map((h) => h.trim());
+  const header = grid[0].cells.map((h) => h.trim());
   const known = new Set([...ASSET_FIELDS.map((f) => f.key), ...ctx.customFieldKeys]);
   const unknown = header.filter((h) => h && !known.has(h));
   if (unknown.length > 0) {
@@ -97,7 +97,7 @@ export function validateAssetCsv(text: string, ctx: ImportContext): {
   // Tags seen earlier in THIS file — a file can collide with itself.
   const seenInFile = new Set<string>();
 
-  const rows: ValidatedRow[] = grid.slice(1).map((cells, idx) => {
+  const rows: ValidatedRow[] = grid.slice(1).map(({ cells, line }) => {
     const raw: Record<string, string> = {};
     header.forEach((h, i) => { if (h) raw[h] = (cells[i] ?? "").trim(); });
 
@@ -216,7 +216,7 @@ export function validateAssetCsv(text: string, ctx: ImportContext): {
     }
 
     return {
-      rowNumber: idx + 2, // +1 for 0-index, +1 for the header line
+      rowNumber: line, // the line in the user's file, not our filtered index
       raw,
       values,
       issues,

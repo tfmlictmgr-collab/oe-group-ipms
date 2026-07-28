@@ -1,4 +1,4 @@
-import { parseCsv } from "./asset-schema";
+import { parseCsvLines } from "./asset-schema";
 
 // Bulk unit entry.
 //
@@ -64,14 +64,14 @@ export function validateUnitCsv(
   text: string,
   ctx: { existingLabels: Set<string>; memberEmails: Set<string> }
 ): { rows: ValidatedUnit[]; headerIssues: string[] } {
-  const parsed = parseCsv(text);
+  const parsed = parseCsvLines(text);
   const headerIssues: string[] = [];
 
   if (parsed.length === 0) {
     return { rows: [], headerIssues: ["The file appears to be empty."] };
   }
 
-  const header = parsed[0].map((h) => h.trim().toLowerCase());
+  const header = parsed[0].cells.map((h) => h.trim().toLowerCase());
   for (const c of UNIT_COLUMNS) {
     if (c.required && !header.includes(c.key)) {
       headerIssues.push(`Missing required column "${c.key}".`);
@@ -83,11 +83,7 @@ export function validateUnitCsv(
   const rows: ValidatedUnit[] = [];
 
   for (let i = 1; i < parsed.length; i++) {
-    const cells = parsed[i];
-    // The template's guidance line, and blank rows from a spreadsheet export.
-    if (cells.every((c) => !c.trim())) continue;
-    if (cells[0]?.trim().startsWith("#")) continue;
-
+    const { cells, line } = parsed[i];
     const raw: Record<string, string> = {};
     header.forEach((h, n) => { raw[h] = (cells[n] ?? "").trim(); });
 
@@ -132,7 +128,7 @@ export function validateUnitCsv(
 
     const valid = issues.length === 0;
     rows.push({
-      rowNumber: i + 1,
+      rowNumber: line,
       raw,
       values: valid
         ? { label, apportionment_factor: factor, occupant_email: email || null }

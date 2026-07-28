@@ -1012,3 +1012,62 @@ a property makes it visible to them and detaching removes it again, asserted
 against live sessions. **The attaché assignment is the access, not a label.**
 Access-matrix, permissions, asset, viewer, collections, remittance and ledger
 suites all still green after the policy rewrite.
+
+## 2026-07-28 · Code review of the property register — two live faults
+
+⚠️ **`block_hard_delete()` is SHARED, and 0056 redefined it.** 0010 declared it
+with `if auth.uid() is not null then raise` — a soft-delete rule for people, with
+the service role deliberately exempt so seeds and verification scripts can clean
+up. 0056 re-declared the same name with an unconditional raise in order to attach
+it to properties and units. `create or replace` does not add a second function:
+it replaced the one 0010's `service_charges` trigger and 0016's `assets` trigger
+already pointed at. Confirmed live — a service-role delete of an asset came back
+*"Records here are retired, never deleted"*.
+
+⚖️ **A shared trigger function is an interface.** Redefining one to suit a new
+caller changes every existing caller, and nothing in the new migration says so.
+Restored in `0057`, and `verify-properties` now asserts it from the properties
+suite — because the damage was invisible from the feature that caused it.
+
+⚠️ **A unit could be attached to ANOTHER ORGANISATION'S property.** `units_write`
+checks `org_id = current_user_org_id()`, and the row's own org_id was always
+correct — but `property_id` was never checked against it. Confirmed live: the POC
+org placed a unit on TFML's "Adeola Odeku Complex". Beyond the isolation breach
+it was a denial of service on the neighbour, since `units_property_label_uidx`
+is keyed on (property_id, label) with no org component.
+
+⚖️ **Fixed relationally, not in a policy.** A composite foreign key on
+`(property_id, org_id) → properties(id, org_id)` makes the invariant structural:
+it cannot be forgotten by the next policy author, and it holds for the service
+role too, which an RLS check never would. `assets` had the same gap unexploited
+and got the same constraint.
+
+⚖️ **Occupancy and pricing are different powers.** `units_write` admits EITHER
+`properties.write` or `units.assign_occupant`, and the general save rewrote label
+and apportionment factor every time — so a role granted only occupancy could
+restate what every unit in a property pays. Now a separate `assignUnitOccupant`
+that touches one column. The general save also no longer writes `property_id` on
+an update: doing so let a unit be re-parented, silently shrinking the original
+property's apportionment base.
+
+⚠️ **Row numbers in both importers pointed at the wrong line.** `parseCsv` strips
+blank and `#` rows, so a loop index is an index into the FILTERED array, not the
+user's file — off by one for the shipped template alone. Added `parseCsvLines`,
+which carries the source line, and switched both importers. **An importer that
+says "row 4 is wrong" about row 6 is worse than one that says nothing.**
+
+⚠️ `unitImportContext` returned `ok()` on a failed read, so a short members query
+made every valid occupant email report as unknown — and made the caller's
+`if (!ctxResult.ok)` unreachable. **A validation context built from a partial
+read validates nothing.**
+
+⚖️ The portfolio list counted units in JavaScript over an unbounded fetch, which
+past PostgREST's 1000-row cap would have **understated** occupancy rather than
+failing. Now a `property_summary` view with `security_invoker`, so the caller's
+RLS still decides what is counted.
+
+📌 Of twelve findings, ten were real and fixed. Two were not: the
+`auth.uid() is not null` service-role exemption is the established pattern here
+and is safe because these functions are granted to `authenticated` and
+`service_role` but never `anon`; and the retire functions' org check is
+belt-and-braces behind that same grant.

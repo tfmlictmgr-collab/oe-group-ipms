@@ -88,17 +88,29 @@ export async function saveUnit(input: UnitInput): Promise<ActionResult<{ id: str
     );
   }
 
-  const row = {
-    org_id: me.org_id,
-    property_id: input.propertyId,
-    label,
-    apportionment_factor: factor,
-    occupant_user_id: input.occupantUserId || null,
-  };
-
+  // On an UPDATE, property_id is deliberately excluded. Writing a
+  // client-supplied parent while matching only on `id` would let a unit be
+  // moved between properties, silently shrinking the original property's
+  // apportionment base and inflating every remaining unit's share.
   const { data, error } = input.id
-    ? await supabase.from("units").update(row).eq("id", input.id).select("id").single()
-    : await supabase.from("units").insert(row).select("id").single();
+    ? await supabase
+        .from("units")
+        .update({ label, apportionment_factor: factor })
+        .eq("id", input.id)
+        .eq("property_id", input.propertyId)   // and it must still be where we think
+        .select("id")
+        .single()
+    : await supabase
+        .from("units")
+        .insert({
+          org_id: me.org_id,
+          property_id: input.propertyId,
+          label,
+          apportionment_factor: factor,
+          occupant_user_id: input.occupantUserId || null,
+        })
+        .select("id")
+        .single();
 
   if (error) {
     if (error.message.includes("units_property_label_uidx")) {
@@ -112,6 +124,49 @@ export async function saveUnit(input: UnitInput): Promise<ActionResult<{ id: str
 
   revalidatePath(`/dashboard/properties/${input.propertyId}`);
   return ok({ id: data.id as string });
+}
+
+/**
+ * Assigns or clears a unit's occupant, and nothing else.
+ *
+ * Separate from `saveUnit` because `units_write` admits EITHER
+ * `properties.write` or `units.assign_occupant` — so a role holding only the
+ * latter could, through the general save, rewrite the label and apportionment
+ * factor and change what every unit in the property pays. Occupancy and
+ * pricing are different powers and are now different calls.
+ */
+export async function assignUnitOccupant(
+  unitId: string,
+  propertyId: string,
+  occupantUserId: string | null
+): Promise<ActionResult> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return fail("Your session expired. Please sign in again.");
+
+  if (occupantUserId) {
+    // Occupants are tenants. Anything else produces a record that reads as an
+    // occupancy and is not one.
+    const { data: person } = await supabase
+      .from("users").select("id, role").eq("id", occupantUserId).maybeSingle();
+    if (!person) return fail("That person could not be found in your organisation.");
+    if (person.role !== "tenant") {
+      return fail(
+        "Only a tenant can be recorded as the occupant of a unit.",
+        "Staff and vendors are attached to properties, not to units."
+      );
+    }
+  }
+
+  const { error } = await supabase
+    .from("units")
+    .update({ occupant_user_id: occupantUserId })
+    .eq("id", unitId)
+    .eq("property_id", propertyId);
+
+  if (error) return failFromDb(error, "change that unit's occupant");
+  revalidatePath(`/dashboard/properties/${propertyId}`);
+  return ok();
 }
 
 export async function retireProperty(propertyId: string): Promise<ActionResult> {
@@ -140,10 +195,21 @@ export async function unitImportContext(
   propertyId: string
 ): Promise<ActionResult<{ existingLabels: string[]; members: { id: string; email: string }[] }>> {
   const supabase = await createClient();
-  const [{ data: units }, { data: members }] = await Promise.all([
+  const [unitsRes, membersRes] = await Promise.all([
     supabase.from("units").select("label").eq("property_id", propertyId),
-    supabase.from("users").select("id, email").is("deactivated_at", null),
+    // Occupants must be tenants, so the manual picker and the importer agree
+    // on who is eligible rather than diverging.
+    supabase.from("users").select("id, email").eq("role", "tenant").is("deactivated_at", null),
   ]);
+
+  // Returning ok() on a failed read made every occupant email look unknown, and
+  // made the caller's `if (!ctxResult.ok)` unreachable. A validation context
+  // built from a partial read validates nothing.
+  if (unitsRes.error) return failFromDb(unitsRes.error, "read this property's units");
+  if (membersRes.error) return failFromDb(membersRes.error, "read your organisation's members");
+
+  const { data: units } = unitsRes;
+  const { data: members } = membersRes;
   return ok({
     existingLabels: (units ?? []).map((u) => String(u.label).toLowerCase()),
     members: ((members ?? []) as { id: string; email: string | null }[])

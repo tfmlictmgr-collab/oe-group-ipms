@@ -19,29 +19,27 @@ export default async function PropertiesPage() {
 
   const supabase = await createClient();
 
-  // RLS decides what comes back: `properties.read_all` sees the org, everyone
-  // else sees the properties they are attached to. No role check here.
-  const [{ data: properties }, { data: units }, { data: canWrite }] = await Promise.all([
-    supabase.from("properties")
-      .select("id, name, reference, address, property_type")
+  // Counted in the database. Fetching every unit and tallying them here broke
+  // silently past PostgREST's 1000-row cap — and understated the numbers rather
+  // than failing, which is the worse way to be wrong.
+  //
+  // RLS still decides what comes back: `properties.read_all` sees the org,
+  // everyone else sees the properties they are attached to.
+  const [{ data: summary }, { data: canWrite }] = await Promise.all([
+    supabase.from("property_summary")
+      .select("id, name, reference, address, property_type, unit_count, occupied_count, total_factor")
       .order("name"),
-    supabase.from("units").select("id, property_id, occupant_user_id, apportionment_factor"),
     supabase.rpc("has_permission", { p_capability: "properties.write" }),
   ]);
 
-  const props = properties ?? [];
-  const unitRows = units ?? [];
+  const props = (summary ?? []) as {
+    id: string; name: string; reference: string | null;
+    address: string | null; property_type: string | null;
+    unit_count: number; occupied_count: number; total_factor: number | string;
+  }[];
 
-  const byProperty = new Map<string, { count: number; occupied: number; factor: number }>();
-  for (const u of unitRows) {
-    const e = byProperty.get(u.property_id) ?? { count: 0, occupied: 0, factor: 0 };
-    e.count += 1;
-    if (u.occupant_user_id) e.occupied += 1;
-    e.factor += Number(u.apportionment_factor);
-    byProperty.set(u.property_id, e);
-  }
-
-  const occupied = unitRows.filter((u) => u.occupant_user_id).length;
+  const totalUnits = props.reduce((s, p) => s + Number(p.unit_count), 0);
+  const occupied = props.reduce((s, p) => s + Number(p.occupied_count), 0);
 
   return (
     <div className="space-y-6">
@@ -59,10 +57,10 @@ export default async function PropertiesPage() {
 
       <div className="grid gap-4 sm:grid-cols-3">
         <StatCard label="Properties" value={String(props.length)} icon={<Building />} />
-        <StatCard label="Units" value={String(unitRows.length)} icon={<Home />} />
+        <StatCard label="Units" value={String(totalUnits)} icon={<Home />} />
         <StatCard
           label="Occupied"
-          value={unitRows.length ? `${Math.round((occupied / unitRows.length) * 100)}%` : "—"}
+          value={totalUnits ? `${Math.round((occupied / totalUnits) * 100)}%` : "—"}
         />
       </div>
 
@@ -99,7 +97,11 @@ export default async function PropertiesPage() {
                 </TableHeader>
                 <TableBody>
                   {props.map((p) => {
-                    const s = byProperty.get(p.id) ?? { count: 0, occupied: 0, factor: 0 };
+                    const s = {
+                      count: Number(p.unit_count),
+                      occupied: Number(p.occupied_count),
+                      factor: Number(p.total_factor),
+                    };
                     return (
                       <TableRow key={p.id}>
                         <TableCell>

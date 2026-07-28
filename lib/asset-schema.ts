@@ -186,7 +186,7 @@ export function buildTemplateCsv(customFieldKeys: string[] = []): string {
 }
 
 /** Minimal RFC-4180 CSV parser: handles quoted fields, embedded commas/newlines. */
-export function parseCsv(text: string): string[][] {
+function parseCsvRaw(text: string): string[][] {
   const src = text.replace(/^﻿/, "");
   const rows: string[][] = [];
   let row: string[] = [];
@@ -210,8 +210,29 @@ export function parseCsv(text: string): string[][] {
   }
   if (field !== "" || row.length > 0) { row.push(field); rows.push(row); }
 
-  // Drop fully-empty rows and the template's '#' guidance/example rows.
-  return rows.filter(
+  return rows;
+}
+
+/** Rows with blank and '#' guidance lines removed. */
+export function parseCsv(text: string): string[][] {
+  return parseCsvRaw(text).filter(
     (r) => r.some((c) => c.trim() !== "") && !r[0]?.trim().startsWith("#")
   );
+}
+
+/**
+ * The same parse, but each surviving row carries the line it came from.
+ *
+ * `parseCsv` filters blank and '#' rows, so a caller counting its own loop index
+ * reports a row number that drifts from the user's file — by one for the shipped
+ * template alone, and by more for a spreadsheet export with blank lines. An
+ * importer that says "row 4 is wrong" about row 6 is worse than saying nothing.
+ */
+export function parseCsvLines(text: string): { cells: string[]; line: number }[] {
+  const all = parseCsvRaw(text);
+  return all
+    .map((cells, i) => ({ cells, line: i + 1 }))
+    .filter(
+      (r) => r.cells.some((c) => c.trim() !== "") && !r.cells[0]?.trim().startsWith("#")
+    );
 }

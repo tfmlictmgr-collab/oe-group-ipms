@@ -163,12 +163,58 @@ console.log("\nF. The attaché assignment GRANTS access");
 
 console.log("\nG. Org isolation holds");
 {
+  // maybeSingle, not single: on a one-org database this threw at the top level,
+  // which skipped the cleanup below and left the fixtures live.
   const { data: otherOrg } = await svc.from("orgs").select("id, name")
-    .neq("id", orgId).limit(1).single();
-  const { error } = await adminC.from("properties")
-    .insert({ org_id: otherOrg.id, name: `Cross-org probe ${stamp}` });
-  error ? ok(`cannot create a property in ${otherOrg.name}`)
-        : bad("CREATED A PROPERTY IN ANOTHER ORGANISATION");
+    .neq("id", orgId).limit(1).maybeSingle();
+
+  if (!otherOrg) {
+    console.log("  (only one organisation — cross-org checks skipped)");
+  } else {
+    const { error } = await adminC.from("properties")
+      .insert({ org_id: otherOrg.id, name: `Cross-org probe ${stamp}` });
+    error ? ok(`cannot create a property in ${otherOrg.name}`)
+          : bad("CREATED A PROPERTY IN ANOTHER ORGANISATION");
+
+    // A unit must not be attachable to another org's property either. The row
+    // carries the caller's OWN org_id, so RLS is satisfied — only the composite
+    // foreign key added in 0057 stops it. This was a live cross-tenant write.
+    const { data: victim } = await svc.from("properties").select("id, name")
+      .eq("org_id", otherOrg.id).is("deleted_at", null).limit(1).maybeSingle();
+    if (victim) {
+      const { data: sneaked, error: uErr } = await adminC.from("units")
+        .insert({ org_id: orgId, property_id: victim.id,
+                  label: `X-${stamp}`, apportionment_factor: 1 })
+        .select("id").maybeSingle();
+      uErr
+        ? ok("a unit cannot be attached to another organisation's property")
+        : bad(`ATTACHED A UNIT TO ${otherOrg.name}'S PROPERTY — cross-tenant write`);
+      if (sneaked) await svc.from("units").delete().eq("id", sneaked.id);
+    }
+  }
+}
+
+console.log("\nH. The shared soft-delete rule still exempts the service role");
+{
+  // 0056 redefined the SHARED block_hard_delete() and dropped its exemption,
+  // silently breaking cleanup for assets and service_charges as well. Asserted
+  // here because the fault was invisible from the properties feature itself.
+  const { data: host } = await svc.from("properties").select("id")
+    .eq("org_id", orgId).is("deleted_at", null).limit(1).maybeSingle();
+  const { data: a, error: insErr } = await svc.from("assets")
+    .insert({ org_id: orgId, property_id: host?.id ?? null,
+              asset_tag: `VP-${stamp}`, name: "cleanup probe" })
+    .select("id").maybeSingle();
+
+  if (insErr || !a) {
+    bad(`could not create the probe asset — ${insErr?.message.slice(0, 60) ?? "no row returned"}`);
+  } else {
+    const { error } = await svc.from("assets").delete().eq("id", a.id);
+    error
+      ? bad(`the service role can no longer clean up assets — ${error.message.slice(0, 50)}`)
+      : ok("the service role can still remove its own fixtures");
+    if (error) await svc.from("assets").update({ deleted_at: new Date().toISOString() }).eq("id", a.id);
+  }
 }
 
 // ── Cleanup ────────────────────────────────────────────────────────────────
