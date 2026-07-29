@@ -1164,3 +1164,53 @@ org-scoped table, the threshold present in the trigger, the composite org FKs,
 `block_hard_delete()`'s service-role exemption, no fan-out in the aggregate
 views, and no client policy on `channel_routes`. **A deployment note asks
 someone to remember; a check does not.**
+
+## 2026-07-29 · Day 7 — tenant application and KYC intake
+
+🟢 Public, brand-aware application at `/tenancy/<org>`, individual and corporate,
+mobile-first, save-and-resume without an account, document upload, NDPA consent
+captured verbatim. `0062`–`0063`.
+
+⚖️ **Special-category data lives in a different column, not a filtered field.**
+Religion and marital status are on OEA's paper form; under NDPA they need a
+stricter basis than "the form has a box". RLS is row-level and cannot withhold a
+column, so the separation is physical: `sensitive` is its own column and
+`application_overview` — what every reviewer reads — does not select it. Optional
+on the form, and labelled as optional where it is asked.
+
+⚖️ **Consent is stored verbatim, not as a boolean.** "They ticked a box" is not a
+record of what someone agreed to. Changing the wording later must not
+retroactively alter what a past applicant consented to.
+
+⚖️ **Retention purges the person and keeps the decision.** A rejected applicant's
+PII is nulled at 90 days and the row remains as an anonymised stub. Deleting it
+outright would destroy the evidence that a decision was properly taken, which is
+the opposite of what retention law asks for.
+
+⚖️ **The module gate is independent of the window.** TFML runs facilities and has
+no tenancies; with `tenant_applications_open` forced true it still refuses,
+because `org_has_module(org, 'lettings')` is a separate condition. This is the
+B9 registry the brief promised — HR and DMS join it without new machinery.
+
+⚠️ **An applicant may write but must never read — and that broke the insert.**
+The RLS policy was right and raw SQL worked, but `.insert().select()` through
+PostgREST failed: **a RETURNING clause is evaluated against the SELECT policy**,
+and there deliberately is none. The same shape bit the asset soft-delete earlier
+in this build. Rather than add a read policy and lose the property that stops the
+table being enumerated, every applicant write now goes through a `SECURITY
+DEFINER` function that re-checks the same gate (`0063`), and the anon INSERT
+policies were dropped so there is exactly ONE way in — asserted by the suite.
+
+⚠️ `/apply` was already the VENDOR application, so tenancy moved to `/tenancy`.
+Worth it beyond the routing conflict: "apply" is ambiguous between supplying
+services and renting a home, and the person reading the link is a stranger.
+
+⚠️ Two test defects, both the familiar kind: a check compared `undefined` to
+`undefined` and passed while the step under test had actually failed; and a
+precondition was assumed rather than set, so a previous crashed run's leftover
+state reported as a product failure. **A test that asserts a precondition it did
+not establish is testing the last run, not this one.**
+
+📌 R2 is not configured, so documents use a PRIVATE Supabase Storage bucket with
+signed upload URLs and per-org path prefixes. The brief allows either ("Cloudflare
+R2 (or confirm Supabase Storage)"); flagged rather than substituted silently.

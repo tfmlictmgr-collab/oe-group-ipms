@@ -28,7 +28,7 @@ the one-glance version.
 | 6 | Live remittance (vendor payouts + landlord rent) | 🟢 done | `verify-remittance` — gate refuses every incomplete payment; 3 concurrent claims → 1 winner; re-confirming posts once; cannot pay more than is owed; `unknown` stays unknown |
 | 6.5 | Operator-governed permission matrix (toggles) | 🟢 done | `verify-permissions` — revoking a capability returns ZERO rows (RLS, not the menu); locked capabilities refuse to move; a brand admin reads but cannot edit; isolation and identity survive every capability being off |
 | 6.75 | Property & unit register *(gap found 27 Jul — was in no plan)* | 🟢 done | `verify-properties` — unique unit label per property, strictly positive apportionment factor, retire refuses while obligations remain, attaching an FM grants access and detaching removes it |
-| 7 | OEA tenant application + KYC intake | ⬜ | |
+| 7 | OEA tenant application + KYC intake | 🟢 done | `verify-tenant-applications` — module + window both gate intake; an applicant writes but can never read back; special-category data stored apart and absent from the reviewer's view; retention purges the person and keeps the decision |
 | 8 | Two-tier human review + approval | ⬜ | |
 | 9 | Lease admin + rent roll | ⬜ | |
 | 10 | Interactive analytics dashboard (filters, drill-down) | ⬜ | |
