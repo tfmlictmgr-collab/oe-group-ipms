@@ -379,6 +379,16 @@ on mobile, with documents attached.
 
 **Done when:** both individual and corporate applications submit cleanly.
 
+**Status — built.** Schema, RPCs, both forms, uploads, save-and-resume, consent
+capture and the 90-day purge are in (`0062`, `0063`); 22 checks pass. The
+operator surface was missing and has been added: **People → Tenancy
+Applications** now carries the open/close switch and the public link, and the
+public page is no longer cached. The tab appears only for an org with the
+lettings module.
+
+*Awaiting you:* confirm the final field list per form and which documents are
+mandatory, then walk the form on a phone.
+
 ---
 
 ## Day 8 — Human review, approval, and auto-onboarding

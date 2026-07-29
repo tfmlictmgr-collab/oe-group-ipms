@@ -1214,3 +1214,24 @@ not establish is testing the last run, not this one.**
 📌 R2 is not configured, so documents use a PRIVATE Supabase Storage bucket with
 signed upload URLs and per-org path prefixes. The brief allows either ("Cloudflare
 R2 (or confirm Supabase Storage)"); flagged rather than substituted silently.
+
+⚠️ **The switch had no switch.** The application window was a column only the
+public page read and only the verification script wrote — so opening OEA's
+intake meant someone with database access doing it by hand. It looked finished
+because every layer worked; nobody could operate it. Added the toggle and public
+link under People, mirroring vendor applications, with the module gate
+re-checked in the action so a facilities org cannot set a flag that reads "open"
+while the public page refuses every application. **A control an operator cannot
+reach is not a feature, it is a support ticket.**
+
+⚠️ **And the test was closing it.** The suite set the window closed on cleanup
+rather than restoring what it found, so a routine verification run silently took
+the live application link offline — which is precisely what happened here, and
+looked like a caching bug for a while. It now records the state on entry and puts
+it back. **A test may borrow the product's state; it may not decide it.**
+
+⚠️ The public tenancy page was also cached, so even once the window was open the
+link kept reading "Applications are closed". Its content depends entirely on live
+org state, so it is now `force-dynamic`. The person who notices a stale render
+here is a prospective tenant who quietly gives up — a correctness question rather
+than a performance one, and one nobody would ever report.
