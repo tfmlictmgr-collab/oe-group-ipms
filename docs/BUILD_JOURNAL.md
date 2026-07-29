@@ -1120,3 +1120,47 @@ succeeded.**
 
 📌 Eight findings this pass, all eight real. The most serious was mine, and it
 was introduced *while fixing* the previous review.
+
+## 2026-07-29 · Baseline audit from PC2 — the threshold was not a control
+
+PC2 shared a read-only build audit (`docs/BUILD_AUDIT_BASELINE.md`) against
+`0cc4d32`, plus `REVIEW.md` setting re-review convergence rules. Five findings,
+all checked against the current tree rather than taken on trust.
+
+⚠️ **S-1 — the approval threshold was enforced only in the server action.**
+Every other stage of the B4 gate is re-checked in the database and therefore
+holds against a direct API call; the amount threshold was the exception.
+Confirmed exploitable before fixing: a finance approver PATCHed a **₦5,000,000**
+payment — five times the org's ₦1,000,000 limit — straight to `approved` with
+their own JWT, and the same role may then remit it.
+
+⚖️ That is the segregation-of-duties control on the LARGEST disbursements,
+defeated by one hand-crafted call. Now in `enforce_payment_transition()` (0060),
+with a null threshold falling back to the same ₦1,000,000 the application
+assumes — **"not configured" must never read as "no limit"**, and the two layers
+must not disagree about what is unlimited.
+
+⚠️ **E-1 — the executive dashboard aggregated whole tables in JavaScript.** Past
+PostgREST's 1000-row cap it truncated silently, so collection rate, outstanding
+and vendor liabilities **undercounted rather than errored**. An executive reading
+a collection rate cannot tell a truncated figure from a true one. Moved into
+`security_invoker` views (0061) — deliberately several small ones, not one
+joined view, having just been bitten by exactly that fan-out in
+`property_summary`. Cross-checked against the raw sums it replaced.
+
+⚖️ **E-2 — a stated limit is honest; a silent one is not.** The request list was
+unbounded and hit the same ceiling, dropping older requests with nothing on
+screen to say so. Now 200 with the true total shown beside it.
+
+📌 **S-2 had already been fixed** by `0057`'s composite foreign key, before the
+audit reached us — the audit was against an older HEAD. Recorded rather than
+re-fixed, which is what `REVIEW.md` asks for.
+
+⚖️ **D-1 became a test rather than a runbook note.** The read-leak fix depends on
+`0055` being applied; an environment stopped at `0054` reintroduces it silently.
+`scripts/verify-deployment-safety.mjs` now asserts the invariants **no single
+migration owns** — no `FOR ALL` on matrix-governed tables, RLS on every
+org-scoped table, the threshold present in the trigger, the composite org FKs,
+`block_hard_delete()`'s service-role exemption, no fan-out in the aggregate
+views, and no client policy on `channel_routes`. **A deployment note asks
+someone to remember; a check does not.**

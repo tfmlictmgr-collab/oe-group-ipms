@@ -35,6 +35,20 @@ the one-glance version.
 | 11 | Vendor KPI/SLA evaluation, work-order media, UX pass | ⬜ | |
 | 12 | Security audit, NDPA pack, UAT, go-live | ⬜ | |
 
+**Baseline audit (PC2, `docs/BUILD_AUDIT_BASELINE.md`) — actioned 28 Jul:**
+- **S-1** approval threshold not enforced at the DB → **fixed** (`0060`). Was
+  confirmed exploitable: finance approved ₦5,000,000 against a ₦1,000,000
+  threshold by direct PATCH, and could then remit it.
+- **E-1** BI dashboard aggregated whole tables in JS → **fixed** (`0061`), now
+  DB-side `security_invoker` views; figures cross-checked against the raw sums.
+- **E-2** unbounded service-request list → **bounded** at 200 with the total
+  stated on screen. Keyset pagination stays Day 10.
+- **S-2** unit insert not checking the property's org → **already fixed** by
+  `0057`'s composite FK, before the audit was shared.
+- **D-1** read-leak fix depends on `0055` → **guarded**:
+  `scripts/verify-deployment-safety.mjs` fails if any matrix-governed table
+  carries a `FOR ALL` policy. Run it after migrating any environment.
+
 **Open items carried forward** (none blocking Day 7):
 - **Resend webhook** — add the endpoint + `RESEND_WEBHOOK_SECRET` so invitation
   delivery outcomes (delivered / bounced) are recorded rather than assumed.

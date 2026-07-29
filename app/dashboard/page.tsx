@@ -16,12 +16,22 @@ export default async function DashboardPage() {
   if (session?.profile?.role === "viewer") redirect("/dashboard/overview");
 
   const supabase = await createClient();
-  const { data: tickets } = await supabase
+  // Bounded deliberately. Unbounded, this hit PostgREST's 1000-row cap and older
+  // requests dropped off the list with nothing to say so — the reader would
+  // believe they were seeing everything. A stated limit is honest; a silent one
+  // is not. Proper keyset pagination is Day 10 work.
+  const REQUEST_PAGE = 200;
+  const { data: tickets, count } = await supabase
     .from("tickets")
     .select(
-      "id, channel, message_text, category, urgency, summary, property_or_unit, requires_human_review, status, created_at"
+      "id, channel, message_text, category, urgency, summary, property_or_unit, requires_human_review, status, created_at",
+      { count: "exact" }
     )
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .limit(REQUEST_PAGE);
+
+  const total = count ?? 0;
+  const truncated = total > REQUEST_PAGE;
 
   return (
     <div className="space-y-6">
@@ -37,6 +47,12 @@ export default async function DashboardPage() {
         }
       />
       <TicketList initialTickets={(tickets as Ticket[]) ?? []} />
+
+      {truncated && (
+        <p className="text-xs text-muted-foreground">
+          Showing the {REQUEST_PAGE} most recent of {total.toLocaleString()} requests.
+        </p>
+      )}
     </div>
   );
 }

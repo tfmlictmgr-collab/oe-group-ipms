@@ -3,7 +3,6 @@ import { Inbox, CheckCircle2, TrendingUp, Wallet, Banknote, BarChart3 } from "lu
 import { getSessionProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { formatNaira } from "@/lib/currency";
-import { averageComposite } from "@/lib/vendor-score";
 import { PageHeader } from "@/components/patterns/page-header";
 import { StatCard } from "@/components/patterns/stat-card";
 import { EmptyState } from "@/components/patterns/empty-state";
@@ -83,38 +82,38 @@ export default async function BiDashboardPage() {
 
   const supabase = await createClient();
 
-  // Every query below is RLS-scoped to the caller, so a role can never read
-  // beyond its matrix row even though the widget set is also gated in the UI.
-  const [ticketsRes, chargesRes, paymentsRes, budgetsRes, vendorsRes] =
+  // Aggregated in the DATABASE (0061), not by pulling whole tables and counting
+  // here. Past PostgREST's 1000-row cap the old approach truncated silently and
+  // the KPIs undercounted — and an executive reading a collection rate cannot
+  // tell a truncated figure from a true one.
+  //
+  // Still RLS-scoped: the views are `security_invoker`, so an FM/PM sees only
+  // their properties' figures exactly as before. The aggregation moved; the
+  // access rules did not.
+  const [statusRes, categoryRes, financialsRes, budgetsRes, scoresRes] =
     await Promise.all([
-      supabase.from("tickets").select("status, category"),
-      supabase.from("service_charges").select("amount, status, budget_id"),
-      supabase.from("payments").select("amount, status"),
+      supabase.from("bi_ticket_status").select("status, total"),
+      supabase.from("bi_ticket_category").select("category, total"),
+      supabase.from("bi_financials").select("*").maybeSingle(),
       supabase.from("sc_budgets").select("id, total_amount, properties(name)"),
-      supabase.from("vendors").select("name, vendor_evaluations(composite_score)"),
+      supabase.from("bi_vendor_scores").select("name, average_score"),
     ]);
 
-  const tickets = ticketsRes.data ?? [];
-  const charges = chargesRes.data ?? [];
-  const payments = paymentsRes.data ?? [];
   const budgets = (budgetsRes.data ?? []) as unknown as {
     id: string;
     total_amount: number | string;
     properties: { name: string } | null;
   }[];
-  const vendors = (vendorsRes.data ?? []) as unknown as {
-    name: string;
-    vendor_evaluations: { composite_score: number | string | null }[];
-  }[];
 
   // ── Ops metrics ──────────────────────────────────────────────────────────
-  const byStatus = new Map<string, number>();
-  const byCategory = new Map<string, number>();
-  for (const t of tickets) {
-    byStatus.set(t.status, (byStatus.get(t.status) ?? 0) + 1);
-    if (t.category)
-      byCategory.set(t.category, (byCategory.get(t.category) ?? 0) + 1);
-  }
+  const byStatus = new Map<string, number>(
+    (statusRes.data ?? []).map((r) => [String(r.status), Number(r.total)])
+  );
+  const byCategory = new Map<string, number>(
+    (categoryRes.data ?? [])
+      .filter((r) => r.category !== "unclassified")
+      .map((r) => [String(r.category), Number(r.total)])
+  );
   const statusData: NamedValue[] = ["open", "in_progress", "resolved", "closed"]
     .filter((s) => byStatus.has(s))
     .map((s) => ({ name: titleize(s), value: byStatus.get(s) ?? 0 }));
@@ -125,33 +124,37 @@ export default async function BiDashboardPage() {
   const openCount = (byStatus.get("open") ?? 0) + (byStatus.get("in_progress") ?? 0);
   const closedCount = (byStatus.get("resolved") ?? 0) + (byStatus.get("closed") ?? 0);
 
-  const vendorScores: NamedValue[] = vendors
-    .map((v) => ({
-      name: v.name,
-      value: averageComposite(v.vendor_evaluations) ?? 0,
-    }))
+  const vendorScores: NamedValue[] = (scoresRes.data ?? [])
+    .map((v) => ({ name: String(v.name), value: Number(v.average_score) }))
     .filter((v) => v.value > 0)
     .sort((a, b) => b.value - a.value);
 
   // ── Financial metrics ────────────────────────────────────────────────────
-  const totalInvoiced = charges.reduce((a, c) => a + Number(c.amount), 0);
-  const totalPaid = charges
-    .filter((c) => c.status === "paid")
-    .reduce((a, c) => a + Number(c.amount), 0);
+  const fin = financialsRes.data as {
+    total_invoiced: number | string;
+    total_collected: number | string;
+    vendor_liabilities: number | string;
+  } | null;
+
+  const totalInvoiced = Number(fin?.total_invoiced ?? 0);
+  const totalPaid = Number(fin?.total_collected ?? 0);
   const outstanding = totalInvoiced - totalPaid;
   const collectionRate = totalInvoiced > 0 ? (totalPaid / totalInvoiced) * 100 : 0;
+  const vendorLiabilities = Number(fin?.vendor_liabilities ?? 0);
 
-  // Liabilities = approved/in-flight vendor invoices not yet remitted.
-  const vendorLiabilities = payments
-    .filter((p) => !["remitted", "rejected"].includes(p.status))
-    .reduce((a, p) => a + Number(p.amount), 0);
+  // Per-budget invoicing is the one figure still assembled here. It is bounded
+  // by the number of BUDGETS (one per property per period), not by invoices, so
+  // it does not carry the truncation risk the totals above did.
+  const { data: budgetTotals } = await supabase
+    .from("service_charges")
+    .select("budget_id, amount")
+    .not("budget_id", "is", null);
 
   const invoicedByBudget = new Map<string, number>();
-  for (const c of charges) {
-    if (!c.budget_id) continue;
+  for (const c of budgetTotals ?? []) {
     invoicedByBudget.set(
-      c.budget_id,
-      (invoicedByBudget.get(c.budget_id) ?? 0) + Number(c.amount)
+      c.budget_id as string,
+      (invoicedByBudget.get(c.budget_id as string) ?? 0) + Number(c.amount)
     );
   }
   const budgetData: BudgetRow[] = budgets.map((b) => ({
