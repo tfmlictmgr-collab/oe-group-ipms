@@ -51,6 +51,13 @@ const created = { apps: [], vendors: [] };
 
 console.log("Public vendor application — safety checks\n");
 
+// Remember how the operator left this, and put it back at the end. Forcing it
+// closed on cleanup meant running the suite silently took the live vendor
+// application link offline — a test may borrow the product's state, not decide it.
+const { data: orgBefore } = await svc
+  .from("orgs").select("vendor_applications_open").eq("id", orgId).single();
+const wasOpen = Boolean(orgBefore?.vendor_applications_open);
+
 // Start from a known state: applications CLOSED.
 await svc.from("orgs").update({ vendor_applications_open: false }).eq("id", orgId);
 
@@ -188,8 +195,8 @@ console.log("\nK. The whole path is audited");
 // ── Cleanup ────────────────────────────────────────────────────────────────
 await svc.from("vendor_applications").delete().ilike("business_name", `%-${stamp}%`);
 for (const id of created.vendors) await svc.from("vendors").delete().eq("id", id);
-await svc.from("orgs").update({ vendor_applications_open: false }).eq("id", orgId);
-console.log("\n(cleaned up; applications left closed)");
+await svc.from("orgs").update({ vendor_applications_open: wasOpen }).eq("id", orgId);
+console.log(`\n(cleaned up; vendor applications restored to ${wasOpen ? "OPEN" : "closed"})`);
 
 console.log(
   failures === 0
