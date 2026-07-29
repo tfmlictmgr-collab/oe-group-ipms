@@ -409,6 +409,21 @@ a **tenant account created automatically** from it.
 
 **Done when:** no tenant exists without an approved application; all steps audited.
 
+**⚠ Blocker found in Day 7 review — a PM will see zero applications.** Nothing in
+the public flow captures a property or unit, so every application has
+`property_id = null`. Both the RLS policy and `application_overview` scope a
+reviewer without `applications.review_all` to
+`property_id in (select current_user_property_ids())`, and **NULL never matches
+an IN list** — so property-scoped review, which is this day's premise, currently
+returns nothing. Two ways out:
+> - ask the applicant which property/unit they want, or
+> - have an admin assign the application to a property on receipt, before it
+>   enters the PM queue.
+>
+> The second is the safer default: an applicant's own free-text preference should
+> not decide who may read their identity documents. It does mean the queue needs
+> an explicit *unassigned* stage. **Confirm which before Day 8 starts.**
+
 ---
 
 ## Day 9 — Lease administration, rent billing & rent roll
