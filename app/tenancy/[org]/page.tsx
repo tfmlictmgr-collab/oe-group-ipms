@@ -10,6 +10,13 @@ import StartApplication from "./StartApplication";
 // deliberately only the branding: what is exposed here is what a stranger who
 // guesses an org id can see, so it is the org's public face and nothing else.
 
+// Never cached. This page's content depends on live organisation state — the
+// lettings module and the open/closed window — and a cached render meant an org
+// could open applications and have the public link keep saying "closed" until
+// the next deploy. The person who would notice is a prospect who quietly gives
+// up, so this is a correctness question rather than a performance one.
+export const dynamic = "force-dynamic";
+
 export default async function ApplyPage({
   params,
   searchParams,
