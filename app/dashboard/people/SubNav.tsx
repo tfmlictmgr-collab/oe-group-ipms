@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Users, UserPlus, Building2, DoorOpen } from "lucide-react";
+import { Users, UserPlus, Building2, DoorOpen, FileSignature } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // Section tabs. Counts sit on the tab so an admin can see at a glance where
@@ -12,14 +12,23 @@ const TABS = [
   { href: "/dashboard/people/invitations", label: "Invitations", icon: UserPlus, key: "invites" },
   { href: "/dashboard/people/applications", label: "Vendor Applications", icon: Building2, key: "apps" },
   { href: "/dashboard/people/occupancy", label: "Unit Occupancy", icon: DoorOpen, key: "units" },
+  // Lettings only. Hidden rather than disabled for a facilities org: a tab that
+  // exists but never applies is a question every new administrator has to ask.
+  { href: "/dashboard/people/tenancy", label: "Tenancy Applications", icon: FileSignature, key: "tenancy", module: "lettings" },
 ] as const;
 
-export default function SubNav({ counts }: { counts: Partial<Record<string, number>> }) {
+export default function SubNav({
+  counts,
+  modules = {},
+}: {
+  counts: Partial<Record<string, number>>;
+  modules?: Partial<Record<string, boolean>>;
+}) {
   const pathname = usePathname();
 
   return (
     <div className="-mx-1 flex gap-1 overflow-x-auto border-b border-border px-1">
-      {TABS.map((t) => {
+      {TABS.filter((t) => !("module" in t) || modules[t.module]).map((t) => {
         const active =
           t.href === "/dashboard/people"
             ? pathname === t.href

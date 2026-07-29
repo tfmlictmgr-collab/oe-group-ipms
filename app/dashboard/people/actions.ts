@@ -236,6 +236,40 @@ export async function decideVendorApplication(
 }
 
 /** Open or close the org's public vendor-application link. Admin only. */
+// Opening and closing tenancy intake. Deliberately an ordinary org-admin
+// setting rather than a permission-matrix toggle: it decides whether a public
+// form accepts submissions, not who may see money or approve it. The
+// non-delegable controls stay hardwired elsewhere.
+export async function setTenantApplicationsOpen(open: boolean): Promise<ActionResult> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return fail("Your session expired. Please sign in again.");
+  const { data: me } = await supabase
+    .from("users").select("org_id, role").eq("id", user.id).single();
+  if (me?.role !== "admin") {
+    return fail("Only an administrator can open or close tenancy applications.");
+  }
+
+  // The module gate, checked here too. Without it a facilities org could set a
+  // flag that reads as "open" in its own settings while the public page still
+  // refuses every application — a switch that lies about its own state.
+  const { data: hasLettings } = await supabase.rpc("org_has_module", {
+    p_org_id: me.org_id,
+    p_module: "lettings",
+  });
+  if (!hasLettings) {
+    return fail("Lettings is not enabled for this organisation.");
+  }
+
+  const { error } = await supabase
+    .from("orgs")
+    .update({ tenant_applications_open: open })
+    .eq("id", me.org_id);
+  if (error) return failFromDb(error, "change the tenancy application link");
+  revalidatePath("/dashboard/people/tenancy");
+  return ok();
+}
+
 export async function setVendorApplicationsOpen(open: boolean): Promise<ActionResult> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();

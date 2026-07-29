@@ -43,9 +43,15 @@ const hash = (t) => crypto.createHash("sha256").update(t).digest("hex");
 const stamp = Date.now().toString(36).toUpperCase().slice(-6);
 const made = [];
 
-const { data: orgs } = await svc.from("orgs").select("id, name, delivery_brand");
+const { data: orgs } = await svc.from("orgs").select("id, name, delivery_brand, tenant_applications_open");
 const oea = orgs.find((o) => o.delivery_brand === "OEA");
 const tfml = orgs.find((o) => o.delivery_brand === "TFML");
+
+// Remember how the operator left these, and put them back at the end. An
+// earlier version closed OEA's window unconditionally on cleanup, so running
+// the suite silently took the live application link offline — the test was
+// changing the product's state rather than borrowing it.
+const wasOpen = { [oea.id]: oea.tenant_applications_open, [tfml.id]: tfml.tenant_applications_open };
 
 console.log("Tenant applications — intake and its guardrails\n");
 
@@ -81,7 +87,7 @@ console.log("\nB. TFML cannot take a tenancy application even with a window open
   });
   error ? ok("refused — the module gate holds independently of the window")
         : bad("TFML ACCEPTED A TENANCY APPLICATION");
-  await svc.from("orgs").update({ tenant_applications_open: false }).eq("id", tfml.id);
+  await svc.from("orgs").update({ tenant_applications_open: wasOpen[tfml.id] }).eq("id", tfml.id);
 }
 
 console.log("\nC. An applicant can submit but can never read back");
@@ -235,8 +241,8 @@ console.log("\nI. Nothing decides automatically");
 // ── Cleanup ────────────────────────────────────────────────────────────────
 await svc.from("application_attachments").delete().in("application_id", made);
 await svc.from("tenant_applications").delete().in("id", made);
-await svc.from("orgs").update({ tenant_applications_open: false }).eq("id", oea.id);
-console.log("\n(cleaned up; OEA's window closed again)");
+await svc.from("orgs").update({ tenant_applications_open: wasOpen[oea.id] }).eq("id", oea.id);
+console.log(`\n(cleaned up; OEA's window restored to ${wasOpen[oea.id] ? "OPEN" : "closed"})`);
 
 console.log(
   failures === 0

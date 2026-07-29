@@ -19,7 +19,7 @@ export default async function PeopleLayout({
   }
 
   const supabase = await createClient();
-  const [invites, apps] = await Promise.all([
+  const [invites, apps, lettings, tenancyApps] = await Promise.all([
     supabase
       .from("invitations")
       .select("*", { count: "exact", head: true })
@@ -28,6 +28,14 @@ export default async function PeopleLayout({
       .from("vendor_applications")
       .select("*", { count: "exact", head: true })
       .in("status", ["submitted", "email_verified", "under_review"]),
+    supabase.rpc("org_has_module", {
+      p_org_id: session.profile!.org_id,
+      p_module: "lettings",
+    }),
+    supabase
+      .from("application_overview")
+      .select("*", { count: "exact", head: true })
+      .in("status", ["submitted", "under_review", "info_requested"]),
   ]);
 
   return (
@@ -36,7 +44,14 @@ export default async function PeopleLayout({
         title="People &amp; Onboarding"
         description="Invite staff, vendors and tenants, and set what each of them can reach."
       />
-      <SubNav counts={{ invites: invites.count ?? 0, apps: apps.count ?? 0 }} />
+      <SubNav
+        counts={{
+          invites: invites.count ?? 0,
+          apps: apps.count ?? 0,
+          tenancy: tenancyApps.count ?? 0,
+        }}
+        modules={{ lettings: Boolean(lettings.data) }}
+      />
       {children}
     </div>
   );
