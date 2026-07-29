@@ -91,12 +91,36 @@ export async function classifyAndCreateTicket(
 ) {
   const classification = await classifyMessage(messageText);
 
+  // Who wrote in, and about where.
+  //
+  // Without this the row carries no identity and no property, and the select
+  // policy then hides it from everyone except a holder of `tickets.read_all` —
+  // a tenant could not see their own WhatsApp request, and no Facility Manager
+  // could see any of them. Resolution is org-scoped and refuses ambiguity, so a
+  // number we do not recognise simply stays unresolved rather than being
+  // attached to the nearest plausible person.
+  let senderId: string | null = null;
+  let propertyId: string | null = null;
+  try {
+    const { data: who } = await supabaseAdmin
+      .rpc("resolve_chat_sender", { p_org_id: orgId, p_sender_ref: chatId })
+      .maybeSingle<{ user_id: string | null; property_id: string | null }>();
+    senderId = who?.user_id ?? null;
+    propertyId = who?.property_id ?? null;
+  } catch (error) {
+    // Never block intake on this. An unresolved request is visible to whoever
+    // holds `tickets.triage_unassigned`; a dropped request is visible to nobody.
+    console.error("Could not resolve chat sender:", error);
+  }
+
   const { data: ticket, error } = await supabaseAdmin
     .from("tickets")
     .insert({
       org_id: orgId,
       channel,
       channel_sender_ref: chatId,
+      sender_id: senderId,
+      property_id: propertyId,
       message_text: messageText,
       category: classification.category,
       urgency: classification.urgency,
