@@ -1235,3 +1235,50 @@ link kept reading "Applications are closed". Its content depends entirely on liv
 org state, so it is now `force-dynamic`. The person who notices a stale render
 here is a prospective tenant who quietly gives up — a correctness question rather
 than a performance one, and one nobody would ever report.
+
+---
+
+## WhatsApp requests that reached nobody
+
+Messages arrived, routed to the right brand, and were answered on the right
+number — and did not appear on the requests dashboard.
+
+⚠️ **An optional foreign key used as a security scope silently denies every row
+that has not got one yet.** The webhook wrote `sender_id` and `property_id` both
+NULL — it has a phone number, not a user, and no property. The select policy
+grants a non-`read_all` reader on `property_id in (select
+current_user_property_ids())`, and NULL never matches an IN list. So only admin
+and finance could see any of them. Measured on live data before the fix: all 13
+of TFML's chat requests and all 10 of OEA's had no property, and both brands
+happen to have only admin/finance accounts — which is the only reason it looked
+like it worked. This is the same shape that hides tenant applications from a
+Property Manager (recorded under Day 8).
+
+Two populations, so two fixes. A sender we KNOW resolves to the user and the
+property of the unit they occupy, which finally makes B7's "Tenant: own requests"
+mean something for someone who wrote in on WhatsApp. Resolution is org-scoped and
+refuses ambiguity: two people sharing a number is not a licence to guess which of
+them is writing, so an ambiguous match resolves to no match. A sender we do NOT
+know stays unresolved and is reached through a new `tickets.triage_unassigned`
+capability whose clause can only ever admit rows where `property_id is null` —
+it cannot widen access to a request that belongs to a property.
+
+⚠️ **And I made the same mistake I had just written up.** The capability was
+granted with a one-off INSERT while `seed_b7_permissions()` — the single
+definition of what an org starts with and what a reset returns it to — knew
+nothing about it. The grant survived until the next reset, which happened within
+the hour: two of my own measurements disagreed, one said a Facility Manager could
+see unassigned requests and the other said `granted=false`. Every org created
+afterwards would have started without it too. **A rule applied in one place and
+not in the source of that rule is worse than no rule, because it looks applied.**
+
+Correcting it settled the default. B7's Facility Manager row reads "Assigned
+properties (RT)", an unassigned request is in no assigned property, and locked
+decision 7 says silence means OFF. So the capability is named explicitly in the
+baseline as `false` — a decision on the record rather than one that fell through
+to a default — and an operator turns it on per org. The suite now proves the
+toggle moves it AND that a reset puts it back.
+
+📌 Tooling: the Bash tool's sandbox blocks outbound network on this machine while
+PowerShell does not, which made a working connection look like an outage for some
+time. Network-dependent work runs through PowerShell here.
