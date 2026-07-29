@@ -25,9 +25,12 @@ export default async function TenancyApplicationsPage() {
       .eq("id", profile.org_id)
       .single(),
     supabase.rpc("org_has_module", { p_org_id: profile.org_id, p_module: "lettings" }),
+    // Only the count is used, so no application rows are fetched. These carry
+    // the heaviest PII in the system; pulling them to render a number would put
+    // them through a page that has no business holding them.
     supabase
       .from("application_overview")
-      .select("id, status", { count: "exact" })
+      .select("*", { count: "exact", head: true })
       .in("status", ["submitted", "under_review", "info_requested"]),
   ]);
 
