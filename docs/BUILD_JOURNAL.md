@@ -1571,3 +1571,40 @@ that passes for the wrong reason is worse than no test, because it is believed.
 consequence: the compiler cannot see an RPC signature, so the suites are what
 catch it. Each now creates its own accepting property rather than depending on the
 occupancy of demo data.
+
+---
+
+## The cache that was invisible at every layer I looked at
+
+After the per-property window shipped, the public page reported "Applications are
+closed" while the identical query, run directly against the same database seconds
+earlier, returned an accepting property. Correct code, freshly deployed, and the
+response headers said `x-vercel-cache: MISS`, `age: 0`,
+`Cache-Control: private, no-cache, no-store`.
+
+I worked through: a stale deployment, a pinned production alias, the wrong Supabase
+project, a dropped RPC, a stray background process flipping the flag. All wrong,
+and each took a round trip. What settled it was giving up on inference and having
+the deployed page log what it actually saw — which said `master: false` at the same
+moment a direct read said `true`.
+
+⚠️ **Next.js patches the global `fetch`, and supabase-js uses `fetch`.** Server-side
+reads were being served from Next's DATA cache. That cache is invisible at the CDN
+layer, so the response can truthfully say `no-store` and `MISS` while the *data*
+inside it is hours old. Both stale reads — the org row and the RPC result — pointed
+at the same earlier moment, when the window genuinely had been closed.
+
+📌 **`export const dynamic = "force-dynamic"` does not cover this.** It makes the
+ROUTE dynamic, which governs when the page re-renders, not whether the fetches
+inside it come from the data cache. Earlier in this build I "fixed" exactly this
+symptom by adding `force-dynamic`, and it appeared to work — it did not, it just
+re-rendered stale data at a different moment.
+
+Fixed once, centrally: `supabaseAdmin` now passes `cache: "no-store"` on every
+request. **A database client must never hand back stale data**; anything that
+genuinely wants caching can ask for it at the call site. Proven by closing the
+property and reloading (closed immediately), then reopening (open immediately).
+
+📌 And a smaller lesson that cost several rounds: I read `tenant_applications_open`
+as `true` while my own verification suites were mid-run, flipping it on and
+restoring it. **State read during a test run is not the resting state.**

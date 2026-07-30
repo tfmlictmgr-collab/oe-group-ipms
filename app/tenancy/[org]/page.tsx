@@ -53,11 +53,25 @@ export default async function ApplyPage({
 
   // Which properties are taking applications right now. The org flag is the
   // master switch; each property then decides for itself (0076).
-  const { data: openProperties } = await supabaseAdmin.rpc(
+  const { data: openProperties, error: acceptingError } = await supabaseAdmin.rpc(
     "properties_accepting_applications",
     { p_org_id: org }
   );
+
+  // A failed call here used to render "Applications are closed" — indistinguishable
+  // from a deliberate closure, and silent. That is the same shape as the RLS read
+  // that returned zero rows without erroring and blocked every submission: the
+  // page said something confident and wrong. Log it loudly; the applicant still
+  // sees the closed card, because there is nothing better to show them, but an
+  // operator can find out why.
+  if (acceptingError) {
+    console.error(
+      "properties_accepting_applications failed for org", org, "-", acceptingError.message
+    );
+  }
   const accepting = (openProperties ?? []) as { id: string; name: string; address: string | null }[];
+
+
 
   if (!organisation.tenant_applications_open || !hasModule || accepting.length === 0) {
     return (
