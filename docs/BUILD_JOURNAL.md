@@ -1662,3 +1662,55 @@ Also from the same review: the 1–4 quick-reply map existed twice (reorder one 
 treated a database error as "no open thread" so a transient failure silently
 opened a duplicate, and a greeting filed a notification against a ticket id that
 was null.
+
+---
+
+## A regional manager who could not invite anyone
+
+Asking one question the code had never been asked — *can a regional manager
+actually invite someone?* — turned over three faults at once.
+
+⚠️ **The capability was decorative.** `people.invite` was true for
+`regional_manager` in the matrix since `0072b`, while `invitations_insert`
+admitted only `admin` and `facility_manager`. The matrix said yes and the table
+said no, for a fortnight, with nothing failing loudly.
+
+⚠️ **A facility manager could mint an executive.** The escalation guard read
+`(current_user_role() = 'admin' or role <> 'admin')` — it named the one
+privileged role that existed the day it was written. `executive` was added later
+and walked straight through it: an FM could create the MD who co-approves payments
+above the threshold. **A guard that names one role protects against the roles that
+existed when it was written.** Replaced with a rank, so a new role needs a number
+rather than every guard needing a new exception.
+
+**And an invitation could not carry a region**, so a regional manager could not be
+given their region in the same act that created them — two steps, and the second
+is the one that gets forgotten.
+
+### Then the fix broke something the old rule allowed
+
+📌 `role_rank(role) < role_rank(current_user_role())` is correct for escalation and
+also made `admin → admin` impossible. An organisation with one administrator had
+no way to appoint a second. Caught by the suite's own check that an administrator
+could issue everything below them.
+
+That is a lockout, and lockouts are exactly the pressure that makes an operator
+build a standing super-admin — the thing this system deliberately does not have.
+An org that cannot appoint its own second administrator will ask someone with
+database access to do it, and that becomes the norm. So: below your own rank,
+**plus** an administrator may appoint a peer. Held strict for `executive`, which
+is an office rather than a pool — an executive minting executives would let
+above-threshold approval be widened from inside.
+
+### Eighteen places that named the FM and not the regional manager
+
+The board's position is that a regional manager supersedes the FM/PM across the
+board. The matrix said so; eleven policies, five functions and one view still named
+`facility_manager` alone, because they were written before the role existed —
+including `payments_update`, `payments_select` and the vendor-application
+decisions.
+
+Rewritten mechanically from `pg_policies` and `pg_get_functiondef` rather than
+retyped, behind one `fm_roles()` definition. Retyping eighteen predicates by hand
+is how the payment state machine went missing in `0072b`; the same discipline that
+caught it applies to avoiding it.

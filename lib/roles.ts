@@ -58,6 +58,49 @@ export const INVITABLE_ROLES = [
 
 export type InvitableRole = (typeof INVITABLE_ROLES)[number];
 
+/**
+ * Invitation seniority. Mirrors `role_rank()` in the database (0078c) — the
+ * database is the enforcement, this is what lets the form show only the roles a
+ * person may actually issue.
+ *
+ * You may invite a role STRICTLY BELOW your own. That rule replaced a guard which
+ * named one privileged role (`role <> 'admin'`) and therefore protected only the
+ * roles that existed the day it was written: a facility manager could issue an
+ * `executive`, the MD who co-approves payments above the threshold.
+ *
+ * A new role needs a rank here and in `role_rank()`. Two places, deliberately —
+ * the database must stand alone, and the UI must not offer what the database will
+ * refuse.
+ */
+export const ROLE_RANK: Record<string, number> = {
+  admin: 100,
+  executive: 90,
+  finance_approver: 70,
+  regional_manager: 60,
+  facility_manager: 50,
+  fm_ops_staff: 30,
+  property_owner: 20,
+  viewer: 15,
+  vendor: 10,
+  tenant: 10,
+};
+
+/**
+ * The roles `inviterRole` may issue: below its own rank, plus the peer exception
+ * for an administrator.
+ *
+ * An org with one administrator must be able to appoint a second. Without that,
+ * the only route to a new admin is someone with database access — which is how a
+ * standing "super admin" gets built, and this system deliberately has none.
+ */
+export function invitableBy(inviterRole: string | null | undefined): InvitableRole[] {
+  const role = inviterRole ?? "";
+  const mine = ROLE_RANK[role] ?? 0;
+  return INVITABLE_ROLES.filter(
+    (r) => (ROLE_RANK[r] ?? 0) < mine || (role === "admin" && r === "admin")
+  );
+}
+
 /** One line of context for the roles whose scope is not obvious from the name. */
 export const ROLE_HINTS: Partial<Record<string, string>> = {
   viewer:

@@ -9,7 +9,7 @@ import {
   buildInviteUrl,
 } from "@/lib/invitation";
 import { sendEmail } from "@/lib/email";
-import { roleLabel, INVITABLE_ROLES, type InvitableRole } from "@/lib/roles";
+import { roleLabel, INVITABLE_ROLES, ROLE_RANK, type InvitableRole } from "@/lib/roles";
 import { ok, fail, failFromDb, type ActionResult } from "@/lib/action-result";
 
 // Enrolment writes go through the caller's own session so RLS decides what is
@@ -45,8 +45,8 @@ export async function inviteMember(
     .from("users").select("org_id, role, full_name").eq("id", user.id).single();
   if (!me) return fail("Could not resolve your profile.");
 
-  if (!["admin", "facility_manager"].includes(me.role)) {
-    return fail("Only an administrator or an FM/PM may invite people.");
+  if (!["admin", "facility_manager", "regional_manager"].includes(me.role)) {
+    return fail("Only an administrator or a manager may invite people.");
   }
 
   const email = input.email.trim().toLowerCase();
@@ -56,9 +56,18 @@ export async function inviteMember(
   if (!INVITABLE_ROLES.includes(input.role as InvitableRole)) {
     return fail("That role cannot be invited.");
   }
-  // Defence in depth — the RLS policy enforces this too.
-  if (input.role === "admin" && me.role !== "admin") {
-    return fail("Only an administrator may invite another administrator.");
+  // Strictly below your own rank — defence in depth; `invitations_insert`
+  // enforces the same rule via `role_rank()`.
+  //
+  // This replaced `input.role === "admin" && me.role !== "admin"`, which named
+  // the one privileged role that existed when it was written. It left `executive`
+  // and `regional_manager` issuable by a facility manager.
+  const peerAdmin = me.role === "admin" && input.role === "admin";
+  if (!peerAdmin && (ROLE_RANK[input.role] ?? 0) >= (ROLE_RANK[me.role] ?? 0)) {
+    return fail(
+      `You cannot invite someone as ${roleLabel(input.role)}.`,
+      "You may only invite roles below your own."
+    );
   }
 
   // Someone already enrolled cannot be invited again.
