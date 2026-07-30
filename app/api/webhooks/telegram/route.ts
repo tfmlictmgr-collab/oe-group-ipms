@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { classifyAndCreateTicket } from "@/lib/triage";
-import { buildAcknowledgement } from "@/lib/acknowledgement";
+import { handleInboundMessage } from "@/lib/handle-inbound";
 import { sendCascade } from "@/lib/cascade";
 import { checkRateLimit, clientIp, INTAKE_LIMITS } from "@/lib/rate-limit";
 import { resolveOrgForChannel } from "@/lib/channel-routing";
@@ -88,28 +87,39 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const ticket = await classifyAndCreateTicket(
+    // Same routing as WhatsApp: this may be a new request, a follow-up, a
+    // priority correction or a status question. Only the transport differs.
+    const outcome = await handleInboundMessage({
+      orgId: route.orgId,
+      channel: "telegram",
+      senderRef: String(chatId),
+      senderName: firstName ?? username ?? null,
       messageText,
-      String(chatId),
-      firstName ?? username ?? null,
-      "telegram",
-      route.orgId
-    );
-    console.log("Ticket created:", ticket.id, ticket.category, ticket.urgency);
+    });
+    console.log("Handled:", outcome.intent, outcome.ticketId ?? "(no ticket)");
 
-    // Acknowledge via the B8 cascade (Telegram channel here) — logged + audited.
-    // The buttons turn a receipt into something the reporter can act on without
-    // typing, which is the whole point of a chat-first intake on a phone.
+    if (!outcome.reply) {
+      return new NextResponse("OK", { status: 200 });
+    }
+
+    // Buttons only where there is a ticket to act on, and only when the request
+    // has just been raised — offering "it's urgent" on a status answer would be
+    // noise.
+    const buttons =
+      outcome.intent === "new_request" && outcome.ticketId
+        ? [[
+            { label: "📋 Check status", data: `status:${outcome.ticketId}` },
+            { label: "🚨 It's urgent", data: `urgent:${outcome.ticketId}` },
+          ]]
+        : undefined;
+
     await sendCascade({
       orgId: route.orgId,
       entityType: "ticket",
-      entityId: ticket.id,
-      message: buildAcknowledgement(ticket),
+      entityId: outcome.ticketId,
+      message: outcome.reply,
       telegram: String(chatId),
-      telegramButtons: [[
-        { label: "📋 Check status", data: `status:${ticket.id}` },
-        { label: "🚨 It's urgent", data: `urgent:${ticket.id}` },
-      ]],
+      telegramButtons: buttons,
     });
   } catch (error) {
     console.error("Failed to classify/create ticket or send reply:", error);

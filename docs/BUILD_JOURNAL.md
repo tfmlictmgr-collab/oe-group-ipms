@@ -1478,3 +1478,49 @@ another organisation's page; and the `/tenancy/*` route sends
 `Referrer-Policy: no-referrer` and `Cache-Control: no-store`, because a query
 string reaches Referer headers and a draft application should not sit in a shared
 cache.
+
+---
+
+## Intake that can hold a conversation
+
+The board asked for an interactive classifier — a person should be able to correct
+a priority the AI got wrong. The gap underneath the request was larger than the
+request.
+
+⚠️ **Every inbound message created a new ticket.** There was no conversation state
+and nowhere for a follow-up to go, so "it's worse now" opened a second ticket and
+`/start` opened one of its own. Worse, the acknowledgement already ended with *"If
+the category or priority looks wrong, reply and we'll correct it"* — and replying
+opened a third. **A promise the system did not keep**, the same shape as the resume
+link that was never emailed. Two of those in one week is a pattern worth naming:
+copy that describes behaviour is a specification, and it was being written ahead of
+the behaviour.
+
+Three things were needed, and none of them was a cleverer prompt: somewhere for a
+follow-up to go (`ticket_messages`), memory of what this sender last said
+(`chat_conversations`, expiring), and a guarded way to act on a correction (two
+definer RPCs). The router picks one of five intents and cannot act on anything —
+every intent is carried out by an RPC that re-checks the sender owns the ticket.
+
+**The guards, not the routing, are what make it safe:**
+- only the number that raised a ticket may re-prioritise it
+- a reporter cannot overrule a priority an operator has set — their request is
+  recorded on the thread instead, so nothing is lost silently
+- a self-declared escalation sets `requires_human_review`, so it informs the
+  queue rather than driving dispatch on its own
+- `urgency_source` distinguishes the AI's assessment from the reporter's, so the
+  dashboard shows a self-declared urgency for what it is
+- nothing crosses an org boundary, and a closed ticket cannot be reopened by
+  replying to it
+
+📌 **The fallback direction matters.** When routing is uncertain or the model call
+fails, the message is treated as a NEW REQUEST. A duplicate ticket is visible and
+closeable; a message merged into the wrong thread, or dropped, is neither.
+
+Numbered quick replies (1–4) are honoured without a model call — cheaper, faster,
+and what someone on a poor connection will actually send.
+
+Verified twice: `verify-conversational-triage` (24 checks) proves the guards
+against the database; `verify-triage-conversation-e2e` sends four real messages
+through the deployed webhook and the live model, and confirms that a correction and
+a status question add no tickets while a genuinely different problem gets its own.

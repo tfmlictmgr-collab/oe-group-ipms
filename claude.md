@@ -1,13 +1,27 @@
 # OE GROUP — AI-POWERED INTEGRATED FM / PROPERTY MANAGEMENT SYSTEM (IWMS)
-### Streamlined AI Instructions · Master Build Prompt v3.2 · Step-by-Step Design Workflow
+### Streamlined AI Instructions · Master Build Prompt v3.3 · Step-by-Step Design Workflow
 **Classification: Board Confidential · July 2026 · TFML + OEA**
-> ### ✅ Locked Scope Decisions (v3.2 — July 2026)
+> ### ✅ Locked Scope Decisions (v3.3 — July 2026)
 > 1. **Scale:** 100+ properties from day one; architecture must stay flexible and scalable.
 > 2. **Funds:** client funds are held in OE Group's **own designated bank accounts**; OE Group manages and authorises disbursement. This is a managed client-funds account + authorisation workflow (not licensed custody/escrow) → keep a **segregated** client-funds account, an in-app segregated ledger, the authorisation workflow, and **daily bank reconciliation**.
 > 3. **Approvals:** approval hierarchy and thresholds are **admin-configurable** (add/update approvers and limits via an admin user).
 > 4. **Payments:** **Paystack** (Collections + Transfers/remittance) **+ Flutterwave** (FX / international collections) — multi-currency retained.
 > 5. **Build model:** in-house **hybrid**, **AI-led end-to-end** — most cost-effective workable model (≈ ₦5.9M–₦8.9M one-time vs ₦11.7M–₦22M human-hybrid).
 > 6. **Aidra:** Phase 2 (reporting pilot).
+> 8. **The portfolio has a regional structure (v3.3, 29 Jul 2026 board).** Both brands organise properties as **REGION → PROJECT → LOCATION → SITE → PROPERTY → UNIT → ASSET**, regions following Nigeria's geopolitical mapping (North, South, East). Implemented as **one** `org_nodes` table with a materialised path hanging *above* the property register — not five nested tables — because `current_user_property_ids()` is referenced by 42 policy clauses and the **property remains the security anchor**. `properties.site_node_id` is nullable: an unfiled property stays fully operable.
+>     - **Assets state their scope.** `assets.scope` ∈ `unit | property | site`. "Shared" is a stated fact, never an absent `unit_id` — a nullable FK used as a meaning produced three live defects in one week, because NULL never matches an `IN` list.
+>     - **One resolver, extended.** Node scoping was added *inside* `current_user_property_ids()`. A second scoping mechanism alongside the first is forbidden.
+> 9. **Two roles added (v3.3, 29 Jul 2026 board).**
+>     - **`executive`** — the **Managing Director** of TFML and the **Managing Partner** of OEA (one role, brand-aware label, exactly as FM/PM). Sees everything finance sees and **co-holds payment approval, including above the threshold**. **Cannot execute a remittance**, add or change a bank account, post to the ledger, or raise the threshold they approve against. *Oversight authorises; finance disburses* — approving against a limit you can lift yourself is not an approval. Enforced in `enforce_payment_transition()`, never as a toggle.
+>     - **`regional_manager`** — decentralised FM/PM administration. Everything a facility/properties manager holds, plus inviting **operational** staff, bounded to the region/project/site they are assigned to. Nothing financial, no org-wide read. Admin invitation stays non-delegable (decision 7).
+>     - Who may **see** money and the audit trail is now one definition, `oversight_roles()`, rather than the same role array repeated across 18 policies.
+> 10. **AI may verify documents; it may never screen (v3.3, 29 Jul 2026 board — amends decision 2 of the OEA expansion).** Tenant applications keep **two-tier human review**. No automated system may **decide, score, rank or recommend** an outcome. Automated **document verification** — extraction, format and consistency checks, completeness, duplicate detection — is permitted as decision *support*, must record findings **against the evidence they came from**, and cannot substitute for the reviewer's own recorded reason.
+>     - The NDPA Art. 37 test is whether a decision is **solely** automated with significant effect; refusing housing is significant and a rubber-stamp does not cure it. Hence: findings never conclusions, the reviewer must state their own reason, findings are auditable and contestable, a bias audit on the extraction, and a per-org B9 flag **off by default**.
+>     - Special-category data (religion, marital status) stays in the separate `sensitive` column and is **never** sent to a model.
+>     - Consent copy gains a line about automated document checks. Statements are stored **verbatim per application**, so existing applicants keep the wording they actually saw.
+>     - Sending identity documents to Claude makes Anthropic a **processor** → DPA required (A3); prefer sending extracted text over document images.
+> 11. **Tenancy intake is per-property (v3.3, 29 Jul 2026 board).** The application window becomes `auto` (open iff a vacant unit exists) / `open` (waiting list) / `closed` (refurbishment, dispute), per property, with the org flag as a master switch. Overrides are administrator-only and audited — pure derivation would remove a judgement that belongs to a person. An applicant arriving through a property's own link carries `property_id`, which is what makes property-scoped PM review possible.
+
 > 7. **Permissions are operator-governed, not org-governed (v3.2, 27 Jul 2026).** Role privileges become an admin-toggled **permission matrix** (Day 6.5) rather than role names hardcoded into policy — but the editor lives **only on the OE Group operator portal**. TFML and OEA administrators see the matrix **read-only**; they cannot change what their own staff may reach. This introduces a **platform operator org** (`orgs.is_platform_operator`), distinct from a brand org, and is the single deliberate crossing of the org-isolation boundary — routed through one audited `SECURITY DEFINER` function, never a cross-org policy.
 >     - **Non-delegable controls stay hardwired** and never appear as toggles: payment approval (incl. the threshold escalation to admin), remittance execution, ledger read/write, bank configuration, audit visibility, admin invitation, permission editing itself, and channel-route credentials. These are what an auditor checks; they are not preferences.
 >     - **Defaults are the most restrictive workable state.** A capability is granted only where **B7** explicitly names the role; where B7 is silent the default is OFF. A new org starts locked down and is opened deliberately.
@@ -130,8 +144,12 @@ Real-time performance data is streamlined to each role's privilege. This matrix 
 | Finance / Approver | Read-only (RT) | All (RT) | All + approve payouts (RT) | — | Financial (RT) | All financial |
 | Property Owner | Own props summary (RT) | Own portfolio (RT + monthly report) | Own props (RT) | — | Own portfolio (RT) | Own props |
 | Admin | All (RT) | All (RT) | All (RT) | All (RT) | All (RT) | All + config approvers/limits |
+| Regional Manager *(v3.3)* | Assigned region/project (RT) | — | Managed vendors (RT) | All ops in region (RT) | Ops KPIs (RT) | Own scope |
+| Executive — MD / Managing Partner *(v3.3)* | All (RT) | All (RT) | All + **approve** payouts (RT) | All (RT) | All (RT) | All |
 
 Enforced at four layers (routing · Auth JWT claims · database RLS · API middleware) and across orgs (TFML / OEA / SC client). Admin configures approver hierarchy and thresholds.
+
+**Place scoping (v3.3):** "assigned properties" now means *directly assigned, plus everything beneath any hierarchy node assigned to you* — resolved by `current_user_property_ids()`, so a property added to a region later needs no re-assignment. **An executive does not execute remittances** (decision 9): the "approve payouts" cell above is approval only.
 
 ### B8. Notification Channels & Fallback Cascade (implemented in Step 3)
 Five channels, one delivery engine (n8n-orchestrated), with an explicit failure cascade:

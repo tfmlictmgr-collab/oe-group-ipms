@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { classifyAndCreateTicket } from "@/lib/triage";
-import { buildAcknowledgement } from "@/lib/acknowledgement";
+import { handleInboundMessage } from "@/lib/handle-inbound";
 import { sendCascade } from "@/lib/cascade";
 import { verifyWhatsAppSignature } from "@/lib/webhook-security";
 import { checkRateLimit, clientIp, INTAKE_LIMITS } from "@/lib/rate-limit";
@@ -111,21 +110,29 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const ticket = await classifyAndCreateTicket(
-      messageText,
-      senderWaId,
+    // A message is not necessarily a new request. It may be more information
+    // about one already open, a correction to the priority we assigned, or a
+    // question about where it has got to — and until this router existed, every
+    // one of those opened another ticket.
+    const outcome = await handleInboundMessage({
+      orgId: route.orgId,
+      channel: "whatsapp",
+      senderRef: senderWaId,
       senderName,
-      "whatsapp",
-      route.orgId
-    );
-    console.log("Ticket created:", ticket.id, ticket.category, ticket.urgency);
+      messageText,
+    });
+    console.log("Handled:", outcome.intent, outcome.ticketId ?? "(no ticket)");
+
+    if (!outcome.reply) {
+      return new NextResponse("OK", { status: 200 });
+    }
 
     // Acknowledge via the B8 cascade (WhatsApp primary here) — logged + audited.
     await sendCascade({
       orgId: route.orgId,
       entityType: "ticket",
-      entityId: ticket.id,
-      message: buildAcknowledgement(ticket),
+      entityId: outcome.ticketId,
+      message: outcome.reply,
       whatsapp: senderWaId,
       // Answer on the number they wrote to. `phoneNumberId` came from a payload
       // already HMAC-verified as Meta's, and it is the whole point: a person who
