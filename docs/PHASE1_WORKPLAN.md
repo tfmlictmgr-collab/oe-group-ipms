@@ -386,8 +386,74 @@ Applications** now carries the open/close switch and the public link, and the
 public page is no longer cached. The tab appears only for an org with the
 lettings module.
 
-*Awaiting you:* confirm the final field list per form and which documents are
-mandatory, then walk the form on a phone.
+**Status — closed, 30 July.** PC2's build audit found submission **silently
+blocked end to end**: the document check read `application_attachments` through
+the applicant's anon session, which has no SELECT policy, and a query with no
+matching policy returns zero rows *without erroring* — so every uploaded document
+read as missing. Reproduced before fixing. The gate now lives inside
+`submit_tenant_application()` (`0070`), which also closes a second hole the audit
+did not name: that RPC is granted to `anon`, so a check in the server action could
+be posted past.
+
+Also closed from the same audit: `sensitive` and `resume_token_hash` are no longer
+readable by `authenticated` (the latter matters more — the resume/save/submit
+functions take that hash as their argument, so reading it meant being able to
+submit someone else's application); `saveDraft` is rate limited; and the emailed
+resume link the form promised now actually exists and works (`?resume=<token>`,
+with `Referrer-Policy: no-referrer` on `/tenancy/*`).
+
+**Mandatory documents are now configuration, not code** —
+`application_document_requirements` per org and application type, which answers the
+question that was previously outstanding here. Turning one off is proven to change
+what is enforced.
+
+Suites: `verify-tenant-applications` (22), `verify-application-submission` (14),
+`verify-audit-followups` (12).
+
+*Awaiting you:* confirm the final field list per form, then walk the form on a
+phone. Also needs a verified Resend sending domain for `oraegbunike.com` before
+the resume email will reach an OEA applicant.
+
+---
+
+## Day 6.75b — Portfolio hierarchy + oversight roles *(inserted 30 July, board of 29 July)*
+
+**REGION → PROJECT → LOCATION → SITE**, above the property register. One
+`org_nodes` table with a materialised path rather than five nested tables, so the
+property stays the security anchor for all 42 policy clauses that scope on it
+(`0066`). Node-scoped assignments were added *inside* `current_user_property_ids()`
+— one resolver, extended — so a manager assigned to a region reaches properties
+added to it later with no re-assignment (`0067`).
+
+Two trigger defects found by the suite before pushing: `UPDATE OF col` fires on the
+columns a statement *names*, not those that changed (`0068`); and an AFTER
+trigger's `WHEN` clause is evaluated outside any trigger, so a `pg_trigger_depth`
+guard there is never true (`0069`).
+
+**Roles (`0071`–`0073`):** `executive` (MD / Managing Partner) — full visibility,
+co-holds approval including above threshold, **cannot remit**; `regional_manager` —
+operational plus inviting staff for their own region, nothing financial. Eighteen
+SELECT policies were rewritten mechanically from `pg_policies` into
+`oversight_roles()` rather than retyped.
+
+⚠️ **Regression caught here:** adding `executive` to `enforce_payment_transition()`
+meant rewriting it from a partial read, which dropped the legal-transition state
+machine — a forged jump straight to `approved` became possible.
+`verify-payment-gate` caught it; restored in `0073`. **`create or replace` is a
+full rewrite: whatever you do not restate, you delete.**
+
+Suites: `verify-hierarchy` (24), `verify-oversight-roles` (21).
+
+**Still to do from the 29 July board** (design in
+`docs/BOARD_JULY29_STRUCTURE_AND_REPORTING.md`):
+- `assets.scope` enum (`unit | property | site`) + shared-asset cost apportionment
+- `scope.org_wide` capability so **write** policies are bounded to a subtree — this
+  *tightens* current access (an FM loses org-wide `properties.write`), so it is
+  staged separately and confirmed against live data first
+- per-property application window (`auto` / `open` / `closed`) — also closes the
+  Day 8 blocker below
+- import templates gaining region/project/location/site columns
+- AI document verification (locked decision 10), after Day 8's human review
 
 ---
 

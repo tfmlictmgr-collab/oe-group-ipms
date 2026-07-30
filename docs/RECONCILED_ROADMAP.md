@@ -271,3 +271,42 @@ branch **`phase-1-hardening`** (commits `2e48f8b`, `2bf4b17`); migration
 syncs both machines. The code + migration for S1–S4/S9 live on `phase-1-hardening`
 (pushed). Merge that branch (or cherry-pick the two code fixes) into the POC when
 you accept the S6 decision, so the demo and Phase 1 stay in step.
+
+---
+
+## Board of 29 July 2026 — structure, oversight, reporting (added 30 July)
+
+The design is `docs/BOARD_JULY29_STRUCTURE_AND_REPORTING.md`; the locked decisions
+are `CLAUDE.md` **v3.3**, items 8–11. Roadmap consequences:
+
+**Landed (Phase 1, branch `phase-1`)**
+- **Portfolio hierarchy** REGION → PROJECT → LOCATION → SITE above the property
+  register (`0066`–`0069`). One table with a materialised path; the property stays
+  the security anchor for the 42 policy clauses that scope on it.
+- **Node-scoped assignments** — a manager assigned to a region reaches every
+  property beneath it, including ones added later. Added *inside*
+  `current_user_property_ids()`; a second scoping mechanism is forbidden.
+- **`executive`** (MD of TFML / Managing Partner of OEA) and **`regional_manager`**
+  (`0071`–`0073`). An executive co-holds approval including above threshold and
+  **cannot execute a remittance** — oversight authorises, finance disburses.
+- **Day 7 audit closure** (`0070`, `0074`): tenancy submission was silently blocked
+  end to end; `sensitive` and `resume_token_hash` revoked from `authenticated`; the
+  emailed resume link now exists; the last BI figure moved into the database.
+
+**Still ahead**
+- `assets.scope` (`unit | property | site`) and shared-asset cost apportionment —
+  touches the Step 6 apportionment engine, so it is finance logic, not display.
+- `scope.org_wide` so **write** policies are bounded to a subtree. This *tightens*
+  today's access (an FM currently holds org-wide `properties.write`, which B7 never
+  granted), so it ships on its own and is confirmed against live data first.
+- Per-property application window (`auto` / `open` / `closed`), which also gives
+  applications a `property_id` and unblocks property-scoped review in Day 8.
+- **Day 10 reporting** gains a real specification: parameterised, `SECURITY
+  INVOKER` report functions (a report must never show more than the dashboard),
+  aggregation in the database, dimensions including the hierarchy node, saved
+  report definitions, exports as audit events — and **date buckets in
+  `Africa/Lagos`, not UTC**, or a report labelled "29 July" starts at 01:00 WAT and
+  drops the first hour of the Nigerian day.
+- **AI document verification** (locked decision 10) after Day 8's human review:
+  findings tied to evidence, never a decision, behind a per-org flag off by
+  default. Needs a DPA with Anthropic as processor.
