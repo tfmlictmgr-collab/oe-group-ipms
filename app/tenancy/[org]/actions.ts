@@ -7,7 +7,7 @@ import { ok, fail, type ActionResult } from "@/lib/action-result";
 import { checkRateLimit, clientIp } from "@/lib/rate-limit";
 import { headers } from "next/headers";
 import {
-  splitSensitive, missingRequired, CONSENT_STATEMENT, REQUIRED_DOCUMENTS,
+  splitSensitive, missingRequired, CONSENT_STATEMENT,
 } from "@/lib/application-form";
 
 // The public application. Everything here runs for someone with NO account, so
@@ -87,6 +87,14 @@ export async function saveDraft(
   type: "individual" | "corporate",
   values: Record<string, unknown>
 ): Promise<ActionResult> {
+  // Rate limited like its siblings. A held token otherwise permits unbounded
+  // writes to one row at any frequency — small, but it is the only unmetered
+  // path in this flow.
+  const gate = await checkRateLimit("apply-save", resumeToken, 60, "10 m");
+  if (!gate.allowed) {
+    return fail("Too many saves in a row.", "Give it a moment and try again.");
+  }
+
   const supabase = await createClient();
   const { form, sensitive } = splitSensitive(type, values);
 
@@ -139,22 +147,13 @@ export async function submitApplication(
     );
   }
 
-  // Required documents are checked HERE, not only in the browser. An
-  // application missing its ID is not an application, and the reviewer should
-  // never be the one to discover it.
-  const { data: attachments } = await supabase
-    .from("application_attachments")
-    .select("kind")
-    .eq("application_id", applicationId);
-
-  const present = new Set((attachments ?? []).map((a) => a.kind));
-  const missingDocs = REQUIRED_DOCUMENTS[type].filter((d) => !present.has(d.kind));
-  if (missingDocs.length > 0) {
-    return fail(
-      `Still to upload: ${missingDocs.map((d) => d.label).join(", ")}.`,
-      "These are needed before the application can be reviewed."
-    );
-  }
+  // Required documents are checked inside `submit_tenant_application`, not here.
+  //
+  // This used to read `application_attachments` through the applicant's own
+  // session — which has no SELECT policy on that table, so it returned zero rows
+  // without erroring and every uploaded document read as missing. Submission was
+  // impossible. Checking it in the RPC also closes the other half: that function
+  // is granted to `anon`, so a check living out here could simply be posted past.
 
   const { form, sensitive } = splitSensitive(type, values);
 
@@ -166,6 +165,13 @@ export async function submitApplication(
   });
 
   if (error || !submitted) {
+    // The document-completeness message is raised by the function and is worth
+    // showing verbatim: "Still to upload: Passport photograph" tells the
+    // applicant exactly what to do, where a generic failure does not.
+    const detail = error?.message ?? "";
+    if (detail.startsWith("Still to upload:")) {
+      return fail(detail, "These are needed before the application can be reviewed.");
+    }
     return fail("The application could not be submitted. Please try again.");
   }
 

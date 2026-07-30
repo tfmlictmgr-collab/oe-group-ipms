@@ -1332,3 +1332,52 @@ Recursion guards belong in the body.
 📌 Both were caught by the verification suite on its first run, before anything was
 pushed — the re-parenting check existed because moving a node is precisely where a
 materialised path stops telling the truth.
+
+---
+
+## Day 7 could never have been submitted
+
+PC2's build audit reported the tenancy submission path blocked end to end. Verified
+by running it before touching anything: three `record_application_attachment` calls
+returned true, the service role saw three rows, and **the applicant's own session
+saw zero**. Every uploaded document read as missing, and the flow answered "Still to
+upload: Government-issued ID, Passport photograph, Guarantor's ID" seconds after all
+three had uploaded.
+
+⚠️ **A query with no matching RLS policy returns zero rows without erroring.** The
+check read `application_attachments` through the applicant's anon session, where
+there is deliberately no SELECT policy. Nothing failed loudly; the answer was just
+always "nothing there".
+
+⚠️ **Third appearance of one shape: a write-only role cannot read its own row
+back.** `0063` fixed exactly this for `tenant_applications` and did not carry the
+lesson two tables across to `application_attachments`.
+
+And following it up turned over a second defect the audit had not named:
+`submit_tenant_application` is granted to `anon`, so the document check living in
+the server action **could simply be posted past**. A completeness rule enforced
+beside a transition rather than inside it is not a rule. Moving it into the
+function answers both halves at once — a definer function can see the attachments,
+and nothing can route around it.
+
+The required list moved into `application_document_requirements` rather than being
+duplicated in SQL beside the constant in `lib/application-form.ts`, because two
+sources of truth for one rule is the failure this journal keeps recording. It is now
+per-org, per-type operator configuration — which also answers the outstanding Day 7
+question about which documents are mandatory.
+
+### A token hash worth more than it looks
+
+The audit also found `sensitive` readable through the base table despite
+`application_overview` existing to withhold it — correct, because **RLS is
+row-level and cannot withhold a column.** Following that up: `resume_application()`,
+`save_application_draft()` and `submit_tenant_application()` all take the token
+**hash** as their argument, so anyone able to read `resume_token_hash` from the base
+table could resume, edit and submit another person's application. Larger than
+reading a religion field, same cause, same fix.
+
+📌 **Column privileges cannot be carved out of a table-level grant.** Table-level
+SELECT implies every column, and revoking one afterwards does nothing — the grant
+has to be replaced with an explicit column list. `application_overview` is a plain
+view and reads the base table with its owner's rights, so reviewers kept exactly
+the access they had, minus two columns they were never meant to have.
