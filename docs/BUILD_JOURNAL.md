@@ -1431,3 +1431,50 @@ payment to `approved` — so the next run found no fixture and reported "run npm
 seed first" instead of "the gate is bypassable". A test that borrows a precondition
 it did not establish will eventually report the wrong failure. It now creates its
 own probe payment and removes it.
+
+---
+
+## Closing out the audits
+
+Both audit documents re-checked against current code rather than against memory.
+Baseline S-1, S-2, E-2 and D-1 were already closed; D7-D1, D7-S1 and D7-S2 were
+fixed earlier in the same session. Two findings were genuinely still open.
+
+### D7-E1 — the last figure counted in JavaScript
+
+`0061` moved ticket counts, money totals and vendor scores into the database and
+left the budget-utilisation panel behind. It selected every `service_charges` row
+carrying a `budget_id` and summed them in the page, under a comment stating it was
+"bounded by the number of BUDGETS … not by invoices, so it does not carry the
+truncation risk the totals above did."
+
+⚠️ **Being wrong in a comment is worse than being wrong in code.** The query
+returned one row per INVOICE. The next reader checks the comment, sees the risk
+explicitly dismissed, and moves on. Past PostgREST's 1000-row cap the panel would
+have under-reported budget utilisation with nothing on the page to say so — a
+finance figure quietly too low, which is worse than one that fails.
+
+Now `bi_budget_utilisation`, `security_invoker`, with the per-budget totals as
+scalar subqueries rather than a join — the `property_summary` fan-out that
+reported 30 units where six existed is not a mistake worth making twice. Verified
+against a hand count of the underlying charges, and that a tenant sees none of it.
+
+### D7-D2 — a link that was promised and never sent
+
+The form told every applicant they could "return using the link we emailed you —
+for 30 days". No email was sent, and the page had no way to accept such a link:
+the resume token existed only as a prop in the client component. Closing the tab
+lost the application, leaving half-filled personal data in the table until it
+expired.
+
+Wired properly rather than by correcting the copy: `startApplication` now emails
+the link, the page accepts `?resume=<token>` and rehydrates through the existing
+`resume_application()` definer function, and the hash/token/link rules live in one
+module because they are now used in three places.
+
+Two things the token being in a URL required: the page re-checks `draft.org_id`
+against the org in the address, so a valid token cannot be replayed through
+another organisation's page; and the `/tenancy/*` route sends
+`Referrer-Policy: no-referrer` and `Cache-Control: no-store`, because a query
+string reaches Referer headers and a draft application should not sit in a shared
+cache.

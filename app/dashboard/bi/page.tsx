@@ -90,20 +90,17 @@ export default async function BiDashboardPage() {
   // Still RLS-scoped: the views are `security_invoker`, so an FM/PM sees only
   // their properties' figures exactly as before. The aggregation moved; the
   // access rules did not.
-  const [statusRes, categoryRes, financialsRes, budgetsRes, scoresRes] =
+  const [statusRes, categoryRes, financialsRes, utilisationRes, scoresRes] =
     await Promise.all([
       supabase.from("bi_ticket_status").select("status, total"),
       supabase.from("bi_ticket_category").select("category, total"),
       supabase.from("bi_financials").select("*").maybeSingle(),
-      supabase.from("sc_budgets").select("id, total_amount, properties(name)"),
+      supabase
+        .from("bi_budget_utilisation")
+        .select("budget_id, property_name, budgeted, invoiced")
+        .order("budgeted", { ascending: false }),
       supabase.from("bi_vendor_scores").select("name, average_score"),
     ]);
-
-  const budgets = (budgetsRes.data ?? []) as unknown as {
-    id: string;
-    total_amount: number | string;
-    properties: { name: string } | null;
-  }[];
 
   // ── Ops metrics ──────────────────────────────────────────────────────────
   const byStatus = new Map<string, number>(
@@ -142,25 +139,14 @@ export default async function BiDashboardPage() {
   const collectionRate = totalInvoiced > 0 ? (totalPaid / totalInvoiced) * 100 : 0;
   const vendorLiabilities = Number(fin?.vendor_liabilities ?? 0);
 
-  // Per-budget invoicing is the one figure still assembled here. It is bounded
-  // by the number of BUDGETS (one per property per period), not by invoices, so
-  // it does not carry the truncation risk the totals above did.
-  const { data: budgetTotals } = await supabase
-    .from("service_charges")
-    .select("budget_id, amount")
-    .not("budget_id", "is", null);
-
-  const invoicedByBudget = new Map<string, number>();
-  for (const c of budgetTotals ?? []) {
-    invoicedByBudget.set(
-      c.budget_id as string,
-      (invoicedByBudget.get(c.budget_id as string) ?? 0) + Number(c.amount)
-    );
-  }
-  const budgetData: BudgetRow[] = budgets.map((b) => ({
-    name: b.properties?.name ?? "—",
-    budget: Number(b.total_amount),
-    invoiced: invoicedByBudget.get(b.id) ?? 0,
+  // Aggregated in the database (0074). This previously selected every invoice
+  // row carrying a budget_id and summed them here, under a comment claiming it
+  // was bounded by budget count — it was one row per INVOICE, so past
+  // PostgREST's 1000-row cap the panel under-reported with nothing to show it.
+  const budgetData: BudgetRow[] = (utilisationRes.data ?? []).map((b) => ({
+    name: b.property_name ?? "—",
+    budget: Number(b.budgeted),
+    invoiced: Number(b.invoiced),
   }));
 
   return (

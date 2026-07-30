@@ -1,7 +1,9 @@
 import { notFound } from "next/navigation";
 import { Building2, User } from "lucide-react";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { hashToken } from "@/lib/application-resume";
 import StartApplication from "./StartApplication";
+import ApplicationForm from "./ApplicationForm";
 
 // The public application page. Unauthenticated by design — a prospective tenant
 // has no account and will not make one to enquire.
@@ -22,10 +24,10 @@ export default async function ApplyPage({
   searchParams,
 }: {
   params: Promise<{ org: string }>;
-  searchParams: Promise<{ type?: string }>;
+  searchParams: Promise<{ type?: string; resume?: string }>;
 }) {
   const { org } = await params;
-  const { type } = await searchParams;
+  const { type, resume } = await searchParams;
 
   if (!/^[0-9a-f-]{36}$/i.test(org)) notFound();
 
@@ -59,6 +61,53 @@ export default async function ApplyPage({
             you were given this link directly, please go back to whoever sent it.
           </p>
         </div>
+      </Shell>
+    );
+  }
+
+  // Returning through the emailed link.
+  //
+  // Matched on the HASH of the token, so the stored value is useless to anyone
+  // reading the database. An expired, submitted or unknown token all answer the
+  // same way — otherwise this page would tell a stranger which tokens exist.
+  if (resume) {
+    const { data: draft } = await supabaseAdmin
+      .rpc("resume_application", { p_token_hash: hashToken(resume) })
+      .maybeSingle<{
+        id: string;
+        org_id: string;
+        type: "individual" | "corporate";
+        form: Record<string, unknown> | null;
+      }>();
+
+    // `org_id` is re-checked against the URL: a token is for one application in
+    // one organisation, and must not open a draft through another org's page.
+    if (!draft || draft.org_id !== org) {
+      return (
+        <Shell brandName={brandName} brand={brand} logo={organisation.logo_url}>
+          <div className="rounded-xl border border-border bg-card p-6 text-center">
+            <h1 className="text-lg font-semibold">This link no longer works</h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              A saved application can be reopened for {30} days, and the link stops
+              working once the application has been submitted. Start again, or ask
+              the letting team if you think this is wrong.
+            </p>
+          </div>
+        </Shell>
+      );
+    }
+
+    return (
+      <Shell brandName={brandName} brand={brand} logo={organisation.logo_url}>
+        <ApplicationForm
+          applicationId={draft.id}
+          resumeToken={resume}
+          type={draft.type}
+          orgName={brandName}
+          initialValues={(draft.form ?? {}) as Record<string, unknown>}
+          supabaseUrl={process.env.NEXT_PUBLIC_SUPABASE_URL!}
+          anonKey={process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!}
+        />
       </Shell>
     );
   }

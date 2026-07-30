@@ -233,7 +233,8 @@ export default function ApplicationForm({
 
       <p className="text-center text-xs text-muted-foreground">
         Your answers are saved as you go. You can close this page and return using
-        the link we emailed you — for 30 days.
+        the link we emailed you when you started — for 30 days. Keep that link to
+        yourself: anyone who has it can see and change this application.
       </p>
     </div>
   );

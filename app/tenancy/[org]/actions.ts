@@ -5,6 +5,8 @@ import { createClient } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ok, fail, type ActionResult } from "@/lib/action-result";
 import { checkRateLimit, clientIp } from "@/lib/rate-limit";
+import { sendEmail } from "@/lib/email";
+import { hashToken, newResumeToken, resumeUrl, DRAFT_DAYS } from "@/lib/application-resume";
 import { headers } from "next/headers";
 import {
   splitSensitive, missingRequired, CONSENT_STATEMENT,
@@ -18,10 +20,10 @@ import {
 // insert policy is the enforcement, and using the admin client here would make
 // it decorative.
 
-const DRAFT_DAYS = 30;
 
 /** Hash a resume token the same way invitations do — only the hash is stored. */
-const hashToken = (t: string) => crypto.createHash("sha256").update(t).digest("hex");
+// hashToken, the token generator and the link shape all live in one module —
+// they are used here, in the email, and when rehydrating a draft.
 
 export type StartInput = {
   orgId: string;
@@ -53,7 +55,7 @@ export async function startApplication(
 
   // Unguessable, and only its hash is stored — so the link in the applicant's
   // email is the only way back into their draft.
-  const resumeToken = crypto.randomBytes(24).toString("base64url");
+  const resumeToken = newResumeToken();
 
   // Through an RPC, not a direct insert: an applicant may WRITE but must never
   // READ, and `.insert().select()` needs a SELECT policy for the returned row.
@@ -78,7 +80,45 @@ export async function startApplication(
     );
   }
 
-  return ok({ id: data as string, resumeToken });
+  // The link the form promises. Until now the form told every applicant they
+  // could "return using the link we emailed you" and no email was ever sent —
+  // so anyone who closed the tab lost the application silently, with their
+  // half-filled personal data left sitting in the table until it expired.
+  //
+  // Sent after the draft exists, and never allowed to fail the request: an
+  // applicant who is already on the page can carry on regardless, and a mail
+  // outage must not stop applications being taken.
+  const applicationId = data as string;
+  try {
+    const origin = h.get("origin") ?? `https://${h.get("host") ?? ""}`;
+    const link = resumeUrl(origin, input.orgId, resumeToken);
+    await sendEmail({
+      to: email,
+      orgId: input.orgId,
+      category: "account",
+      entityType: "tenant_application",
+      entityId: applicationId,
+      subject: (ctx) => `Your ${ctx.brandName} tenancy application`,
+      text: (ctx) =>
+        [
+          `Hello ${input.name.trim()},`,
+          ``,
+          `You started a tenancy application with ${ctx.brandName}. Your answers are saved`,
+          `as you go, and you can return to it at any point in the next ${DRAFT_DAYS} days:`,
+          ``,
+          link,
+          ``,
+          `Anyone with this link can see and change the application, so please keep it to`,
+          `yourself. It stops working as soon as the application is submitted.`,
+          ``,
+          `If you did not start this you can ignore this email — nothing has been submitted.`,
+        ].join("\n"),
+    });
+  } catch (error) {
+    console.error("Could not email the resume link:", error);
+  }
+
+  return ok({ id: applicationId, resumeToken });
 }
 
 export async function saveDraft(

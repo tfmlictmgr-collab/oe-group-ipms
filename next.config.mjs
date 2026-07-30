@@ -6,6 +6,24 @@ const nextConfig = {
     // Required in Next 14 so instrumentation.ts runs (loads Sentry per runtime).
     instrumentationHook: true,
   },
+
+  async headers() {
+    return [
+      {
+        // A resume link carries its token in the query string — the same shape as
+        // a password-reset link, and with the same exposure: any outbound request
+        // from the page would put the full URL in a Referer header. Nothing here
+        // loads from another origin today, but the header costs nothing and the
+        // token is worth an entire application's personal data.
+        source: "/tenancy/:path*",
+        headers: [
+          { key: "Referrer-Policy", value: "no-referrer" },
+          // Nor should a draft application be sitting in a shared cache.
+          { key: "Cache-Control", value: "no-store" },
+        ],
+      },
+    ];
+  },
 };
 
 // Sentry build-time wrapper. Source-map upload is disabled: it needs a
