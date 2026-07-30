@@ -45,12 +45,28 @@ const svc = createClient(URL, SERVICE, { auth: { persistSession: false } });
 console.log("Direct-PATCH bypass attempts against the payment gate (0010)\n");
 
 // A payment still at the very first stage: nothing verified, nothing validated.
-const { data: fresh } = await svc
-  .from("payments").select("id, status, amount")
-  .eq("status", "pending_verification").limit(1).single();
+//
+// Created here rather than borrowed from the seed. This suite used to take the
+// first `pending_verification` payment it found — and the moment the gate was
+// genuinely broken, its own forge attempt SUCCEEDED and moved that row to
+// `approved`, leaving nothing for the next run to test. It then reported "run
+// npm run seed first" instead of "the gate is bypassable", which is the failure
+// mode of every test that asserts a precondition it did not establish.
+const { data: probeOrg } = await svc
+  .from("orgs").select("id").eq("delivery_brand", "direct").limit(1).single();
+const { data: probeVendor } = await svc
+  .from("vendors").select("id").eq("org_id", probeOrg.id).limit(1).single();
 
-if (!fresh) {
-  console.log("No pending_verification payment in the DB — run `npm run seed` first.");
+const { data: fresh, error: freshErr } = await svc.from("payments").insert({
+  org_id: probeOrg.id,
+  vendor_id: probeVendor.id,
+  amount: 250000,
+  invoice_reference: `GATE-PROBE-${Date.now().toString(36).toUpperCase().slice(-5)}`,
+  status: "pending_verification",
+}).select("id, status, amount").single();
+
+if (freshErr || !fresh) {
+  console.log(`Could not create the probe payment: ${freshErr?.message ?? "no row"}`);
   process.exit(1);
 }
 console.log(`Target: payment ${fresh.id.slice(0, 8)} (status=${fresh.status}, ₦${Number(fresh.amount).toLocaleString()})\n`);
@@ -92,4 +108,5 @@ console.log(
     ? "\n\x1b[32mALL CHECKS PASSED\x1b[0m — the gate holds against direct API calls."
     : `\n\x1b[31m${failures} CHECK(S) FAILED\x1b[0m — the gate is bypassable.`
 );
+await svc.from("payments").delete().eq("id", fresh.id);
 process.exit(failures === 0 ? 0 : 1);

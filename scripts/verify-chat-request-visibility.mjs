@@ -228,9 +228,13 @@ console.log("\nF. The capability defaults are the restrictive ones");
     .eq("capability", "tickets.triage_unassigned")
     .eq("org_id", poc.id);
   const on = (rows ?? []).filter((r) => r.granted).map((r) => r.role).sort();
-  JSON.stringify(on) === JSON.stringify(["admin"])
-    ? ok("granted to admin only — B7 is silent on unassigned requests, so it stays off")
-    : bad(`granted to: ${on.join(", ") || "nobody"}, expected admin only`);
+  // admin reads everything anyway; an executive is oversight; a regional manager
+  // triages their own region — the three roles for whom an unfiled request is
+  // their business. Everyone property-scoped stays off (board, 29 Jul 2026).
+  const expected = ["admin", "executive", "regional_manager"];
+  JSON.stringify(on) === JSON.stringify(expected)
+    ? ok(`granted to ${expected.join(", ")} — everyone property-scoped stays off`)
+    : bad(`granted to: ${on.join(", ") || "nobody"}, expected ${expected.join(", ")}`);
 }
 
 // ── Cleanup ────────────────────────────────────────────────────────────────

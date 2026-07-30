@@ -16,6 +16,8 @@ const BASE_LABELS: Record<string, string> = {
   property_owner: "Property Owner",
   admin: "Administrator",
   viewer: "Read-only Observer",
+  regional_manager: "Regional Manager",
+  executive: "Managing Director",
 };
 
 // Per-brand overrides. Only where the brand genuinely changes the job title.
@@ -23,6 +25,13 @@ const BRAND_LABELS: Partial<Record<DeliveryBrand, Record<string, string>>> = {
   OEA: {
     facility_manager: "Properties Manager",
     fm_ops_staff: "Property Operations Staff",
+    regional_manager: "Regional Properties Manager",
+    // OEA is a partnership; TFML is a company. Same role, same policies, the
+    // title each organisation actually uses.
+    executive: "Managing Partner",
+  },
+  TFML: {
+    regional_manager: "Regional Facilities Manager",
   },
 };
 
@@ -36,12 +45,14 @@ const BRAND_LABELS: Partial<Record<DeliveryBrand, Record<string, string>>> = {
  */
 export const INVITABLE_ROLES = [
   "facility_manager",
+  "regional_manager",
   "fm_ops_staff",
   "finance_approver",
   "property_owner",
   "tenant",
   "vendor",
   "viewer",
+  "executive",
   "admin",
 ] as const;
 
@@ -55,6 +66,10 @@ export const ROLE_HINTS: Partial<Record<string, string>> = {
     "Sees and approves money: the client-funds ledger, collections, remittances and reconciliation.",
   fm_ops_staff: "Works the jobs dispatched to them. No financial access.",
   property_owner: "Their own portfolio only — summary, statements and vendor performance.",
+  regional_manager:
+    "Runs a region. Everything a facilities/properties manager does, plus inviting operational staff — all of it bounded to the region, project or site they are assigned to. No financial access.",
+  executive:
+    "Oversight for the Managing Director / Managing Partner. Sees everything finance sees and co-approves payments, including above the threshold. Cannot execute a remittance, change the approval threshold, or write to the ledger — authorising and disbursing stay in different hands.",
 };
 
 export function roleLabel(

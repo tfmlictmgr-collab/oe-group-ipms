@@ -1381,3 +1381,53 @@ SELECT implies every column, and revoking one afterwards does nothing — the gr
 has to be replaced with an explicit column list. `application_overview` is a plain
 view and reads the base table with its owner's rights, so reviewers kept exactly
 the access they had, minus two columns they were never meant to have.
+
+---
+
+## Oversight that authorises but cannot disburse
+
+The board added two roles on 29 July: `executive` — the MD of TFML and the
+Managing Partner of OEA, one enum value with a brand-aware label as `facility_manager`
+already has — and `regional_manager` for decentralised regional administration.
+
+The governance split the board confirmed: an executive **sees everything finance
+sees and co-holds payment approval, including above the threshold, and cannot
+execute a remittance.** Nor can they add a bank account, post to the ledger, or
+raise the threshold they approve against. Approving against a limit you can lift
+yourself is not an approval, and oversight plus disbursement in one pair of hands
+removes the separation of duties that makes the audit trail worth anything. All
+four are asserted against the live database.
+
+Eighteen SELECT policies gated money and audit visibility by naming roles
+directly — locked capabilities have no `role_permissions` rows, so the matrix
+never sees them. Rather than retype eighteen predicates into a migration, they
+were read from `pg_policies` and rewritten mechanically into `oversight_roles()`:
+one definition of who has oversight instead of the same array in eighteen places.
+Every extra clause — `actor_id = auth.uid()`, the vendor's own rows, the FM's
+scoped vendors — survived byte-identical because it was never retyped.
+
+### I broke the payment gate, and the suite caught it
+
+⚠️ Adding `executive` to `enforce_payment_transition()` meant rewriting it — from
+a partial read. Three blocks above the part I had looked at went missing: the
+service-role exemption, the no-status-change short circuit, and **the legal
+transition state machine**. Without the third, a caller could forge
+`service_verified_at` and `performance_validated` and jump straight from
+`pending_verification` to `approved`, skipping verification and recommendation
+entirely. `verify-payment-gate` reported it on the next run: "finance: forge both
+gate flags + approve → ALLOWED".
+
+**`create or replace` on a function is a full rewrite: whatever you do not
+restate, you delete.** The journal already records the mirror image of this —
+redefining a *shared* function and changing behaviour for callers I had not
+considered. This is the same error from the other side: redefining a function from
+a partial view and dropping rules I had not seen. Read the whole definition from
+the catalogue, not from the migration that happened to introduce the part you were
+looking for.
+
+📌 And a second lesson inside the first: when the gate genuinely broke, the suite's
+own forge attempt **succeeded**, which moved the only seeded `pending_verification`
+payment to `approved` — so the next run found no fixture and reported "run npm run
+seed first" instead of "the gate is bypassable". A test that borrows a precondition
+it did not establish will eventually report the wrong failure. It now creates its
+own probe payment and removes it.
