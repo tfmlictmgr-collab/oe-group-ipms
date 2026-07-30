@@ -1608,3 +1608,57 @@ property and reloading (closed immediately), then reopening (open immediately).
 📌 And a smaller lesson that cost several rounds: I read `tenant_applications_open`
 as `true` while my own verification suites were mid-run, flipping it on and
 restoring it. **State read during a test run is not the resting state.**
+
+---
+
+## Audit 0729b — a regional manager who was not regional
+
+⚠️ `0072b` seeded `regional_manager` with `applications.review_all`, three lines
+below its own header stating the role has *"Nothing financial, no org-wide read."*
+The capability is defined as reading **every** tenant application in the
+organisation. **The comment and the code disagreed in the same file, and the
+comment was the one that was right.** I wrote both.
+
+Two consequences, the second worse: a manager for one region read every
+applicant's identity documents in the brand, and — because
+`application_document_requirements` is write-gated on the same capability — could
+rewrite what documents *every* property in the org demands.
+
+📌 **Why it survived a verification suite.** `verify-oversight-roles` asserted the
+role held no *financial* capability and no `tickets.read_all`. It never asserted
+it held no org-wide read of applications. **A guard you did not think to assert is
+a guard you do not have.** The replacement asserts the whole shape: it lists all
+sixteen organisation-wide capabilities and requires the role to hold none of them,
+so the next one added cannot slip through the same gap.
+
+The role loses nothing real. Applications carry `property_id` since `0076`, so a
+regional manager reaches their own region's applications through the node subtree.
+Scoping does the work the over-grant was doing, correctly.
+
+### A comment that claimed a protection the view did not have
+
+`stakeholder_assignments` was commented *"Definer-free: it reads through the
+caller's own policies"* and had no `security_invoker`. It happened to be safe
+because its `WHERE` clause repeats the same test — a coincidence one edit away
+from being wrong. `property_application_windows` had the same omission and was
+**not** safe: a tenant or vendor could read occupancy and vacancy for every
+property in the org.
+
+**An inaccurate comment about access control is worse than none**, because the
+next person reads it, believes the boundary is handled, and relaxes the clause
+that was actually holding.
+
+### A link that outlives the window it was made in
+
+The closed-intake gate ran before the resume branch, so a valid 30-day link
+returned "Applications are closed" the moment the last property filled up —
+contradicting the email sent minutes earlier. Reordered: **closing intake stops
+NEW applications; it must not strand one already in progress.** Someone half way
+through a form whose property has since filled still gets to finish, and the suite
+proves a new application is still refused at the same moment.
+
+Also from the same review: the 1–4 quick-reply map existed twice (reorder one and
+"can wait" becomes critical — the INVITABLE_ROLES shape again), `openThread`
+treated a database error as "no open thread" so a transient failure silently
+opened a duplicate, and a greeting filed a notification against a ticket id that
+was null.

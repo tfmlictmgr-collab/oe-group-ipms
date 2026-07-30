@@ -14,6 +14,7 @@
 // carried out by a guarded RPC that re-checks the sender owns the ticket.
 
 import Anthropic from "@anthropic-ai/sdk";
+import { QUICK_REPLY_OPTIONS } from "./acknowledgement";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -56,16 +57,13 @@ const NEW: RoutedMessage = { intent: "new_request", urgency: null, reasoning: "n
 const COMMANDS = new Set(["/start", "/help", "/menu", "hi", "hello", "hey"]);
 
 /**
- * A numbered reply to the acknowledgement. The message we send offers exactly
- * these, so they are worth honouring without a round trip — and they are what
- * someone on a poor connection will actually send.
+ * A numbered reply to the acknowledgement — derived from the SAME list the
+ * acknowledgement prints, so the two cannot drift. Honoured without a round trip
+ * to a model: cheaper, faster, and what someone on a poor connection will send.
  */
-const QUICK_REPLIES: Record<string, Urgency> = {
-  "1": "critical",
-  "2": "high",
-  "3": "normal",
-  "4": "low",
-};
+const QUICK_REPLIES: Record<string, Urgency> = Object.fromEntries(
+  QUICK_REPLY_OPTIONS.map((o) => [o.key, o.urgency])
+) as Record<string, Urgency>;
 
 const SYSTEM_PROMPT = `You route inbound messages for a Nigerian facilities and property management company.
 

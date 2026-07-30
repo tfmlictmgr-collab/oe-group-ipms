@@ -6,6 +6,22 @@
 // correction; it deliberately does not promise a response time, since no SLA is
 // committed for the POC.
 
+/**
+ * The numbered quick replies, defined ONCE.
+ *
+ * The acknowledgement prints these and the inbound router honours them. They were
+ * two lists that had to agree — reorder or relabel one and someone tapping "1"
+ * for "can wait" would have their request raised to critical. That is the same
+ * shape as the INVITABLE_ROLES bug already fixed in this build: two lists that
+ * must agree will eventually disagree.
+ */
+export const QUICK_REPLY_OPTIONS = [
+  { key: "1", urgency: "critical", label: "Urgent — unsafe, or nothing works" },
+  { key: "2", urgency: "high", label: "High — significant problem" },
+  { key: "3", urgency: "normal", label: "Normal" },
+  { key: "4", urgency: "low", label: "Low — can wait" },
+] as const;
+
 const PRIORITY_LABELS: Record<string, string> = {
   critical: "Critical",
   high: "High",
@@ -53,10 +69,7 @@ export function buildAcknowledgement(ticket: {
   lines.push(
     "",
     "Is that priority right? Reply:",
-    "1 Urgent — unsafe, or nothing works",
-    "2 High — significant problem",
-    "3 Normal",
-    "4 Low — can wait",
+    ...QUICK_REPLY_OPTIONS.map((o) => `${o.key} ${o.label}`),
     "",
     "Or just tell us more and we'll add it to this request."
   );

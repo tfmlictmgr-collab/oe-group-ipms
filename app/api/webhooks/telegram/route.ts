@@ -115,7 +115,11 @@ export async function POST(request: NextRequest) {
 
     await sendCascade({
       orgId: route.orgId,
-      entityType: "ticket",
+      // A greeting has no ticket. Filing the reply against `entityType: "ticket"`
+      // with a null id produced a notification that claimed to be about a request
+      // that does not exist — harmless to the database, misleading to whoever
+      // reads the trail.
+      entityType: outcome.ticketId ? "ticket" : "conversation",
       entityId: outcome.ticketId,
       message: outcome.reply,
       telegram: String(chatId),

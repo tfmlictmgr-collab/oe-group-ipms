@@ -73,20 +73,6 @@ export default async function ApplyPage({
 
 
 
-  if (!organisation.tenant_applications_open || !hasModule || accepting.length === 0) {
-    return (
-      <Shell brandName={brandName} brand={brand} logo={organisation.logo_url}>
-        <div className="rounded-xl border border-border bg-card p-6 text-center">
-          <h1 className="text-lg font-semibold">Applications are closed</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            {brandName} is not accepting tenancy applications at the moment. If
-            you were given this link directly, please go back to whoever sent it.
-          </p>
-        </div>
-      </Shell>
-    );
-  }
-
   // Returning through the emailed link.
   //
   // Matched on the HASH of the token, so the stored value is useless to anyone
@@ -130,6 +116,29 @@ export default async function ApplyPage({
           supabaseUrl={process.env.NEXT_PUBLIC_SUPABASE_URL!}
           anonKey={process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!}
         />
+      </Shell>
+    );
+  }
+
+  // The intake gate comes AFTER the resume branch, and that order is the point.
+  //
+  // Closing intake stops NEW applications; it must not strand one already in
+  // progress. Until this was reordered, a valid 30-day link returned the "closed"
+  // card the moment the org — or its last accepting property — stopped taking
+  // applicants, which contradicted the email we had just sent the applicant.
+  //
+  // Someone half way through a form, whose property has since filled up, still
+  // gets to finish. That is what the 30 days promised.
+  if (!organisation.tenant_applications_open || !hasModule || accepting.length === 0) {
+    return (
+      <Shell brandName={brandName} brand={brand} logo={organisation.logo_url}>
+        <div className="rounded-xl border border-border bg-card p-6 text-center">
+          <h1 className="text-lg font-semibold">Applications are closed</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {brandName} is not accepting tenancy applications at the moment. If
+            you were given this link directly, please go back to whoever sent it.
+          </p>
+        </div>
       </Shell>
     );
   }

@@ -16,7 +16,13 @@ import {
 
 export type CascadeTarget = {
   orgId: string;
-  entityType: "ticket" | "payment" | "service_charge";
+  /**
+   * What the message is ABOUT. `conversation` covers a reply that belongs to no
+   * record — a greeting, or an answer to someone with nothing open. Filing those
+   * as `ticket` with a null id put entries in the trail claiming to concern a
+   * request that does not exist.
+   */
+  entityType: "ticket" | "payment" | "service_charge" | "conversation";
   entityId: string | null;
   message: string;
   // Whatever contact points are known for the recipient:

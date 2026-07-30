@@ -48,9 +48,15 @@ async function openThread(
       created_at: string;
     }>();
 
-  // Never block intake on missing context. Without a thread the router simply
-  // treats the message as a new request, which is the safe direction.
-  if (error || !data) return null;
+  // An ERROR and an EMPTY RESULT are not the same thing, and treating them alike
+  // meant a transient failure silently opened a duplicate ticket with nothing to
+  // explain it. Intake still proceeds — a new request is the safe direction — but
+  // the failure is now visible.
+  if (error) {
+    console.error("conversation_context failed for", channel, senderRef, "-", error.message);
+    return null;
+  }
+  if (!data) return null;
 
   return {
     ticketId: data.ticket_id,

@@ -21,8 +21,14 @@ import { createClient } from "@supabase/supabase-js";
 // ROUTE dynamic — about when the page re-renders — not about whether the fetches
 // inside it come from the data cache.
 //
-// A database client must never hand back stale data. Anything that genuinely wants
-// caching can ask for it at the call site.
+// A database client must never hand back stale data.
+//
+// This is deliberately absolute: `{ ...init, cache: "no-store" }` puts `cache`
+// AFTER the spread, so it also overrides any `next: { revalidate }` a caller
+// might set. There is no per-call escape hatch, and that is the intended
+// behaviour rather than an oversight — a caller who genuinely wants a cached
+// read should build their own client for it, so the decision is visible where it
+// is made instead of hiding in a shared singleton.
 export const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
