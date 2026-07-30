@@ -39,9 +39,24 @@ async function login(email) {
   return c;
 }
 const hash = (t) => crypto.createHash("sha256").update(t).digest("hex");
+// An application is now raised against a PROPERTY (0076), so these checks need
+// one that is accepting. Forced `open` rather than relying on a vacant unit: a
+// suite should test what it is about, not the occupancy of demo data.
+async function probeProperty(svcClient, orgId, label) {
+  const { data, error } = await svcClient.from("properties")
+    .insert({ org_id: orgId, name: `PROBE-PROP-${label}` })
+    .select("id").single();
+  if (error) throw new Error(`could not create a probe property: ${error.message}`);
+  await svcClient.rpc("set_property_application_state", {
+    p_property_id: data.id, p_state: "open", p_note: "verification fixture",
+  });
+  return data.id;
+}
+
 
 const stamp = Date.now().toString(36).toUpperCase().slice(-6);
 const made = [];
+const probeProps = [];
 
 const { data: orgs } = await svc.from("orgs").select("id, name, delivery_brand, tenant_applications_open");
 const oea = orgs.find((o) => o.delivery_brand === "OEA");
@@ -67,8 +82,10 @@ console.log("A. Lettings is OEA-only, and the window must be open");
   // product failure that was really leftover fixture state.
   await svc.from("orgs").update({ tenant_applications_open: false }).eq("id", oea.id);
 
+  const oeaProp = await probeProperty(svc, oea.id, `A-${stamp}`);
+  probeProps.push(oeaProp);
   const shut = await anon.rpc("start_tenant_application", {
-    p_org_id: oea.id, p_type: "individual", p_name: "Probe",
+    p_org_id: oea.id, p_property_id: oeaProp, p_type: "individual", p_name: "Probe",
     p_email: `probe-${stamp}@example.com`, p_phone: null,
     p_token_hash: hash(`shut-${stamp}`), p_expires_at: new Date(Date.now() + 86400000).toISOString(),
   });
@@ -80,8 +97,10 @@ console.log("A. Lettings is OEA-only, and the window must be open");
 console.log("\nB. TFML cannot take a tenancy application even with a window open");
 {
   await svc.from("orgs").update({ tenant_applications_open: true }).eq("id", tfml.id);
+  const tfmlProp = await probeProperty(svc, tfml.id, `B-${stamp}`);
+  probeProps.push(tfmlProp);
   const { error } = await anon.rpc("start_tenant_application", {
-    p_org_id: tfml.id, p_type: "individual", p_name: "Probe",
+    p_org_id: tfml.id, p_property_id: tfmlProp, p_type: "individual", p_name: "Probe",
     p_email: `probe-tfml-${stamp}@example.com`, p_phone: null,
     p_token_hash: hash(`tfml-${stamp}`), p_expires_at: new Date(Date.now() + 86400000).toISOString(),
   });
@@ -95,7 +114,7 @@ let appId, token;
 {
   token = crypto.randomBytes(24).toString("base64url");
   const { data, error } = await anon.rpc("start_tenant_application", {
-    p_org_id: oea.id, p_type: "individual",
+    p_org_id: oea.id, p_property_id: probeProps[0], p_type: "individual",
     p_name: `Probe Applicant ${stamp}`,
     p_email: `applicant-${stamp}@example.com`, p_phone: null,
     p_token_hash: hash(token),
@@ -241,6 +260,7 @@ console.log("\nI. Nothing decides automatically");
 // ── Cleanup ────────────────────────────────────────────────────────────────
 await svc.from("application_attachments").delete().in("application_id", made);
 await svc.from("tenant_applications").delete().in("id", made);
+await svc.from("properties").delete().in("id", probeProps);
 await svc.from("orgs").update({ tenant_applications_open: wasOpen[oea.id] }).eq("id", oea.id);
 console.log(`\n(cleaned up; OEA's window restored to ${wasOpen[oea.id] ? "OPEN" : "closed"})`);
 

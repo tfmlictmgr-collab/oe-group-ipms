@@ -270,6 +270,30 @@ export async function setTenantApplicationsOpen(open: boolean): Promise<ActionRe
   return ok();
 }
 
+/**
+ * Open or close intake for ONE property.
+ *
+ * `auto` follows vacancy; `open` and `closed` are a person overruling it, which
+ * is why the note and the actor are recorded. The privilege check lives in the
+ * database function, not here — a server action is a convenience, never the
+ * boundary.
+ */
+export async function setPropertyApplicationState(
+  propertyId: string,
+  state: "auto" | "open" | "closed",
+  note?: string
+): Promise<ActionResult> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("set_property_application_state", {
+    p_property_id: propertyId,
+    p_state: state,
+    p_note: note ?? null,
+  });
+  if (error) return failFromDb(error, "change this property's application window");
+  revalidatePath("/dashboard/people/tenancy");
+  return ok();
+}
+
 export async function setVendorApplicationsOpen(open: boolean): Promise<ActionResult> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();

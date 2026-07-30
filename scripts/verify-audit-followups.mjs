@@ -38,6 +38,20 @@ const bad = (m) => { failures++; console.log(`  \x1b[31mFAIL\x1b[0m ${m}`); };
 const svc = createClient(URL_, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 const anon = createClient(URL_, ANON);
 const hash = (t) => crypto.createHash("sha256").update(t).digest("hex");
+// An application is now raised against a PROPERTY (0076), so these checks need
+// one that is accepting. Forced `open` rather than relying on a vacant unit: a
+// suite should test what it is about, not the occupancy of demo data.
+async function probeProperty(svcClient, orgId, label) {
+  const { data, error } = await svcClient.from("properties")
+    .insert({ org_id: orgId, name: `PROBE-PROP-${label}` })
+    .select("id").single();
+  if (error) throw new Error(`could not create a probe property: ${error.message}`);
+  await svcClient.rpc("set_property_application_state", {
+    p_property_id: data.id, p_state: "open", p_note: "verification fixture",
+  });
+  return data.id;
+}
+
 async function login(email) {
   const c = createClient(URL_, ANON);
   const { error } = await c.auth.signInWithPassword({ email, password: PW });
@@ -53,6 +67,7 @@ const windowWasOpen = oea.tenant_applications_open;
 
 const S = Date.now().toString(36).toUpperCase().slice(-5);
 const madeApps = [];
+const probeProps = [];
 
 console.log("Audit follow-ups\n");
 
@@ -114,10 +129,11 @@ console.log("\n…and it is still scoped by the caller's own policies");
 console.log("\nD7-D2. A resume link actually resumes");
 {
   await svc.from("orgs").update({ tenant_applications_open: true }).eq("id", oea.id);
+  probeProps.push(await probeProperty(svc, oea.id, `F-${S}`));
 
   const token = crypto.randomBytes(24).toString("base64url");
   const { data: appId, error } = await anon.rpc("start_tenant_application", {
-    p_org_id: oea.id, p_type: "individual", p_name: `Probe ${S}`,
+    p_org_id: oea.id, p_property_id: probeProps[0], p_type: "individual", p_name: `Probe ${S}`,
     p_email: `probe-${S}@example.com`, p_phone: null,
     p_token_hash: hash(token),
     p_expires_at: new Date(Date.now() + 30 * 86_400_000).toISOString(),
@@ -176,6 +192,7 @@ console.log("\nD7-D2. A resume link actually resumes");
 // ── Cleanup ────────────────────────────────────────────────────────────────
 await svc.from("application_attachments").delete().in("application_id", madeApps);
 await svc.from("tenant_applications").delete().in("id", madeApps);
+await svc.from("properties").delete().in("id", probeProps);
 await svc.from("orgs").update({ tenant_applications_open: windowWasOpen }).eq("id", oea.id);
 console.log("\n(cleaned up)");
 

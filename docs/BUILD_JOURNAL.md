@@ -1524,3 +1524,50 @@ Verified twice: `verify-conversational-triage` (24 checks) proves the guards
 against the database; `verify-triage-conversation-e2e` sends four real messages
 through the deployed webhook and the live model, and confirms that a correction and
 a status question add no tickets while a genuinely different problem gets its own.
+
+---
+
+## Intake opens per property, and the Day 8 blocker closes with it
+
+The board asked for the application window to follow occupancy. Deriving it with
+**no override** would have been the wrong answer even though it is what was asked:
+a landlord legitimately wants a waiting list on a full building, and legitimately
+wants a property closed while its units sit empty — refurbishment, a dispute, a
+handover. So three states rather than a computed boolean — `auto` (open while a
+unit is vacant), `open`, `closed` — with the org flag kept as a master switch, and
+every override recorded against the person who made it. **Automation should inform
+the decision, not remove it.**
+
+The vacancy count sits beside each row on the operator screen, so whoever
+overrides it is looking at the same fact the automation used.
+
+### The part that mattered more
+
+Applications carried `property_id = null`, and both the RLS policy and
+`application_overview` scope a reviewer without `applications.review_all` to
+`property_id in (select current_user_property_ids())` — which NULL never
+satisfies. Property-scoped review, **the entire premise of Day 8**, returned
+nothing.
+
+An applicant now arrives through a *property's* link, so `property_id` is a fact
+about how they applied rather than something they typed. That distinction is the
+whole reason this is safe: which link someone used is sound to scope access to
+their identity documents by; a free-text "unit preference" they asserted is not.
+
+The old 7-argument `start_tenant_application` was **dropped**, not left beside the
+new one. Leaving it would have preserved a way in that produces exactly the
+property-less applications this change exists to end, and "one way in" is the rule
+`0063` established for this table.
+
+⚠️ **My own suite passed for the wrong reason first.** Check G attached
+`finance.oea@oegroup.test` to the property and confirmed it could read the
+application — but `finance_approver` *holds* `applications.review_all`, so it
+would have seen every application in the org whether scoping worked or not. It now
+creates a `facility_manager`, asserts that role does **not** hold `review_all`,
+confirms it sees nothing before the assignment, and only then attaches it. A test
+that passes for the wrong reason is worse than no test, because it is believed.
+
+📌 Three other suites broke on the dropped signature, which is the correct
+consequence: the compiler cannot see an RPC signature, so the suites are what
+catch it. Each now creates its own accepting property rather than depending on the
+occupancy of demo data.

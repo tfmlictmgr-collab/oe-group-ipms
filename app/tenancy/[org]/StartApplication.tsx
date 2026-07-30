@@ -16,9 +16,12 @@ import ApplicationForm from "./ApplicationForm";
 // four sections on a phone and loses signal should come back to four sections,
 // not to a blank page.
 export default function StartApplication({
-  orgId, type, brandName,
+  orgId, propertyId, propertyName, type, brandName,
 }: {
   orgId: string;
+  /** Which property they are applying to — set by the link they arrived through. */
+  propertyId: string;
+  propertyName: string;
   type: "individual" | "corporate";
   brandName: string;
 }) {
@@ -29,21 +32,24 @@ export default function StartApplication({
   // Survives a refresh on the same device without an account. The token is also
   // emailed, which is what covers a different device.
   React.useEffect(() => {
-    const saved = window.localStorage.getItem(`oe-apply-${orgId}-${type}`);
+    // Keyed by PROPERTY as well as type: someone applying to two properties has
+    // two applications, and restoring the wrong one would put their answers on
+    // the wrong tenancy.
+    const saved = window.localStorage.getItem(`oe-apply-${orgId}-${propertyId}-${type}`);
     if (saved) {
       try { setStarted(JSON.parse(saved)); } catch { /* corrupt entry, start fresh */ }
     }
-  }, [orgId, type]);
+  }, [orgId, propertyId, type]);
 
   async function begin(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     try {
       const r = await runAction(
-        startApplication({ orgId, type, name: form.name, email: form.email, phone: form.phone })
+        startApplication({ orgId, propertyId, type, name: form.name, email: form.email, phone: form.phone })
       );
       const next = { id: r.id, token: r.resumeToken };
-      window.localStorage.setItem(`oe-apply-${orgId}-${type}`, JSON.stringify(next));
+      window.localStorage.setItem(`oe-apply-${orgId}-${propertyId}-${type}`, JSON.stringify(next));
       setStarted(next);
     } catch (err) {
       toast.error("Could not start the application", {
@@ -68,6 +74,9 @@ export default function StartApplication({
 
   return (
     <form onSubmit={begin} className="space-y-4">
+      <p className="rounded-lg border border-border bg-accent/40 px-3 py-2 text-xs text-muted-foreground">
+        Applying to <span className="font-medium text-foreground">{propertyName}</span>
+      </p>
       <div>
         <h1 className="text-xl font-semibold">
           {type === "corporate" ? "Business tenancy application" : "Tenancy application"}

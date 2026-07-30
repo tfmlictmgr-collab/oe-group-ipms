@@ -24,10 +24,10 @@ export default async function ApplyPage({
   searchParams,
 }: {
   params: Promise<{ org: string }>;
-  searchParams: Promise<{ type?: string; resume?: string }>;
+  searchParams: Promise<{ type?: string; resume?: string; property?: string }>;
 }) {
   const { org } = await params;
-  const { type, resume } = await searchParams;
+  const { type, resume, property } = await searchParams;
 
   if (!/^[0-9a-f-]{36}$/i.test(org)) notFound();
 
@@ -51,7 +51,15 @@ export default async function ApplyPage({
     ? organisation.theme_primary!
     : "#003366";
 
-  if (!organisation.tenant_applications_open || !hasModule) {
+  // Which properties are taking applications right now. The org flag is the
+  // master switch; each property then decides for itself (0076).
+  const { data: openProperties } = await supabaseAdmin.rpc(
+    "properties_accepting_applications",
+    { p_org_id: org }
+  );
+  const accepting = (openProperties ?? []) as { id: string; name: string; address: string | null }[];
+
+  if (!organisation.tenant_applications_open || !hasModule || accepting.length === 0) {
     return (
       <Shell brandName={brandName} brand={brand} logo={organisation.logo_url}>
         <div className="rounded-xl border border-border bg-card p-6 text-center">
@@ -114,28 +122,66 @@ export default async function ApplyPage({
 
   const chosen = type === "corporate" || type === "individual" ? type : null;
 
+  // Which property. Validated against the list that is actually accepting, so a
+  // guessed or stale id cannot start an application against a closed property —
+  // and the id in the URL is never trusted on its own.
+  const selected = property ? accepting.find((p) => p.id === property) ?? null : null;
+
+  // One open property is not a choice worth making someone make.
+  const effective = selected ?? (accepting.length === 1 ? accepting[0] : null);
+
+  if (!effective) {
+    return (
+      <Shell brandName={brandName} brand={brand} logo={organisation.logo_url}>
+        <div className="space-y-4">
+          <div>
+            <h1 className="text-xl font-semibold">Where would you like to live?</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              These are the properties taking applications at the moment.
+            </p>
+          </div>
+          {accepting.map((p) => (
+            <ChoiceCard
+              key={p.id}
+              href={`/tenancy/${org}?property=${p.id}`}
+              icon={<Building2 className="size-5" />}
+              title={p.name}
+              body={p.address ?? "Tap to apply for a tenancy here."}
+            />
+          ))}
+        </div>
+      </Shell>
+    );
+  }
+
   return (
     <Shell brandName={brandName} brand={brand} logo={organisation.logo_url}>
       {chosen ? (
-        <StartApplication orgId={org} type={chosen} brandName={brandName} />
+        <StartApplication
+          orgId={org}
+          propertyId={effective.id}
+          propertyName={effective.name}
+          type={chosen}
+          brandName={brandName}
+        />
       ) : (
         <div className="space-y-4">
           <div>
             <h1 className="text-xl font-semibold">Apply for a tenancy</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Two forms — one for a person, one for a business. Pick whichever
-              describes who will hold the tenancy.
+              {effective.name} — two forms, one for a person and one for a
+              business. Pick whichever describes who will hold the tenancy.
             </p>
           </div>
 
           <ChoiceCard
-            href={`/tenancy/${org}?type=individual`}
+            href={`/tenancy/${org}?property=${effective.id}&type=individual`}
             icon={<User className="size-5" />}
             title="I'm applying as an individual"
             body="A home for you or your family. You'll need an ID, a passport photograph, and a guarantor."
           />
           <ChoiceCard
-            href={`/tenancy/${org}?type=corporate`}
+            href={`/tenancy/${org}?property=${effective.id}&type=corporate`}
             icon={<Building2 className="size-5" />}
             title="I'm applying as a business"
             body="A shop, office or commercial space. You'll need your CAC certificate, TIN, and two trade references."

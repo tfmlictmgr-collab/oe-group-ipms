@@ -5,6 +5,7 @@ import { getSessionProfile } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import TenancyApplicationLink from "../TenancyApplicationLink";
+import PropertyWindows, { type PropertyWindow } from "../PropertyWindows";
 
 // Where OEA opens and closes its own tenancy intake.
 //
@@ -18,7 +19,7 @@ export default async function TenancyApplicationsPage() {
   const profile = session.profile!;
 
   const supabase = await createClient();
-  const [orgRes, moduleRes, queueRes] = await Promise.all([
+  const [orgRes, moduleRes, queueRes, windowsRes] = await Promise.all([
     supabase
       .from("orgs")
       .select("id, tenant_applications_open")
@@ -32,6 +33,11 @@ export default async function TenancyApplicationsPage() {
       .from("application_overview")
       .select("*", { count: "exact", head: true })
       .in("status", ["submitted", "under_review", "info_requested"]),
+    // Per-property intake, with the vacancy behind each decision.
+    supabase
+      .from("property_application_windows")
+      .select("property_id, name, applications_state, accepting_now, unit_count, vacant_count")
+      .order("name"),
   ]);
 
   // Lettings is OEA-only (B9 module registry). A facilities org has no tenancies
@@ -74,6 +80,24 @@ export default async function TenancyApplicationsPage() {
             isOpen={Boolean(orgRes.data?.tenant_applications_open)}
             isAdmin={profile.role === "admin"}
             origin={origin}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Which properties are taking applications</CardTitle>
+          <CardDescription>
+            <strong>Auto</strong> follows occupancy — a property is open while it
+            has a vacant unit. Override it to keep a waiting list on a full
+            property, or to close one that is being refurbished. The override is
+            recorded against your name.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <PropertyWindows
+            rows={(windowsRes.data ?? []) as PropertyWindow[]}
+            isAdmin={profile.role === "admin" || profile.role === "executive"}
           />
         </CardContent>
       </Card>

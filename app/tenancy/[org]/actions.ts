@@ -31,6 +31,8 @@ export type StartInput = {
   name: string;
   email: string;
   phone: string;
+  /** The property they are applying to, from the link they used. */
+  propertyId: string;
 };
 
 export async function startApplication(
@@ -63,6 +65,10 @@ export async function startApplication(
   // enumerated. The function re-checks the same gate before inserting.
   const { data, error } = await supabase.rpc("start_tenant_application", {
     p_org_id: input.orgId,
+    // Required now. An application with no property is invisible to every
+    // reviewer who is not org-wide, because NULL never matches an IN list — so
+    // the property is what makes property-scoped review possible at all.
+    p_property_id: input.propertyId,
     p_type: input.type,
     p_name: input.name.trim(),
     p_email: email,
