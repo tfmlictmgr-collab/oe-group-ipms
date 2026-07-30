@@ -1282,3 +1282,53 @@ toggle moves it AND that a reset puts it back.
 📌 Tooling: the Bash tool's sandbox blocks outbound network on this machine while
 PowerShell does not, which made a working connection look like an outage for some
 time. Network-dependent work runs through PowerShell here.
+
+---
+
+## A regional hierarchy above the property register
+
+The board asked for REGION → PROJECT → LOCATION → SITE above the properties that
+already exist, and for decentralised regional administration beneath it.
+
+**One table, not five.** `current_user_property_ids()` is referenced 42 times
+across 13 migrations — the property is the security anchor for tickets, assets,
+service-charge budgets, tenant applications and the attaché assignment. Five
+nested tables would have meant rewriting all of it. A single `org_nodes` table
+with a materialised path hangs *above* properties, so the tree is a dimension over
+them rather than a replacement, and nothing downstream changed.
+
+Scoping was added by **extending that one resolver**, not by adding a second.
+`property_stakeholders` gained a nullable `node_id`, and an assignment is now to a
+property OR a node — enforced by a check constraint, because encoding "assigned to
+a region" as an *absent* property id would have repeated this week's NULL-as-meaning
+mistake for the third time. A manager assigned to a project now reaches properties
+added to it afterwards, with no re-assignment; that is the whole point.
+
+### Two trigger mistakes, in sequence, both mine
+
+⚠️ **`UPDATE OF column` fires on the columns NAMED IN THE STATEMENT, not the
+columns whose values changed.** The subtree cascade was attached as `after update
+of path`, but re-parenting is `update … set parent_id = …`, which never names
+`path`. The BEFORE trigger recomputed the moved row's own path correctly and the
+cascade to its descendants never ran at all. Not cosmetic: every place-scoped read
+matches on the path prefix, so the suite measured a manager assigned to the NEW
+parent reaching zero properties while the OLD parent still reached the moved
+subtree.
+
+⚠️ **And the fix for it was worse.** I added `WHEN (pg_trigger_depth() = 1)` as a
+recursion guard. **For an AFTER trigger the WHEN condition is evaluated
+immediately after the row change — inside the main statement, before any trigger
+function runs — and it decides whether the event is even queued.** Nothing is
+nested inside a trigger at that moment, so depth is 0, the condition is never
+true, and the trigger was never queued. The symptom was identical to the original
+bug, which is exactly why it was worth instrumenting instead of reasoning: a
+`raise notice` as the first line of the function printed nothing, while the audit
+trigger on the same table fired normally.
+
+**A WHEN clause runs in a different context from the function body it gates.** Row
+values are visible to both; execution state such as trigger depth is not.
+Recursion guards belong in the body.
+
+📌 Both were caught by the verification suite on its first run, before anything was
+pushed — the re-parenting check existed because moving a node is precisely where a
+materialised path stops telling the truth.

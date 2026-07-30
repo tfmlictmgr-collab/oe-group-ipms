@@ -303,3 +303,103 @@ property register, permission matrix and tenant intake already do.
    other is expensive.
 3. **§4** — confirm that overriding a property's `auto` state is an
    administrator-only action.
+
+---
+
+## 6. Decentralised FM/PM administration, and MD / MP oversight
+
+**Yes — and two of the three pieces already exist.** They have simply never met.
+
+- `property_stakeholders` + `current_user_property_ids()` answers **where** someone
+  may act (`0008`).
+- The permission matrix answers **what** they may do (`0050`).
+- Nothing joins them for *actions*. A capability is a bare yes/no with no place
+  attached, and only **read** policies bound it by property.
+
+### The gap, stated precisely
+
+`units_insert` admits anyone holding `properties.write` or
+`units.assign_occupant`, with **no property scoping** (`0059`). So a Facility
+Manager can today create a unit under any property in the org, not merely their
+own — even though B7's FM row reads "Assigned properties (RT)". Decentralisation
+is impossible until write actions are bounded the way reads already are.
+
+### One capability closes it
+
+```sql
+-- Granted to admin, finance_approver and executive. NOT to a scoped role.
+'scope.org_wide'
+```
+
+Every place-bearing write policy then reads uniformly:
+
+```sql
+has_permission('units.assign_occupant')
+and (
+  (select has_permission('scope.org_wide'))
+  or property_id in (select current_user_property_ids())
+)
+```
+
+Decentralisation becomes a matter of **which node you are attached to**, with no
+per-action machinery. A regional administrator is someone whose stakeholder row
+points at a REGION and who therefore reaches every property beneath it — including
+properties added later, because the resolver matches on the path prefix.
+
+⚠️ This **tightens** current access: a Facility Manager holding `properties.write`
+loses org-wide write and keeps it only on assigned properties. That is what B7 says
+should always have been true, but it is a live behaviour change and will be
+confirmed against the running database before it ships, not assumed.
+
+### Two new roles
+
+Capabilities are per **role**, which is the board-approved B7 shape. Granting
+`people.invite` to `facility_manager` would grant it to *every* FM, so a
+decentralised regional administrator needs to be a distinct role rather than a
+differently-assigned FM.
+
+| Role | Who | Scope |
+|---|---|---|
+| `regional_manager` | The FM/PM running a region | Node subtree. Limited admin: invite operational staff, manage properties/units/assets within their region |
+| `executive` | **MD** of TFML, **Managing Partner** of OEA | Org-wide oversight, co-holding central administration |
+
+`executive` is one enum value with a brand-aware label — "Managing Director" on
+TFML, "Managing Partner" on OEA — exactly as the FM/PM labels already work.
+
+### Privilege escalation is the risk to design against
+
+A regional administrator who may invite people is a confused deputy waiting to
+happen. Two hard rules, enforced in the database rather than the form:
+
+1. **You may only invite a role strictly below your own.** A regional manager
+   cannot mint an admin, an executive, or another regional manager.
+2. **You may only invite into your own subtree.** The invitation carries a node,
+   validated against the inviter's path prefix.
+
+`admin invitation` stays non-delegable per locked decision 7 — a regional manager
+invites *operational* staff only.
+
+### What MD / MP co-holding costs
+
+Payment approval is hardwired to `('finance_approver','admin')` inside
+`enforce_payment_transition()` (`0060`) — deliberately, because it is the control
+an auditor checks, and it is proven to block a direct-API bypass. Adding
+`executive` there is a **change to a non-delegable control**, so it is done in the
+trigger itself, never as a toggle, and the verification suite is extended to prove
+the threshold still holds for the new role.
+
+Recommended: `executive` co-holds approval and full visibility, but **remittance
+execution stays with finance**. Oversight and disbursement in the same pair of
+hands removes the separation of duties that makes the audit trail worth anything.
+That is a governance recommendation for the board to accept or overrule.
+
+### Sequence
+
+The hierarchy has to exist before a role can be scoped to a node, so:
+
+| Step | Work |
+|---|---|
+| **B1** | `org_nodes` hierarchy + path (§1) |
+| **B2** | Node-scoped stakeholders + extended `current_user_property_ids()` |
+| **B3** | `scope.org_wide`, write policies bounded, confirmed against live data |
+| **B4** | `regional_manager` and `executive` roles, invitation escalation rules, `executive` added to the approval trigger |
