@@ -1815,3 +1815,67 @@ invitation carrying a region silently dropped it. Dropped the function rather
 than gating it, and moved the work inside `accept_invitation`, which already
 applies the other three attachments under a token the caller had to hold. **A
 second entry point to the same effect is a second thing to get right.**
+
+---
+
+## Day 8 — two-tier human review, and only human review
+
+Locked decisions 2 and 10: a PM/FM recommends, an approver decides independently,
+and nothing decides itself. Individual applications need one approver; corporate
+need two, and they must be two different people. The maker-checker separation is
+the same one already enforced on money — the recommender may never also approve.
+
+The full decision trail lives in `application_decisions` (mirroring
+`ticket_messages`): every recommend, request-info, approve and reject is one row,
+who did it, and a reason of at least ten characters — enforced twice, once as a
+friendly `raise exception` and once as the table's own CHECK, because a caller
+should get a message before it gets a constraint violation.
+
+**Unit assignment moved into review, deliberately.** The public form only
+captures a property — most prospects do not know a unit number — so a reviewer
+assigns the specific vacant unit while reviewing, and the completing approval
+requires one. You cannot finish a tenancy decision without knowing which unit it
+is for.
+
+**The completing approval issues a real invitation**, through the same
+`accept_invitation` hardened in audit 0729c — so an approved applicant becomes a
+tenant occupying exactly the unit assigned, by the identical path every other
+person in this system is onboarded, rather than a second bespoke mechanism.
+
+### Three defects the suite found before anything shipped
+
+⚠️ **A CASE expression of string literals does not auto-cast to an enum inside an
+INSERT.** `(case when p_approve then 'recommend_approve' else 'recommend_reject'
+end)` resolves to `text`; only a bare literal gets Postgres's implicit enum cast.
+Every recommendation failed on the suite's first run, which meant nothing
+downstream of a recommendation could be exercised either — one silent type
+mismatch masqueraded as four failing checks.
+
+⚠️ **The invite token cannot be generated inside the function that creates the
+invitation.** My first draft called `gen_random_bytes`/`digest` inside Postgres —
+but only the caller can ever hold the raw token to email it, so a function that
+generates its own hash is a function nobody can send the link for. Fixed by
+taking `p_invite_token_hash` as a parameter, generated in TypeScript the same way
+`inviteMember` already does with `lib/invitation.ts`, and returning the
+invitation id only when an approval actually completes the application.
+
+⚠️ **An applicant asked to fix a document could not upload one.**
+`record_application_attachment` matched only `status = 'draft'`; an info request
+reopens an application through `status = 'info_requested'` on a fresh token —
+exactly the state an applicant is in for the single most likely reason a
+reviewer sends one back. It would have surfaced as a silent failure on someone's
+phone, not a message anyone could act on. Widened the same way
+`submit_tenant_application` already was for the same status.
+
+35 checks: property scoping on both recommend and unit-assignment; a reason under
+ten characters refused; the recommender refused when trying to approve OR reject
+their own recommendation; approval refused with no unit; individual approval
+completing immediately and corporate requiring two distinct approvers (the same
+one twice is refused); the resulting invitation accepted and the unit correctly
+occupied, then no longer assignable; rejection setting a 90-day purge date while
+approval sets none; an info request minting a fresh token, the applicant
+resubmitting with new documents, and the stale recommendation clearing rather
+than carrying forward; the queue reporting approval progress without a join,
+scoped to the caller's own reach.
+
+Schema and functions committed; the review queue and detail UI follow.
