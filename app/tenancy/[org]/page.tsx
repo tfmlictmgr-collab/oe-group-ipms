@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { Building2, User } from "lucide-react";
+import { Building2, User, ShieldCheck, ChevronRight } from "lucide-react";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { hashToken } from "@/lib/application-resume";
 import StartApplication from "./StartApplication";
@@ -93,9 +93,9 @@ export default async function ApplyPage({
     if (!draft || draft.org_id !== org) {
       return (
         <Shell brandName={brandName} brand={brand} logo={organisation.logo_url}>
-          <div className="rounded-xl border border-border bg-card p-6 text-center">
-            <h1 className="text-lg font-semibold">This link no longer works</h1>
-            <p className="mt-2 text-sm text-muted-foreground">
+          <div className="py-4 text-center">
+            <h1 className="display-sm text-balance">This link no longer works</h1>
+            <p className="mx-auto mt-3 max-w-sm text-pretty text-muted-foreground">
               A saved application can be reopened for {30} days, and the link stops
               working once the application has been submitted. Start again, or ask
               the letting team if you think this is wrong.
@@ -132,9 +132,9 @@ export default async function ApplyPage({
   if (!organisation.tenant_applications_open || !hasModule || accepting.length === 0) {
     return (
       <Shell brandName={brandName} brand={brand} logo={organisation.logo_url}>
-        <div className="rounded-xl border border-border bg-card p-6 text-center">
-          <h1 className="text-lg font-semibold">Applications are closed</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
+        <div className="py-4 text-center">
+          <h1 className="display-sm text-balance">Applications are closed</h1>
+          <p className="mx-auto mt-3 max-w-sm text-pretty text-muted-foreground">
             {brandName} is not accepting tenancy applications at the moment. If
             you were given this link directly, please go back to whoever sent it.
           </p>
@@ -156,22 +156,25 @@ export default async function ApplyPage({
   if (!effective) {
     return (
       <Shell brandName={brandName} brand={brand} logo={organisation.logo_url}>
-        <div className="space-y-4">
+        <div className="space-y-5">
           <div>
-            <h1 className="text-xl font-semibold">Where would you like to live?</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <p className="eyebrow text-[var(--brand)]">{brandName}</p>
+            <h1 className="display-md mt-2 text-balance">Where would you like to live?</h1>
+            <p className="mt-2 text-muted-foreground">
               These are the properties taking applications at the moment.
             </p>
           </div>
-          {accepting.map((p) => (
-            <ChoiceCard
-              key={p.id}
-              href={`/tenancy/${org}?property=${p.id}`}
-              icon={<Building2 className="size-5" />}
-              title={p.name}
-              body={p.address ?? "Tap to apply for a tenancy here."}
-            />
-          ))}
+          <div className="stagger space-y-3">
+            {accepting.map((p) => (
+              <ChoiceCard
+                key={p.id}
+                href={`/tenancy/${org}?property=${p.id}`}
+                icon={<Building2 className="size-5" />}
+                title={p.name}
+                body={p.address ?? "Tap to apply for a tenancy here."}
+              />
+            ))}
+          </div>
         </div>
       </Shell>
     );
@@ -188,15 +191,17 @@ export default async function ApplyPage({
           brandName={brandName}
         />
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-5">
           <div>
-            <h1 className="text-xl font-semibold">Apply for a tenancy</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {effective.name} — two forms, one for a person and one for a
-              business. Pick whichever describes who will hold the tenancy.
+            <p className="eyebrow text-[var(--brand)]">{effective.name}</p>
+            <h1 className="display-md mt-2 text-balance">Apply for a tenancy</h1>
+            <p className="mt-2 text-pretty text-muted-foreground">
+              Two forms — one for a person, one for a business. Pick whichever
+              describes who will hold the tenancy.
             </p>
           </div>
 
+          <div className="stagger space-y-3">
           <ChoiceCard
             href={`/tenancy/${org}?property=${effective.id}&type=individual`}
             icon={<User className="size-5" />}
@@ -209,8 +214,9 @@ export default async function ApplyPage({
             title="I'm applying as a business"
             body="A shop, office or commercial space. You'll need your CAC certificate, TIN, and two trade references."
           />
+          </div>
 
-          <p className="pt-2 text-center text-xs text-muted-foreground">
+          <p className="pt-1 text-center text-sm text-muted-foreground">
             You can save and come back — the form does not have to be finished in
             one sitting.
           </p>
@@ -230,35 +236,45 @@ function Shell({
 }) {
   return (
     <main
-      className="min-h-dvh bg-background px-4 py-8"
+      className="bg-brand-wash min-h-dvh bg-background px-4 py-8 sm:py-12"
       style={{ ["--brand" as string]: brand, ["--brand-fg" as string]: "#ffffff" }}
     >
       <div className="mx-auto w-full max-w-2xl space-y-6">
-        <div className="flex items-center gap-3">
+        <header className="animate-fade flex items-center gap-3">
           {logo ? (
             // A per-org URL, so next/image's domain allow-list cannot cover it.
             // eslint-disable-next-line @next/next/no-img-element
             <img src={logo} alt="" className="h-9 w-auto max-w-[140px] object-contain" />
           ) : (
             <span
-              className="flex size-9 items-center justify-center rounded-lg text-sm font-bold"
+              className="flex size-9 items-center justify-center rounded-lg text-sm font-bold shadow-sm"
               style={{ background: brand, color: "#fff" }}
             >
               {brandName.slice(0, 2).toUpperCase()}
             </span>
           )}
-          <span className="font-semibold">{brandName}</span>
-        </div>
+          <span className="font-semibold tracking-tight">{brandName}</span>
+        </header>
 
-        <div className="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
+        <div className="animate-rise rounded-2xl border border-border/80 bg-card p-5 shadow-[var(--shadow-md)] sm:p-7">
           {children}
         </div>
 
-        <p className="text-center text-xs text-muted-foreground">
-          Your information is used to assess this application only, is read by a
-          person rather than a machine, and is deleted after 90 days if the
-          application is unsuccessful.
-        </p>
+        {/* The reassurances a person actually wants before handing over an ID.
+            Stated as three separate promises rather than one paragraph — a wall
+            of small grey text is not read, and each of these is load-bearing. */}
+        <ul className="stagger grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
+          {[
+            "Read by a person, never scored by a machine",
+            "Used only to assess this application",
+            "Deleted after 90 days if unsuccessful",
+          ].map((t) => (
+            <li key={t} className="flex items-start gap-1.5">
+              <ShieldCheck className="mt-px size-3.5 flex-shrink-0 text-[var(--brand)]" />
+              <span className="text-pretty">{t}</span>
+            </li>
+          ))}
+        </ul>
       </div>
     </main>
   );
@@ -275,13 +291,19 @@ function ChoiceCard({
   return (
     <a
       href={href}
-      className="flex items-start gap-3 rounded-lg border border-border p-4 transition-colors hover:border-[var(--brand)] hover:bg-accent"
+      className="group flex items-start gap-3.5 rounded-xl border border-border p-4 transition-all hover:-translate-y-px hover:border-[var(--brand)] hover:shadow-[var(--shadow-md)] sm:p-5"
     >
-      <span className="mt-0.5 text-[var(--brand)]">{icon}</span>
-      <span className="min-w-0">
-        <span className="block text-sm font-medium">{title}</span>
-        <span className="mt-0.5 block text-xs text-muted-foreground">{body}</span>
+      <span
+        className="flex size-10 flex-shrink-0 items-center justify-center rounded-lg text-[var(--brand)] transition-colors"
+        style={{ background: "color-mix(in srgb, var(--brand) 10%, transparent)" }}
+      >
+        {icon}
       </span>
+      <span className="min-w-0 flex-1">
+        <span className="block font-medium">{title}</span>
+        <span className="mt-1 block text-sm leading-relaxed text-muted-foreground">{body}</span>
+      </span>
+      <ChevronRight className="mt-2.5 size-4 flex-shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-[var(--brand)]" />
     </a>
   );
 }

@@ -122,6 +122,91 @@
   .text-balance {
     text-wrap: balance;
   }
+  .text-pretty {
+    text-wrap: pretty;
+  }
+
+  /* ── Display type ────────────────────────────────────────────────────────
+     Client-facing surfaces (Day 8.9). Large type needs tighter tracking and
+     leading than Tailwind's defaults, which are tuned for body copy — at 40px
+     the default spacing reads loose and unfinished. */
+  .display-lg {
+    font-size: clamp(2rem, 1.4rem + 2.6vw, 3rem);
+    line-height: 1.08;
+    letter-spacing: -0.028em;
+    font-weight: 600;
+  }
+  .display-md {
+    font-size: clamp(1.5rem, 1.2rem + 1.4vw, 2rem);
+    line-height: 1.15;
+    letter-spacing: -0.022em;
+    font-weight: 600;
+  }
+  .display-sm {
+    font-size: clamp(1.25rem, 1.1rem + 0.7vw, 1.5rem);
+    line-height: 1.25;
+    letter-spacing: -0.016em;
+    font-weight: 600;
+  }
+  /* Small caps label above a heading. */
+  .eyebrow {
+    font-size: 0.6875rem;
+    line-height: 1;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+
+  /* ── Surfaces ────────────────────────────────────────────────────────────
+     A brand-tinted wash for hero areas: enough colour to feel considered,
+     light enough that text on it keeps AA contrast at every brand hue. */
+  .bg-brand-wash {
+    background-image:
+      radial-gradient(60rem 30rem at 15% -10%, color-mix(in srgb, var(--brand) 12%, transparent), transparent 70%),
+      radial-gradient(40rem 24rem at 95% 0%, color-mix(in srgb, var(--brand-accent, var(--brand)) 9%, transparent), transparent 65%);
+  }
+  .hairline {
+    box-shadow: inset 0 0 0 1px hsl(var(--border));
+  }
+
+  /* ── Motion ──────────────────────────────────────────────────────────────
+     Entrances are short and slight. Anything longer than ~350ms on a form the
+     user is trying to fill reads as lag rather than polish. */
+  .animate-rise {
+    animation: rise 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .animate-fade {
+    animation: fade 240ms ease both;
+  }
+  /* Staggered children, for card grids and option lists. */
+  .stagger > * {
+    animation: rise 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .stagger > *:nth-child(1) { animation-delay: 0ms; }
+  .stagger > *:nth-child(2) { animation-delay: 45ms; }
+  .stagger > *:nth-child(3) { animation-delay: 90ms; }
+  .stagger > *:nth-child(4) { animation-delay: 135ms; }
+  .stagger > *:nth-child(5) { animation-delay: 180ms; }
+  .stagger > *:nth-child(6) { animation-delay: 225ms; }
+
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: none; }
+  }
+  @keyframes fade {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+
+  /* Honour the OS setting. Motion is decoration here and never carries
+     meaning, so removing it costs the user nothing. */
+  @media (prefers-reduced-motion: reduce) {
+    .animate-rise,
+    .animate-fade,
+    .stagger > * {
+      animation: none !important;
+    }
+  }
   .bg-brand {
     background-color: var(--brand);
     color: var(--brand-fg);

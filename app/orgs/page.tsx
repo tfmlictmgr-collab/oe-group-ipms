@@ -66,42 +66,44 @@ export default async function OrgLauncherPage() {
   const retired = orgs.filter((o) => o.retired);
 
   return (
-    <main className="mx-auto max-w-5xl px-5 py-12 sm:py-16">
-      <div className="mb-10 space-y-2">
-        <div className="flex items-center gap-3">
-          <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--brand)] text-sm font-bold text-[var(--brand-fg)]">
-            OE
-          </span>
-          <span className="font-semibold">OE Group</span>
+    <main className="bg-brand-wash min-h-dvh">
+      <div className="mx-auto max-w-5xl px-5 py-12 sm:py-16">
+        <div className="animate-fade mb-10 space-y-3">
+          <div className="flex items-center gap-3">
+            <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--brand)] text-sm font-bold text-[var(--brand-fg)] shadow-sm">
+              OE
+            </span>
+            <span className="font-semibold tracking-tight">OE Group</span>
+          </div>
+          <h1 className="display-lg text-balance">
+            Which organisation are you working in?
+          </h1>
+          <p className="max-w-2xl text-pretty text-muted-foreground">
+            Every organisation OE Group administers. Opening one takes you to its
+            own address, with its own branding and its own people — the data stays
+            separated exactly as it is inside the product.
+          </p>
         </div>
-        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-          Which organisation are you working in?
-        </h1>
-        <p className="max-w-2xl text-sm text-muted-foreground">
-          Every organisation OE Group administers. Opening one takes you to its
-          own address, with its own branding and its own people — the data stays
-          separated exactly as it is inside the product.
-        </p>
+
+        <ul className="stagger grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {live.map((o) => (
+            <OrgCard key={o.id} org={o} />
+          ))}
+        </ul>
+
+        {retired.length > 0 && (
+          <div className="mt-14">
+            <h2 className="eyebrow mb-3 text-muted-foreground">
+              Retired · {retired.length}
+            </h2>
+            <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {retired.map((o) => (
+                <OrgCard key={o.id} org={o} />
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
-
-      <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {live.map((o) => (
-          <OrgCard key={o.id} org={o} />
-        ))}
-      </ul>
-
-      {retired.length > 0 && (
-        <div className="mt-12">
-          <h2 className="mb-3 text-sm font-medium text-muted-foreground">
-            Retired ({retired.length})
-          </h2>
-          <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {retired.map((o) => (
-              <OrgCard key={o.id} org={o} />
-            ))}
-          </ul>
-        </div>
-      )}
     </main>
   );
 }
@@ -116,8 +118,8 @@ function OrgCard({ org }: { org: Row }) {
   const card = (
     <div
       className={[
-        "group relative flex h-full flex-col gap-3 overflow-hidden rounded-xl border border-border bg-card p-5 transition-all",
-        org.retired ? "opacity-60" : "hover:-translate-y-0.5 hover:border-transparent hover:shadow-lg",
+        "group relative flex h-full flex-col gap-3.5 overflow-hidden rounded-2xl border border-border bg-card p-5 shadow-[var(--shadow-sm)] transition-all duration-200",
+        org.retired ? "opacity-60" : "hover:-translate-y-1 hover:shadow-[var(--shadow-lg)]",
       ].join(" ")}
     >
       <span
@@ -125,14 +127,23 @@ function OrgCard({ org }: { org: Row }) {
         style={{ background: primary, opacity: org.retired ? 0.3 : 1 }}
         aria-hidden
       />
+      {/* A wash of the org's own colour, surfacing on hover — the card previews
+          the brand you are about to enter. */}
+      {!org.retired && (
+        <span
+          className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-200 group-hover:opacity-100"
+          style={{ background: `color-mix(in srgb, ${primary} 5%, transparent)` }}
+          aria-hidden
+        />
+      )}
 
-      <div className="flex items-start justify-between gap-3">
+      <div className="relative flex items-start justify-between gap-3">
         {org.logo_url ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={org.logo_url} alt="" className="h-12 w-12 rounded-lg object-contain" />
+          <img src={org.logo_url} alt="" className="h-12 w-12 rounded-xl object-contain" />
         ) : (
           <span
-            className="flex h-12 w-12 items-center justify-center rounded-lg text-base font-bold text-white"
+            className="flex h-12 w-12 items-center justify-center rounded-xl text-base font-bold text-white shadow-sm transition-transform duration-200 group-hover:scale-105"
             style={{ background: primary }}
           >
             {org.theme_logo_text || label.slice(0, 2).toUpperCase()}
@@ -147,14 +158,14 @@ function OrgCard({ org }: { org: Row }) {
         )}
       </div>
 
-      <div className="min-w-0 flex-1">
-        <p className="truncate font-medium">{label}</p>
-        <p className="mt-0.5 truncate text-xs text-muted-foreground">
+      <div className="relative min-w-0 flex-1">
+        <p className="truncate font-medium tracking-tight">{label}</p>
+        <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">
           {org.slug ? `/o/${org.slug}` : "No address set"}
         </p>
       </div>
 
-      <div className="flex items-center gap-4 text-xs text-muted-foreground">
+      <div className="relative flex items-center gap-4 text-xs text-muted-foreground">
         <span className="flex items-center gap-1.5">
           <Users className="size-3.5" />
           {org.member_count} {org.member_count === 1 ? "person" : "people"}

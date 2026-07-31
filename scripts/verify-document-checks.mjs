@@ -19,6 +19,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
+import { sweepProbeProperties } from "./lib/probe-cleanup.mjs";
 
 const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 config({ path: path.join(rootDir, ".env.local") });
@@ -43,6 +44,12 @@ const orgRes = await svc.from("orgs").select("id, name, delivery_brand").is("del
 if (orgRes.error) { console.error("db unreachable:", orgRes.error.message); process.exit(1); }
 const oea = orgRes.data.find((o) => o.delivery_brand === "OEA");
 const tfml = orgRes.data.find((o) => o.delivery_brand === "TFML");
+
+// Repair what a crashed earlier run left behind — end-of-run cleanup never
+// executes when the run throws, and a probe property then reaches the public
+// tenancy page. See the note in verify-application-review.
+const sweptProps = await sweepProbeProperties(svc, ["PROBEDOC-"]);
+if (sweptProps > 0) console.log(`(swept ${sweptProps} propert(y/ies) left by an earlier run)\n`);
 
 const S = Date.now().toString(36).toUpperCase().slice(-5);
 const made = { applications: [], attachments: [], findings: [], properties: [] };

@@ -26,6 +26,7 @@ import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
+import { sweepProbeProperties } from "./lib/probe-cleanup.mjs";
 
 const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 config({ path: path.join(rootDir, ".env.local") });
@@ -50,6 +51,16 @@ async function login(email) {
 const orgRes = await svc.from("orgs").select("id, delivery_brand").is("deleted_at", null);
 if (orgRes.error) { console.error("db unreachable:", orgRes.error.message); process.exit(1); }
 const oea = orgRes.data.find((o) => o.delivery_brand === "OEA");
+
+// ⚠️ Repair what a crashed earlier run left behind, before adding more.
+//
+// The cleanup block at the bottom of this file is correct and thorough — and a
+// property called `PROBEREV-A-BPYT0` still ended up on the PUBLIC tenancy page,
+// offered to prospective tenants as somewhere they could live, because an
+// earlier failure threw before cleanup was ever reached. End-of-run cleanup
+// cannot repair end-of-run cleanup; only the next run's start can.
+const sweptProps = await sweepProbeProperties(svc, ["PROBEREV-", "PROBE-PROP-", "Probe Court"]);
+if (sweptProps > 0) console.log(`(swept ${sweptProps} propert(y/ies) left by an earlier run)\n`);
 
 const S = Date.now().toString(36).toUpperCase().slice(-5);
 const madeUsers = [];

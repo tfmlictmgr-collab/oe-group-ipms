@@ -46,6 +46,60 @@ export async function sweepProbeNodes(svc, prefix) {
 }
 
 /**
+ * Sweeps probe PROPERTIES and the applications hanging off them.
+ *
+ * ⚠️ Same fault, different table. A property named `PROBEREV-A-BPYT0` was found
+ * on the **public tenancy application page**, offered to prospective tenants as
+ * somewhere they could live. `verify-application-review`'s cleanup block is
+ * correct and thorough — and never ran, because an earlier failure threw first.
+ *
+ * End-of-run cleanup cannot fix end-of-run cleanup. The repair has to happen at
+ * the START of the next run, which is the only moment guaranteed to be reached.
+ */
+export async function sweepProbeProperties(svc, prefixes = ["PROBE", "Probe Court"]) {
+  let removed = 0;
+  for (const prefix of prefixes) {
+    const { data: props } = await svc
+      .from("properties").select("id").ilike("name", `${prefix}%`);
+    if (!props || props.length === 0) continue;
+    const ids = props.map((p) => p.id);
+
+    // Children first, or the foreign keys refuse and the sweep silently fails
+    // in exactly the way it exists to prevent.
+    const { data: apps } = await svc
+      .from("tenant_applications").select("id").in("property_id", ids);
+    const appIds = (apps ?? []).map((a) => a.id);
+    if (appIds.length) {
+      await svc.from("application_document_findings").delete().in("application_id", appIds);
+      await svc.from("application_decisions").delete().in("application_id", appIds);
+      await svc.from("application_attachments").delete().in("application_id", appIds);
+      await svc.from("tenant_applications").delete().in("id", appIds);
+    }
+    await svc.from("property_stakeholders").delete().in("property_id", ids);
+    await svc.from("units").delete().in("property_id", ids);
+
+    for (const id of ids) {
+      const { error } = await svc.from("properties").delete().eq("id", id);
+      if (!error) removed++;
+    }
+  }
+  return removed;
+}
+
+/** Applications a suite left behind that were never tied to a probe property. */
+export async function sweepProbeApplications(svc, namePrefix = "Probe ") {
+  const { data } = await svc
+    .from("tenant_applications").select("id").ilike("applicant_name", `${namePrefix}%`);
+  if (!data || data.length === 0) return 0;
+  const ids = data.map((a) => a.id);
+  await svc.from("application_document_findings").delete().in("application_id", ids);
+  await svc.from("application_decisions").delete().in("application_id", ids);
+  await svc.from("application_attachments").delete().in("application_id", ids);
+  const { error } = await svc.from("tenant_applications").delete().in("id", ids);
+  return error ? 0 : ids.length;
+}
+
+/**
  * The end-of-run half: delete the ids this run created, deepest first, and say
  * so if any survive rather than reporting a clean exit.
  */

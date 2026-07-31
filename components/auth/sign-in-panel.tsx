@@ -97,12 +97,12 @@ export default function SignInPanel({
           <span className="text-sm font-semibold text-white">{brand.portalName}</span>
         </div>
 
-        <div className="relative max-w-md space-y-6">
-          <h2 className="text-balance text-3xl font-semibold leading-tight text-white">
+        <div className="animate-rise relative max-w-md space-y-6">
+          <h2 className="display-lg text-balance text-white">
             {brand.headline}
           </h2>
-          <p className="text-sm leading-relaxed text-sidebar-foreground">{brand.tagline}</p>
-          <ul className="space-y-3">
+          <p className="text-pretty leading-relaxed text-sidebar-foreground">{brand.tagline}</p>
+          <ul className="stagger space-y-3">
             {DEFAULT_POINTS.map(({ icon: Icon, text }) => (
               <li key={text} className="flex items-start gap-3 text-sm text-sidebar-foreground">
                 <span
@@ -126,17 +126,17 @@ export default function SignInPanel({
       </section>
 
       {/* Sign-in panel */}
-      <section className="flex w-full flex-col justify-center px-5 py-10 sm:px-10 lg:w-1/2 xl:w-[45%]">
-        <div className="mx-auto w-full max-w-sm">
+      <section className="bg-brand-wash flex w-full flex-col justify-center px-5 py-10 sm:px-10 lg:w-1/2 xl:w-[45%]">
+        <div className="animate-rise mx-auto w-full max-w-sm">
           {/* Compact brand for mobile, where the left panel is hidden. */}
           <div className="mb-8 flex items-center gap-3 lg:hidden">
             {mark}
-            <span className="font-semibold">{brand.portalName}</span>
+            <span className="font-semibold tracking-tight">{brand.portalName}</span>
           </div>
 
           <div className="mb-6 space-y-1.5">
-            <h1 className="text-2xl font-semibold tracking-tight">Welcome back</h1>
-            <p className="text-sm text-muted-foreground">
+            <h1 className="display-md">Welcome back</h1>
+            <p className="text-muted-foreground">
               Sign in to continue to {brand.portalName}.
             </p>
           </div>
