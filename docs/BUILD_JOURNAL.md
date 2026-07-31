@@ -1937,3 +1937,41 @@ not the one section's pattern applied where it didn't fit.
 
 Also closed: `0729d-L1`, a vendor_id scoping case the 0729c-S1 fix implemented
 correctly but never exercised.
+
+---
+
+## Day 8 UI — the queue, and the decision in front of the evidence
+
+The tenancy page stops reporting a number and starts listing people: applicant,
+property, type, and mid-review the live approval progress and standing
+recommendation, oldest first, each opening a detail page.
+
+That page puts the whole application in one column — applicant, documents, every
+non-sensitive form section, and the review history — with the decision panel
+underneath it rather than beside it. A reviewer reads before deciding because
+that is the order the page is in. `application_overview` never selects
+`sensitive`, so special-category data does not reach a reviewer's screen at all.
+
+**Every disabled state mirrors a rule the database will enforce anyway.**
+Approve is greyed while a required document is outstanding; the approve/reject
+pair is replaced by a sentence when the viewer is the recommender; the reason box
+refuses under ten characters before any call is made. None of that is the
+boundary — `0082` re-checks all of it — it is the difference between a button
+that fails and a button that explains.
+
+**Attachments open through a signed URL minted on click**, valid five minutes. A
+link sitting in the page for the length of a review is a link that outlives the
+review.
+
+🔎 Verified in the browser against a real applicant's live submission, not a
+fixture: the queue rendered both waiting applications with their properties; the
+detail page rendered all seven form sections, three uploaded documents and the
+applicant's contact details; a recommendation fired the real RPC, moved the
+application to `under_review`, and came back as `0 of 1 approval · recommended
+approve` with the reason stored verbatim under the reviewer's name — and the
+same reviewer was then correctly refused the approval, told in words why a
+second, independent person must make it.
+
+⚖️ Unchanged and worth restating: nothing on this page scores, ranks or
+recommends an outcome on its own. The recommendation shown is a person's, with
+that person's name on it.

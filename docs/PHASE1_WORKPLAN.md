@@ -490,6 +490,37 @@ returns nothing. Two ways out:
 > not decide who may read their identity documents. It does mean the queue needs
 > an explicit *unassigned* stage. **Confirm which before Day 8 starts.**
 
+**Blocker closed, 31 July.** Per-property intake (`0081`) gave the public form a
+property to carry, so an application now arrives with `property_id` set and
+property-scoped review works as designed. No unassigned stage was needed.
+
+**Status — built, 31 July.** `application_decisions` records every recommend,
+request-info, approve and reject with its author and a reason; the recommender is
+refused their own approval *and* their own rejection; individual completes on one
+approval, corporate on two distinct approvers; the completing approval issues a
+real invitation through the same hardened `accept_invitation` every other person
+is onboarded by, occupying the unit assigned during review. Rejection sets the
+90-day purge date, approval sets none. Two capabilities added to the B7 matrix:
+`applications.recommend`, `applications.approve`.
+
+The review queue and detail page ship with it: applicant, documents behind
+click-minted signed URLs, every non-sensitive form section, review history, and a
+decision panel whose disabled states mirror what the database enforces.
+
+🔎 Verified in the browser against a real applicant submission — queue, detail,
+a live recommendation, and the maker-checker gate correctly refusing to let the
+recommender also decide.
+
+Suites: `verify-application-review` (35).
+
+*Awaiting you:* name the reviewers and approvers on the live org, and confirm
+whether the executive stays eligible as a second corporate approver (currently
+yes, by default). Rejected-PII purge runs on the same job as Day 7's.
+
+**Your role from here:** you are the *approver*, not the recommender — a
+property/facility manager recommends, and you (or a second admin) decide. The
+system will not let one person do both.
+
 ---
 
 ## Day 9 — Lease administration, rent billing & rent roll
