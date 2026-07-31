@@ -1,11 +1,29 @@
+import Link from "next/link";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/patterns/empty-state";
+import { Inbox } from "lucide-react";
 import TenancyApplicationLink from "../TenancyApplicationLink";
 import PropertyWindows, { type PropertyWindow } from "../PropertyWindows";
+
+const STATUS_LABEL: Record<string, string> = {
+  submitted: "New",
+  under_review: "Under review",
+  info_requested: "Awaiting applicant",
+  approved: "Approved",
+  rejected: "Rejected",
+};
+const STATUS_VARIANT: Record<string, "brand" | "outline" | "success" | "destructive"> = {
+  submitted: "brand",
+  under_review: "outline",
+  info_requested: "outline",
+  approved: "success",
+  rejected: "destructive",
+};
 
 // Where OEA opens and closes its own tenancy intake.
 //
@@ -26,13 +44,15 @@ export default async function TenancyApplicationsPage() {
       .eq("id", profile.org_id)
       .single(),
     supabase.rpc("org_has_module", { p_org_id: profile.org_id, p_module: "lettings" }),
-    // Only the count is used, so no application rows are fetched. These carry
-    // the heaviest PII in the system; pulling them to render a number would put
-    // them through a page that has no business holding them.
+    // The Day 8 review queue. `application_overview` never selects `sensitive`
+    // — special-category data does not reach this page, or any reviewer's.
     supabase
       .from("application_overview")
-      .select("*", { count: "exact", head: true })
-      .in("status", ["submitted", "under_review", "info_requested"]),
+      .select(
+        "id, type, status, applicant_name, property_id, recommendation, approvals_count, approvals_needed, submitted_at, created_at"
+      )
+      .in("status", ["submitted", "under_review", "info_requested"])
+      .order("submitted_at", { ascending: true, nullsFirst: true }),
     // Per-property intake, with the vacancy behind each decision.
     supabase
       .from("property_application_windows")
@@ -61,6 +81,22 @@ export default async function TenancyApplicationsPage() {
   const origin =
     process.env.NEXT_PUBLIC_SITE_URL ??
     `${h.get("x-forwarded-proto") ?? "http"}://${h.get("host")}`;
+
+  const applications = (queueRes.data ?? []) as {
+    id: string;
+    type: "individual" | "corporate";
+    status: string;
+    applicant_name: string;
+    property_id: string | null;
+    recommendation: string | null;
+    approvals_count: number;
+    approvals_needed: number;
+    submitted_at: string | null;
+    created_at: string;
+  }[];
+  const propertyNames = new Map(
+    (windowsRes.data ?? []).map((p) => [p.property_id, p.name])
+  );
 
   return (
     <div className="space-y-4">
@@ -106,16 +142,49 @@ export default async function TenancyApplicationsPage() {
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
             Applications received
-            {(queueRes.count ?? 0) > 0 && (
-              <Badge variant="brand">{queueRes.count}</Badge>
-            )}
+            {applications.length > 0 && <Badge variant="brand">{applications.length}</Badge>}
           </CardTitle>
           <CardDescription>
-            {(queueRes.count ?? 0) === 0
-              ? "Nothing waiting. Submitted applications appear here."
-              : "Waiting to be reviewed."}
+            Oldest first. Each one is read by a person, never scored or ranked.
           </CardDescription>
         </CardHeader>
+        <CardContent>
+          {applications.length === 0 ? (
+            <EmptyState
+              icon={<Inbox />}
+              title="Nothing waiting"
+              description="Submitted applications appear here, oldest first."
+            />
+          ) : (
+            <ul className="divide-y divide-border">
+              {applications.map((a) => (
+                <li key={a.id}>
+                  <Link
+                    href={`/dashboard/people/tenancy/${a.id}`}
+                    className="flex items-center justify-between gap-3 py-3 transition-colors hover:bg-accent/40"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{a.applicant_name}</p>
+                      <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                        {propertyNames.get(a.property_id ?? "") ?? "No property"}
+                        {" · "}
+                        {a.type === "corporate" ? "Business" : "Individual"}
+                        {a.status === "under_review" &&
+                          ` · ${a.approvals_count}/${a.approvals_needed} approvals`}
+                        {a.recommendation &&
+                          a.status === "under_review" &&
+                          ` · recommended ${a.recommendation}`}
+                      </p>
+                    </div>
+                    <Badge variant={STATUS_VARIANT[a.status] ?? "outline"} className="flex-shrink-0">
+                      {STATUS_LABEL[a.status] ?? a.status}
+                    </Badge>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
       </Card>
     </div>
   );
