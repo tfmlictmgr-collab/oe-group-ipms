@@ -653,6 +653,15 @@ a renewal notice is queued.
 **👁 Visible deliverable:** a **rent roll / tenancy schedule** you could hand a
 landlord, and an **automated renewal notice**.
 
+**Fee model resolved, 1 August 2026 (locked decision 14).** Management fee is
+**org-wide default + per-landlord override**, badged as a diff from the default
+with a one-click reset — the same shape decision 7 already built for the
+permission matrix. Admin fee stays an **org-wide flat placeholder** until its
+own shape (ongoing % vs. one-time per-tenancy charge) is decided; Day 9 does not
+block on that. Every rate applied is **snapshotted onto the transaction at
+collection time**, so a later rate change cannot silently rewrite a past
+landlord statement. **Day 9 is now unblocked.**
+
 **Done when:** lease → rent → roll → notice works end to end.
 
 ---
