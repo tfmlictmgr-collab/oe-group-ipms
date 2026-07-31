@@ -1774,3 +1774,44 @@ Fixed three ways: `orgs` gained the soft delete every other entity already had, 
 a retired org can exist without being picked; every suite now filters
 `deleted_at is null`; and the provisioning check runs inside a transaction that
 rolls back. **A fixture you cannot remove is not a fixture.**
+
+---
+
+## Audit 0729c — the fix that re-opened the boundary
+
+Both HIGH findings were introduced by `0078c/d`, the work written to *close* the
+regional-manager over-grant. Verified against the live catalogue before touching
+anything, and one was worse than reported.
+
+⚠️ **S1 — I scoped the field I had just added, and not the three beside it.**
+`0078c`'s own header explains why `node_id` needed a check: an invitation IS the
+grant, so handing out a region you do not hold plants a manager where you have no
+authority. Every word applies equally to `property_ids`, `unit_id` and
+`vendor_id`, which have been on `invitations` since `0020` and which
+`accept_invitation` applies unconditionally. None was checked.
+
+The consequence is precise: assigning an existing user to a property needs
+`hierarchy.write`, which only an administrator holds. *Inviting* one reaches the
+identical `property_stakeholders` row needing only `people.invite`. A regional
+manager for the North could plant a facility manager on a Southern property
+without ever holding the capability that governs exactly that.
+
+**I reasoned about the field I was adding rather than the statement I was
+writing.** A policy governs an INSERT, and an INSERT carries every column.
+
+📌 And the suite could not have caught it — `tryInvite` only ever set `node_id`.
+**A test that exercises the field you were thinking about confirms the thought,
+not the boundary.** It now takes any scope column, and checks a foreign property,
+a mixed array, and a tenant's unit.
+
+⚠️ **S2 — a definer function with no caller check, and worse than reported.**
+`apply_invitation_node` had no check on who was calling, which invitation they
+meant, or whether it had been accepted. The audit said it was granted to
+`authenticated`; the live privilege check found it reachable by **anon** too,
+despite the `revoke ... from public` sitting beside its grant.
+
+It was also never called, so the node-on-invite feature has never worked: an
+invitation carrying a region silently dropped it. Dropped the function rather
+than gating it, and moved the work inside `accept_invitation`, which already
+applies the other three attachments under a token the caller had to hold. **A
+second entry point to the same effect is a second thing to get right.**

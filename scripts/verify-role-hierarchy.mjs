@@ -45,6 +45,8 @@ const poc = orgRes.data.find((o) => o.delivery_brand === "direct");
 const S = Date.now().toString(36).toUpperCase().slice(-5);
 const madeUsers = [];
 const madeNodes = [];
+const madeProps = [];
+const madeUnits = [];
 const madeInvites = [];
 
 {
@@ -67,14 +69,19 @@ async function makeUser(role) {
   return { id: created.user.id, email };
 }
 
-const tryInvite = async (client, inviterId, role, nodeId = null) => {
+// Every scope-bearing column, not just the one most recently added.
+//
+// The previous version only ever set `node_id`, which is exactly why audit 0729c
+// found `property_ids` / `unit_id` / `vendor_id` unchecked: a test that exercises
+// the field you were thinking about confirms the thought, not the boundary.
+const tryInvite = async (client, inviterId, role, extra = {}) => {
   const { error } = await client.from("invitations").insert({
     org_id: poc.id,
     email: `probehier-invitee-${role}-${S}-${Math.random().toString(36).slice(2, 7)}@oegroup.test`,
     role,
-    node_id: nodeId,
     token_hash: `probe-${S}-${Math.random().toString(36).slice(2, 10)}`,
     invited_by: inviterId,
+    ...extra,
   });
   return error;
 };
@@ -182,11 +189,11 @@ console.log("\nF. A region cannot be handed outside the one you hold");
 
   const c = await login(rm.data.email);
 
-  const eIn = await tryInvite(c, rm.data.id, "facility_manager", northProject);
+  const eIn = await tryInvite(c, rm.data.id, "facility_manager", { node_id: northProject });
   !eIn ? ok("a regional manager hands out a project inside their own region")
        : bad(`refused a node in their own subtree — ${eIn.message.slice(0, 70)}`);
 
-  const eOut = await tryInvite(c, rm.data.id, "facility_manager", south);
+  const eOut = await tryInvite(c, rm.data.id, "facility_manager", { node_id: south });
   eOut ? ok("and cannot hand out a region they do not hold")
        : bad("A REGIONAL MANAGER GRANTED SCOPE OVER ANOTHER REGION");
 
@@ -218,6 +225,98 @@ console.log("\nG. A regional manager supersedes the FM/PM in the policies too");
   await c.auth.signOut();
 }
 
+console.log("\nH. Every attachment an invitation carries is scoped (audit 0729c-S1)");
+{
+  const rm = await svc.from("users").select("id, email").eq("id", madeUsers[0]).single();
+
+  // Two properties: one the regional manager reaches, one they do not.
+  const mkProp = async (name, siteNode) => {
+    const { data, error } = await svc.from("properties")
+      .insert({ org_id: poc.id, name, site_node_id: siteNode ?? null }).select("id").single();
+    if (error) throw new Error(error.message);
+    madeProps.push(data.id);
+    return data.id;
+  };
+
+  const mk = async (parent, level, name) => {
+    const { data, error } = await svc.from("org_nodes")
+      .insert({ org_id: poc.id, parent_id: parent, level, name, path: "" }).select("id").single();
+    if (error) throw new Error(error.message);
+    madeNodes.push(data.id);
+    return data.id;
+  };
+  const region = await mk(null, "region", `PROBEHIER-H-Region-${S}`);
+  const project = await mk(region, "project", `PROBEHIER-H-Proj-${S}`);
+  const location = await mk(project, "location", `PROBEHIER-H-Loc-${S}`);
+  const site = await mk(location, "site", `PROBEHIER-H-Site-${S}`);
+
+  const mine = await mkProp(`PROBEHIER-H-Mine-${S}`, site);
+  const theirs = await mkProp(`PROBEHIER-H-Theirs-${S}`, null);
+
+  await svc.from("property_stakeholders")
+    .insert({ org_id: poc.id, user_id: rm.data.id, node_id: region, relation: "manager" });
+
+  const c = await login(rm.data.email);
+
+  const eMine = await tryInvite(c, rm.data.id, "facility_manager", { property_ids: [mine] });
+  !eMine
+    ? ok("a manager may attach an invitee to a property inside their own region")
+    : bad(`refused a property in their own subtree — ${eMine.message.slice(0, 70)}`);
+
+  const eTheirs = await tryInvite(c, rm.data.id, "facility_manager", { property_ids: [theirs] });
+  eTheirs
+    ? ok("and may NOT attach one to a property outside it — the 0729c-S1 hole")
+    : bad("A MANAGER PLANTED SOMEONE ON A PROPERTY OUTSIDE THEIR REGION");
+
+  const eMixed = await tryInvite(c, rm.data.id, "facility_manager", { property_ids: [mine, theirs] });
+  eMixed
+    ? ok("one bad property in the array fails the whole invitation")
+    : bad("A MIXED ARRAY SLIPPED A FOREIGN PROPERTY THROUGH");
+
+  // Tenant enrolment: the unit's property has to be reachable too.
+  const { data: unitOut } = await svc.from("units")
+    .insert({ org_id: poc.id, property_id: theirs, label: `H-${S}`, apportionment_factor: 1 })
+    .select("id").single();
+  madeUnits.push(unitOut.id);
+  const eUnit = await tryInvite(c, rm.data.id, "tenant", { unit_id: unitOut.id });
+  eUnit
+    ? ok("nor enrol a tenant into a unit on a property they do not reach")
+    : bad("A MANAGER ENROLLED A TENANT OUTSIDE THEIR REGION");
+
+  await c.auth.signOut();
+
+  // An administrator is unbounded, as before.
+  const a = await login("demo@oegroup.test");
+  const { data: admin } = await a.from("users").select("id").eq("email", "demo@oegroup.test").single();
+  const eAdmin = await tryInvite(a, admin.id, "facility_manager", { property_ids: [theirs] });
+  !eAdmin
+    ? ok("an administrator may still attach anyone to any property in the org")
+    : bad(`the administrator was blocked — ${eAdmin.message.slice(0, 60)}`);
+  await a.auth.signOut();
+
+  await svc.from("property_stakeholders").delete().eq("user_id", rm.data.id);
+}
+
+console.log("\nI. The loose definer primitive is gone (audit 0729c-S2)");
+{
+  const c = await login(madeUsers.length ? (await svc.from("users").select("email").eq("id", madeUsers[0]).single()).data.email : "demo@oegroup.test");
+  const { error } = await c.rpc("apply_invitation_node", {
+    p_invitation_id: "00000000-0000-0000-0000-000000000000",
+    p_user_id: "00000000-0000-0000-0000-000000000000",
+  });
+  error
+    ? ok("apply_invitation_node no longer exists — the node is applied inside accept_invitation")
+    : bad("APPLY_INVITATION_NODE IS STILL CALLABLE BY A SIGNED-IN USER");
+  await c.auth.signOut();
+
+  const anon = createClient(URL_, ANON);
+  const { error: anonErr } = await anon.rpc("apply_invitation_node", {
+    p_invitation_id: "00000000-0000-0000-0000-000000000000",
+    p_user_id: "00000000-0000-0000-0000-000000000000",
+  });
+  anonErr ? ok("and is unreachable anonymously — it was executable by anon") : bad("ANON CAN STILL CALL IT");
+}
+
 // ── Cleanup ────────────────────────────────────────────────────────────────
 await svc.from("invitations").delete().like("email", "probehier-invitee%@oegroup.test");
 await svc.from("property_stakeholders").delete().in("user_id", madeUsers);
@@ -225,6 +324,8 @@ for (const id of madeUsers) {
   await svc.from("users").delete().eq("id", id);
   await svc.auth.admin.deleteUser(id).catch(() => {});
 }
+await svc.from("units").delete().in("id", madeUnits);
+await svc.from("properties").delete().in("id", madeProps);
 for (const id of [...madeNodes].reverse()) await svc.from("org_nodes").delete().eq("id", id);
 console.log("\n(cleaned up)");
 
