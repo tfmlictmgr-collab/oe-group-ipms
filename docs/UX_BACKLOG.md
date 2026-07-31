@@ -1,11 +1,24 @@
 # UX / UI Production-Readiness Backlog
 
-**Status:** deferred — captured during Week 2 (Day 11/12 boundary), to be scheduled
-after the POC demo gate.
+**Status (updated 31 July 2026):** largely **absorbed and delivered**. The design
+system, component library, app shell with mobile drawer, per-org theming, toasts,
+empty states and the password toggle all shipped during the Phase-1 UI overhaul —
+this document predates that work and is kept for the items still genuinely open.
 
-The current UI is **POC-grade**: functional, responsive, and demo-safe, but
-deliberately utilitarian. It is *not* production-ready. This is the agreed list
-of work required to get it there.
+**Now scheduled as two named days rather than one deferred list:**
+
+- **Day 8.9 — client-facing upgrade.** The public entry surfaces (org launcher
+  `/orgs`, per-org sign-in `/o/<slug>`, tenancy application) brought to a modern
+  conventional client-serving standard. Done first and separately because these
+  are what a client or prospect actually sees, and because there are only three
+  of them today.
+- **Day 11 — internal production UX pass.** The dashboard's own polish, run
+  *after* Days 9–11 add the lease, rent-roll and vendor-evaluation screens, so it
+  happens once over the finished feature set rather than twice.
+
+Items below that are struck through in spirit — mobile drawer, toasts, password
+toggle, active-route highlighting, empty states — are already live. The rest
+remain open and belong to one of the two days above.
 
 ---
 

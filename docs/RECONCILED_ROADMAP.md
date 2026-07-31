@@ -299,8 +299,21 @@ are `CLAUDE.md` **v3.3**, items 8–11. Roadmap consequences:
 - `scope.org_wide` so **write** policies are bounded to a subtree. This *tightens*
   today's access (an FM currently holds org-wide `properties.write`, which B7 never
   granted), so it ships on its own and is confirmed against live data first.
-- Per-property application window (`auto` / `open` / `closed`), which also gives
-  applications a `property_id` and unblocks property-scoped review in Day 8.
+- ~~Per-property application window (`auto` / `open` / `closed`)~~ — **done
+  (`0076`, 30 July)**; it gave applications a `property_id` and unblocked
+  property-scoped review, which Day 8 then built on.
+- ~~The hierarchy needs a user interface~~ — **done (Day 8.75, 31 July)**. The
+  tree had schema, scoping and invitation wiring since `0066`/`0067` and no
+  screen at all; Properties → Regions & sites now creates, renames, retires and
+  assigns regional managers, and the property form files a property under a site.
+  **Still open from the same board item:** import templates gaining
+  region/project/location/site columns.
+- ~~Every org needs its own entry URL~~ — **done (Day 8.8, 31 July)**.
+  `/o/<slug>` per org, plus an operator-only launcher at `/orgs`. The directory
+  is deliberately **not** public: B1 forbids revealing another brand's
+  *existence*, so `org_public_branding` resolves one slug and cannot list, while
+  `operator_org_directory` gates on `caller_is_operator_admin()`. **A public
+  grid would need a recorded board exception to B1.**
 - **Day 10 reporting** gains a real specification: parameterised, `SECURITY
   INVOKER` report functions (a report must never show more than the dashboard),
   aggregation in the database, dimensions including the hierarchy node, saved

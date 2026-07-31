@@ -1,7 +1,7 @@
 # OE GROUP — AI-POWERED INTEGRATED FM / PROPERTY MANAGEMENT SYSTEM (IWMS)
-### Streamlined AI Instructions · Master Build Prompt v3.3 · Step-by-Step Design Workflow
+### Streamlined AI Instructions · Master Build Prompt v3.4 · Step-by-Step Design Workflow
 **Classification: Board Confidential · July 2026 · TFML + OEA**
-> ### ✅ Locked Scope Decisions (v3.3 — July 2026)
+> ### ✅ Locked Scope Decisions (v3.4 — July 2026)
 > 1. **Scale:** 100+ properties from day one; architecture must stay flexible and scalable.
 > 2. **Funds:** client funds are held in OE Group's **own designated bank accounts**; OE Group manages and authorises disbursement. This is a managed client-funds account + authorisation workflow (not licensed custody/escrow) → keep a **segregated** client-funds account, an in-app segregated ledger, the authorisation workflow, and **daily bank reconciliation**.
 > 3. **Approvals:** approval hierarchy and thresholds are **admin-configurable** (add/update approvers and limits via an admin user).
@@ -20,6 +20,14 @@
 >     - Special-category data (religion, marital status) stays in the separate `sensitive` column and is **never** sent to a model.
 >     - Consent copy gains a line about automated document checks. Statements are stored **verbatim per application**, so existing applicants keep the wording they actually saw.
 >     - Sending identity documents to Claude makes Anthropic a **processor** → DPA required (A3); prefer sending extracted text over document images.
+> 12. **Every organisation has its own front door; only an operator sees the list (v3.4, 31 Jul 2026).** Each org carries a unique `slug` and is reachable at **`/o/<slug>`** with its own branding on its own sign-in. The **grid of organisation icons** requested for the OE Group home screen sits **behind the operator sign-in** at `/orgs`, not in front of it.
+>     - **B1 is the reason.** "A user on one portal must never see the other brand's data **or existence**" — a public grid publishes the entire client list (both brands, the SC client, every landlord org) to anyone who loads the page. A link someone was *given* is not an enumeration; a directory is.
+>     - **`org_public_branding(slug)`** is anonymous, takes a slug, returns **at most one row**, and cannot be made to list — wildcards and quotes match literally. An unknown slug and a retired org both answer 404, so the platform cannot be mapped.
+>     - **`operator_org_directory()`** gates on `caller_is_operator_admin()` **inside the query**, so a brand administrator receives an **empty set rather than a refusal** — a refusal confirms there is something worth refusing.
+>     - Making the grid public later is one line; un-publishing an indexed client list is not. **Any move to a public directory needs a recorded board exception to B1.**
+>     - Slugs are unique **among live orgs only** and derived from the **name**, never `delivery_brand` — which says which brand delivers the work, not which organisation this is (two OEA orgs collided on the first attempt).
+> 13. **UI/UX upgrade is staged, client-facing surfaces first (v3.4, 31 Jul 2026).** A modern, conventional client-serving treatment lands as **Day 8.9** on the public entry surfaces (org launcher, `/o/<slug>` sign-in, tenancy application) — the surfaces a client or prospect actually sees — while the internal dashboard's polish stays in **Day 11**'s existing production UX pass rather than being done twice.
+
 > 11. **Tenancy intake is per-property (v3.3, 29 Jul 2026 board).** The application window becomes `auto` (open iff a vacant unit exists) / `open` (waiting list) / `closed` (refurbishment, dispute), per property, with the org flag as a master switch. Overrides are administrator-only and audited — pure derivation would remove a judgement that belongs to a person. An applicant arriving through a property's own link carries `property_id`, which is what makes property-scoped PM review possible.
 
 > 7. **Permissions are operator-governed, not org-governed (v3.2, 27 Jul 2026).** Role privileges become an admin-toggled **permission matrix** (Day 6.5) rather than role names hardcoded into policy — but the editor lives **only on the OE Group operator portal**. TFML and OEA administrators see the matrix **read-only**; they cannot change what their own staff may reach. This introduces a **platform operator org** (`orgs.is_platform_operator`), distinct from a brand org, and is the single deliberate crossing of the org-isolation boundary — routed through one audited `SECURITY DEFINER` function, never a cross-org policy.
@@ -98,6 +106,8 @@ a schema change is a build turn.
 - **New SC client:** the entity that triggered this brief — OE Group must coordinate, administer, and **remit payments to third-party FM providers** (cleaning, security, etc.) on the client's behalf, with full transparency to all stakeholders.
 
 **Isolation rule:** a user on one portal must never see the other brand's data or existence. Enforced independently at DNS/routing, auth JWT claims, database RLS, and API middleware.
+
+**Entry surfaces under that rule (v3.4):** each org has its own address `/o/<slug>` carrying only its own branding — a link you were given, resolving one org and unable to list (`org_public_branding`). The **directory** of all orgs is operator-only, behind sign-in (`/orgs`, `operator_org_directory`). Being handed one org's link reveals nothing about any other; that is what keeps "or existence" true while every org still has a front door of its own.
 
 ### B2. Integrated Scope — Six AURA Modules + AI Layer
 | # | Module | Core functions | AI augmentation |

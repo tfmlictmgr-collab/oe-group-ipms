@@ -1975,3 +1975,76 @@ second, independent person must make it.
 ⚖️ Unchanged and worth restating: nothing on this page scores, ranks or
 recommends an outcome on its own. The recommendation shown is a person's, with
 that person's name on it.
+
+---
+
+## Day 8.75 — the regional structure, made visible
+
+`0066` built the board's REGION → PROJECT → LOCATION → SITE. `0067` extended the
+one resolver so a manager assigned to a node reaches everything beneath it.
+`0078c` and `0081` carried a node through an invitation and applied it on
+acceptance. Twenty-four checks proved all of it.
+
+**And not one line of it had a screen.** No way to create a region, file a
+property under a site, or assign a regional manager to one — every property in
+the system was unfiled, and the structure the board asked for on 29 July existed
+only for people with database access. The security model was complete and the
+feature did not exist.
+
+Shipped the tree screen (create, rename, retire, assign managers at any level),
+a cascading picker shared by the property form and the invite dialog, and the
+property list's own place column.
+
+⚖️ **A regional manager is scoped to a node, not a property list** — so their
+picker stops wherever they administer rather than forcing a depth the assignment
+does not need. A property's picker does the opposite: only a complete
+Region→Site chain produces a value, because `0066`'s trigger refuses anything
+filed above a site and a half-made selection should not submit as one either.
+One component, two shapes, because the two questions genuinely differ.
+
+⚖️ `retire_org_node` refuses while a live child or property depends on the node.
+Retiring a project whose location is still live would not touch that location's
+own `deleted_at`, but every read starts from the tree and filters
+`deleted_at is null` — so the location would vanish from the top down while
+still existing. The same silent-orphan shape `retire_property` already guards.
+
+---
+
+## Day 8.8 — every organisation gets a front door, without publishing the list
+
+The ask: replace the single anonymous login box with a home screen of
+organisation icons, each opening that org's own sign-in.
+
+⚠️ **Half of that ask is a B1 violation, and B1 is not a style rule.** *"A user
+on one portal must never see the other brand's data OR EXISTENCE."* A public
+grid publishes the entire client list — both brands, the service-charge client,
+and every landlord org onboarded later — to anyone who loads the page,
+competitors included. The single login box is the reason that list is not public
+today.
+
+So the ask was split at the line where it stops being safe. **A link someone was
+handed is not an enumeration; a directory is.** Every org gets `/o/<slug>` with
+its own branding, resolved by a function that takes a slug and returns at most
+one row and cannot be made to list — wildcards and quotes match literally, and
+an unknown slug answers exactly as a retired org does. The grid lives behind the
+operator sign-in, gated inside the query rather than in front of it, so a brand
+administrator receives an empty set rather than a refusal: **a refusal confirms
+there is something worth refusing.**
+
+⚖️ The default is this way round because the two directions are not
+symmetrical. Making the grid public later is a one-line change. Un-publishing a
+client list that has been indexed is not a change at all.
+
+⚠️ **The slug backfill keyed on `delivery_brand` and collided on first run.**
+There are two OEA orgs — the live one and a retired test fixture — and both
+claimed `oea`. `delivery_brand` says which brand *delivers the work*; it has
+never said which organisation this *is*, and nothing ever made it unique. The
+name identifies an org, so the name is what the slug derives from. The
+uniqueness index was also scoped to live orgs in the same fix: a retired
+organisation holding an address hostage forever would mean a name could never be
+reissued.
+
+📌 Worth keeping: the enumeration checks in the suite are the ones that matter,
+and they are cheap — passing `%`, `_`, `*` and `' or '1'='1` as slugs and
+asserting zero rows. The lookup was never going to be a `LIKE`, but the test
+costs four lines and would catch the day someone "improves" it into one.

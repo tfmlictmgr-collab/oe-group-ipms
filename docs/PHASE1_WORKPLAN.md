@@ -523,6 +523,102 @@ system will not let one person do both.
 
 ---
 
+## Day 8.75 — The regional structure, made visible *(inserted 31 July 2026)*
+
+**Status — built, 31 July.** `0066` gave the board's REGION → PROJECT → LOCATION
+→ SITE its schema, `0067` extended the one resolver so a regionally-assigned
+manager reaches everything beneath their node, and `0078c`/`0081` wired it into
+invitations. **None of it had a screen.** Nothing created a region, filed a
+property under a site, or assigned a regional manager — every property in the
+system was unfiled, and the structure the board asked for on 29 July was
+invisible to a user.
+
+Shipped: **Properties → Regions & sites** (create, rename, retire, and assign
+regional managers at any level of the tree), a shared cascading picker on the
+property form, a "Region / site" column on the property list, and the invite
+dialog finally passing `node_id` — so a regional manager can be scoped from the
+UI for the first time. `retire_org_node` refuses while a live child node or
+property still depends on it, the same refuse-rather-than-orphan shape as
+`retire_property`.
+
+🔎 14 checks (`verify-hierarchy-ui`), `verify-hierarchy` still green, and in the
+browser: created a project under North, saw it nest, and confirmed the property
+form's cascade unlocked Project with only that node offered while Location and
+Site stayed disabled.
+
+**Your role:** you are the **administrator** here — `hierarchy.write` is
+admin-only by default (B7 is silent on portfolio restructuring, and locked
+decision 7 says silence means OFF). Nobody else can reshape the portfolio.
+
+*Awaiting you:* the real region/project/location/site names for both brands.
+Nigeria's three geopolitical regions (North, South, East) are seeded; everything
+below them is yours to name.
+
+**Still outstanding from the 29 July board:** import templates gaining
+region/project/location/site columns, and `assets.scope` shared-asset
+apportionment.
+
+---
+
+## Day 8.8 — Per-org front doors + operator launcher *(inserted 31 July 2026)*
+
+**Status — built, 31 July.** Each org now carries a unique `slug` and its own
+sign-in at **`/o/<slug>`**, branded with that org's colours, logo and portal
+name. The **grid of organisation icons** replaces the single anonymous login box
+— at **`/orgs`**, behind the operator sign-in.
+
+**⚠ Why it is behind sign-in and not in front.** B1 says a user on one portal
+must never see another brand's data *or existence*. A public grid publishes the
+whole client list — both brands, the SC client, every landlord org onboarded
+later — to anyone who loads the page, competitors included. A link someone was
+handed is not an enumeration; a directory is. `org_public_branding` therefore
+takes a slug and returns at most one row (wildcards match literally, an unknown
+slug and a retired org both 404), while `operator_org_directory` gates on
+`caller_is_operator_admin()` inside the query so a brand administrator gets an
+empty set rather than a refusal.
+
+🔎 13 checks (`verify-org-directory`) — including that a brand admin lists
+nothing and that quotes and wildcards cannot escape into the lookup. Verified in
+the browser: `/o/oea` renders OEA's own branding, an unknown slug 404s, and the
+launcher lists the three live orgs with their addresses and counts.
+
+**Your role:** **operator**. Only a member of the platform-operator org
+(`orgs.is_platform_operator`) sees the launcher. Your brand administrators
+cannot list the platform's clients, by design.
+
+*Awaiting you:* confirm the public slugs (`tfml`, `oea` are set; the POC org
+has a long derived one). **If the board does want the grid public, that needs a
+recorded exception to B1** — the switch itself is one line.
+
+---
+
+## Day 8.9 — Client-facing UI/UX upgrade *(inserted 31 July 2026)*
+
+**Claude prompt:**
+> "Bring the public entry surfaces up to a modern, conventional client-serving
+> standard: the org launcher, the `/o/<slug>` sign-in, and the tenancy
+> application. Typography scale, spacing rhythm, motion on state change, real
+> empty and loading states, and a mobile-first pass. Keep the existing semantic
+> token system — this is a refinement of the design language, not a replacement."
+
+**You do:** approve the direction on the launcher first, since every other
+surface follows its treatment.
+
+**You verify:** open the launcher and an org sign-in on a phone; both should read
+as a product a client would trust with money.
+
+**👁 Visible deliverable:** the **first screen a client or prospect sees**,
+finished to a standard you would put in front of a board.
+
+**Done when:** the three public surfaces are upgraded and pass mobile + WCAG AA.
+
+> **Sequencing.** Only the *client-facing* surfaces are done here, while there
+> are three of them. The internal dashboard's polish stays in **Day 11**'s
+> existing production UX pass — doing it now would mean doing it again after
+> Days 9–11 add lease, rent-roll and evaluation screens.
+
+---
+
 ## Day 9 — Lease administration, rent billing & rent roll
 **Claude prompt:**
 > "Build lease administration: lease creation + unit allocation, term/rent/escalation,

@@ -28,6 +28,14 @@ one-command demo seed (`npm run seed`), QA script, and a board demo narrative.
 The 21-day POC workflow is complete through demo prep. Against the 6-week board
 milestone plan, Weeks 0–5 deliverables are done (see `RECONCILED_ROADMAP.md`).
 
+## Where to sign in (updated 31 July 2026)
+- **`/login`** — the OE Group front door. Names no organisation and lists none.
+- **`/o/<slug>`** — an organisation's own branded sign-in (`/o/tfml`, `/o/oea`).
+  Hand this to that org's people; it reveals nothing about any other org.
+- **`/orgs`** — the operator launcher: every organisation as a card. Visible
+  **only** to a member of the platform-operator org. A brand administrator who
+  opens it is told, plainly, that it is not for them.
+
 ## The 9 demo logins (all password `OEGroupDemo2026!`)
 `demo@` admin · `finance@` Oke Anderson · `fm@` Abdul Owo · `ops@` Emeka Ade ·
 `owner@` Bola Adeyemi · `vendor@` Sparkle · `resident@` Tamuno Gab ·
