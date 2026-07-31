@@ -83,7 +83,7 @@ console.log("\nC. A non-admin may NOT rebrand even their own org");
 
 console.log("\nD. OEA's theme is untouched by TFML's activity");
 {
-  const { data } = await oea.from("orgs").select("theme_primary").eq("id", oeaOrg).single();
+  const { data } = await oea.from("orgs").select("theme_primary").is("deleted_at", null).eq("id", oeaOrg).single();
   if (data?.theme_primary === null || data?.theme_primary === undefined) {
     ok("OEA still on its brand default (never overwritten)");
   } else if (data.theme_primary === "#000000") {

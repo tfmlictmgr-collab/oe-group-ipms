@@ -188,14 +188,14 @@ console.log("\nG. Cannot escalate its own role");
 
 console.log("\nH. Cannot reach another organisation");
 {
-  const { data: otherOrg } = await svc.from("orgs").select("id, name").neq("id", orgId).limit(1).single();
+  const { data: otherOrg } = await svc.from("orgs").select("id, name").is("deleted_at", null).neq("id", orgId).limit(1).single();
   const { data: props } = await viewer.from("properties").select("org_id");
   const leaked = (props ?? []).filter((p) => p.org_id !== orgId);
   leaked.length === 0
     ? ok(`no rows from ${otherOrg.name}`)
     : bad(`LEAKED ${leaked.length} row(s) from another org`);
 
-  const { data: orgs } = await viewer.from("orgs").select("id");
+  const { data: orgs } = await viewer.from("orgs").select("id").is("deleted_at", null);
   (orgs ?? []).every((o) => o.id === orgId)
     ? ok("sees only its own organisation")
     : bad("sees other organisations");

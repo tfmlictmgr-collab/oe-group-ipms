@@ -46,7 +46,7 @@ async function login(email) {
   return c;
 }
 
-const { data: orgs } = await svc.from("orgs").select("id, name, delivery_brand, is_platform_operator");
+const { data: orgs } = await svc.from("orgs").select("id, name, delivery_brand, is_platform_operator").is("deleted_at", null);
 const operator = orgs.find((o) => o.is_platform_operator);
 const tfml = orgs.find((o) => o.delivery_brand === "TFML");
 

@@ -34,7 +34,7 @@ const bad = (m) => { failures++; console.log(`  \x1b[31mFAIL\x1b[0m ${m}`); };
 
 const svc = createClient(URL_, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 
-const orgRes = await svc.from("orgs").select("id, name, delivery_brand");
+const orgRes = await svc.from("orgs").select("id, name, delivery_brand").is("deleted_at", null);
 if (orgRes.error) { console.error("db unreachable:", orgRes.error.message); process.exit(1); }
 const poc = orgRes.data.find((o) => o.delivery_brand === "direct");
 

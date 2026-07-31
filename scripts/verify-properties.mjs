@@ -165,7 +165,7 @@ console.log("\nG. Org isolation holds");
 {
   // maybeSingle, not single: on a one-org database this threw at the top level,
   // which skipped the cleanup below and left the fixtures live.
-  const { data: otherOrg } = await svc.from("orgs").select("id, name")
+  const { data: otherOrg } = await svc.from("orgs").select("id, name").is("deleted_at", null)
     .neq("id", orgId).limit(1).maybeSingle();
 
   if (!otherOrg) {

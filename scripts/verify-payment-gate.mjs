@@ -53,7 +53,7 @@ console.log("Direct-PATCH bypass attempts against the payment gate (0010)\n");
 // npm run seed first" instead of "the gate is bypassable", which is the failure
 // mode of every test that asserts a precondition it did not establish.
 const { data: probeOrg } = await svc
-  .from("orgs").select("id").eq("delivery_brand", "direct").limit(1).single();
+  .from("orgs").select("id").is("deleted_at", null).eq("delivery_brand", "direct").limit(1).single();
 const { data: probeVendor } = await svc
   .from("vendors").select("id").eq("org_id", probeOrg.id).limit(1).single();
 

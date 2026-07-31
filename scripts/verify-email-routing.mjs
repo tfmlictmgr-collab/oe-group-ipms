@@ -19,7 +19,7 @@ const resolve = (category, r) => {
 
 const svc = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 const { data: orgs } = await svc.from("orgs")
-  .select("name, delivery_brand, support_email, finance_email, it_email, email_from_name, email_from_address");
+  .select("name, delivery_brand, support_email, finance_email, it_email, email_from_name, email_from_address").is("deleted_at", null);
 
 // Mirrors senderFor() in lib/email.ts.
 const sender = (i) => {

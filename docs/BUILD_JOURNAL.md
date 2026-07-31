@@ -1714,3 +1714,63 @@ Rewritten mechanically from `pg_policies` and `pg_get_functiondef` rather than
 retyped, behind one `fm_roles()` definition. Retyping eighteen predicates by hand
 is how the payment state machine went missing in `0072b`; the same discipline that
 caught it applies to avoiding it.
+
+---
+
+## What OE Group may do inside a brand
+
+The board asked whether the operator should be able to add and remove
+administrators — a super-admin. The answer built here is **no standing power to
+grant, yes to two narrower things**, because the audit trail depends on it: if OE
+Group could quietly add an administrator to OEA, then "OEA's finance approver
+approved this payment" stops being a claim anyone can rely on.
+
+The asymmetry across all three functions: **the operator may take privilege away
+and may never grant it to a person.**
+
+- **Provisioning** creates a new org and an *invitation* for its first
+  administrator — never an account. The operator opens a door and does not walk
+  through it.
+- **Suspend-only** freezes a compromised account. It cannot approve a payment,
+  read a tenant's documents, or put a friendly name on a roster. Un-suspending is
+  limited to suspensions the operator itself applied; anything else is the brand's
+  to reverse.
+- **Break-glass** issues a 24-hour administrator invitation when an org has locked
+  itself out — recorded in *both* audit logs, in an `operator_actions` table the
+  target org can read, and announced to every administrator and executive still
+  standing. Silent operator access is what auditors object to; operator access as
+  such is not.
+
+Plus **last-admin protection**, because the lockout break-glass exists to cure
+should mostly never happen.
+
+### Three runtime faults, all the same species
+
+⚠️ `0079` applied cleanly and every function raised on first call. **A PL/pgSQL
+body is not checked against the schema until it executes** — the trap `0029`,
+`0032`, `0033` and `0054` already recorded. A migration applying is not evidence
+that anything in it works.
+
+⚠️ And one was a repeat with my name on it: I wrote `metadata` into `audit_log`
+by copying the pattern from `0050` — the migration `0054` exists specifically to
+fix, and whose header says so in its first three lines. **A migration file records
+what was intended once; the catalogue records what is true now.** Second time in
+two days: `0072b` dropped the payment state machine the same way.
+
+### A fixture that could not be removed
+
+📌 The suite provisioned real orgs, and **a provisioned org can never be deleted**
+— it has audit rows immediately, `audit_log` is append-only by design, and its
+foreign key holds the org in place. That is correct behaviour: you cannot erase
+the record that an organisation did something.
+
+The consequence was not tidiness. Three leftover OEA-branded orgs meant
+`orgs.find(o => o.delivery_brand === "OEA")` — which most suites use — began
+resolving to one of *them*, and two unrelated suites failed with what read as
+product faults ("OEA does not have lettings"). **`delivery_brand` is not a unique
+key and was being used as one.**
+
+Fixed three ways: `orgs` gained the soft delete every other entity already had, so
+a retired org can exist without being picked; every suite now filters
+`deleted_at is null`; and the provisioning check runs inside a transaction that
+rolls back. **A fixture you cannot remove is not a fixture.**

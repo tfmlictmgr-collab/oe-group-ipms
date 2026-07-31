@@ -29,7 +29,7 @@ const ok = (m) => console.log(`  \x1b[32mPASS\x1b[0m ${m}`);
 const bad = (m) => { failures++; console.log(`  \x1b[31mFAIL\x1b[0m ${m}`); };
 
 // org_id → readable brand, so assertions read cleanly.
-const { data: orgs } = await svc.from("orgs").select("id, name, delivery_brand");
+const { data: orgs } = await svc.from("orgs").select("id, name, delivery_brand").is("deleted_at", null);
 const brandOf = (id) => orgs?.find((o) => o.id === id)?.delivery_brand ?? "??";
 
 function waPayload(phoneNumberId, sender, text) {
@@ -174,7 +174,7 @@ console.log("\nF. Each brand answers from its OWN number");
 {
   const { whatsappSenderForOrg } = await import("../lib/notify.ts");
 
-  const { data: orgs } = await svc.from("orgs").select("id, portal_name, name");
+  const { data: orgs } = await svc.from("orgs").select("id, portal_name, name").is("deleted_at", null);
   const { data: routes } = await svc
     .from("channel_routes").select("org_id, external_id").eq("channel", "whatsapp");
 

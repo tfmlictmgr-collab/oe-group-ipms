@@ -52,7 +52,7 @@ async function probeProperty(svcClient, orgId, label) {
 }
 
 
-const orgRes = await svc.from("orgs").select("id, delivery_brand, tenant_applications_open");
+const orgRes = await svc.from("orgs").select("id, delivery_brand, tenant_applications_open").is("deleted_at", null);
 if (orgRes.error) { console.error("db unreachable:", orgRes.error.message); process.exit(1); }
 const oea = orgRes.data.find((o) => o.delivery_brand === "OEA");
 const windowWasOpen = oea.tenant_applications_open;

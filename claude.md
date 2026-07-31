@@ -65,6 +65,21 @@ Every engagement output is one of: a phased/costed **roadmap**, a **tools list**
 - **Agent spin-up with internal QA**: for each task, spin relevant sub-agents (A4), refine internally, check/verify against the final objective, and validate outcomes *before* producing results.
 - **Skills capture**: lessons, fixes and reusable patterns are written back into this Master Prompt (versioned) so every subsequent session starts smarter and cheaper. *(Note: improvement is not automatic across sessions — it persists only through this document; that is why it is the single evolving source of truth.)*
 
+### A8. Turn Signalling (working convention)
+End every response by naming what the **next** turn is, so the model can be
+matched to the work before it starts:
+
+- **`[next: discussion]`** — questions, design opinions, status, planning. Sonnet.
+- **`[next: build]`** — migrations, policies, verification suites, anything that
+  touches money, access control or the audit trail. Opus.
+
+The session model is switched by the user with `/model`; nothing in the harness
+can change it mid-conversation, which is exactly why the signal has to be explicit
+rather than inferred. Say it plainly at the end of the message, not buried.
+
+When a turn is mixed, name it for its **riskiest** part — a discussion that ends in
+a schema change is a build turn.
+
 ### A7. Standing Next Steps
 1. The Master Build Prompt is the **single evolving document** — version it (v3.0 → v3.1 → …), never replace wholesale.
 2. **Flag any gap found in review** (e.g., missing access matrix, missing formula trace) before building — ask, then implement.

@@ -43,7 +43,7 @@ const { data: { user: adminUser } } = await admin.auth.getUser();
 const { data: me } = await admin.from("users").select("org_id").eq("id", adminUser.id).single();
 const orgId = me.org_id;
 const { data: otherOrg } = await svc
-  .from("orgs").select("id, name").neq("id", orgId).limit(1).single();
+  .from("orgs").select("id, name").is("deleted_at", null).neq("id", orgId).limit(1).single();
 
 const stamp = Date.now().toString(36);
 const bizName = `TestVendor-${stamp} Ltd`;
@@ -55,7 +55,7 @@ console.log("Public vendor application — safety checks\n");
 // closed on cleanup meant running the suite silently took the live vendor
 // application link offline — a test may borrow the product's state, not decide it.
 const { data: orgBefore } = await svc
-  .from("orgs").select("vendor_applications_open").eq("id", orgId).single();
+  .from("orgs").select("vendor_applications_open").is("deleted_at", null).eq("id", orgId).single();
 const wasOpen = Boolean(orgBefore?.vendor_applications_open);
 
 // Start from a known state: applications CLOSED.

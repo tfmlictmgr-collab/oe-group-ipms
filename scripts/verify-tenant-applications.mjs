@@ -58,7 +58,7 @@ const stamp = Date.now().toString(36).toUpperCase().slice(-6);
 const made = [];
 const probeProps = [];
 
-const { data: orgs } = await svc.from("orgs").select("id, name, delivery_brand, tenant_applications_open");
+const { data: orgs } = await svc.from("orgs").select("id, name, delivery_brand, tenant_applications_open").is("deleted_at", null);
 const oea = orgs.find((o) => o.delivery_brand === "OEA");
 const tfml = orgs.find((o) => o.delivery_brand === "TFML");
 

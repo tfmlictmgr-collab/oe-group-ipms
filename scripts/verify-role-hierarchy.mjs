@@ -38,7 +38,7 @@ async function login(email) {
   return c;
 }
 
-const orgRes = await svc.from("orgs").select("id, delivery_brand");
+const orgRes = await svc.from("orgs").select("id, delivery_brand").is("deleted_at", null);
 if (orgRes.error) { console.error("db unreachable:", orgRes.error.message); process.exit(1); }
 const poc = orgRes.data.find((o) => o.delivery_brand === "direct");
 
