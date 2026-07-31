@@ -23,6 +23,8 @@ export type InviteInput = {
   fullName: string;
   propertyIds: string[];
   propertyRelation: "manager" | "owner";
+  /** A hierarchy node (0067) — how a regional manager is scoped. */
+  nodeId?: string | null;
   unitId?: string | null;
   vendorId?: string | null;
 };
@@ -97,6 +99,9 @@ export async function inviteMember(
     full_name: input.fullName.trim() || null,
     property_ids: input.propertyIds,
     property_relation: input.propertyRelation,
+    // `invitations_insert` (0081) checks this is inside a subtree the inviter
+    // holds, and `accept_invitation` applies it as a property_stakeholders row.
+    node_id: input.nodeId || null,
     unit_id: input.unitId || null,
     vendor_id: input.vendorId || null,
     token_hash: hashInviteToken(token),

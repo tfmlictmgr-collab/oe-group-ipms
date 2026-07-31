@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Building, Plus, Home } from "lucide-react";
+import { Building, Plus, Home, Map } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
 import { PageHeader } from "@/components/patterns/page-header";
@@ -25,17 +25,19 @@ export default async function PropertiesPage() {
   //
   // RLS still decides what comes back: `properties.read_all` sees the org,
   // everyone else sees the properties they are attached to.
-  const [{ data: summary }, { data: canWrite }] = await Promise.all([
+  const [{ data: summary }, { data: canWrite }, { data: canManageHierarchy }] = await Promise.all([
     supabase.from("property_summary")
-      .select("id, name, reference, address, property_type, unit_count, occupied_count, total_factor")
+      .select("id, name, reference, address, property_type, unit_count, occupied_count, total_factor, node_path")
       .order("name"),
     supabase.rpc("has_permission", { p_capability: "properties.write" }),
+    supabase.rpc("has_permission", { p_capability: "hierarchy.write" }),
   ]);
 
   const props = (summary ?? []) as {
     id: string; name: string; reference: string | null;
     address: string | null; property_type: string | null;
     unit_count: number; occupied_count: number; total_factor: number | string;
+    node_path: string | null;
   }[];
 
   const totalUnits = props.reduce((s, p) => s + Number(p.unit_count), 0);
@@ -47,11 +49,18 @@ export default async function PropertiesPage() {
         title="Properties"
         description="The portfolio, its units, and who is attached to each."
         actions={
-          canWrite ? (
-            <Button asChild variant="brand">
-              <Link href="/dashboard/properties/new"><Plus /> Add property</Link>
-            </Button>
-          ) : undefined
+          <div className="flex gap-2">
+            {canManageHierarchy && (
+              <Button asChild variant="outline">
+                <Link href="/dashboard/properties/hierarchy"><Map /> Regions & sites</Link>
+              </Button>
+            )}
+            {canWrite && (
+              <Button asChild variant="brand">
+                <Link href="/dashboard/properties/new"><Plus /> Add property</Link>
+              </Button>
+            )}
+          </div>
         }
       />
 
@@ -89,6 +98,7 @@ export default async function PropertiesPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Property</TableHead>
+                    <TableHead>Region / site</TableHead>
                     <TableHead>Type</TableHead>
                     <TableHead className="text-right">Units</TableHead>
                     <TableHead className="text-right">Occupied</TableHead>
@@ -114,6 +124,9 @@ export default async function PropertiesPage() {
                           <span className="block text-xs text-muted-foreground">
                             {p.reference ? `${p.reference} · ` : ""}{p.address ?? "No address recorded"}
                           </span>
+                        </TableCell>
+                        <TableCell className="max-w-[220px] truncate text-xs text-muted-foreground">
+                          {p.node_path ?? "Unfiled"}
                         </TableCell>
                         <TableCell className="text-muted-foreground">
                           {p.property_type ?? "—"}

@@ -9,6 +9,7 @@ import { Input, Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { roleLabel, INVITABLE_ROLES, ROLE_HINTS } from "@/lib/roles";
+import HierarchyPicker, { type OrgNode } from "@/components/patterns/hierarchy-picker";
 import { inviteMember } from "./actions";
 import { runAction, describeError } from "@/lib/run-action";
 
@@ -20,18 +21,21 @@ export default function InviteDialog({
   properties,
   units,
   vendors,
+  nodes,
 }: {
   brand: string | null;
   isAdmin: boolean;
   properties: Option[];
   units: Option[];
   vendors: Option[];
+  nodes: OrgNode[];
 }) {
   const router = useRouter();
   const [email, setEmail] = React.useState("");
   const [fullName, setFullName] = React.useState("");
   const [role, setRole] = React.useState("facility_manager");
   const [propertyIds, setPropertyIds] = React.useState<string[]>([]);
+  const [nodeId, setNodeId] = React.useState("");
   const [unitId, setUnitId] = React.useState("");
   const [vendorId, setVendorId] = React.useState("");
   const [busy, setBusy] = React.useState(false);
@@ -40,6 +44,10 @@ export default function InviteDialog({
 
   // Attaché assignment only applies to the roles that are scoped to properties.
   const needsProperties = role === "facility_manager" || role === "property_owner";
+  // A regional manager is scoped to a NODE, not a list of properties — the
+  // whole point (0067) is that they reach everything beneath it, including
+  // properties filed later, without ever being re-assigned.
+  const needsNode = role === "regional_manager";
   const needsUnit = role === "tenant";
   const needsVendor = role === "vendor";
   const roles = isAdmin ? INVITABLE_ROLES : INVITABLE_ROLES.filter((r) => r !== "admin");
@@ -59,6 +67,7 @@ export default function InviteDialog({
           fullName,
           propertyIds: needsProperties ? propertyIds : [],
           propertyRelation: role === "property_owner" ? "owner" : "manager",
+          nodeId: needsNode ? nodeId || null : null,
           unitId: needsUnit ? unitId || null : null,
           vendorId: needsVendor ? vendorId || null : null,
         })
@@ -73,7 +82,7 @@ export default function InviteDialog({
           ? `Sent to ${email}. Copy the link below in case it doesn't arrive.`
           : "Email wasn't sent — copy the link below and share it directly.",
       });
-      setEmail(""); setFullName(""); setPropertyIds([]); setUnitId(""); setVendorId("");
+      setEmail(""); setFullName(""); setPropertyIds([]); setNodeId(""); setUnitId(""); setVendorId("");
       router.refresh();
     } catch (err) {
       toast.error("Could not invite", {
@@ -161,6 +170,24 @@ export default function InviteDialog({
               </div>
             )}
           </div>
+
+          {needsNode && (
+            <div className="space-y-2">
+              <Label>Region, project, location or site</Label>
+              <p className="text-xs text-muted-foreground">
+                Pick the level they administer and stop there. They reach every
+                property beneath it — including ones filed later, with no
+                re-assignment. Leaving this empty issues the invitation with no
+                scope at all, which means they will see nothing.
+              </p>
+              <HierarchyPicker
+                nodes={nodes}
+                value={nodeId}
+                onChange={setNodeId}
+                stopAtLevel="any"
+              />
+            </div>
+          )}
 
           {needsProperties && (
             <div className="space-y-2">

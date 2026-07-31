@@ -13,7 +13,7 @@ export default async function InvitationsPage() {
   const brand = session.org?.delivery_brand ?? null;
 
   const supabase = await createClient();
-  const [invitesRes, vendorsRes, unitsRes, props, deliveriesRes] = await Promise.all([
+  const [invitesRes, vendorsRes, unitsRes, props, deliveriesRes, nodesRes] = await Promise.all([
     supabase
       .from("invitations")
       .select("id, email, role, expires_at")
@@ -29,6 +29,10 @@ export default async function InvitationsPage() {
       .select("entity_id, status, detail, sent_at")
       .eq("entity_type", "invitation")
       .order("sent_at", { ascending: false }),
+    // The tree, for scoping a regional manager. Everyone in the org may read
+    // it; `invitations_insert` still refuses a node outside the inviter's own
+    // subtree, so offering the whole tree here is a convenience, not a grant.
+    supabase.from("org_nodes").select("id, parent_id, level, name").order("name"),
   ]);
 
   // Most recent attempt per invitation.
@@ -55,6 +59,7 @@ export default async function InvitationsPage() {
         properties={props.map((p) => ({ id: p.id, label: p.name }))}
         units={units}
         vendors={(vendorsRes.data ?? []).map((v) => ({ id: v.id, label: v.name }))}
+        nodes={nodesRes.data ?? []}
       />
 
       <Card>

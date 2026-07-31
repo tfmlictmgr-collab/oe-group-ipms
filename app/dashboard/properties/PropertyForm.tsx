@@ -7,10 +7,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { runAction, describeError } from "@/lib/run-action";
+import HierarchyPicker, { type OrgNode } from "@/components/patterns/hierarchy-picker";
 import { saveProperty } from "./actions";
+
+export type { OrgNode };
 
 export default function PropertyForm({
   property,
+  nodes = [],
 }: {
   property?: {
     id: string;
@@ -18,7 +22,9 @@ export default function PropertyForm({
     reference: string | null;
     address: string | null;
     property_type: string | null;
+    site_node_id: string | null;
   };
+  nodes?: OrgNode[];
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
@@ -28,6 +34,7 @@ export default function PropertyForm({
     address: property?.address ?? "",
     propertyType: property?.property_type ?? "",
   });
+  const [siteNodeId, setSiteNodeId] = React.useState(property?.site_node_id ?? "");
 
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -36,7 +43,7 @@ export default function PropertyForm({
     e.preventDefault();
     setBusy(true);
     try {
-      const r = await runAction(saveProperty({ id: property?.id, ...form }));
+      const r = await runAction(saveProperty({ id: property?.id, ...form, siteNodeId: siteNodeId || null }));
       toast.success(property ? "Property updated" : "Property added");
       router.push(`/dashboard/properties/${r.id}`);
       router.refresh();
@@ -81,6 +88,18 @@ export default function PropertyForm({
           <Input id="p-type" value={form.propertyType} onChange={set("propertyType")}
                  placeholder="e.g. Residential estate, Office tower" />
         </div>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label>
+          Region &amp; site <span className="font-normal text-muted-foreground">(optional)</span>
+        </Label>
+        <p className="text-xs text-muted-foreground">
+          A property is filed under a site. Leaving it unfiled changes
+          nothing about what the property can do — it just won&apos;t appear
+          in a regional report until someone files it.
+        </p>
+        <HierarchyPicker nodes={nodes} value={siteNodeId} onChange={setSiteNodeId} stopAtLevel="site" />
       </div>
 
       <div className="flex gap-2">

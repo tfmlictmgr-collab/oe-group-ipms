@@ -18,6 +18,7 @@ export type PropertyInput = {
   reference: string;
   address: string;
   propertyType: string;
+  siteNodeId: string | null;
 };
 
 export async function saveProperty(
@@ -40,6 +41,7 @@ export async function saveProperty(
     reference: input.reference.trim() || null,
     address: input.address.trim() || null,
     property_type: input.propertyType.trim() || null,
+    site_node_id: input.siteNodeId || null,
   };
 
   const { data, error } = input.id
@@ -52,6 +54,9 @@ export async function saveProperty(
         `Another property already uses the reference "${input.reference.trim()}".`,
         "References must be unique so a conversation about one property cannot mean two."
       );
+    }
+    if (error.message.includes("a property is filed under a site")) {
+      return fail("A property can only be filed under a Site, not a region, project or location.");
     }
     return failFromDb(error, input.id ? "save this property" : "create this property");
   }
