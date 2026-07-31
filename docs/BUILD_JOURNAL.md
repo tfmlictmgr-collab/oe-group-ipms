@@ -2048,3 +2048,85 @@ reissued.
 and they are cheap — passing `%`, `_`, `*` and `' or '1'='1` as slugs and
 asserting zero rows. The lookup was never going to be a `LIKE`, but the test
 costs four lines and would catch the day someone "improves" it into one.
+
+---
+
+## Day 8.5 — AI may verify documents; it may never screen
+
+Locked decision 10, built as schema rather than as policy. There is **no score
+column and no recommendation column** on `application_document_findings` — not
+nullable, not unused, absent. A column that exists gets populated eventually,
+and a number attached to an applicant becomes a ranking whatever it is called.
+`attachment_id` is NOT NULL, so a finding is always an observation about a
+specific document; a finding about "the applicant" is exactly the thing decision
+10 forbids. Severity is `info | attention` and a third value is where an
+observation becomes a conclusion.
+
+⚖️ **Findings outside the permitted kinds and severities are dropped, not
+coerced.** A model returning `"severity":"reject"` must not have that quietly
+rounded to `attention` — the finding would then read as an observation while
+carrying a verdict. Dropping loses information; coercing launders a conclusion.
+
+⚖️ Special-category data is not a *parameter* of any function in the
+verification module. Not "we remember not to pass it" — there is nowhere to put
+it. Duplicate detection compares hashes computed locally and the finding names
+no other applicant: a fraud control that reveals whose other application it was
+is a privacy breach wearing a fraud control's clothes.
+
+⚠️ **The composite foreign keys did not say what I assumed they said.** One
+proves the application is in this org, the other proves the attachment is in
+this org, and neither says the two belong to *each other* — a finding on
+application A could cite application B's identity document. Found by the suite,
+closed by a trigger in `0086b`. Both rows being in the same organisation was
+never the property that mattered.
+
+⚠️ **And the suite's own first draft printed ALL CHECKS PASSED while four of its
+seven sections had silently SKIPPED.** It reached for whatever application
+happened to be in the database and gave up when the one it found had no
+attachment. A suite that reports success for checks it never executed is worse
+than no suite, because it is trusted. It builds its own fixtures now.
+
+---
+
+## The region order was backwards, and my fixtures were in the user's dropdown
+
+Two faults found from one screenshot of a live property form.
+
+⚠️ **17 test fixtures were in a production dropdown.** `PROBE-Region2-*` where
+Nigeria's regions should have been, in the org the team actually works in. Two
+distinct causes, and fixing either alone would have left it happening:
+
+1. Cleanup deleted in **reverse creation order**, which stops respecting the
+   tree the moment anything is re-parented — the suite re-parents a node under a
+   region created after it, so the parent was deleted first and the foreign key
+   refused. The errors were never checked.
+2. **Cleanup did not run at all when the suite threw.** A failed assertion
+   leaving a variable undefined kills the script before its cleanup block. This
+   is the fault that did the damage, and no amount of care *inside* that block
+   addresses it — the block never executes.
+
+Fixed with deepest-path-first deletion, an asserted result, and a **start-of-run
+sweep**: a crashed run is repaired by the next one rather than accumulating
+until someone sees it in production. The sweep immediately cleared 3 stragglers
+on its first run, which is the proof it was needed.
+
+⚖️ **REGION → LOCATION → PROJECT → SITE**, amending the 29 July board order,
+which put PROJECT above LOCATION. The board's own description of the structure
+is geographic — Kano, Sokoto and Abuja in the North; Port Harcourt, Enugu and
+Yenagoa in the East — and under the minuted order you cannot record "Kano" until
+you have invented a project to put it in. **A project happens in a place; a
+place does not happen in a project.** "Kano Housing Scheme" is a project in
+Kano; Kano is not inside a scheme. `0066` anticipated this exactly, writing the
+ordering as an explicit function *"rather than relying on the enum's declaration
+order"* — this is that considered change. Existing nodes were re-levelled, never
+deleted, because a node's id is in the path of everything beneath it.
+
+⚠️ **And the picker was a dead end.** Reported from the live screen: *"the other
+fields cannot be selected even after picking the set default regions."* A
+manager adding the first property in a new city picked a Region, found Location
+empty and disabled, and had no route forward except abandoning the form. The
+levels now offer inline creation for anyone holding `hierarchy.write`, each
+select says what it is waiting for rather than showing a bare dash, and 25
+Nigerian cities are seeded across the three regions — for every live org,
+including the POC org that `0066` skipped as "a demo fixture" and which turned
+out to be the one in daily use.
