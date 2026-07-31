@@ -612,6 +612,24 @@ finished to a standard you would put in front of a board.
 
 **Done when:** the three public surfaces are upgraded and pass mobile + WCAG AA.
 
+**Status — built, 1 August.** A display type scale (fluid `clamp()`, tracking
+tightening as size grows — Tailwind's defaults are tuned for body copy and read
+loose at 40px), a brand-tinted hero wash, and short entrance motion that honours
+`prefers-reduced-motion`. Applied to the launcher, the per-org sign-in and the
+tenancy application. The tenancy page's privacy reassurance became three
+separate promises rather than one grey paragraph.
+
+🔎 Verified in the browser: 48px hero / 32px form heading on desktop, 24px at
+375px via the clamp, no horizontal overflow at either width, no console errors.
+
+⚠️ Found and fixed while verifying: a probe property (`PROBEREV-A-BPYT0`) was
+live on the **public** tenancy page. Same root cause as the Day 8.75 dropdown
+leak — end-of-run cleanup never executes when a suite throws. All suites now
+sweep at the start of a run; 26 stray properties cleared, no real data touched.
+
+**Your role:** none required — this is presentation only, no schema, no
+policies. Worth a look on your phone before Day 9 starts.
+
 > **Sequencing.** Only the *client-facing* surfaces are done here, while there
 > are three of them. The internal dashboard's polish stays in **Day 11**'s
 > existing production UX pass — doing it now would mean doing it again after

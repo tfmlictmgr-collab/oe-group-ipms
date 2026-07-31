@@ -2130,3 +2130,44 @@ select says what it is waiting for rather than showing a bare dash, and 25
 Nigerian cities are seeded across the three regions — for every live org,
 including the POC org that `0066` skipped as "a demo fixture" and which turned
 out to be the one in daily use.
+
+---
+
+## Day 8.9 — the surfaces a client actually sees
+
+A display type scale, a brand-tinted hero wash, and short entrance motion,
+applied to the three public entry points: the operator launcher, the per-org
+sign-in, and the tenancy application.
+
+⚖️ **Large type needs its own tracking and leading.** Tailwind's defaults are
+tuned for body copy; at 40px the same spacing reads loose and unfinished. The
+`display-*` classes use a fluid `clamp()` so a heading is 48px on a laptop and
+24px on a phone without a breakpoint, and tighten letter-spacing as size grows.
+
+⚖️ **Motion honours `prefers-reduced-motion`.** It is decoration on these
+screens and carries no meaning — nothing is communicated only by movement — so
+switching it off costs the user nothing, which is exactly the test for whether
+it may be switched off.
+
+⚖️ **The tenancy page's reassurances became three promises instead of one grey
+paragraph.** Read by a person, used only for this application, deleted after 90
+days. A wall of small muted text is not read, and each of those sentences is
+load-bearing for somebody about to upload their identity document.
+
+### The same leak, in a different table
+
+⚠️ A property named **`PROBEREV-A-BPYT0` was on the public tenancy page**,
+offered to prospective tenants as somewhere they could live, alongside Banana
+Island Residences.
+
+`verify-application-review`'s cleanup block is correct and thorough. It had
+never run. An earlier failure threw first, and everything below it — including
+every line that deletes a fixture — was simply never reached.
+
+📌 This is the identical fault that put `PROBE-Region2-*` in a live Region
+dropdown two days ago, and I fixed it there without asking where else it
+applied. **End-of-run cleanup cannot repair end-of-run cleanup.** The repair has
+to happen at the start of the next run, which is the only moment guaranteed to
+be reached, and it now does for hierarchy nodes, properties and applications
+alike. 26 stray properties were cleared on the first sweep; all six real
+properties and every live application were untouched.
