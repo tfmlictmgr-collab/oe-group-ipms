@@ -47,7 +47,15 @@ const madeUsers = [];
 const madeNodes = [];
 const madeProps = [];
 const madeUnits = [];
+const madeVendors = [];
 const madeInvites = [];
+
+const mkProp = async (name) => {
+  const { data, error } = await svc.from("properties").insert({ org_id: poc.id, name }).select("id").single();
+  if (error) throw new Error(error.message);
+  madeProps.push(data.id);
+  return data.id;
+};
 
 {
   const { data: stale } = await svc.from("users").select("id").like("email", "probehier.%@oegroup.test");
@@ -297,6 +305,44 @@ console.log("\nH. Every attachment an invitation carries is scoped (audit 0729c-
   await svc.from("property_stakeholders").delete().eq("user_id", rm.data.id);
 }
 
+console.log("\nH2. `vendor_id` is scoped the same way (audit 0729d-L1)");
+{
+  // The 0729c-S1 fix covered property_ids, unit_id — and vendor_id, but nothing
+  // exercised vendor_id specifically. Flagged by 0729d as a genuine gap, code
+  // correct on inspection but unproven.
+  const rm = await svc.from("users").select("id, email").eq("id", madeUsers[0]).single();
+  const mine = await mkProp(`PROBEHIER-V-Mine-${S}`);
+  const theirs = await mkProp(`PROBEHIER-V-Theirs-${S}`);
+
+  await svc.from("property_stakeholders")
+    .insert({ org_id: poc.id, user_id: rm.data.id, property_id: mine, relation: "manager" });
+
+  const mkVendor = async (name) => {
+    const { data, error } = await svc.from("vendors").insert({ org_id: poc.id, name }).select("id").single();
+    if (error) throw new Error(error.message);
+    madeVendors.push(data.id);
+    return data.id;
+  };
+  const vendorMine = await mkVendor(`PROBEHIER-VendorMine-${S}`);
+  const vendorTheirs = await mkVendor(`PROBEHIER-VendorTheirs-${S}`);
+  await svc.from("vendor_properties").insert({ org_id: poc.id, vendor_id: vendorMine, property_id: mine });
+  await svc.from("vendor_properties").insert({ org_id: poc.id, vendor_id: vendorTheirs, property_id: theirs });
+
+  const c = await login(rm.data.email);
+  const eMine = await tryInvite(c, rm.data.id, "vendor", { vendor_id: vendorMine });
+  !eMine
+    ? ok("a manager may attach an invitee to a vendor scoped to their own property")
+    : bad(`refused a vendor within scope — ${eMine.message.slice(0, 70)}`);
+
+  const eTheirs = await tryInvite(c, rm.data.id, "vendor", { vendor_id: vendorTheirs });
+  eTheirs
+    ? ok("and may NOT attach one to a vendor scoped to a property they do not reach")
+    : bad("A MANAGER ATTACHED AN INVITEE TO A VENDOR OUTSIDE THEIR SCOPE");
+  await c.auth.signOut();
+
+  await svc.from("property_stakeholders").delete().eq("user_id", rm.data.id).eq("property_id", mine);
+}
+
 console.log("\nI. The loose definer primitive is gone (audit 0729c-S2)");
 {
   const c = await login(madeUsers.length ? (await svc.from("users").select("email").eq("id", madeUsers[0]).single()).data.email : "demo@oegroup.test");
@@ -325,6 +371,8 @@ for (const id of madeUsers) {
   await svc.auth.admin.deleteUser(id).catch(() => {});
 }
 await svc.from("units").delete().in("id", madeUnits);
+await svc.from("vendor_properties").delete().in("vendor_id", madeVendors);
+await svc.from("vendors").delete().in("id", madeVendors);
 await svc.from("properties").delete().in("id", madeProps);
 for (const id of [...madeNodes].reverse()) await svc.from("org_nodes").delete().eq("id", id);
 console.log("\n(cleaned up)");

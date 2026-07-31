@@ -297,6 +297,87 @@ console.log("\nF. An organisation cannot strand itself");
   ok("with a second administrator present, either is allowed again");
 }
 
+console.log("\nG. Org retirement — audit 0729d-M1");
+{
+  // Plain calls, real cleanup — unlike provisioning, retirement is fully
+  // reversible through unretire_org, so there is no need for a transaction to
+  // roll back. (An earlier version of this section wrapped it in one via a
+  // separate `pg.Client`, while the actual writes went through PostgREST on a
+  // different connection entirely — the rollback touched nothing the test had
+  // done, and the assertions after it were reading a connection that had never
+  // seen the writes. Caught immediately: every assertion after the first two
+  // failed. Structure the test around what actually shares a transaction.)
+  const wasOpen = (await svc.from("orgs").select("tenant_applications_open").eq("id", oea.id).single())
+    .data.tenant_applications_open;
+
+  // A brand admin flipping their OWN org's deleted_at directly — the
+  // vulnerability the audit found. `orgs_admin_update` grants a brand admin
+  // UPDATE on every column of their own row; deleted_at rode along with no
+  // column-level boundary of its own.
+  const b = await login(brandAdmin.email);
+  const direct = await b.from("orgs").update({ deleted_at: new Date().toISOString() }).eq("id", oea.id);
+  direct.error
+    ? ok("a brand admin can no longer set deleted_at by a direct PATCH to their own org")
+    : bad("A BRAND ADMIN RETIRED THEIR OWN ORGANISATION BY DIRECT UPDATE");
+  await b.auth.signOut();
+
+  // The RIGHT actor, through the RIGHT door.
+  const opClient = await login(opAdmin.email);
+  const { error: retErr } = await opClient.rpc("retire_org", {
+    p_org_id: oea.id, p_reason: "verification: exercising the retirement path",
+  });
+  !retErr ? ok("an operator administrator retires it through retire_org") : bad(`retire_org failed — ${retErr.message.slice(0, 70)}`);
+
+  const after = await svc.from("orgs").select("deleted_at, tenant_applications_open").eq("id", oea.id).single();
+  after.data.deleted_at ? ok("deleted_at is set") : bad("retire_org did not set deleted_at");
+  after.data.tenant_applications_open === false
+    ? ok("and intake is switched off with it")
+    : bad("tenant_applications_open was left on for a retired org");
+
+  // Both sides of the crossing, as every other operator action already gets.
+  const bothSides = await svc.from("audit_log")
+    .select("org_id").eq("action", "operator.retire_org").eq("entity_id", oea.id);
+  (bothSides.data ?? []).length >= 1
+    ? ok("recorded in the audit log")
+    : bad("no audit_log row for the retirement");
+
+  const seen = await svc.from("operator_actions")
+    .select("action").eq("target_org", oea.id).eq("action", "retire_org");
+  (seen.data ?? []).length > 0
+    ? ok("and in operator_actions, which the target org itself can read")
+    : bad("no operator_actions row for the retirement");
+
+  // A brand admin STILL cannot reverse it themselves.
+  const b2 = await login(brandAdmin.email);
+  const undo = await b2.from("orgs").update({ deleted_at: null }).eq("id", oea.id);
+  undo.error
+    ? ok("nor can the brand admin un-retire it by the same direct route")
+    : bad("A BRAND ADMIN REVERSED A RETIREMENT BY DIRECT UPDATE");
+  await b2.auth.signOut();
+
+  const { error: unretErr } = await opClient.rpc("unretire_org", {
+    p_org_id: oea.id, p_reason: "verification: reversing the test retirement",
+  });
+  !unretErr ? ok("only the operator reinstates it, through unretire_org") : bad(`unretire_org failed — ${unretErr.message.slice(0, 70)}`);
+
+  // The operator organisation cannot retire itself.
+  const { error: selfErr } = await opClient.rpc("retire_org", {
+    p_org_id: operatorOrg.id, p_reason: "verification: attempting self-retirement",
+  });
+  selfErr ? ok("the operator organisation cannot retire itself") : bad("THE OPERATOR ORG RETIRED ITSELF");
+  await opClient.auth.signOut();
+
+  // Restore whatever the intake switch was before this section touched it —
+  // retire_org turns it off, unretire_org does not turn it back on (retirement
+  // and intake are separate decisions; only the first is undone automatically).
+  if (wasOpen) await svc.from("orgs").update({ tenant_applications_open: true }).eq("id", oea.id);
+
+  const finalState = await svc.from("orgs").select("deleted_at").eq("id", oea.id).single();
+  finalState.data.deleted_at === null
+    ? ok("and OEA is left exactly as this section found it")
+    : bad("OEA WAS LEFT RETIRED AFTER THE SUITE FINISHED");
+}
+
 // ── Cleanup ────────────────────────────────────────────────────────────────
 await svc.from("invitations").delete().in("org_id", [...madeOrgs, oea.id]).like("email", "probeop-%");
 await svc.from("operator_actions").delete().in("target_org", [...madeOrgs, oea.id]);

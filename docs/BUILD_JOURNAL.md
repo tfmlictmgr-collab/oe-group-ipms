@@ -1879,3 +1879,61 @@ than carrying forward; the queue reporting approval progress without a join,
 scoped to the caller's own reach.
 
 Schema and functions committed; the review queue and detail UI follow.
+
+---
+
+## Audit 0729d — org retirement had no door of its own
+
+`0080` added `orgs.deleted_at` to close a fixture-cleanup problem and rode it on
+`orgs_admin_update` — the pre-existing policy that grants a brand's own admin
+UPDATE on every column of their own org row, written for theming. Two faults from
+one omission, found and confirmed live before touching anything:
+
+⚠️ **The wrong actor could do it.** Any brand admin could set or clear their own
+org's `deleted_at` by a direct PATCH — no reason, no operator involvement, none of
+the double-audit-log / `operator_actions` / `notify_role` machinery every other
+operator crossing in `0079` gets. The only trace was a generic `org.updated` row
+indistinguishable from a theme-colour change.
+
+⚠️ **The right actor could not.** `orgs_admin_update` requires
+`id = current_user_org_id()`, so an *operator* admin — whose own org is the
+operator's, not the target's — could never retire another org through it at all.
+Org retirement was reachable only via direct database access for its intended
+purpose, while reachable by the wrong actor through the ordinary app path.
+
+Fixed the way every other operator crossing already is: `retire_org()` /
+`unretire_org()`, operator-only, reasoned, recorded on both sides, announcing to
+the target org's remaining admins and executives.
+
+### Two more of my own mistakes, in sequence, both caught by the suite
+
+⚠️ My first attempt used a trigger keyed on `auth.uid() is not null`. **`SECURITY
+DEFINER` changes which ROLE Postgres checks privileges as — it does not touch
+`auth.uid()`**, which reflects the calling session's JWT regardless. The trigger
+fired inside `retire_org` too and blocked its own write, raising the exact message
+meant for a direct PATCH.
+
+⚠️ The second attempt replaced it with `REVOKE UPDATE (deleted_at) ... FROM
+authenticated`. Confirmed live with `has_column_privilege` that it did nothing:
+**a column-level REVOKE cannot override a table-level GRANT**, and `authenticated`
+held Supabase's default blanket table `UPDATE` on `orgs`. The direct-PATCH test
+still succeeded. Fixed with the pattern already used for
+`tenant_applications.sensitive` — revoke the table-level grant entirely, then
+grant `UPDATE` on an explicit column allowlist. Every real write path in the app
+was traced by hand afterward against that allowlist rather than assumed correct.
+
+While rebuilding the allowlist, `is_platform_operator` — the single flag that
+grants the one deliberate crossing of org isolation in this system — turned out to
+have **no protection at all**, closed in the same migration rather than filed
+separately for the same root cause.
+
+📌 And the suite's own first draft was structurally wrong in a way worth naming:
+its writes went through PostgREST while its assertions read from an unrelated
+`pg.Client` transaction that had witnessed none of them — borrowed from the
+provisioning test, where a rollback is necessary because provisioning is
+irreversible. Retirement is fully reversible through `unretire_org`; it needed
+plain calls and real cleanup, the same shape as every other section in that file,
+not the one section's pattern applied where it didn't fit.
+
+Also closed: `0729d-L1`, a vendor_id scoping case the 0729c-S1 fix implemented
+correctly but never exercised.
