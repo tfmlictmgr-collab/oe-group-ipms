@@ -12,7 +12,7 @@ import { ok, fail, failFromDb, type ActionResult } from "@/lib/action-result";
 
 export async function createNode(
   parentId: string | null,
-  level: "region" | "project" | "location" | "site",
+  level: "region" | "location" | "project" | "site",
   name: string,
   code: string
 ): Promise<ActionResult<{ id: string }>> {

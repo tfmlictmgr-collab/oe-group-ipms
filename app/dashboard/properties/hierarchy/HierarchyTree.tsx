@@ -17,7 +17,7 @@ import { createNode, renameNode, retireNode, setNodeStakeholder } from "./action
 export type Node = {
   id: string;
   parent_id: string | null;
-  level: "region" | "project" | "location" | "site";
+  level: "region" | "location" | "project" | "site";
   name: string;
   code: string | null;
   child_count: number;
@@ -27,11 +27,12 @@ export type Node = {
 
 export type Manager = { id: string; name: string };
 
+// REGION → LOCATION → PROJECT → SITE (0087). A project happens in a place.
 const NEXT_LEVEL: Record<Node["level"], Node["level"] | null> = {
-  region: "project", project: "location", location: "site", site: null,
+  region: "location", location: "project", project: "site", site: null,
 };
 const LEVEL_LABEL: Record<Node["level"], string> = {
-  region: "Region", project: "Project", location: "Location", site: "Site",
+  region: "Region", location: "Location", project: "Project", site: "Site",
 };
 
 type Panel = { nodeId: string; mode: "add" | "rename" | "managers" } | null;

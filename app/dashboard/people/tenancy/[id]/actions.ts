@@ -3,7 +3,15 @@
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/email";
+import {
+  examineDocument,
+  duplicateFinding,
+  sha256,
+  VERIFICATION_MODEL,
+  type FormClaims,
+} from "@/lib/document-verification";
 import { hashToken, newResumeToken, resumeUrl, DRAFT_DAYS } from "@/lib/application-resume";
 import { generateInviteToken, hashInviteToken, buildInviteUrl } from "@/lib/invitation";
 import { ok, fail, failFromDb, type ActionResult } from "@/lib/action-result";
@@ -168,6 +176,175 @@ export async function rejectApplication(applicationId: string, reason: string): 
   if (error) return failFromDb(error, "record that rejection");
   revalidatePath(`/dashboard/people/tenancy/${applicationId}`);
   revalidatePath("/dashboard/people/tenancy");
+  return ok();
+}
+
+/**
+ * Runs the automated document checks (Day 8.5, locked decision 10).
+ *
+ * Three gates, all server-side, all re-asked here rather than trusted from the
+ * page that offered the button:
+ *   1. the org has BOTH `lettings` and `ai_document_checks` — the latter starts
+ *      off and is switched on deliberately
+ *   2. the caller holds `applications.run_document_checks`
+ *   3. RLS still decides whether this caller can see the application at all
+ *
+ * What comes back is findings against documents. Nothing here writes to the
+ * application's status, recommendation or decision, and the reviewer's own
+ * reason remains required — findings inform it, they are never it.
+ */
+export async function runDocumentChecks(
+  applicationId: string
+): Promise<ActionResult<{ findings: number; skipped: number }>> {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return fail("Your session expired. Please sign in again.");
+  const { data: me } = await supabase.from("users").select("org_id").eq("id", user.id).single();
+  if (!me) return fail("Could not resolve your profile.");
+
+  const [{ data: enabled }, { data: mayRun }] = await Promise.all([
+    supabase.rpc("org_runs_document_checks", { p_org_id: me.org_id }),
+    supabase.rpc("has_permission", { p_capability: "applications.run_document_checks" }),
+  ]);
+  if (!enabled) {
+    return fail(
+      "Automated document checks are switched off for this organisation.",
+      "They start off by board decision and are enabled per organisation."
+    );
+  }
+  if (!mayRun) return fail("You do not have permission to run document checks.");
+
+  // Read the application through the CALLER's session, so RLS decides. Note
+  // `sensitive` is not selected and never could be by this client — reviewers
+  // read `application_overview`, which does not carry it.
+  const { data: application } = await supabase
+    .from("application_overview")
+    .select("id, org_id, type, applicant_name, form")
+    .eq("id", applicationId)
+    .maybeSingle();
+  if (!application) return fail("That application could not be found.");
+
+  const { data: attachments } = await supabase
+    .from("application_attachments")
+    .select("id, kind, storage_path, file_name, content_type")
+    .eq("application_id", applicationId)
+    .order("uploaded_at");
+  if (!attachments || attachments.length === 0) {
+    return fail("There are no documents on this application to check.");
+  }
+
+  const { data: requirements } = await supabase
+    .from("application_document_requirements")
+    .select("kind, label")
+    .eq("org_id", me.org_id)
+    .eq("type", application.type);
+  const labelFor = (kind: string) =>
+    (requirements ?? []).find((r) => r.kind === kind)?.label ?? kind;
+
+  const form = (application.form ?? {}) as Record<string, unknown>;
+  const claims: FormClaims = {
+    applicantName: String(application.applicant_name ?? ""),
+    dateOfBirth: typeof form.date_of_birth === "string" ? form.date_of_birth : undefined,
+    employer: typeof form.employer_name === "string" ? form.employer_name : undefined,
+  };
+
+  // Findings are written with the service role: a reviewer who could insert
+  // findings directly could manufacture the evidence their own decision cites,
+  // which is why there is no INSERT policy for `authenticated` on that table.
+  const admin = supabaseAdmin;
+  const rows: Record<string, unknown>[] = [];
+  let skipped = 0;
+
+  for (const a of attachments) {
+    const { data: file, error: dlError } = await admin.storage
+      .from("application-documents")
+      .download(a.storage_path);
+    if (dlError || !file) { skipped++; continue; }
+
+    const bytes = Buffer.from(await file.arrayBuffer());
+    const hash = sha256(bytes);
+
+    // Record the hash so later applications can be compared against this one.
+    await admin.from("application_attachments")
+      .update({ content_sha256: hash })
+      .eq("id", a.id);
+
+    // How many OTHER applications already carry this exact file. Counted here,
+    // never asked of a model, and the finding names none of them.
+    const { data: sameHash } = await admin
+      .from("application_attachments")
+      .select("application_id")
+      .eq("org_id", me.org_id)
+      .eq("content_sha256", hash)
+      .neq("application_id", applicationId);
+    const otherApplications = new Set((sameHash ?? []).map((r) => r.application_id)).size;
+
+    const label = labelFor(a.kind);
+    const findings = await examineDocument(
+      {
+        attachmentId: a.id,
+        label,
+        fileName: a.file_name,
+        contentType: a.content_type,
+        bytes,
+      },
+      claims
+    );
+
+    const dup = duplicateFinding(
+      a.id,
+      label,
+      otherApplications,
+      a.content_type.startsWith("image/") ? "document_image" : "extracted_text"
+    );
+    if (dup) findings.push(dup);
+
+    for (const f of findings) {
+      rows.push({
+        org_id: me.org_id,
+        application_id: applicationId,
+        attachment_id: f.attachmentId,
+        kind: f.kind,
+        severity: f.severity,
+        summary: f.summary,
+        detail: f.detail,
+        model: VERIFICATION_MODEL,
+        evidence_mode: f.evidenceMode,
+      });
+    }
+  }
+
+  // Replace the previous run's findings rather than accumulating them: two runs
+  // over the same unchanged document would otherwise show every observation
+  // twice, and a reviewer counting findings would be counting runs.
+  await admin.from("application_document_findings")
+    .delete()
+    .eq("application_id", applicationId)
+    .is("contested_by", null);
+
+  if (rows.length > 0) {
+    const { error } = await admin.from("application_document_findings").insert(rows);
+    if (error) return failFromDb(error, "record those findings");
+  }
+
+  revalidatePath(`/dashboard/people/tenancy/${applicationId}`);
+  return ok({ findings: rows.length, skipped });
+}
+
+/** Marks a finding as disputed. It is never deleted — see `contest_document_finding`. */
+export async function contestFinding(
+  findingId: string,
+  applicationId: string,
+  reason: string
+): Promise<ActionResult> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("contest_document_finding", {
+    p_finding_id: findingId,
+    p_reason: reason,
+  });
+  if (error) return fail(error.message.replace(/^.*?:\s*/, ""));
+  revalidatePath(`/dashboard/people/tenancy/${applicationId}`);
   return ok();
 }
 

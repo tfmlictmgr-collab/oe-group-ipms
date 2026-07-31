@@ -9,12 +9,14 @@ import { Label } from "@/components/ui/label";
 import { runAction, describeError } from "@/lib/run-action";
 import HierarchyPicker, { type OrgNode } from "@/components/patterns/hierarchy-picker";
 import { saveProperty } from "./actions";
+import { createNode } from "./hierarchy/actions";
 
 export type { OrgNode };
 
 export default function PropertyForm({
   property,
   nodes = [],
+  canBuildHierarchy = false,
 }: {
   property?: {
     id: string;
@@ -25,6 +27,8 @@ export default function PropertyForm({
     site_node_id: string | null;
   };
   nodes?: OrgNode[];
+  /** `hierarchy.write` — whether this person may add a location/project/site here. */
+  canBuildHierarchy?: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
@@ -95,11 +99,27 @@ export default function PropertyForm({
           Region &amp; site <span className="font-normal text-muted-foreground">(optional)</span>
         </Label>
         <p className="text-xs text-muted-foreground">
-          A property is filed under a site. Leaving it unfiled changes
-          nothing about what the property can do — it just won&apos;t appear
-          in a regional report until someone files it.
+          A property is filed under a site. Work down from the region —{" "}
+          {canBuildHierarchy
+            ? "if the location, project or site does not exist yet, add it here with “New”."
+            : "if a level you need is missing, an administrator adds it under Regions & sites."}{" "}
+          Leaving it unfiled changes nothing about what the property can do; it
+          just won&apos;t appear in a regional report until someone files it.
         </p>
-        <HierarchyPicker nodes={nodes} value={siteNodeId} onChange={setSiteNodeId} stopAtLevel="site" />
+        <HierarchyPicker
+          nodes={nodes}
+          value={siteNodeId}
+          onChange={setSiteNodeId}
+          stopAtLevel="site"
+          onCreate={
+            canBuildHierarchy
+              ? async (parentId, level, name) => {
+                  const r = await runAction(createNode(parentId, level, name, ""));
+                  return r.id;
+                }
+              : undefined
+          }
+        />
       </div>
 
       <div className="flex gap-2">

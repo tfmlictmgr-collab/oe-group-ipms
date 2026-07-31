@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import ReviewPanel from "./ReviewPanel";
 import AttachmentList from "./AttachmentList";
+import DocumentChecks, { type Finding } from "./DocumentChecks";
 
 const STATUS_LABEL: Record<string, string> = {
   submitted: "New",
@@ -27,18 +28,21 @@ export default async function ApplicationReviewPage({
 
   const supabase = await createClient();
 
-  const [appRes, recommendRes, approveRes] = await Promise.all([
+  const [appRes, recommendRes, approveRes, checksEnabledRes, canRunChecksRes] = await Promise.all([
     // `application_overview` never selects `sensitive` — the only thing this
     // page can show is what the view already withholds nothing else from.
     supabase.from("application_overview").select("*").eq("id", id).maybeSingle(),
     supabase.rpc("has_permission", { p_capability: "applications.recommend" }),
     supabase.rpc("has_permission", { p_capability: "applications.approve" }),
+    // Both flags, asked of the database — decision 10 starts this off.
+    supabase.rpc("org_runs_document_checks", { p_org_id: profile.org_id }),
+    supabase.rpc("has_permission", { p_capability: "applications.run_document_checks" }),
   ]);
 
   const application = appRes.data;
   if (!application) notFound();
 
-  const [attachRes, decisionsRes, requirementsRes, unitsRes] = await Promise.all([
+  const [attachRes, decisionsRes, requirementsRes, unitsRes, findingsRes] = await Promise.all([
     supabase
       .from("application_attachments")
       .select("id, kind, storage_path, file_name, uploaded_at")
@@ -64,6 +68,11 @@ export default async function ApplicationReviewPage({
           .is("deleted_at", null)
           .order("label")
       : Promise.resolve({ data: [] as { id: string; label: string }[] }),
+    supabase
+      .from("application_document_findings")
+      .select("id, attachment_id, kind, severity, summary, detail, model, evidence_mode, contested_at, contest_reason, users:contested_by(full_name)")
+      .eq("application_id", id)
+      .order("created_at"),
   ]);
 
   const sections: Section[] = sectionsFor(application.type);
@@ -76,6 +85,29 @@ export default async function ApplicationReviewPage({
   const canRecommend = Boolean(recommendRes.data);
   const canApprove = Boolean(approveRes.data);
   const isRecommender = application.recommended_by === profile.id;
+
+  const decided = application.status === "approved" || application.status === "rejected";
+  const findings: Finding[] = (findingsRes.data ?? []).map((f) => ({
+    id: f.id,
+    attachment_id: f.attachment_id,
+    kind: f.kind,
+    severity: f.severity as "info" | "attention",
+    summary: f.summary,
+    detail: f.detail,
+    model: f.model,
+    evidence_mode: f.evidence_mode,
+    contested_at: f.contested_at,
+    contest_reason: f.contest_reason,
+    contested_name: (f.users as unknown as { full_name: string } | null)?.full_name ?? null,
+  }));
+  // Labels keyed by attachment, so a finding can name the document it is about
+  // rather than showing a bare identifier.
+  const documentLabels = Object.fromEntries(
+    attachments.map((a) => [
+      a.id,
+      requirements.find((r) => r.kind === a.kind)?.label ?? a.file_name,
+    ])
+  );
 
   return (
     <div className="space-y-4">
@@ -132,6 +164,29 @@ export default async function ApplicationReviewPage({
           <AttachmentList attachments={attachments} requirements={requirements} />
         </CardContent>
       </Card>
+
+      {(Boolean(checksEnabledRes.data) || findings.length > 0) && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Automated document checks</CardTitle>
+            <CardDescription>
+              Observations about the documents above — never a score, a ranking
+              or a recommendation. What they find is for you to weigh; the
+              decision and its reason stay yours.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <DocumentChecks
+              applicationId={application.id}
+              findings={findings}
+              documentLabels={documentLabels}
+              enabled={Boolean(checksEnabledRes.data)}
+              canRun={Boolean(canRunChecksRes.data)}
+              decided={decided}
+            />
+          </CardContent>
+        </Card>
+      )}
 
       {sections.map((section) => {
         const visible = section.fields.filter((f) => !f.sensitive && form[f.key] !== undefined && form[f.key] !== "");

@@ -17,6 +17,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
+import { sweepProbeNodes, cleanupNodes } from "./lib/probe-cleanup.mjs";
 
 const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 config({ path: path.join(rootDir, ".env.local") });
@@ -36,6 +37,10 @@ const orgRes = await svc.from("orgs").select("id, name, delivery_brand").is("del
 if (orgRes.error) { console.error("db unreachable:", orgRes.error.message); process.exit(1); }
 const poc = orgRes.data.find((o) => o.delivery_brand === "direct");
 const tfml = orgRes.data.find((o) => o.delivery_brand === "TFML");
+
+// Repair anything a crashed earlier run left behind, before adding more.
+const swept = await sweepProbeNodes(svc, "PROBE-");
+if (swept > 0) console.log(`(swept ${swept} node(s) left by an earlier run)\n`);
 
 const S = Date.now().toString(36).toUpperCase().slice(-5);
 const nodes = [];
@@ -75,33 +80,37 @@ let region, project, location, site;
   }
 
   // A non-region with no parent must be refused.
-  const orphan = await mkNode(poc.id, null, "project", `PROBE-Orphan-${S}`);
-  orphan.error ? ok("a project cannot be a root") : bad("A PROJECT WAS CREATED AS A ROOT");
+  const orphan = await mkNode(poc.id, null, "location", `PROBE-Orphan-${S}`);
+  orphan.error ? ok("a location cannot be a root") : bad("A LOCATION WAS CREATED AS A ROOT");
 
-  // Skipping a level must be refused.
-  const skipped = await mkNode(poc.id, region.id, "location", `PROBE-Skip-${S}`);
+  // Skipping a level must be refused. Since 0087 the order is
+  // REGION → LOCATION → PROJECT → SITE, so a project directly under a region is
+  // the skip — the reverse of what this asserted before the reorder.
+  const skipped = await mkNode(poc.id, region.id, "project", `PROBE-Skip-${S}`);
   skipped.error
-    ? ok("a location cannot sit directly under a region — levels cannot be skipped")
+    ? ok("a project cannot sit directly under a region — levels cannot be skipped")
     : bad("A LEVEL WAS SKIPPED");
 
-  const p = await mkNode(poc.id, region.id, "project", `PROBE-Project-${S}`);
-  p.data ? ok("a project sits under a region") : bad(`project rejected — ${p.error?.message.slice(0, 70)}`);
-  project = p.data;
-
-  const l = await mkNode(poc.id, project.id, "location", `PROBE-Location-${S}`);
+  const l = await mkNode(poc.id, region.id, "location", `PROBE-Location-${S}`);
+  l.data ? ok("a location sits under a region") : bad(`location rejected — ${l.error?.message.slice(0, 70)}`);
   location = l.data;
-  const st = await mkNode(poc.id, location.id, "site", `PROBE-Site-${S}`);
+
+  const p = await mkNode(poc.id, location.id, "project", `PROBE-Project-${S}`);
+  project = p.data;
+  project ? ok("a project sits under a location — a project happens in a place") : bad("project rejected");
+
+  const st = await mkNode(poc.id, project.id, "site", `PROBE-Site-${S}`);
   site = st.data;
-  site ? ok("and a location, then a site, complete the chain") : bad("could not complete the chain");
+  site ? ok("and a site completes the chain") : bad("could not complete the chain");
 
   if (site) {
-    site.path === `/${region.id}/${project.id}/${location.id}/${site.id}/`
+    site.path === `/${region.id}/${location.id}/${project.id}/${site.id}/`
       ? ok("the site's path spells out its full ancestry")
       : bad(`site path was ${site.path}`);
   }
 
   // A duplicate name among siblings must be refused.
-  const dup = await mkNode(poc.id, region.id, "project", `PROBE-Project-${S}`);
+  const dup = await mkNode(poc.id, region.id, "location", `PROBE-Location-${S}`);
   dup.error
     ? ok("two siblings cannot share a name")
     : bad("A DUPLICATE SIBLING NAME WAS ACCEPTED");
@@ -111,11 +120,11 @@ console.log("\nB. A node cannot be parented across a brand boundary");
 {
   const tfmlRegion = await mkNode(tfml.id, null, "region", `PROBE-TFML-Region-${S}`);
   const cross = await svc.from("org_nodes").insert({
-    org_id: poc.id, parent_id: tfmlRegion.data.id, level: "project",
+    org_id: poc.id, parent_id: tfmlRegion.data.id, level: "location",
     name: `PROBE-Cross-${S}`, path: "",
   });
   cross.error
-    ? ok("a POC project cannot hang off a TFML region")
+    ? ok("a POC location cannot hang off a TFML region")
     : bad("CROSS-ORG PARENTING SUCCEEDED");
 }
 
@@ -154,17 +163,25 @@ console.log("\nD. Everything beneath a node, at any depth");
 console.log("\nE. Re-parenting carries the subtree");
 {
   const r2 = await mkNode(poc.id, null, "region", `PROBE-Region2-${S}`);
-  await svc.from("org_nodes").update({ parent_id: r2.data.id }).eq("id", project.id);
+
+  // The LOCATION moves, because since 0087 a location is what hangs directly
+  // off a region. The failure to check this update's error is what let the old
+  // version of this section keep passing after the reorder made the move
+  // illegal — the paths simply never changed and the assertions read stale
+  // values as if they were fresh ones.
+  const { error: moveError } = await svc.from("org_nodes")
+    .update({ parent_id: r2.data.id }).eq("id", location.id);
+  if (moveError) bad(`could not re-parent the location — ${moveError.message.slice(0, 70)}`);
 
   const { data: after } = await svc.from("org_nodes")
-    .select("id, path").in("id", [project.id, location.id, site.id]);
+    .select("id, path").in("id", [location.id, project.id, site.id]);
   const byId = Object.fromEntries((after ?? []).map((n) => [n.id, n.path]));
 
-  byId[project.id]?.startsWith(`/${r2.data.id}/`)
-    ? ok("the moved project sits under its new region")
-    : bad(`project path is ${byId[project.id]}`);
+  byId[location.id]?.startsWith(`/${r2.data.id}/`)
+    ? ok("the moved location sits under its new region")
+    : bad(`location path is ${byId[location.id]}`);
   byId[site.id]?.startsWith(`/${r2.data.id}/`)
-    ? ok("and the site four levels down moved with it")
+    ? ok("and the site three levels down moved with it")
     : bad(`DESCENDANT PATH IS STALE: ${byId[site.id]}`);
 
   const { data: viaOld } = await svc.rpc("properties_under_node", { p_node_id: region.id });
@@ -269,9 +286,14 @@ console.log("\nG. A regional assignment reaches the whole subtree");
 }
 
 // ── Cleanup ────────────────────────────────────────────────────────────────
-await svc.from("properties").delete().in("id", props);
-for (const id of [...nodes].reverse()) await svc.from("org_nodes").delete().eq("id", id);
-console.log("\n(cleaned up)");
+// Deepest path first, and asserted. The start-of-run sweep above is what covers
+// the case this block cannot: a run that throws before reaching here.
+const undeleted = await cleanupNodes(svc, nodes, props);
+if (undeleted > 0) {
+  bad(`CLEANUP LEAKED ${undeleted} node(s) — they will appear in a live dropdown`);
+} else {
+  console.log("\n(cleaned up)");
+}
 
 console.log(
   failures === 0

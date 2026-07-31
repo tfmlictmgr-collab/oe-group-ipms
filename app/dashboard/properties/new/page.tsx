@@ -14,9 +14,10 @@ export default async function NewPropertyPage() {
   // Asked of the database rather than inferred from the role, so this screen
   // agrees with what the write will actually permit.
   const supabase = await createClient();
-  const [{ data: canWrite }, { data: nodes }] = await Promise.all([
+  const [{ data: canWrite }, { data: nodes }, { data: canBuildHierarchy }] = await Promise.all([
     supabase.rpc("has_permission", { p_capability: "properties.write" }),
     supabase.from("org_nodes").select("id, parent_id, level, name").order("name"),
+    supabase.rpc("has_permission", { p_capability: "hierarchy.write" }),
   ]);
 
   if (!canWrite) {
@@ -40,7 +41,7 @@ export default async function NewPropertyPage() {
       />
       <Card>
         <CardContent className="pt-6">
-          <PropertyForm nodes={nodes ?? []} />
+          <PropertyForm nodes={nodes ?? []} canBuildHierarchy={Boolean(canBuildHierarchy)} />
         </CardContent>
       </Card>
     </div>

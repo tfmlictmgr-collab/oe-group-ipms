@@ -236,7 +236,10 @@ export const CONSENT_STATEMENT =
   "I confirm the information given is true, and I consent to it being used to assess this tenancy application only. " +
   "I understand it will be seen by the property team handling this application, will not be used for any automated " +
   "decision, and that I can ask for it to be corrected or deleted. If this application is unsuccessful my personal " +
-  "details are deleted after 90 days.";
+  "details are deleted after 90 days. " +
+  "I understand that the documents I upload may be checked automatically for completeness and for consistency with " +
+  "what I have written here, that these checks produce notes for the person reviewing my application and never a " +
+  "decision, and that I can ask for any such note to be corrected if it is wrong.";
 
 /** Splits a filled form into the general payload and the special-category part. */
 export function splitSensitive(

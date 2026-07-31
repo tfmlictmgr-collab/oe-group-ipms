@@ -15,13 +15,14 @@ export default async function EditPropertyPage({
   if (!session) redirect("/login");
 
   const supabase = await createClient();
-  const [{ data: property }, { data: nodes }] = await Promise.all([
+  const [{ data: property }, { data: nodes }, { data: canBuildHierarchy }] = await Promise.all([
     supabase
       .from("properties")
       .select("id, name, reference, address, property_type, site_node_id")
       .eq("id", id)
       .maybeSingle(),
     supabase.from("org_nodes").select("id, parent_id, level, name").order("name"),
+    supabase.rpc("has_permission", { p_capability: "hierarchy.write" }),
   ]);
 
   if (!property) notFound();
@@ -31,7 +32,11 @@ export default async function EditPropertyPage({
       <PageHeader title={`Edit ${property.name}`} />
       <Card>
         <CardContent className="pt-6">
-          <PropertyForm property={property} nodes={nodes ?? []} />
+          <PropertyForm
+            property={property}
+            nodes={nodes ?? []}
+            canBuildHierarchy={Boolean(canBuildHierarchy)}
+          />
         </CardContent>
       </Card>
     </div>
