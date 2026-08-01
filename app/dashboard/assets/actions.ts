@@ -109,6 +109,13 @@ export async function buildImportContext(): Promise<{
 function toImportContext(raw: Awaited<ReturnType<typeof buildImportContext>>["ctx"]): ImportContext {
   return {
     propertiesByName: new Map(raw.properties),
+    // Built from the raw PAIRS, before the Map collapses them — which is the
+    // only point at which a duplicate name is still visible.
+    ambiguousPropertyNames: new Set(
+      raw.properties
+        .map(([name]) => name)
+        .filter((name, i, all) => all.indexOf(name) !== i)
+    ),
     unitsByKey: new Map(raw.units),
     vendorsByName: new Map(raw.vendors),
     usersByEmail: new Map(raw.users),

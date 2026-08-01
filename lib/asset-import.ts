@@ -24,6 +24,14 @@ export type ValidatedRow = {
 export type ImportContext = {
   /** Properties the caller may write to: lowercase name -> id. */
   propertiesByName: Map<string, string>;
+  /**
+   * Names shared by more than one property the caller may write to.
+   *
+   * Kept separately because `propertiesByName` cannot express it: a Map holds
+   * one value per key, so the second property with a given name overwrites the
+   * first and the collision becomes invisible at exactly the moment it matters.
+   */
+  ambiguousPropertyNames?: Set<string>;
   /** Units of those properties: "propertyId::lowercase label" -> unit id. */
   unitsByKey: Map<string, string>;
   /** Vendors in the org: lowercase name -> id. */
@@ -110,8 +118,25 @@ export function validateAssetCsv(text: string, ctx: ImportContext): {
     if (!propName) {
       issues.push({ column: "property_name", message: "Property is required." });
     } else {
-      const propId = ctx.propertiesByName.get(propName.toLowerCase());
-      if (!propId) {
+      const key = propName.toLowerCase();
+      const propId = ctx.propertiesByName.get(key);
+
+      // ⚠️ Two properties can share a name — the demo portfolio has two "Lekki
+      // Gardens Estate" — and this map is keyed by name, so `new Map()` keeps
+      // whichever came last and silently discards the other. A row naming that
+      // property then imports assets into ONE OF THEM, chosen by row order in
+      // an unrelated query.
+      //
+      // That is worse than a rejection: nobody sees it, and the assets are on
+      // the wrong building. So an ambiguous name is refused and says why.
+      if (ctx.ambiguousPropertyNames?.has(key)) {
+        issues.push({
+          column: "property_name",
+          message:
+            `More than one property is called "${propName}". Rename one, or import ` +
+            `to them separately — this file cannot say which you mean.`,
+        });
+      } else if (!propId) {
         issues.push({
           column: "property_name",
           message: "You do not manage a property with this name.",

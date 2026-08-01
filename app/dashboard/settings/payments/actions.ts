@@ -39,10 +39,30 @@ export async function updateFeeSettings(
     );
   }
 
+  // ⚠️ The management fee is written to `orgs`, not here.
+  //
+  // Two screens used to own this number — Payment Gate wrote
+  // `payment_settings.management_fee_percent`, Lettings wrote
+  // `orgs.management_fee_pct` (decision 14). An administrator could set 10% on
+  // one and 7% on the other and be right both times, and whichever path a
+  // given piece of rent took would decide what the landlord was paid.
+  //
+  // `orgs` is the board's model and what every rent demand snapshots from, so
+  // it is the source. `0095`'s trigger mirrors it back into `payment_settings`
+  // for `create_landlord_remittance`, which still reads the old column.
+  const { error: feeErr } = await supabase
+    .from("orgs")
+    .update({ management_fee_pct: managementFeePercent })
+    .eq("id", orgId);
+  if (feeErr) return failFromDb(feeErr, "save the management fee");
+
+  // The admin fee percentage stays here: it has no equivalent on `orgs`, whose
+  // `admin_fee_flat` is a deliberately different shape (decision 14 leaves the
+  // admin fee's model open). Merging them would mean choosing that shape by
+  // accident.
   const { error } = await supabase
     .from("payment_settings")
     .update({
-      management_fee_percent: managementFeePercent,
       admin_fee_percent: adminFeePercent,
       updated_at: new Date().toISOString(),
     })
@@ -50,5 +70,6 @@ export async function updateFeeSettings(
   if (error) return failFromDb(error, "save these fees");
 
   revalidatePath("/dashboard/settings/payments");
+  revalidatePath("/dashboard/settings/lettings");
   return ok();
 }

@@ -34,9 +34,22 @@ const bad = (m) => { failures++; console.log(`  \x1b[31mFAIL\x1b[0m ${m}`); };
 
 const svc = createClient(URL_, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 
-const orgRes = await svc.from("orgs").select("id, name, delivery_brand").is("deleted_at", null);
+const orgRes = await svc.from("orgs").select("id, name, slug, delivery_brand").is("deleted_at", null);
 if (orgRes.error) { console.error("db unreachable:", orgRes.error.message); process.exit(1); }
-const poc = orgRes.data.find((o) => o.delivery_brand === "direct");
+
+// ⚠️ By SLUG, which is the org's identifier, not by `delivery_brand === 'direct'`.
+//
+// Every user this suite signs in as is an `oe-group-foundation-poc.*` account, so
+// the org has to be that exact one. 'direct' only means "no single brand delivers
+// this" — it is equally true of the platform operator and of every independent
+// client, so the old `.find()` returned whichever row came back first. Onboarding
+// the service-charge client (0094) was enough to make it pick an org with no
+// vendors, and the suite died on `vendor.id` of null midway through section C.
+const poc = orgRes.data.find((o) => o.slug === "oe-group-foundation-poc");
+if (!poc) {
+  console.error("The Foundation POC org is missing — run npm run seed.");
+  process.exit(1);
+}
 
 const S = Date.now().toString(36).toUpperCase().slice(-5);
 const madeUsers = [];

@@ -52,10 +52,26 @@ console.log("Direct-PATCH bypass attempts against the payment gate (0010)\n");
 // `approved`, leaving nothing for the next run to test. It then reported "run
 // npm run seed first" instead of "the gate is bypassable", which is the failure
 // mode of every test that asserts a precondition it did not establish.
-const { data: probeOrg } = await svc
-  .from("orgs").select("id").is("deleted_at", null).eq("delivery_brand", "direct").limit(1).single();
-const { data: probeVendor } = await svc
-  .from("vendors").select("id").eq("org_id", probeOrg.id).limit(1).single();
+// ⚠️ Resolved from a VENDOR outwards, not from a guessed org inwards.
+//
+// This used to read "the first live org whose delivery_brand is 'direct', then a
+// vendor in it". `delivery_brand` was never an identifier — 0085 learned that
+// when two OEA orgs collided on a slug — and 'direct' means only "no single
+// brand delivers this", which is true of the POC, the platform operator, AND
+// every independent client onboarded later. Adding the service-charge client
+// (0094) made the query return an org with no vendors, and the suite died on
+// `probeVendor.id` of null: a crash about a missing property, in a file whose
+// subject is the payment gate.
+//
+// A vendor cannot exist without an org, so starting there yields a pair that is
+// guaranteed consistent and cannot be invalidated by onboarding another client.
+const { data: probeVendor, error: vendorErr } = await svc
+  .from("vendors").select("id, org_id").order("created_at").limit(1).maybeSingle();
+if (vendorErr || !probeVendor) {
+  console.error("No vendor exists to test the gate against — run npm run seed.");
+  process.exit(1);
+}
+const probeOrg = { id: probeVendor.org_id };
 
 const { data: fresh, error: freshErr } = await svc.from("payments").insert({
   org_id: probeOrg.id,

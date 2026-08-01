@@ -40,9 +40,13 @@ async function login(email) {
   return c;
 }
 
-const orgRes = await svc.from("orgs").select("id, name, delivery_brand").is("deleted_at", null);
+const orgRes = await svc.from("orgs").select("id, slug, name, delivery_brand").is("deleted_at", null);
 if (orgRes.error) { console.error("db unreachable:", orgRes.error.message); process.exit(1); }
-const poc = orgRes.data.find((o) => o.delivery_brand === "direct");
+// ⚠️ The POC org by SLUG. `delivery_brand === 'direct'` is not an identifier —
+// it means "no single brand delivers this", which is equally true of the platform
+// operator and of every independent client (the service-charge client, 0094). The
+// old `.find()` returned whichever such row came back first.
+const poc = orgRes.data.find((o) => o.slug === "oe-group-foundation-poc");
 const tfml = orgRes.data.find((o) => o.delivery_brand === "TFML");
 
 const stamp = Date.now().toString(36).toUpperCase().slice(-6);

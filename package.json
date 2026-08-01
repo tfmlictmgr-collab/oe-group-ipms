@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "migrate": "node scripts/migrate.mjs",
-    "seed": "tsx scripts/seed.mjs"
+    "seed": "tsx scripts/seed.mjs",
+    "verify": "tsx scripts/verify-all.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.112.3",

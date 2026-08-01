@@ -12,13 +12,23 @@ export default async function PaymentSettingsPage() {
   if (session.profile?.role !== "admin") return <AdminOnly what="payment gate thresholds" />;
 
   const supabase = await createClient();
-  const { data: settings } = await supabase
-    .from("payment_settings")
-    .select(
-      "min_performance_score, approval_threshold_amount, management_fee_percent, admin_fee_percent"
-    )
-    .eq("org_id", session.profile.org_id)
-    .single();
+  // The management fee is READ from `orgs` — the single source (decision 14,
+  // consolidated in 0095). `payment_settings.management_fee_percent` is now a
+  // mirror kept only for `create_landlord_remittance`, and reading it here
+  // would show a value that is correct only until someone edits the other
+  // screen.
+  const [{ data: settings }, { data: org }] = await Promise.all([
+    supabase
+      .from("payment_settings")
+      .select("min_performance_score, approval_threshold_amount, admin_fee_percent")
+      .eq("org_id", session.profile.org_id)
+      .single(),
+    supabase
+      .from("orgs")
+      .select("management_fee_pct")
+      .eq("id", session.profile.org_id)
+      .single(),
+  ]);
 
   return (
     <div className="space-y-4">
@@ -51,7 +61,7 @@ export default async function PaymentSettingsPage() {
         <CardContent>
           <FeeSettingsForm
             orgId={session.profile.org_id}
-            initialManagementFee={Number(settings?.management_fee_percent ?? 0)}
+            initialManagementFee={Number(org?.management_fee_pct ?? 0)}
             initialAdminFee={Number(settings?.admin_fee_percent ?? 0)}
           />
         </CardContent>
