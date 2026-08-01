@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Building2, Users, ArrowRight, ShieldAlert } from "lucide-react";
+import { Building2, Users, ArrowRight, ShieldAlert, ChevronRight } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
 import { Badge } from "@/components/ui/badge";
@@ -92,16 +92,21 @@ export default async function OrgLauncherPage() {
         </ul>
 
         {retired.length > 0 && (
-          <div className="mt-14">
-            <h2 className="eyebrow mb-3 text-muted-foreground">
+          // Folded away by default. A retired organisation is something an
+          // operator occasionally needs to find, not something that should
+          // compete with the live ones for attention every time this page
+          // loads — and the count is visible without expanding it.
+          <details className="group mt-14">
+            <summary className="eyebrow mb-3 inline-flex cursor-pointer list-none items-center gap-1.5 text-muted-foreground transition-colors hover:text-foreground">
+              <ChevronRight className="size-3.5 transition-transform group-open:rotate-90" />
               Retired · {retired.length}
-            </h2>
+            </summary>
             <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {retired.map((o) => (
                 <OrgCard key={o.id} org={o} />
               ))}
             </ul>
-          </div>
+          </details>
         )}
       </div>
     </main>

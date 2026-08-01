@@ -20,7 +20,7 @@ export async function getSessionProfile() {
   const { data: org } = await supabase
     .from("orgs")
     .select(
-      "id, name, delivery_brand, theme_primary, theme_accent, theme_logo_text, logo_url, portal_name, tagline, support_email, support_phone, login_headline, finance_email, it_email, email_from_name, email_from_address"
+      "id, name, delivery_brand, is_platform_operator, theme_primary, theme_accent, theme_logo_text, logo_url, portal_name, tagline, support_email, support_phone, login_headline, finance_email, it_email, email_from_name, email_from_address"
     )
     .eq("id", profile?.org_id)
     .single();

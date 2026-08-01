@@ -11,6 +11,7 @@ import {
   ShieldCheck,
   Settings,
   UserPlus,
+  LayoutGrid,
   type LucideIcon,
 } from "lucide-react";
 
@@ -38,6 +39,17 @@ export type NavContext = {
   canEnroll: boolean;
   /** The client-funds ledger is finance + admin only. */
   seesLedger: boolean;
+  /**
+   * An administrator of the platform operator org — the only person who may see
+   * that other organisations exist (decision 12).
+   *
+   * ⚠️ This is presentation only, and deliberately so: `operator_org_directory()`
+   * gates on `caller_is_operator_admin()` INSIDE the query, so a brand admin who
+   * reached /orgs by typing the URL gets an empty set rather than a refusal — a
+   * refusal confirms there is something worth refusing. Hiding the link is a
+   * courtesy; the function is the boundary.
+   */
+  isOperator: boolean;
 };
 
 export type NavItem = {
@@ -108,6 +120,20 @@ export const NAV_GROUPS: NavGroup[] = [
         href: "/dashboard/payments",
         icon: Banknote,
         show: (c) => c.isStaff,
+      },
+    ],
+  },
+  {
+    heading: "Operator",
+    items: [
+      {
+        // The org launcher. Built on Day 8.8 and — until now — linked from
+        // nowhere at all, so the only way to reach it was to type the URL. A
+        // route no journey leads to is not a shipped feature.
+        label: "Organisations",
+        href: "/orgs",
+        icon: LayoutGrid,
+        show: (c) => c.isOperator,
       },
     ],
   },

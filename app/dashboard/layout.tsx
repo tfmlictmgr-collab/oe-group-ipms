@@ -39,6 +39,10 @@ export default async function DashboardLayout({
     seesAssets: ["admin", "facility_manager", "finance_approver", "property_owner"].includes(role),
     canEnroll: ["admin", "facility_manager"].includes(role),
     seesLedger: ["admin", "finance_approver"].includes(role),
+    // Administrator of the platform operator org. Asked of the org record
+    // rather than inferred from the role, because "admin" means admin of YOUR
+    // org — every brand has one, and only one org is the operator.
+    isOperator: role === "admin" && Boolean(org?.is_platform_operator),
   };
 
   return (
