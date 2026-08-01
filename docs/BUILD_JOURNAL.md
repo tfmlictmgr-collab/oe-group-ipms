@@ -2213,3 +2213,56 @@ blank one**: nobody notices, and a reviewer rings a stranger to check a tenancy.
 `application-form.ts`, run the function over each, assert no third-party field
 gets anything but `off`. Reading the regex back would never have found it,
 because the regex looks right. It only looks wrong beside the data.
+
+---
+
+## Day 9 — leases, rent, and the landlord's share
+
+⚖️ **Rent in Nigeria is paid annually, in advance** — one or two years up front
+is ordinary, and monthly residential rent is the exception. Almost every
+off-the-shelf PM system assumes a monthly cycle, and adopting that assumption
+would have modelled this market wrongly at the root. `annual` is the default
+frequency and the lease form defaults to it, rather than making a letting agent
+correct the same field on every tenancy they type.
+
+🟢 Locked decision 14 built: an org-wide default management fee with a
+per-landlord override, and the applicable rate **snapshotted onto every charge**
+when it is raised. Proven by moving the org rate to 25% and confirming an
+existing charge does not budge — the decision exists precisely so a rate change
+cannot rewrite a past landlord statement, so that is asserted, not assumed.
+
+⚖️ `raise_rent_charge` is the only write path into `rent_charges`, and there is
+no INSERT policy for `authenticated` at all. An administrator able to hand-write
+a charge could claim any fee on it, and the landlord statement would faithfully
+repeat the figure.
+
+⚖️ A unit cannot be let twice over the same days — a GiST exclusion constraint
+rather than a report someone reads later, because a double-let is two families
+holding keys to one flat. The suite also proves back-to-back terms still work,
+or no unit could ever be re-let.
+
+⚠️ **A suite assertion passed on zero rows.** "None of these rows belong to
+anyone else" is trivially true when the caller can see nothing — and the tenant
+could see nothing, because `rent_roll` is `security_invoker` and joins
+`properties`, which tenants have had no read on since `0056`. The check reported
+PASS while the feature was broken.
+
+📌 **This is the second time this shape has hidden a defect in this build.** A
+negative assertion is not a test until it also proves the positive: assert rows
+exist, THEN assert none are foreign. Fixed with `my_tenancies()`, the
+denormalised definer-scoped shape `0003` had already established for tenants —
+widening `properties_select` to admit occupants would have granted every tenant
+a read on the property register to answer "show me my flat".
+
+⚠️ **And the probe-account sweep was reporting work it had not done.** It counted
+successful deletes and discarded the errors, so every account with any history
+was skipped silently — 72 probe users were still sitting in the tenant picker
+after it claimed to have cleaned up. They cannot be deleted at all:
+`audit_log.actor_id` references `users` and the audit trail is append-only, so
+an actor can never be erased. Deactivation is the correct answer and the one the
+product already uses for a departing member; 66 are now gone from every picker
+with their audit history intact.
+
+📌 **Counting successes while discarding errors is how a cleanup reports work it
+did not do.** Same fault as the fixture orgs that could not be removed — and
+both times the database was right to refuse.
