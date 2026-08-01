@@ -2266,3 +2266,53 @@ with their audit history intact.
 📌 **Counting successes while discarding errors is how a cleanup reports work it
 did not do.** Same fault as the fixture orgs that could not be removed — and
 both times the database was right to refuse.
+
+---
+
+## Rent reaches the ledger, and notices reach tenants once
+
+⚠️ **The fee was computed everywhere except where the money is.**
+`record_collection` credited the whole receipt to `landlord_payable` for any
+rent intent, so a ₦12,000,000 payment made the landlord a creditor for
+₦12,000,000 — the ₦1,200,000 management fee included. The rent roll displayed
+the correct net all along. The **ledger**, which is what a landlord is actually
+paid from, did not.
+
+⚠️ **And three different places claimed to know the fee:**
+`payment_settings.management_fee_percent` (0027, used by
+`create_landlord_remittance`), `orgs.management_fee_pct` + `landlord_terms`
+(decision 14), and the snapshot frozen onto each `rent_charges` row. I created
+the third of those in Day 9 without reconciling the first. CLAUDE.md warns that
+two mechanisms answering one question is how the ledger-account resolver ended
+up applied in half the places it was needed — this was three, and they could
+disagree about what a landlord is owed.
+
+⚖️ The snapshot is now authoritative for rent. The fee is taken **once**, at
+collection, and `create_rent_remittance` pays out a balance that is already net.
+Remitting through the older path would have deducted the fee a second time and
+shorted the landlord twice over.
+
+⚖️ Notice idempotency lives in the **database, not the schedule**. A
+`(lease, threshold)` row is claimed *before* the email is attempted, so a
+retrying scheduler, a manual re-run and two racing deploys all send nothing
+extra. Write-then-send is deliberate: a crash between the two leaves `delivered`
+false and a row explaining it, which an operator can act on. Silently mailing
+someone three times is recoverable by nobody.
+
+⚠️ **Two bugs of the same kind, one migration apart.** I wrote
+`'partially_paid'` and `'processing'` (0092c), then `user_id` and `'pending'` on
+`remittances` (0092d) — all four plausible, none real. I was writing from memory
+instead of reading the DDL.
+
+📌 The first broke **every** collection, not just rent, because the status update
+runs on all paths. And Postgres could not warn me: a plpgsql body is not
+resolved until it executes, so the migration applied cleanly and the failure sat
+waiting for the first payment. **A function body is not type-checked until it
+runs — the suite is the only thing standing between that and production.**
+Reading the table definition takes ten seconds; guessing cost two rounds.
+
+⚠️ The per-landlord rate field saved on **blur**, with nothing on screen saying
+the value would be kept — so someone typing a rate and closing the tab lost it
+silently. Replaced with an explicit Save that appears only when there is
+something to save. Blur-to-save is a reasonable pattern for a filter; it is the
+wrong one for money.
