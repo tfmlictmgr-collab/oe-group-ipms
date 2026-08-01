@@ -12,6 +12,7 @@ import {
   Settings,
   UserPlus,
   LayoutGrid,
+  FileSignature,
   type LucideIcon,
 } from "lucide-react";
 
@@ -101,6 +102,14 @@ export const NAV_GROUPS: NavGroup[] = [
         label: "Vendors",
         href: "/dashboard/vendors",
         icon: Building2,
+        show: (c) => c.isStaff,
+      },
+      {
+        label: "Leases & Rent",
+        href: "/dashboard/leases",
+        icon: FileSignature,
+        // Lettings is OEA-only (B9), and the page itself says so for an org
+        // without the module — shown to operational staff, scoped by RLS.
         show: (c) => c.isStaff,
       },
       {

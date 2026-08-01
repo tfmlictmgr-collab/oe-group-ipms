@@ -47,25 +47,65 @@ const TENANT_ROLES = [
 // Same fault class as the hierarchy nodes and the probe properties: suites whose
 // end-of-run cleanup never ran because an earlier assertion threw. They surface
 // as dozens of nonsense names on the People screen.
-const PROBE_PATTERNS = ["probe%", "probeop.%", "probehier.%", "probereview.%", "invitee-%"];
-let swept = 0;
+// ⚠️ These are DEACTIVATED, not deleted, and the distinction is not a
+// compromise — it is the only correct answer.
+//
+// `audit_log.actor_id` references `users`, and the audit trail is append-only
+// (guardrail A3, enforced by trigger). Any account that has ever done anything
+// therefore CANNOT be hard-deleted, by design: erasing an actor would leave
+// audit records pointing at nobody.
+//
+// The first version of this sweep tried to delete and counted only successes —
+// so it silently skipped every account with any history, reported a number, and
+// left 72 probe users sitting in the tenant picker. **Counting successes while
+// discarding errors is how a cleanup reports work it did not do.**
+//
+// Deactivation is what the product already uses for a departing member: the row
+// stays for the audit trail, and every picker filters `deactivated_at is null`,
+// so they disappear from the UI without breaking the record.
+const PROBE_PATTERNS = [
+  "probe%", "probeop.%", "probehier.%", "probereview.%", "probeapp-%",
+  "invitee-%", "%@oegroup-probe.test", "%@oegroup-invite.test",
+];
+let deactivated = 0;
+let removed = 0;
+const failures = [];
+
 for (const pattern of PROBE_PATTERNS) {
-  const { data } = await svc.from("users").select("id, email").ilike("email", pattern);
+  const { data } = await svc
+    .from("users").select("id, email").ilike("email", pattern).is("deactivated_at", null);
   for (const u of data ?? []) {
-    // Detach anything that would hold the row back, then remove the profile and
-    // the auth account together — a profile without its auth user is a ghost
-    // that can never sign in and never be cleaned up by email again.
+    // Detach the live attachments either way, so a probe account stops holding
+    // a unit or a vendor record even while its audit history keeps the row.
     await svc.from("property_stakeholders").delete().eq("user_id", u.id);
     await svc.from("units").update({ occupant_user_id: null }).eq("occupant_user_id", u.id);
     await svc.from("vendors").update({ user_id: null }).eq("user_id", u.id);
+
+    // Try a real delete first — an account that never acted leaves nothing
+    // behind and is better gone than lingering as a deactivated ghost.
     const { error } = await svc.from("users").delete().eq("id", u.id);
     if (!error) {
       await svc.auth.admin.deleteUser(u.id).catch(() => {});
-      swept++;
+      removed++;
+      continue;
     }
+
+    const { error: deactErr } = await svc
+      .from("users").update({ deactivated_at: new Date().toISOString() }).eq("id", u.id);
+    if (deactErr) failures.push(`${u.email}: ${deactErr.message.slice(0, 50)}`);
+    else deactivated++;
   }
 }
-console.log(`Swept ${swept} probe account(s).\n`);
+
+console.log(
+  `Probe accounts — ${removed} deleted, ${deactivated} deactivated ` +
+  `(kept for the audit trail they are referenced by).`
+);
+if (failures.length) {
+  console.log(`  ${failures.length} could not be cleared:`);
+  for (const f of failures.slice(0, 5)) console.log(`   ${f}`);
+}
+console.log("");
 
 // ── 2. Resolve the organisations ──────────────────────────────────────────
 const { data: orgs, error: orgErr } = await svc
