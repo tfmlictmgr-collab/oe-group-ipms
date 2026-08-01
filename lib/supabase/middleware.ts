@@ -51,7 +51,12 @@ export async function updateSession(request: NextRequest) {
     supabaseResponse = withHeaders;
   }
 
-  const isProtected = request.nextUrl.pathname.startsWith("/dashboard");
+  // `/orgs` joins `/dashboard` behind the sign-in. It is the operator launcher
+  // and the root now forwards to it, so an unauthenticated visitor reaches it on
+  // an ordinary first visit — without this they would hit the page's own
+  // redirect rather than a clean bounce to the login screen.
+  const path = request.nextUrl.pathname;
+  const isProtected = path.startsWith("/dashboard") || path === "/orgs";
   if (isProtected && !user) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";

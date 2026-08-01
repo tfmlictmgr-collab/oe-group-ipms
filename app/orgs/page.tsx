@@ -43,8 +43,17 @@ export default async function OrgLauncherPage() {
   const { data } = await supabase.rpc("operator_org_directory");
   const orgs = (data ?? []) as Row[];
 
-  // An empty set is what a non-operator gets. Said plainly rather than shown as
-  // an empty grid, which would read as "the platform has no organisations".
+  // An empty set is what a non-operator gets — and since /login now routes
+  // everyone here first, that is the ordinary path for a tenant user who used
+  // the platform door instead of their own. Send them where they were going
+  // rather than explaining a page that is not for them.
+  //
+  // This reveals nothing: they learn they are not an operator, which they knew.
+  // It says nothing about whether any other organisation exists.
+  if (orgs.length === 0 && session.profile) {
+    redirect("/dashboard");
+  }
+
   if (orgs.length === 0) {
     return (
       <main className="mx-auto max-w-3xl px-5 py-16">
