@@ -678,8 +678,13 @@ daily cron with idempotency in the database — one notice per (lease, threshold
 claimed before the email is attempted.
 
 Settings → Lettings owns the numbers: default fee, flat admin fee, notice lead
-times (90/60/30) and the rent demand lead. **These were defaults, not your
-confirmation** — change them there if the portfolio wants different.
+times and the rent demand lead.
+
+**Confirmed 1 August 2026 (locked decision 15):** renewal notices at
+**90/60/30 days**, rent billed **annually in advance**. These were carried as my
+defaults until this point and are now the client's stated terms — still
+admin-editable per org, because a commercial portfolio may want longer notice
+than a residential one.
 
 Suites: `verify-leases-and-rent` (20), `verify-rent-money` (16),
 `verify-lease-notices` (11).
