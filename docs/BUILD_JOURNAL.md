@@ -2316,3 +2316,68 @@ the value would be kept — so someone typing a rate and closing the tab lost it
 silently. Replaced with an explicit Save that appears only when there is
 something to save. Blur-to-save is a reasonable pattern for a filter; it is the
 wrong one for money.
+
+---
+
+## Fixing what was broken: runners, fixtures, and one real defect
+
+Asked to fix everything outstanding, the first job was finding out what was
+actually broken rather than trusting my own list. Running all fifty suites
+surfaced five problems, and only one of them was where I expected.
+
+⚠️ **Three "broken" suites were fine — I ran them wrongly.**
+`verify-asset-import`, `verify-asset-import-e2e` and `verify-reconciliation`
+import `.ts` modules whose own imports carry no file extension, which bare
+`node` cannot resolve. Their headers say `npx tsx`. Nothing at the point of use
+did, so a full sweep with `node` reported three healthy suites as broken.
+
+📌 **A false failure is worse than a missing test**, because it teaches whoever
+sees it to discount failures. Fixed with `npm run verify` — one command, one
+runner, all fifty-one, per-suite timeouts so a hang reports as a failure instead
+of looking like patience.
+
+⚠️ **A real product defect was hiding behind a fixture failure.**
+`propertiesByName` is a `Map` keyed on property name, and two properties can
+share one — the demo portfolio had two "Lekki Gardens Estate". `new Map()` keeps
+the last pair and discards the earlier silently, so a CSV row naming that
+property imported assets into whichever happened to come last in an unrelated
+query.
+
+⚖️ That is worse than a rejection: nobody sees it, and the assets end up on the
+wrong building. An ambiguous name is now refused and names itself. The
+collision is only visible in the raw pairs, *before* the Map collapses them,
+which is where the check now lives.
+
+⚠️ **Fixtures that could not observe what they asserted.** The org-scoped logins
+were created with no property assignments at all, so the manager managed
+nothing. `verify-asset-access` failed with "create on managed property refused"
+— the policy was correct and the fixture was empty — and `verify-access-matrix`
+reported seven scoping failures for a manager with nothing to scope.
+
+📌 Attaching them to **everything** was equally useless. "FM sees 15 payments,
+admin sees 15" is then the correct answer, and scoping becomes unobservable. **A
+boundary can only be tested where something sits on the far side of it.** The
+manager now holds a proper subset, and which property is withheld is *chosen*:
+one carrying vendors, so the money boundary has an exclusion to prove — but
+holding the fewest assets, so the importer's duplicate-tag fixture stays within
+reach. Two suites wanted opposite things from one property; that rule satisfies
+both.
+
+⚖️ **Two places still claimed to know the management fee.** `payment_settings`
+(read by the older landlord remittance path) and `orgs.management_fee_pct`
+(decision 14). An administrator could set 10% on one screen and 7% on the other
+and be right both times. `orgs` is now the single source, mirrored into the
+legacy column by trigger, and both settings screens read and write the one
+number.
+
+⚠️ **And a correction to my own account.** I recorded that the probe sweep had
+gone rogue and deactivated eleven real demo accounts, and could not reproduce
+it. That was wrong: those eleven were retired **deliberately**, by a separate
+script, when the org-scoped credentials replaced the flat pool. I had restored
+them on a misdiagnosis; they are retired again, and nothing references them.
+
+📌 The guard I added on the strength of that misdiagnosis stays — not because a
+bug was found, but because the blast radius of a wrong pattern there is every
+login in the system. What genuinely needed fixing was the reporting: **a cleanup
+that prints only a count cannot tell you whether it touched the right rows.** It
+now names every address it sweeps.
