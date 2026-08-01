@@ -664,6 +664,29 @@ landlord statement. **Day 9 is now unblocked.**
 
 **Done when:** lease → rent → roll → notice works end to end.
 
+**Status — built, 1 August.** `leases` (with a GiST exclusion so one unit cannot
+be let twice over the same days), `rent_charges` with the fee split **frozen on
+the demand**, `rent_roll`, `my_tenancies()` for the tenant's own view, renewal
+with the escalation on the NEW term, and the rent roll UI with bill/renew.
+Nigerian practice — **annual rent, paid in advance** — is the default rather
+than a monthly cycle.
+
+Rent now reaches the ledger: a receipt splits into the landlord's share and the
+fee using the snapshot, and `create_rent_remittance` pays out a balance that is
+already net rather than deducting a second time. Renewal notices dispatch on a
+daily cron with idempotency in the database — one notice per (lease, threshold),
+claimed before the email is attempted.
+
+Settings → Lettings owns the numbers: default fee, flat admin fee, notice lead
+times (90/60/30) and the rent demand lead. **These were defaults, not your
+confirmation** — change them there if the portfolio wants different.
+
+Suites: `verify-leases-and-rent` (20), `verify-rent-money` (16),
+`verify-lease-notices` (11).
+
+**Still to do:** the rent demand lead is stored and honoured by nothing yet —
+demands are raised by hand from the rent roll rather than on a schedule.
+
 ---
 
 # TRACK D — Intelligence & experience (Days 10–11)
