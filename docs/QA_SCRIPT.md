@@ -4,11 +4,26 @@ A single narrative that exercises all six modules in logical order. Run it
 start-to-finish; every step lists the **expected result**. If a step deviates,
 note it for Day 19.
 
-**Setup:** `npm run seed` for a clean dataset. App: `https://oe-group-ipms.vercel.app`.
+**Setup:** `npm run seed` for a clean dataset, then `node scripts/seed-org-logins.mjs`
+for the per-org credentials below. `npm run verify` runs every suite.
+App: `https://oe-group-ipms.vercel.app`.
+
+**Which door to use.** Each organisation has its own address, and the login you
+hold decides which one works:
+
+| Who | Sign in at | Lands on |
+|---|---|---|
+| OE Group platform admin (`platform@oegroup.test`) | `/login` | the **org launcher** — every organisation as a card |
+| Anyone in a client org | `/o/<slug>` — e.g. `/o/tfml`, `/o/oea` | that org's own dashboard |
+
+A client signing in at `/login` is forwarded to their own dashboard; they never
+see the launcher, and nothing tells them another organisation exists (B1).
+
 All logins use password **`OEGroupDemo2026!`**:
 
 | Login | Role | Name |
 |---|---|---|
+| `platform@oegroup.test` | **Platform operator** | OE Group Platform Admin |
 | `oe-group-foundation-poc.admin@oegroup.test` | Admin | Demo Admin |
 | `oe-group-foundation-poc.financeapprover@oegroup.test` | Finance/Approver | Oke Anderson |
 | `oe-group-foundation-poc.facilitymanager@oegroup.test` | Facility Manager | Abdul Owo |
