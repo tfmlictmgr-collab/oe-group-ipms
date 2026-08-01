@@ -187,8 +187,16 @@ console.log("\nF. A region cannot be handed outside the one you hold");
     madeNodes.push(data.id);
     return data.id;
   };
+  // REGION → LOCATION → PROJECT → SITE (0087). A project is no longer a child
+  // of a region — it hangs under the city it happens in — so the grantable node
+  // now sits TWO levels below the region the manager holds. That is the better
+  // test of the two: the guard is `target.path like mine.path || '%'`, a prefix
+  // over the materialised path, and reach was never meant to stop at the
+  // immediate child. Under the old order this assertion could not tell a
+  // subtree check from a parent check, because they agreed on every row it made.
   const north = await mk(null, "region", `PROBEHIER-North-${S}`);
-  const northProject = await mk(north, "project", `PROBEHIER-NProj-${S}`);
+  const northCity = await mk(north, "location", `PROBEHIER-NCity-${S}`);
+  const northProject = await mk(northCity, "project", `PROBEHIER-NProj-${S}`);
   const south = await mk(null, "region", `PROBEHIER-South-${S}`);
 
   const rm = await svc.from("users").select("id, email").eq("id", madeUsers[0]).single();
@@ -198,7 +206,7 @@ console.log("\nF. A region cannot be handed outside the one you hold");
   const c = await login(rm.data.email);
 
   const eIn = await tryInvite(c, rm.data.id, "facility_manager", { node_id: northProject });
-  !eIn ? ok("a regional manager hands out a project inside their own region")
+  !eIn ? ok("a regional manager hands out a project nested two levels inside their own region")
        : bad(`refused a node in their own subtree — ${eIn.message.slice(0, 70)}`);
 
   const eOut = await tryInvite(c, rm.data.id, "facility_manager", { node_id: south });
@@ -254,9 +262,9 @@ console.log("\nH. Every attachment an invitation carries is scoped (audit 0729c-
     return data.id;
   };
   const region = await mk(null, "region", `PROBEHIER-H-Region-${S}`);
-  const project = await mk(region, "project", `PROBEHIER-H-Proj-${S}`);
-  const location = await mk(project, "location", `PROBEHIER-H-Loc-${S}`);
-  const site = await mk(location, "site", `PROBEHIER-H-Site-${S}`);
+  const location = await mk(region, "location", `PROBEHIER-H-Loc-${S}`);
+  const project = await mk(location, "project", `PROBEHIER-H-Proj-${S}`);
+  const site = await mk(project, "site", `PROBEHIER-H-Site-${S}`);
 
   const mine = await mkProp(`PROBEHIER-H-Mine-${S}`, site);
   const theirs = await mkProp(`PROBEHIER-H-Theirs-${S}`, null);
