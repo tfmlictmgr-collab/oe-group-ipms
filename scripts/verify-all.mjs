@@ -75,12 +75,18 @@ const run = (file) =>
       // suites drive the running app over HTTP; say so plainly.
       const needsServer = /Cannot reach https?:\/\/[^\s]+/.exec(out);
 
+      // A script that asserts nothing is not coverage, and a green PASS beside
+      // it says otherwise. Marked so the count of real suites stays honest.
+      const demoOnly = /DEMONSTRATION ONLY/.test(out);
+
       const summary = needsServer
         ? `needs the dev server — run \`npm run dev\`, then retry`
-        : out.match(/ALL CHECKS PASSED[^\n]*/)?.[0] ??
-          out.match(/\d+ (?:CHECK\(S\) )?FAIL(?:URE\(S\))?[^\n]*/i)?.[0] ??
-          out.match(/Error[^\n]*/)?.[0] ??
-          "(no summary line — the suite printed nothing recognisable)";
+        : demoOnly
+          ? "demonstration only — asserts nothing"
+          : out.match(/ALL CHECKS PASSED[^\n]*/)?.[0] ??
+            out.match(/\d+ (?:CHECK\(S\) )?FAIL(?:URE\(S\))?[^\n]*/i)?.[0] ??
+            out.match(/Error[^\n]*/)?.[0] ??
+            "(no summary line — the suite printed nothing recognisable)";
       resolve({
         name,
         ok: code === 0,
@@ -88,6 +94,7 @@ const run = (file) =>
         // Counted and listed separately at the end so it stays visible — a
         // silently skipped suite is one that never runs again.
         skipped: Boolean(needsServer),
+        demoOnly,
         why: summary.replace(/\x1b\[[0-9;]*m/g, "").slice(0, 96),
         secs,
       });
@@ -100,9 +107,11 @@ for (const file of suites) {
   results.push(r);
   const mark = r.skipped
     ? "\x1b[33mSKIP\x1b[0m"
-    : r.ok
-      ? "\x1b[32mPASS\x1b[0m"
-      : "\x1b[31mFAIL\x1b[0m";
+    : r.demoOnly
+      ? "\x1b[36mDEMO\x1b[0m"
+      : r.ok
+        ? "\x1b[32mPASS\x1b[0m"
+        : "\x1b[31mFAIL\x1b[0m";
   console.log(`${mark} ${r.name.padEnd(34)} ${String(r.secs).padStart(4)}s  ${r.why}`);
 }
 
