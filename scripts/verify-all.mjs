@@ -70,14 +70,24 @@ const run = (file) =>
     child.on("close", (code) => {
       clearTimeout(timer);
       const secs = Math.round((Date.now() - started) / 1000);
-      const summary =
-        out.match(/ALL CHECKS PASSED[^\n]*/)?.[0] ??
-        out.match(/\d+ (?:CHECK\(S\) )?FAIL(?:URE\(S\))?[^\n]*/i)?.[0] ??
-        out.match(/Error[^\n]*/)?.[0] ??
-        "(no summary line)";
+      // A missing precondition is not a code failure, and reporting it as one
+      // sends whoever sees it hunting through a policy that is working. Some
+      // suites drive the running app over HTTP; say so plainly.
+      const needsServer = /Cannot reach https?:\/\/[^\s]+/.exec(out);
+
+      const summary = needsServer
+        ? `needs the dev server — run \`npm run dev\`, then retry`
+        : out.match(/ALL CHECKS PASSED[^\n]*/)?.[0] ??
+          out.match(/\d+ (?:CHECK\(S\) )?FAIL(?:URE\(S\))?[^\n]*/i)?.[0] ??
+          out.match(/Error[^\n]*/)?.[0] ??
+          "(no summary line — the suite printed nothing recognisable)";
       resolve({
         name,
         ok: code === 0,
+        // Distinct from a failure: the suite never got to run its assertions.
+        // Counted and listed separately at the end so it stays visible — a
+        // silently skipped suite is one that never runs again.
+        skipped: Boolean(needsServer),
         why: summary.replace(/\x1b\[[0-9;]*m/g, "").slice(0, 96),
         secs,
       });
@@ -88,15 +98,32 @@ const results = [];
 for (const file of suites) {
   const r = await run(file);
   results.push(r);
-  const mark = r.ok ? "\x1b[32mPASS\x1b[0m" : "\x1b[31mFAIL\x1b[0m";
+  const mark = r.skipped
+    ? "\x1b[33mSKIP\x1b[0m"
+    : r.ok
+      ? "\x1b[32mPASS\x1b[0m"
+      : "\x1b[31mFAIL\x1b[0m";
   console.log(`${mark} ${r.name.padEnd(34)} ${String(r.secs).padStart(4)}s  ${r.why}`);
 }
 
-const failed = results.filter((r) => !r.ok);
+const skipped = results.filter((r) => r.skipped);
+const failed = results.filter((r) => !r.ok && !r.skipped);
+
+if (skipped.length > 0) {
+  console.log(
+    `\n\x1b[33m${skipped.length} suite(s) could not run:\x1b[0m\n` +
+    skipped.map((r) => `  ${r.name} — ${r.why}`).join("\n")
+  );
+}
+
 console.log(
   failed.length === 0
-    ? `\n\x1b[32m${results.length} suite(s) passed.\x1b[0m`
+    ? `\n\x1b[32m${results.length - skipped.length} of ${results.length} suite(s) passed` +
+      `${skipped.length ? `, ${skipped.length} skipped` : ""}.\x1b[0m`
     : `\n\x1b[31m${failed.length} of ${results.length} suite(s) FAILED:\x1b[0m\n` +
       failed.map((r) => `  ${r.name} — ${r.why}`).join("\n")
 );
-process.exit(failed.length === 0 ? 0 : 1);
+
+// A skip is not a pass, but it is not a failure either — it exits non-zero so
+// nothing green-lights on a suite that never executed.
+process.exit(failed.length === 0 && skipped.length === 0 ? 0 : 1);
