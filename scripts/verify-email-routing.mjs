@@ -81,4 +81,15 @@ console.log("\nF. Display names are quoted so punctuation can't split the header
 console.log(failures === 0
   ? "\n\x1b[32mALL CHECKS PASSED\x1b[0m — replies route to a real, monitored inbox."
   : `\n\x1b[31m${failures} CHECK(S) FAILED\x1b[0m`);
-process.exit(failures === 0 ? 0 : 1);
+
+// ⚠️ `process.exit()` here, not `exitCode`, crashed Node on Windows with
+//   Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), src\win\async.c:76
+// and an exit status of 127 — AFTER printing ALL CHECKS PASSED. The supabase
+// client's keep-alive socket is still closing when `process.exit()` tears the
+// loop down underneath libuv.
+//
+// 📌 The checks were fine; the process died on the way out. A runner that reads
+// exit codes therefore called a healthy suite a failure — the same class of
+// false alarm as the prose-matching safety check. Setting `exitCode` lets the
+// loop drain and the status is still honest.
+process.exitCode = failures === 0 ? 0 : 1;

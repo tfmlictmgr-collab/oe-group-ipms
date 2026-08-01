@@ -87,7 +87,7 @@ async function node(parentId, level, name) {
 
 let siteFor = {};
 if (lagos) {
-  const project = await node(lagos, "project", "Island Service Charge Portfolio");
+  const project = await node(lagos.id, "project", "Island Service Charge Portfolio");
   siteFor = {
     "Harbourpoint Residences": await node(project, "site", "Harbourpoint Estate"),
     "Marina Business Court": await node(project, "site", "Marina Court Complex"),

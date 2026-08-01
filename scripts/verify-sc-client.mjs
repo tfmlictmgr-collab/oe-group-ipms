@@ -137,6 +137,27 @@ console.log("\nD. Being associated grants no sight of the client");
   ok("a TFML admin cannot read the client's people", (seenUsers ?? []).length === 0,
     `saw ${(seenUsers ?? []).length}`);
 
+  // ⚠️ These four only mean something once the client HOLDS data. While the org
+  // was an empty shell every "cannot see" assertion passed for the wrong reason —
+  // there was nothing to see. Seeded via scripts/seed-sc-client.mjs; if the seed
+  // has not been run these degrade to the same vacuous pass, so the count of what
+  // exists is asserted first.
+  const { count: realProps } = await svc.from("properties")
+    .select("*", { count: "exact", head: true }).eq("org_id", org.id);
+  ok("the client actually holds data, so the checks below are not vacuous",
+    (realProps ?? 0) > 0, "run node scripts/seed-sc-client.mjs");
+
+  if ((realProps ?? 0) > 0) {
+    for (const [table, label] of [
+      ["properties", "properties"], ["vendors", "vendors"],
+      ["payments", "vendor payments"], ["sc_budgets", "service-charge budgets"],
+    ]) {
+      const { data: rows } = await tfmlAdmin.from(table).select("id").eq("org_id", org.id);
+      ok(`a TFML admin cannot read the client's ${label}`, (rows ?? []).length === 0,
+        `saw ${(rows ?? []).length}`);
+    }
+  }
+
   const { error: writeErr } = await tfmlAdmin.from("org_brand_associations")
     .insert({ org_id: org.id, brand: "TFML", engagement: "self-granted" });
   ok("a brand admin cannot write itself an association", !!writeErr,

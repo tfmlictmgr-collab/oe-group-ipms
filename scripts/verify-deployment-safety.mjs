@@ -74,9 +74,30 @@ console.log("\nC. The payment gate is enforced in the database");
   /approval_threshold_amount/.test(src)
     ? ok("the approval threshold is checked in enforce_payment_transition()")
     : bad("the amount threshold is NOT in the trigger — a direct PATCH bypasses it");
-  /only finance\/admin may remit/.test(src)
-    ? ok("remittance is role-gated in the trigger")
+  // ⚠️ This matched the literal prose "only finance/admin may remit". The
+  // message was later reworded to "only finance or an administrator may remit
+  // payments" — an improvement — and this check began reporting **"do NOT go
+  // live"** against a control that was intact and correct.
+  //
+  // 📌 A safety assertion tied to a human-readable string fails in both
+  // directions: it cries wolf whenever someone improves the copy, and it passes
+  // happily if someone keeps the message and deletes the guard underneath it.
+  // Assert the CONTROL, not the sentence describing it.
+  //
+  // The control is the role list on the remit transition, and what matters most
+  // about it is a negative: `executive` must NOT appear. Decision 9 is explicit
+  // that oversight authorises and finance disburses — an executive co-approves
+  // payments above the threshold and may never execute the transfer.
+  const remitGuard = /caller_role\s+not\s+in\s*\(\s*'finance_approver'\s*,\s*'admin'\s*\)/;
+  const remitBlock = src.slice(src.indexOf("new.status = 'remitted'"));
+
+  remitGuard.test(remitBlock)
+    ? ok("remittance is role-gated to finance and admin in the trigger")
     : bad("the remit role check is missing from the trigger");
+
+  /'executive'/.test(remitBlock.split("raise exception")[0])
+    ? bad("EXECUTIVE CAN REMIT — decision 9 says oversight authorises, finance disburses")
+    : ok("and an executive cannot remit — authorising is not disbursing");
 }
 
 console.log("\nD. A property reference cannot cross an organisation");
