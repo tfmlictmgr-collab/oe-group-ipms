@@ -2171,3 +2171,45 @@ to happen at the start of the next run, which is the only moment guaranteed to
 be reached, and it now does for hierarchy nodes, properties and applications
 alike. 26 stray properties were cleared on the first sweep; all six real
 properties and every live application were untouched.
+
+---
+
+## Day 8.9 — the surfaces a client actually sees
+
+⚠️ **A B1 violation had been sitting in static copy the whole time.** The
+sign-in footer was hardcoded `© OE Group · TFML & Ora Egbunike & Associates`
+and rendered on *every* door — so a TFML employee signing in at their own
+branded address read the other brand's name. That is precisely what B1 forbids:
+"must never see the other brand's data **or existence**." It sat three lines
+below a comment asserting that this component "never learns that any other
+organisation exists."
+
+⚖️ The lesson is where it was, not what it was. Org isolation is enforced at
+four layers and every one of them held. The leak was in a string a designer
+would call copy and a reviewer would skim — **the one place in the system where
+nothing is enforced.** Policies and RLS cannot protect a hardcoded sentence.
+Worth grepping the rest of the client-facing copy for the same shape.
+
+🟢 Public links carry a readable handle: `/tenancy/oea` rather than
+`/tenancy/98638544-8e25-44ab-9a20-7f1aac3a1534`. Ids still resolve, permanently
+— links already sent are in inboxes and on printed sheets, and breaking them to
+tidy a URL would strand applicants who did nothing wrong.
+
+⚠️ **Every input was 14px.** Mobile Safari zooms whenever a focused input is
+below 16px, so on a phone each tap jerked the layout and the applicant pinched
+back out before finding the next field. On a fourteen-section tenancy form that
+is not cosmetic — it is the reason someone abandons it halfway. The whole
+product inherited this, because it lives in the shared `Input`.
+
+⚠️ **And two bugs in the autofill map, found by checking it against the real
+field keys rather than reading it back.** The third-party opt-out said
+`previous_landlord` where the schema says `former_landlord`, and missed
+`current_landlord` entirely — so both landlords' phone fields fell through to
+the `type === "tel"` fallback and offered to fill the *applicant's* number into
+a reference. **A silently wrong phone number on a reference is worse than a
+blank one**: nobody notices, and a reviewer rings a stranger to check a tenancy.
+
+📌 The check that caught it was five lines — enumerate every key in
+`application-form.ts`, run the function over each, assert no third-party field
+gets anything but `off`. Reading the regex back would never have found it,
+because the regex looks right. It only looks wrong beside the data.
