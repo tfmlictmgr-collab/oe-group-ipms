@@ -31,7 +31,7 @@ const stamp = Date.now().toString(36).toUpperCase().slice(-6);
 const made = { remittances: [], entries: [], recipients: [], payments: [], intents: [] };
 
 const { data: fin } = await svc.from("users").select("id, org_id")
-  .eq("email", "finance@oegroup.test").single();
+  .eq("email", "oe-group-foundation-poc.financeapprover@oegroup.test").single();
 const orgId = fin.org_id;
 await svc.rpc("ensure_default_ledger_accounts", { p_org_id: orgId });
 
@@ -56,7 +56,7 @@ console.log("Remittance — money going out\n");
 const { data: vendor } = await svc.from("vendors").select("id")
   .eq("org_id", orgId).limit(1).single();
 const { data: landlord } = await svc.from("users").select("id")
-  .eq("email", "owner@oegroup.test").single();
+  .eq("email", "oe-group-foundation-poc.propertyowner@oegroup.test").single();
 
 // One ACTIVE recipient per vendor is enforced by payout_recipients_vendor_uidx,
 // so a previous run that died before cleanup blocks this one. Clear the fixture's

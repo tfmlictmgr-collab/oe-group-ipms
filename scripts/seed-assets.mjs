@@ -7,7 +7,7 @@ config({ path: path.join(rootDir, ".env.local") });
 
 const svc = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth:{persistSession:false} });
 const fm = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
-await fm.auth.signInWithPassword({ email:"fm@oegroup.test", password:"OEGroupDemo2026!" });
+await fm.auth.signInWithPassword({ email:"oe-group-foundation-poc.facilitymanager@oegroup.test", password:"OEGroupDemo2026!" });
 const { data:{user} } = await fm.auth.getUser();
 const { data: me } = await fm.from("users").select("org_id").eq("id", user.id).single();
 const { data: staked } = await svc.from("property_stakeholders").select("property_id").eq("user_id", user.id);

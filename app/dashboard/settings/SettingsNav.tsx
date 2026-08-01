@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Palette, Landmark, ShieldCheck, Bell, KeyRound } from "lucide-react";
+import { Palette, Landmark, ShieldCheck, Bell, KeyRound, FileSignature } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // Tabs are filtered by role rather than the whole section being gated: personal
@@ -21,6 +21,9 @@ const TABS: Tab[] = [
   { href: "/dashboard/settings", label: "Branding", icon: Palette, adminOnly: true, exact: true },
   { href: "/dashboard/settings/banking", label: "Client Funds", icon: Landmark, adminOnly: true },
   { href: "/dashboard/settings/payments", label: "Payment Gate", icon: ShieldCheck, adminOnly: true },
+  // Lettings is OEA-only (B9); the page says so for an org without the module
+  // rather than the tab vanishing, so an administrator is not left wondering.
+  { href: "/dashboard/settings/lettings", label: "Lettings", icon: FileSignature, adminOnly: true },
   // Visible to every administrator: a brand admin reads their own matrix,
   // only the operator can change it.
   { href: "/dashboard/settings/permissions", label: "Permissions", icon: KeyRound, adminOnly: true },

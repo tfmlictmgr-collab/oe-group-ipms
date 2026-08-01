@@ -40,7 +40,7 @@ try {
 }
 
 const { data: fin } = await svc.from("users").select("id, org_id")
-  .eq("email", "finance@oegroup.test").single();
+  .eq("email", "oe-group-foundation-poc.financeapprover@oegroup.test").single();
 const orgId = fin.org_id;
 await svc.rpc("ensure_default_ledger_accounts", { p_org_id: orgId });
 
@@ -62,7 +62,7 @@ const LIE = 999_999_999;           // what the payload claims
 const { data: intent } = await svc.from("payment_intents").insert({
   org_id: orgId, purpose: "service_charge", amount_expected: EXPECTED,
   gateway: "simulated", gateway_reference: REF, created_by: fin.id,
-  payer_user_id: (await svc.from("users").select("id").eq("email", "resident@oegroup.test").single()).data.id,
+  payer_user_id: (await svc.from("users").select("id").eq("email", "oe-group-foundation-poc.tenant@oegroup.test").single()).data.id,
 }).select("id").single();
 
 function signed(body) {
@@ -210,7 +210,7 @@ console.log("\nH. A receipt renders, and carries the verified figures");
                supportEmail: "info@tfmlconsultant.com", supportPhone: null, tagline: null },
         reference: REF, ledgerEntryId: i.ledger_entry_id, purpose: "service_charge",
         description: "Collection — service charge", payerName: "Test Resident",
-        payerEmail: "resident@oegroup.test", amountExpected: EXPECTED,
+        payerEmail: "oe-group-foundation-poc.tenant@oegroup.test", amountExpected: EXPECTED,
         amountPaid: Number(i.amount_paid), currency: i.currency, paidAt: i.paid_at,
         gateway: "simulated", partial: Number(i.amount_paid) < EXPECTED,
       },

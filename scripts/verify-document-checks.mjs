@@ -191,7 +191,7 @@ console.log("\nC. A finding cannot exist without its evidence");
 
 console.log("\nD. A reviewer cannot manufacture findings");
 {
-  const c = await login("oea@oegroup.test");
+  const c = await login("oea.admin@oegroup.test");
   if (!c) bad("could not sign in as the OEA administrator");
   else {
     const { error } = await c.from("application_document_findings").insert({
@@ -231,7 +231,7 @@ console.log("\nD. A reviewer cannot manufacture findings");
 
 console.log("\nE. A finding is contestable, attributed, and never deleted by it");
 {
-  const c = await login("oea@oegroup.test");
+  const c = await login("oea.admin@oegroup.test");
   const findingId = made.findings[0];
   if (!c || !findingId) { console.log("  \x1b[33mSKIP\x1b[0m no probe finding available"); }
   else {
@@ -263,7 +263,7 @@ console.log("\nF. Findings never substitute for the reviewer's own reason");
 {
   // The approval path is unchanged by this feature: it must still refuse a
   // reason shorter than ten characters, whatever the findings say.
-  const c = await login("oea@oegroup.test");
+  const c = await login("oea.admin@oegroup.test");
   if (!c) { console.log("  \x1b[33mSKIP\x1b[0m"); }
   else {
     const { error } = await c.rpc("record_application_approval", {
@@ -277,7 +277,7 @@ console.log("\nF. Findings never substitute for the reviewer's own reason");
 
 console.log("\nG. Findings do not cross an organisation boundary");
 {
-  const c = await login("tfml@oegroup.test");
+  const c = await login("tfml.admin@oegroup.test");
   if (!c) { console.log("  \x1b[33mSKIP\x1b[0m no TFML admin"); }
   else {
     const { data } = await c.from("application_document_findings").select("id");

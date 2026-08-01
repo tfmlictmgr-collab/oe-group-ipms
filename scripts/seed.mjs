@@ -78,15 +78,15 @@ async function profile(email, orgId, role, fullName) {
   await supabase.from("users").insert({ id, org_id: orgId, role, full_name: fullName, email });
   return id;
 }
-const adminId = await profile("demo@oegroup.test", POC_ORG_ID, "admin", "Demo Admin");
-const financeId = await profile("finance@oegroup.test", POC_ORG_ID, "finance_approver", "Oke Anderson");
-const fmId = await profile("fm@oegroup.test", POC_ORG_ID, "facility_manager", "Abdul Owo");
-const opsId = await profile("ops@oegroup.test", POC_ORG_ID, "fm_ops_staff", "Emeka Ade");
-const ownerId = await profile("owner@oegroup.test", POC_ORG_ID, "property_owner", "Bola Adeyemi");
-const vendorUserId = await profile("vendor@oegroup.test", POC_ORG_ID, "vendor", "Sparkle Cleaning (Vendor)");
-const residentId = await profile("resident@oegroup.test", POC_ORG_ID, "tenant", "Tamuno Gab");
-await profile("tfml@oegroup.test", tfmlOrg.id, "admin", "Ifeanyi Uche (TFML)");
-await profile("oea@oegroup.test", oeaOrg.id, "admin", "Zainab Bello (OEA)");
+const adminId = await profile("oe-group-foundation-poc.admin@oegroup.test", POC_ORG_ID, "admin", "Demo Admin");
+const financeId = await profile("oe-group-foundation-poc.financeapprover@oegroup.test", POC_ORG_ID, "finance_approver", "Oke Anderson");
+const fmId = await profile("oe-group-foundation-poc.facilitymanager@oegroup.test", POC_ORG_ID, "facility_manager", "Abdul Owo");
+const opsId = await profile("oe-group-foundation-poc.fmopsstaff@oegroup.test", POC_ORG_ID, "fm_ops_staff", "Emeka Ade");
+const ownerId = await profile("oe-group-foundation-poc.propertyowner@oegroup.test", POC_ORG_ID, "property_owner", "Bola Adeyemi");
+const vendorUserId = await profile("oe-group-foundation-poc.vendor@oegroup.test", POC_ORG_ID, "vendor", "Sparkle Cleaning (Vendor)");
+const residentId = await profile("oe-group-foundation-poc.tenant@oegroup.test", POC_ORG_ID, "tenant", "Tamuno Gab");
+await profile("tfml.admin@oegroup.test", tfmlOrg.id, "admin", "Ifeanyi Uche (TFML)");
+await profile("oea.admin@oegroup.test", oeaOrg.id, "admin", "Zainab Bello (OEA)");
 console.log("Users: 7 POC roles + 2 brand admins");
 
 // ── 4. Vendors + evaluation histories (0–100) ──────────────────────────────

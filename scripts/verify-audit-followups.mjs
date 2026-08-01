@@ -111,14 +111,14 @@ console.log("D7-E1. Budget utilisation is aggregated in the database");
 
 console.log("\n…and it is still scoped by the caller's own policies");
 {
-  const tenant = await login("resident@oegroup.test");
+  const tenant = await login("oe-group-foundation-poc.tenant@oegroup.test");
   const { data: asTenant } = await tenant.from("bi_budget_utilisation").select("budget_id");
   (asTenant ?? []).length === 0
     ? ok("a tenant sees no budgets through the view")
     : bad(`A TENANT READ ${asTenant.length} BUDGET ROW(S)`);
   await tenant.auth.signOut();
 
-  const fin = await login("finance@oegroup.test");
+  const fin = await login("oe-group-foundation-poc.financeapprover@oegroup.test");
   const { data: asFin } = await fin.from("bi_budget_utilisation").select("budget_id");
   (asFin ?? []).length > 0
     ? ok(`finance sees ${asFin.length} — security_invoker means the matrix still decides`)

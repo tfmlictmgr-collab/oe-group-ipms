@@ -43,7 +43,7 @@ const PASSWORD = "InviteProbe2026!";
 const cleanup = { emails: [], invitations: [] };
 
 const { data: admin } = await svc.from("users").select("id, org_id")
-  .eq("email", "demo@oegroup.test").single();
+  .eq("email", "oe-group-foundation-poc.admin@oegroup.test").single();
 const orgId = admin.org_id;
 
 async function issue(email, role = "viewer") {

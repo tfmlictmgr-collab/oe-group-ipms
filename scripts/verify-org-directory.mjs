@@ -117,7 +117,7 @@ console.log("\nD. The directory is for operators, and refuses everyone else");
 {
   // A brand admin: authenticated, privileged inside their own org, and exactly
   // the caller who must not be able to list the platform's clients.
-  const brandAdmin = await login("oea@oegroup.test");
+  const brandAdmin = await login("oea.admin@oegroup.test");
   if (!brandAdmin) bad("could not sign in as the OEA administrator");
   else {
     const { data, error } = await brandAdmin.rpc("operator_org_directory");

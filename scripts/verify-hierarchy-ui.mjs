@@ -97,7 +97,7 @@ let region, location, project, prop;
 console.log("\nB. Retiring is gated on hierarchy.write, same as every other write here");
 {
   const c = createClient(URL_, ANON);
-  await c.auth.signInWithPassword({ email: "fm@oegroup.test", password: PW });
+  await c.auth.signInWithPassword({ email: "oe-group-foundation-poc.facilitymanager@oegroup.test", password: PW });
   const { error } = await c.rpc("retire_org_node", { p_node_id: location.id });
   error ? ok("an FM/PM without hierarchy.write is refused") : bad("AN FM/PM RETIRED A NODE WITHOUT THE CAPABILITY");
   await c.auth.signOut();

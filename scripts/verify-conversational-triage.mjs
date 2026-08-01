@@ -225,7 +225,7 @@ console.log("\nF. The correction is on the audit trail");
 console.log("\nG. Staff can read the thread; a stranger cannot");
 {
   const c = createClient(URL_, ANON);
-  await c.auth.signInWithPassword({ email: "demo@oegroup.test", password: PW });
+  await c.auth.signInWithPassword({ email: "oe-group-foundation-poc.admin@oegroup.test", password: PW });
   const { data: seen } = await c.from("ticket_messages").select("id").in("ticket_id", made);
   (seen ?? []).length > 0
     ? ok(`an administrator reads the conversation (${seen.length} message(s))`)
@@ -233,7 +233,7 @@ console.log("\nG. Staff can read the thread; a stranger cannot");
   await c.auth.signOut();
 
   const v = createClient(URL_, ANON);
-  await v.auth.signInWithPassword({ email: "vendor@oegroup.test", password: PW });
+  await v.auth.signInWithPassword({ email: "oe-group-foundation-poc.vendor@oegroup.test", password: PW });
   const { data: vendorSees } = await v.from("ticket_messages").select("id").in("ticket_id", made);
   (vendorSees ?? []).length === 0
     ? ok("a vendor with no claim on these tickets reads none of it")

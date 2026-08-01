@@ -177,7 +177,7 @@ console.log("\nE. Special-category data is stored apart from the form");
 
 console.log("\nF. What a reviewer reads excludes it");
 {
-  const oeaAdmin = await login("oea@oegroup.test");
+  const oeaAdmin = await login("oea.admin@oegroup.test");
   const { data: view, error } = await oeaAdmin.from("application_overview")
     .select("*").eq("id", appId).maybeSingle();
 
@@ -196,8 +196,8 @@ console.log("\nF. What a reviewer reads excludes it");
 console.log("\nG. Who cannot see it");
 {
   for (const [email, label] of [
-    ["resident@oegroup.test", "a tenant"],
-    ["vendor@oegroup.test", "a vendor"],
+    ["oe-group-foundation-poc.tenant@oegroup.test", "a tenant"],
+    ["oe-group-foundation-poc.vendor@oegroup.test", "a vendor"],
   ]) {
     const c = await login(email);
     const { data } = await c.from("tenant_applications").select("id");
@@ -207,7 +207,7 @@ console.log("\nG. Who cannot see it");
   }
 
   // Cross-org: a TFML admin must not see OEA's applicants.
-  const tfmlAdmin = await login("tfml@oegroup.test");
+  const tfmlAdmin = await login("tfml.admin@oegroup.test");
   const { data: cross } = await tfmlAdmin.from("tenant_applications").select("id, org_id");
   (cross ?? []).filter((r) => r.org_id === oea.id).length === 0
     ? ok("a TFML administrator sees none of OEA's applications")

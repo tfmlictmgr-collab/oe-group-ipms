@@ -28,33 +28,33 @@ async function asUser(email) {
 }
 
 // Admin baseline
-const admin = await asUser("demo@oegroup.test");
+const admin = await asUser("oe-group-foundation-poc.admin@oegroup.test");
 const adminTickets = await admin.count("tickets");
 const adminBudgets = await admin.count("sc_budgets");
 console.log(`Admin baseline: ${adminTickets} tickets, ${adminBudgets} budgets`);
 
 console.log("\nProperty scoping:");
-const fm = await asUser("fm@oegroup.test");
+const fm = await asUser("oe-group-foundation-poc.facilitymanager@oegroup.test");
 const fmTickets = await fm.count("tickets");
 const fmBudgets = await fm.count("sc_budgets");
 fmTickets > 0 && fmTickets < adminTickets ? ok(`FM sees ${fmTickets} tickets (managed) < admin ${adminTickets}`) : bad(`FM tickets ${fmTickets}`);
 fmBudgets === 2 ? ok(`FM sees 2 budgets... wait, 2 cycles × 2 props = 4`) : ok(`FM sees ${fmBudgets} budgets (2 props × 2 cycles)`);
 
-const owner = await asUser("owner@oegroup.test");
+const owner = await asUser("oe-group-foundation-poc.propertyowner@oegroup.test");
 const ownerTickets = await owner.count("tickets");
 ownerTickets > 0 && ownerTickets < fmTickets ? ok(`owner sees ${ownerTickets} tickets (owned) < FM ${fmTickets}`) : bad(`owner tickets ${ownerTickets}`);
 
 console.log("\nRestricted roles:");
-const tenant = await asUser("resident@oegroup.test");
+const tenant = await asUser("oe-group-foundation-poc.tenant@oegroup.test");
 (await tenant.count("payments")) === 0 ? ok("tenant sees 0 payments") : bad("tenant payments");
-const vendor = await asUser("vendor@oegroup.test");
+const vendor = await asUser("oe-group-foundation-poc.vendor@oegroup.test");
 (await vendor.count("service_charges")) === 0 ? ok("vendor sees 0 service charges") : bad("vendor SC");
 (await vendor.count("vendors")) <= 1 ? ok("vendor sees only its own vendor record") : bad("vendor over-sees vendors");
 
 console.log("\nCross-brand isolation:");
-const tfml = await asUser("tfml@oegroup.test");
+const tfml = await asUser("tfml.admin@oegroup.test");
 const tfmlOrgs = await tfml.orgIds("tickets");
-const oea = await asUser("oea@oegroup.test");
+const oea = await asUser("oea.admin@oegroup.test");
 const oeaOrgs = await oea.orgIds("tickets");
 const tfmlOrg = tfmlOrgs[0];
 const oeaOrg = oeaOrgs[0];

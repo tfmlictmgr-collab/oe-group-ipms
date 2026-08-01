@@ -30,7 +30,7 @@ const svc = createClient(URL_, SVCK, { auth: { persistSession: false } });
 
 // ── Set up a throwaway viewer in the POC org ───────────────────────────────
 const { data: seed } = await svc.from("users").select("org_id")
-  .eq("email", "finance@oegroup.test").single();
+  .eq("email", "oe-group-foundation-poc.financeapprover@oegroup.test").single();
 const orgId = seed.org_id;
 
 const { data: list } = await svc.auth.admin.listUsers();
@@ -207,7 +207,7 @@ console.log("\nI. The views do not widen access for anyone else");
   // every ticket in the org through it.
   const tenant = createClient(URL_, ANON);
   const { error: tErr } = await tenant.auth.signInWithPassword({
-    email: "resident@oegroup.test", password: PW,
+    email: "oe-group-foundation-poc.tenant@oegroup.test", password: PW,
   });
   if (tErr) { bad(`tenant sign-in: ${tErr.message}`); }
   else {

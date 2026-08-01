@@ -33,8 +33,8 @@ async function login(email) {
   return { c, id: user.id };
 }
 
-const finance = await login("finance@oegroup.test");
-const fm = await login("fm@oegroup.test");
+const finance = await login("oe-group-foundation-poc.financeapprover@oegroup.test");
+const fm = await login("oe-group-foundation-poc.facilitymanager@oegroup.test");
 const { data: me } = await svc.from("users").select("org_id").eq("id", finance.id).single();
 const orgId = me.org_id;
 

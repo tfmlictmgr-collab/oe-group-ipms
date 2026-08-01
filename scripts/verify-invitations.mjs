@@ -35,8 +35,8 @@ async function login(email) {
   return c;
 }
 
-const admin = await login("demo@oegroup.test");
-const fm = await login("fm@oegroup.test");
+const admin = await login("oe-group-foundation-poc.admin@oegroup.test");
+const fm = await login("oe-group-foundation-poc.facilitymanager@oegroup.test");
 const { data: { user: adminUser } } = await admin.auth.getUser();
 const { data: me } = await admin.from("users").select("org_id").eq("id", adminUser.id).single();
 const orgId = me.org_id;
@@ -96,7 +96,7 @@ console.log("\nC. An FM/PM cannot mint an administrator");
 
 console.log("\nD. A tenant cannot issue invitations at all");
 {
-  const tenant = await login("resident@oegroup.test");
+  const tenant = await login("oe-group-foundation-poc.tenant@oegroup.test");
   const { data: { user: tu } } = await tenant.auth.getUser();
   const { error } = await tenant.from("invitations").insert({
     org_id: orgId, email: `t-${stamp}@oegroup.test`, role: "tenant",

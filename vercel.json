@@ -1,3 +1,9 @@
 {
-  "framework": "nextjs"
+  "framework": "nextjs",
+  "crons": [
+    {
+      "path": "/api/jobs/lease-notices",
+      "schedule": "0 8 * * *"
+    }
+  ]
 }

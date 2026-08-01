@@ -145,10 +145,10 @@ console.log("\nD. What each role can see");
   // unassigned request is in none — so the capability starts OFF for everyone
   // but an administrator, who reads every request anyway.
   for (const [email, label, shouldSeeUnassigned] of [
-    ["demo@oegroup.test", "an administrator", true],
-    ["fm@oegroup.test", "a facility manager", false],
-    ["ops@oegroup.test", "an ops staffer", false],
-    ["vendor@oegroup.test", "a vendor", false],
+    ["oe-group-foundation-poc.admin@oegroup.test", "an administrator", true],
+    ["oe-group-foundation-poc.facilitymanager@oegroup.test", "a facility manager", false],
+    ["oe-group-foundation-poc.fmopsstaff@oegroup.test", "an ops staffer", false],
+    ["oe-group-foundation-poc.vendor@oegroup.test", "a vendor", false],
   ]) {
     const c = await login(email);
     const { data: seen } = await c.from("tickets").select("id").eq("id", unassigned.id);
@@ -166,7 +166,7 @@ console.log("\nD. What each role can see");
     .eq("org_id", poc.id).eq("role", "facility_manager")
     .eq("capability", "tickets.triage_unassigned");
   {
-    const c = await login("fm@oegroup.test");
+    const c = await login("oe-group-foundation-poc.facilitymanager@oegroup.test");
     const { data: seen } = await c.from("tickets").select("id").eq("id", unassigned.id);
     (seen ?? []).length === 1
       ? ok("turning the toggle ON lets a facility manager see it")
@@ -189,7 +189,7 @@ console.log("\nD. What each role can see");
   }
 
   // The new clause must be incapable of admitting a request that HAS a property.
-  const ops = await login("ops@oegroup.test");
+  const ops = await login("oe-group-foundation-poc.fmopsstaff@oegroup.test");
   const { data: opsFiled } = await ops.from("tickets").select("id").eq("id", filed.id);
   (opsFiled ?? []).length === 0
     ? ok("the triage clause cannot reach a request that belongs to a property")

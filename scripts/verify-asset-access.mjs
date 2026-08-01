@@ -33,11 +33,11 @@ async function login(email) {
 const svc = createClient(URL, SERVICE, { auth: { persistSession: false } });
 const stamp = Date.now().toString(36);
 
-const admin = await login("demo@oegroup.test");
-const fm = await login("fm@oegroup.test");
-const tenant = await login("resident@oegroup.test");
-const vendor = await login("vendor@oegroup.test");
-const oea = await login("oea@oegroup.test");
+const admin = await login("oe-group-foundation-poc.admin@oegroup.test");
+const fm = await login("oe-group-foundation-poc.facilitymanager@oegroup.test");
+const tenant = await login("oe-group-foundation-poc.tenant@oegroup.test");
+const vendor = await login("oe-group-foundation-poc.vendor@oegroup.test");
+const oea = await login("oea.admin@oegroup.test");
 
 const { data: { user: fmUser } } = await fm.auth.getUser();
 const { data: fmRow } = await fm.from("users").select("org_id").eq("id", fmUser.id).single();

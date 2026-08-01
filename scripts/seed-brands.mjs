@@ -22,14 +22,14 @@ const BRANDS = [
   {
     orgName: "TFML — Total Facilities Management",
     brand: "TFML",
-    email: "tfml@oegroup.test",
+    email: "tfml.admin@oegroup.test",
     userName: "Ifeanyi Uche (TFML)",
     ticket: "AC servicing overdue in the east wing plant room — TFML site",
   },
   {
     orgName: "OEA — Ora Egbunike & Associates",
     brand: "OEA",
-    email: "oea@oegroup.test",
+    email: "oea.admin@oegroup.test",
     userName: "Zainab Bello (OEA)",
     ticket: "Tenancy renewal query for a managed property — OEA client",
   },

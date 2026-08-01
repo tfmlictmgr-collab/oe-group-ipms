@@ -127,14 +127,14 @@ console.log("\nC. The org flag is a master switch");
 
 console.log("\nD. Only an administrator may override");
 {
-  const fin = await login("finance.oea@oegroup.test");
+  const fin = await login("oea.financeapprover@oegroup.test");
   const { error } = await fin.rpc("set_property_application_state", {
     p_property_id: vacantProp, p_state: "closed", p_note: "should not work",
   });
   error ? ok("a finance approver is refused") : bad("A NON-ADMIN CHANGED A PROPERTY'S WINDOW");
   await fin.auth.signOut();
 
-  const admin = await login("oea@oegroup.test");
+  const admin = await login("oea.admin@oegroup.test");
   const { error: ae } = await admin.rpc("set_property_application_state", {
     p_property_id: vacantProp, p_state: "auto",
   });
@@ -143,7 +143,7 @@ console.log("\nD. Only an administrator may override");
 
   // Cross-org: a TFML property must not be reachable from an OEA session.
   const tfmlProp = await mkProperty(tfml.id, `PROBE-TFML-${S}`);
-  const oeaAdmin = await login("oea@oegroup.test");
+  const oeaAdmin = await login("oea.admin@oegroup.test");
   const { error: xe } = await oeaAdmin.rpc("set_property_application_state", {
     p_property_id: tfmlProp, p_state: "open",
   });

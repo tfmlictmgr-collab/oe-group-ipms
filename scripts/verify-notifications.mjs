@@ -32,10 +32,10 @@ async function login(email) {
   return { c, id: user.id };
 }
 
-const admin = await login("demo@oegroup.test");
-const fm = await login("fm@oegroup.test");
-const tenant = await login("resident@oegroup.test");
-const oea = await login("oea@oegroup.test");
+const admin = await login("oe-group-foundation-poc.admin@oegroup.test");
+const fm = await login("oe-group-foundation-poc.facilitymanager@oegroup.test");
+const tenant = await login("oe-group-foundation-poc.tenant@oegroup.test");
+const oea = await login("oea.admin@oegroup.test");
 
 const { data: me } = await svc.from("users").select("org_id").eq("id", admin.id).single();
 const orgId = me.org_id;

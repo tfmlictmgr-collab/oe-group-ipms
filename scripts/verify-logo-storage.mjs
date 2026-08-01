@@ -37,9 +37,9 @@ const PNG = Uint8Array.from(
   (c) => c.charCodeAt(0)
 );
 
-const tfml = await login("tfml@oegroup.test");
-const oea = await login("oea@oegroup.test");
-const fm = await login("fm@oegroup.test");
+const tfml = await login("tfml.admin@oegroup.test");
+const oea = await login("oea.admin@oegroup.test");
+const fm = await login("oe-group-foundation-poc.facilitymanager@oegroup.test");
 const tfmlOrg = await orgOf(tfml);
 const oeaOrg = await orgOf(oea);
 

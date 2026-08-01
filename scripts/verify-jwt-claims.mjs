@@ -37,9 +37,9 @@ console.log("Day 2 JWT org claims\n");
 
 console.log("A. Signed-token claim matches the DB, per user");
 const cases = [
-  ["finance@oegroup.test", "direct"],
-  ["tfml@oegroup.test", "TFML"],
-  ["oea@oegroup.test", "OEA"],
+  ["oe-group-foundation-poc.financeapprover@oegroup.test", "direct"],
+  ["tfml.admin@oegroup.test", "TFML"],
+  ["oea.admin@oegroup.test", "OEA"],
 ];
 const claims = {};
 for (const [email, expectBrand] of cases) {
@@ -55,7 +55,7 @@ for (const [email, expectBrand] of cases) {
 }
 
 console.log("\nB. Cross-brand claims are distinct (isolation in the token itself)");
-if (claims["tfml@oegroup.test"].org_id !== claims["oea@oegroup.test"].org_id)
+if (claims["tfml.admin@oegroup.test"].org_id !== claims["oea.admin@oegroup.test"].org_id)
   ok("TFML and OEA users carry different org_id claims");
 else bad("TFML and OEA share an org claim");
 

@@ -35,9 +35,9 @@ async function login(email) {
   if (error) throw new Error(`${email}: ${error.message}`);
   return c;
 }
-const admin = await login("demo@oegroup.test");
-const tenant = await login("resident@oegroup.test");
-const oea = await login("oea@oegroup.test");
+const admin = await login("oe-group-foundation-poc.admin@oegroup.test");
+const tenant = await login("oe-group-foundation-poc.tenant@oegroup.test");
+const oea = await login("oea.admin@oegroup.test");
 
 const { data: { user: adminUser } } = await admin.auth.getUser();
 const { data: me } = await admin.from("users").select("org_id").eq("id", adminUser.id).single();

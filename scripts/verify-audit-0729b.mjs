@@ -152,8 +152,8 @@ console.log("\nS1b. …but an executive still reads everything, as B7 says");
 console.log("\nS2. Portfolio occupancy is not readable by everyone");
 {
   for (const [email, label] of [
-    ["resident@oegroup.test", "a tenant"],
-    ["vendor@oegroup.test", "a vendor"],
+    ["oe-group-foundation-poc.tenant@oegroup.test", "a tenant"],
+    ["oe-group-foundation-poc.vendor@oegroup.test", "a vendor"],
   ]) {
     const c = await login(email);
     const { data } = await c.from("property_application_windows").select("property_id, vacant_count");
@@ -163,7 +163,7 @@ console.log("\nS2. Portfolio occupancy is not readable by everyone");
     await c.auth.signOut();
   }
 
-  const admin = await login("oea@oegroup.test");
+  const admin = await login("oea.admin@oegroup.test");
   const { data: asAdmin } = await admin.from("property_application_windows").select("property_id");
   (asAdmin ?? []).length > 0
     ? ok(`an administrator still reads it (${asAdmin.length} propert(ies))`)
@@ -177,7 +177,7 @@ console.log("\nS3. The assignments view reads as the caller");
     .then((r) => r, () => ({ data: null }));
   if (views === null) {
     // No helper function; assert behaviourally instead.
-    const c = await login("resident@oegroup.test");
+    const c = await login("oe-group-foundation-poc.tenant@oegroup.test");
     const { data } = await c.from("stakeholder_assignments").select("id");
     (data ?? []).length === 0
       ? ok("a tenant sees no stakeholder assignments")

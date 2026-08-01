@@ -21,7 +21,7 @@ const bad = (m) => { failures++; console.log(`  \x1b[31mFAIL\x1b[0m ${m}`); };
 
 const svc = createClient(URL, SVCK, { auth: { persistSession: false } });
 const fm = createClient(URL, ANON);
-await fm.auth.signInWithPassword({ email: "fm@oegroup.test", password: "OEGroupDemo2026!" });
+await fm.auth.signInWithPassword({ email: "oe-group-foundation-poc.facilitymanager@oegroup.test", password: "OEGroupDemo2026!" });
 const { data: { user } } = await fm.auth.getUser();
 const { data: me } = await fm.from("users").select("org_id, role").eq("id", user.id).single();
 

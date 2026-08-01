@@ -20,11 +20,11 @@ const supabase = createClient(
 
 // ── Role logins (completes the B7 matrix) ──────────────────────────────────
 const ROLE_USERS = [
-  { email: "fm@oegroup.test", role: "facility_manager", name: "Abdul Owo" },
-  { email: "finance@oegroup.test", role: "finance_approver", name: "Oke Anderson" },
-  { email: "ops@oegroup.test", role: "fm_ops_staff", name: "Emeka Ade" },
-  { email: "owner@oegroup.test", role: "property_owner", name: "Bola Adeyemi" },
-  { email: "vendor@oegroup.test", role: "vendor", name: "Sparkle Cleaning (Vendor)" },
+  { email: "oe-group-foundation-poc.facilitymanager@oegroup.test", role: "facility_manager", name: "Abdul Owo" },
+  { email: "oe-group-foundation-poc.financeapprover@oegroup.test", role: "finance_approver", name: "Oke Anderson" },
+  { email: "oe-group-foundation-poc.fmopsstaff@oegroup.test", role: "fm_ops_staff", name: "Emeka Ade" },
+  { email: "oe-group-foundation-poc.propertyowner@oegroup.test", role: "property_owner", name: "Bola Adeyemi" },
+  { email: "oe-group-foundation-poc.vendor@oegroup.test", role: "vendor", name: "Sparkle Cleaning (Vendor)" },
 ];
 
 const { data: list } = await supabase.auth.admin.listUsers();

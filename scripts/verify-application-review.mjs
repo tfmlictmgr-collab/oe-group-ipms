@@ -121,8 +121,8 @@ const fm1 = await makeUser("facility_manager", "fm1");
 const fm2 = await makeUser("facility_manager", "fm2"); // deliberately NOT attached to propA
 await svc.from("property_stakeholders").insert({ org_id: oea.id, user_id: fm1.id, property_id: propA, relation: "manager" });
 
-const { data: adminUser } = await svc.from("users").select("id, email").eq("email", "oea@oegroup.test").single();
-const { data: financeUser } = await svc.from("users").select("id, email").eq("email", "finance.oea@oegroup.test").single();
+const { data: adminUser } = await svc.from("users").select("id, email").eq("email", "oea.admin@oegroup.test").single();
+const { data: financeUser } = await svc.from("users").select("id, email").eq("email", "oea.financeapprover@oegroup.test").single();
 
 console.log("A. Recommend — held capability and property scope");
 const indApp = await mkApp(propA, "individual", "ind");

@@ -186,7 +186,7 @@ console.log("\nE. Turning a requirement off changes what is enforced");
 console.log("\nF. Two columns an authenticated user must not read");
 {
   const c = createClient(URL_, ANON);
-  const { error: le } = await c.auth.signInWithPassword({ email: "oea@oegroup.test", password: PW });
+  const { error: le } = await c.auth.signInWithPassword({ email: "oea.admin@oegroup.test", password: PW });
   if (le) bad(`could not sign in as the OEA administrator — ${le.message}`);
   else {
     const sens = await c.from("tenant_applications").select("sensitive").limit(1);

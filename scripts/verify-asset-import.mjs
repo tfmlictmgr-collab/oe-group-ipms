@@ -14,7 +14,7 @@ const ctx = {
   propertiesByName: new Map([["ikoyi court", "prop-ikoyi"], ["lekki plaza", "prop-lekki"]]),
   unitsByKey: new Map([["prop-ikoyi::shop 1", "unit-1"]]),
   vendorsByName: new Map([["powergen services ltd", "vend-1"]]),
-  usersByEmail: new Map([["fm@oegroup.test", "user-fm"]]),
+  usersByEmail: new Map([["oe-group-foundation-poc.facilitymanager@oegroup.test", "user-fm"]]),
   existingTags: new Set(["gen-ikj-001"]),
   customFieldKeys: ["refrigerant_type"],
 };
@@ -42,7 +42,7 @@ console.log("\nB. A messy file is validated row by row");
 const csv = [
   "asset_tag,name,category,property_name,unit_label,criticality,purchase_cost,purchase_date,commissioned_date,vendor_name,custodian_email,compliance_required,certificate_expiry,refrigerant_type",
   // 2 valid
-  "GEN-IKJ-011,Cummins 150kVA,power_generation,Ikoyi Court,,critical,\"18,500,000\",2023-04-12,2023-05-02,PowerGen Services Ltd,fm@oegroup.test,yes,2026-08-12,R410A",
+  "GEN-IKJ-011,Cummins 150kVA,power_generation,Ikoyi Court,,critical,\"18,500,000\",2023-04-12,2023-05-02,PowerGen Services Ltd,oe-group-foundation-poc.facilitymanager@oegroup.test,yes,2026-08-12,R410A",
   // 3 valid with unit
   "HVA-IKJ-012,Split AC Reception,hvac,Ikoyi Court,Shop 1,medium,450000,,,,,no,,",
   // 4 duplicate of an existing tag

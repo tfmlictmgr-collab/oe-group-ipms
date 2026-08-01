@@ -42,7 +42,7 @@ const svc = createClient(
 const BRANDS = [
   {
     orgName: "TFML — Total Facilities Management",
-    finance: { email: "finance.tfml@oegroup.test", name: "Chidi Nwosu (TFML Finance)" },
+    finance: { email: "tfml.financeapprover@oegroup.test", name: "Chidi Nwosu (TFML Finance)" },
     tenant: { email: payerEmail("tfml", "tfmlconsultant.com"), name: "Halima Yusuf" },
     retiredTenantEmail: "tenant.tfml@oegroup.test",
     property: "Adeola Odeku Complex",
@@ -52,7 +52,7 @@ const BRANDS = [
   },
   {
     orgName: "OEA — Ora Egbunike & Associates",
-    finance: { email: "finance.oea@oegroup.test", name: "Ngozi Eze (OEA Finance)" },
+    finance: { email: "oea.financeapprover@oegroup.test", name: "Ngozi Eze (OEA Finance)" },
     tenant: { email: payerEmail("oea", "oraegbunike.com"), name: "Segun Balogun" },
     retiredTenantEmail: "tenant.oea@oegroup.test",
     property: "Banana Island Residences",

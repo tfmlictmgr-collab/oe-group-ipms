@@ -176,7 +176,7 @@ console.log("\nD. …and remittance execution is refused — the board's explici
   await c.auth.signOut();
 
   // And finance still can, so the gate was narrowed rather than jammed shut.
-  const f = await login("finance@oegroup.test");
+  const f = await login("oe-group-foundation-poc.financeapprover@oegroup.test");
   const { error: fe, data: fd } = await f.from("payments")
     .update({ status: "remitted" }).eq("id", madePayments[0]).select("id");
   (!fe && (fd ?? []).length === 1)
@@ -215,9 +215,9 @@ console.log("\nE. A regional manager is operational, never financial");
 console.log("\nF. The 18 rewritten read policies gave nobody else anything");
 {
   for (const [email, label] of [
-    ["resident@oegroup.test", "a tenant"],
-    ["vendor@oegroup.test", "a vendor"],
-    ["fm@oegroup.test", "a facility manager"],
+    ["oe-group-foundation-poc.tenant@oegroup.test", "a tenant"],
+    ["oe-group-foundation-poc.vendor@oegroup.test", "a vendor"],
+    ["oe-group-foundation-poc.facilitymanager@oegroup.test", "a facility manager"],
   ]) {
     const c = await login(email);
     const { data: me } = await c.auth.getUser();

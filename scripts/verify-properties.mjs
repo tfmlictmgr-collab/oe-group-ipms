@@ -41,13 +41,13 @@ const stamp = Date.now().toString(36).toUpperCase().slice(-6);
 const made = { properties: [], units: [], stakes: [] };
 
 const { data: admin } = await svc.from("users").select("id, org_id")
-  .eq("email", "demo@oegroup.test").single();
+  .eq("email", "oe-group-foundation-poc.admin@oegroup.test").single();
 const orgId = admin.org_id;
 const { data: fmUser } = await svc.from("users").select("id")
-  .eq("email", "fm@oegroup.test").single();
+  .eq("email", "oe-group-foundation-poc.facilitymanager@oegroup.test").single();
 
-const adminC = await login("demo@oegroup.test");
-const fmC = await login("fm@oegroup.test");
+const adminC = await login("oe-group-foundation-poc.admin@oegroup.test");
+const fmC = await login("oe-group-foundation-poc.facilitymanager@oegroup.test");
 
 console.log("Properties and units\n");
 
@@ -60,7 +60,7 @@ let propId;
   if (error) { bad(`admin could not create — ${error.message.slice(0, 60)}`); }
   else { propId = data.id; made.properties.push(propId); ok("an administrator created a property"); }
 
-  const tenant = await login("resident@oegroup.test");
+  const tenant = await login("oe-group-foundation-poc.tenant@oegroup.test");
   const { error: tErr } = await tenant.from("properties")
     .insert({ org_id: orgId, name: `Tenant probe ${stamp}` });
   tErr ? ok("a tenant cannot create one") : bad("A TENANT CREATED A PROPERTY");
@@ -111,7 +111,7 @@ console.log("\nE. Retiring refuses while obligations remain");
 
   // Give the unit an occupant, then try to retire it.
   const { data: tenantUser } = await svc.from("users").select("id")
-    .eq("email", "resident@oegroup.test").single();
+    .eq("email", "oe-group-foundation-poc.tenant@oegroup.test").single();
   await svc.from("units").update({ occupant_user_id: tenantUser.id }).eq("id", made.units[0]);
 
   const { error: uErr } = await svc.rpc("retire_unit", { p_unit_id: made.units[0] });

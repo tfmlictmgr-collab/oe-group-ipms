@@ -100,10 +100,10 @@ try {
   // assignment yet legitimately sees nothing — picking one of those would make
   // this script fail on correct behaviour.
   const byEmail = (e) => pocUsers.find((u) => u.email === e);
-  const admin = byEmail("demo@oegroup.test") ?? pocUsers.find((u) => u.role === "admin");
-  const tenant = byEmail("resident@oegroup.test") ?? pocUsers.find((u) => u.role === "tenant");
-  const vendor = byEmail("vendor@oegroup.test") ?? pocUsers.find((u) => u.role === "vendor");
-  const finance = byEmail("finance@oegroup.test") ?? pocUsers.find((u) => u.role === "finance_approver");
+  const admin = byEmail("oe-group-foundation-poc.admin@oegroup.test") ?? pocUsers.find((u) => u.role === "admin");
+  const tenant = byEmail("oe-group-foundation-poc.tenant@oegroup.test") ?? pocUsers.find((u) => u.role === "tenant");
+  const vendor = byEmail("oe-group-foundation-poc.vendor@oegroup.test") ?? pocUsers.find((u) => u.role === "vendor");
+  const finance = byEmail("oe-group-foundation-poc.financeapprover@oegroup.test") ?? pocUsers.find((u) => u.role === "finance_approver");
 
   if (admin && tenant) {
     const a = visibleCounts[admin.id].tickets;
@@ -131,8 +131,8 @@ try {
 
   // Property scoping: FM sees managed-property tickets/budgets only; owner sees
   // owned-property only; both strictly less than admin.
-  const fm = byEmail("fm@oegroup.test") ?? pocUsers.find((u) => u.role === "facility_manager");
-  const owner = byEmail("owner@oegroup.test") ?? pocUsers.find((u) => u.role === "property_owner");
+  const fm = byEmail("oe-group-foundation-poc.facilitymanager@oegroup.test") ?? pocUsers.find((u) => u.role === "facility_manager");
+  const owner = byEmail("oe-group-foundation-poc.propertyowner@oegroup.test") ?? pocUsers.find((u) => u.role === "property_owner");
   if (fm && admin) {
     const ft = visibleCounts[fm.id].tickets;
     const at = visibleCounts[admin.id].tickets;

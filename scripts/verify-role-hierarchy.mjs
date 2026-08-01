@@ -162,8 +162,8 @@ console.log("\nD. The hole that was open: a facility manager and the executive r
 
 console.log("\nE. An administrator issues anything below themselves");
 {
-  const c = await login("demo@oegroup.test");
-  const { data: admin } = await c.from("users").select("id").eq("email", "demo@oegroup.test").single();
+  const c = await login("oe-group-foundation-poc.admin@oegroup.test");
+  const { data: admin } = await c.from("users").select("id").eq("email", "oe-group-foundation-poc.admin@oegroup.test").single();
   for (const role of ["executive", "regional_manager", "finance_approver"]) {
     const e = await tryInvite(c, admin.id, role);
     !e ? ok(`an administrator may issue ${role}`) : bad(`the admin was refused ${role} — ${e.message.slice(0, 60)}`);
@@ -294,8 +294,8 @@ console.log("\nH. Every attachment an invitation carries is scoped (audit 0729c-
   await c.auth.signOut();
 
   // An administrator is unbounded, as before.
-  const a = await login("demo@oegroup.test");
-  const { data: admin } = await a.from("users").select("id").eq("email", "demo@oegroup.test").single();
+  const a = await login("oe-group-foundation-poc.admin@oegroup.test");
+  const { data: admin } = await a.from("users").select("id").eq("email", "oe-group-foundation-poc.admin@oegroup.test").single();
   const eAdmin = await tryInvite(a, admin.id, "facility_manager", { property_ids: [theirs] });
   !eAdmin
     ? ok("an administrator may still attach anyone to any property in the org")
@@ -345,7 +345,7 @@ console.log("\nH2. `vendor_id` is scoped the same way (audit 0729d-L1)");
 
 console.log("\nI. The loose definer primitive is gone (audit 0729c-S2)");
 {
-  const c = await login(madeUsers.length ? (await svc.from("users").select("email").eq("id", madeUsers[0]).single()).data.email : "demo@oegroup.test");
+  const c = await login(madeUsers.length ? (await svc.from("users").select("email").eq("id", madeUsers[0]).single()).data.email : "oe-group-foundation-poc.admin@oegroup.test");
   const { error } = await c.rpc("apply_invitation_node", {
     p_invitation_id: "00000000-0000-0000-0000-000000000000",
     p_user_id: "00000000-0000-0000-0000-000000000000",

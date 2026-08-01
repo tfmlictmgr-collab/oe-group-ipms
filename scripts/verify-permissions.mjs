@@ -63,9 +63,9 @@ console.log("A. Exactly one platform operator, and it is OE Group");
 
 // The FM in the operator org is the subject: their capabilities are what we
 // toggle, and their session is what proves the effect.
-const fm = await login("fm@oegroup.test");
+const fm = await login("oe-group-foundation-poc.facilitymanager@oegroup.test");
 const { data: fmUser } = await svc.from("users").select("id, org_id")
-  .eq("email", "fm@oegroup.test").single();
+  .eq("email", "oe-group-foundation-poc.facilitymanager@oegroup.test").single();
 
 console.log("\nB. A toggle changes what the DATABASE returns");
 {
@@ -132,7 +132,7 @@ console.log("\nD. Locked capabilities cannot be moved");
 console.log("\nE. Only the OPERATOR may change a matrix");
 {
   // A brand administrator, on their own org.
-  const tfmlAdmin = await login("tfml@oegroup.test");
+  const tfmlAdmin = await login("tfml.admin@oegroup.test");
   const { error } = await tfmlAdmin.rpc("set_role_permission", {
     p_org_id: tfml.id, p_role: "facility_manager",
     p_capability: "vendors.read", p_granted: false,
@@ -153,7 +153,7 @@ console.log("\nE. Only the OPERATOR may change a matrix");
     : bad("READ ANOTHER ORGANISATION'S MATRIX");
 
   // A non-admin cannot even read.
-  const tenant = await login("resident@oegroup.test");
+  const tenant = await login("oe-group-foundation-poc.tenant@oegroup.test");
   const { error: tErr } = await tenant.rpc("set_role_permission", {
     p_org_id: fmUser.org_id, p_role: "tenant",
     p_capability: "vendors.read", p_granted: true,

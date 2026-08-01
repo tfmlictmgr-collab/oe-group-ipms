@@ -71,8 +71,8 @@ if (freshErr || !fresh) {
 }
 console.log(`Target: payment ${fresh.id.slice(0, 8)} (status=${fresh.status}, ₦${Number(fresh.amount).toLocaleString()})\n`);
 
-const finance = await asUser("finance@oegroup.test");
-const fm = await asUser("fm@oegroup.test");
+const finance = await asUser("oe-group-foundation-poc.financeapprover@oegroup.test");
+const fm = await asUser("oe-group-foundation-poc.facilitymanager@oegroup.test");
 
 console.log("A. ILLEGAL TRANSITIONS — skipping stages of the B4 gate");
 await mustReject(finance, fresh.id, { status: "approved" }, "finance: pending_verification → approved");

@@ -193,13 +193,13 @@ console.log("\nE. Re-parenting carries the subtree");
 console.log("\nF. An assignment is to a property OR a node");
 {
   const both = await svc.from("property_stakeholders").insert({
-    org_id: poc.id, user_id: (await svc.from("users").select("id").eq("email", "fm@oegroup.test").single()).data.id,
+    org_id: poc.id, user_id: (await svc.from("users").select("id").eq("email", "oe-group-foundation-poc.facilitymanager@oegroup.test").single()).data.id,
     property_id: props[0], node_id: site.id, relation: "manager",
   });
   both.error ? ok("both at once is refused") : bad("AN ASSIGNMENT CARRIED BOTH SCOPES");
 
   const neither = await svc.from("property_stakeholders").insert({
-    org_id: poc.id, user_id: (await svc.from("users").select("id").eq("email", "fm@oegroup.test").single()).data.id,
+    org_id: poc.id, user_id: (await svc.from("users").select("id").eq("email", "oe-group-foundation-poc.facilitymanager@oegroup.test").single()).data.id,
     relation: "manager",
   });
   neither.error ? ok("neither is refused") : bad("AN ASSIGNMENT CARRIED NO SCOPE AT ALL");
@@ -207,7 +207,7 @@ console.log("\nF. An assignment is to a property OR a node");
 
 console.log("\nG. A regional assignment reaches the whole subtree");
 {
-  const { data: fm } = await svc.from("users").select("id").eq("email", "fm@oegroup.test").single();
+  const { data: fm } = await svc.from("users").select("id").eq("email", "oe-group-foundation-poc.facilitymanager@oegroup.test").single();
 
   // Park the FM's existing assignments so this measures only the new one.
   //
@@ -226,7 +226,7 @@ console.log("\nG. A regional assignment reaches the whole subtree");
   else stakes.push(stake.id);
 
   const c = createClient(URL_, ANON);
-  await c.auth.signInWithPassword({ email: "fm@oegroup.test", password: PW });
+  await c.auth.signInWithPassword({ email: "oe-group-foundation-poc.facilitymanager@oegroup.test", password: PW });
 
   const { data: reach } = await c.rpc("current_user_property_ids");
   const reachIds = (reach ?? []).map((r) => (typeof r === "string" ? r : r.current_user_property_ids));
@@ -267,7 +267,7 @@ console.log("\nG. A regional assignment reaches the whole subtree");
     .select("id").single();
 
   const c2 = createClient(URL_, ANON);
-  await c2.auth.signInWithPassword({ email: "fm@oegroup.test", password: PW });
+  await c2.auth.signInWithPassword({ email: "oe-group-foundation-poc.facilitymanager@oegroup.test", password: PW });
   const { data: reach3 } = await c2.rpc("current_user_property_ids");
   const reach3Ids = (reach3 ?? []).map((r) => (typeof r === "string" ? r : r.current_user_property_ids));
   reach3Ids.length === 1 && reach3Ids[0] === props[0]
