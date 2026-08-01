@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { Building2, User, ShieldCheck, ChevronRight } from "lucide-react";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { resolvePublicOrg } from "@/lib/org-public";
 import { hashToken } from "@/lib/application-resume";
 import StartApplication from "./StartApplication";
 import ApplicationForm from "./ApplicationForm";
@@ -29,20 +30,31 @@ export default async function ApplyPage({
   const { org } = await params;
   const { type, resume, property } = await searchParams;
 
-  if (!/^[0-9a-f-]{36}$/i.test(org)) notFound();
+  // Slug or id. New links carry the slug — `/tenancy/oea` is something a
+  // letting agent can say down a phone — while every id already sent out keeps
+  // working, because those links are in inboxes and on printed sheets and
+  // breaking them to tidy a URL would strand applicants who did nothing wrong.
+  const organisation = await resolvePublicOrg(org);
 
-  const { data: organisation } = await supabaseAdmin
-    .from("orgs")
-    .select("id, name, portal_name, logo_url, theme_primary, tenant_applications_open, delivery_brand")
-    .eq("id", org)
-    .maybeSingle();
-
-  // A closed window, a missing module and a wrong id all answer the same way.
-  // Distinguishing them would let someone map which orgs exist.
+  // ⚠️ An unknown handle 404s; a real org with intake closed renders the closed
+  // card. Those are NOT the same answer, and the comment here used to claim they
+  // were — so a reader would have believed a property this page has never had.
+  //
+  // The difference reveals that an organisation exists, which is the same
+  // exposure `/o/<slug>` already carries and which decision 12 accepted on the
+  // same reasoning: a link you were *given* resolves, and neither route can be
+  // made to list. Enumeration is what B1 forbids, and no handle here can be
+  // turned into a directory. Worth re-examining if slugs ever become guessable
+  // in bulk — a wordlist against short brand slugs is the realistic attack.
   if (!organisation) notFound();
 
+  const orgId = organisation.id;
+  // What subsequent links on this page should carry: whatever the visitor
+  // arrived on stays consistent, so a shared URL keeps its readable form.
+  const handle = organisation.slug || orgId;
+
   const { data: hasModule } = await supabaseAdmin.rpc("org_has_module", {
-    p_org_id: org,
+    p_org_id: orgId,
     p_module: "lettings",
   });
 
@@ -55,7 +67,7 @@ export default async function ApplyPage({
   // master switch; each property then decides for itself (0076).
   const { data: openProperties, error: acceptingError } = await supabaseAdmin.rpc(
     "properties_accepting_applications",
-    { p_org_id: org }
+    { p_org_id: orgId }
   );
 
   // A failed call here used to render "Applications are closed" — indistinguishable
@@ -90,7 +102,12 @@ export default async function ApplyPage({
 
     // `org_id` is re-checked against the URL: a token is for one application in
     // one organisation, and must not open a draft through another org's page.
-    if (!draft || draft.org_id !== org) {
+    //
+    // ⚠️ Compared to the RESOLVED id, not the handle from the URL. When this
+    // page only accepted uuids the two were the same string; now that `/tenancy/oea`
+    // is valid, comparing against the handle would fail every slug-based resume
+    // link — telling an applicant their valid link "no longer works".
+    if (!draft || draft.org_id !== orgId) {
       return (
         <Shell brandName={brandName} brand={brand} logo={organisation.logo_url}>
           <div className="py-4 text-center">
@@ -168,7 +185,7 @@ export default async function ApplyPage({
             {accepting.map((p) => (
               <ChoiceCard
                 key={p.id}
-                href={`/tenancy/${org}?property=${p.id}`}
+                href={`/tenancy/${handle}?property=${p.id}`}
                 icon={<Building2 className="size-5" />}
                 title={p.name}
                 body={p.address ?? "Tap to apply for a tenancy here."}
@@ -184,7 +201,7 @@ export default async function ApplyPage({
     <Shell brandName={brandName} brand={brand} logo={organisation.logo_url}>
       {chosen ? (
         <StartApplication
-          orgId={org}
+          orgId={orgId}
           propertyId={effective.id}
           propertyName={effective.name}
           type={chosen}
@@ -203,13 +220,13 @@ export default async function ApplyPage({
 
           <div className="stagger space-y-3">
           <ChoiceCard
-            href={`/tenancy/${org}?property=${effective.id}&type=individual`}
+            href={`/tenancy/${handle}?property=${effective.id}&type=individual`}
             icon={<User className="size-5" />}
             title="I'm applying as an individual"
             body="A home for you or your family. You'll need an ID, a passport photograph, and a guarantor."
           />
           <ChoiceCard
-            href={`/tenancy/${org}?property=${effective.id}&type=corporate`}
+            href={`/tenancy/${handle}?property=${effective.id}&type=corporate`}
             icon={<Building2 className="size-5" />}
             title="I'm applying as a business"
             body="A shop, office or commercial space. You'll need your CAC certificate, TIN, and two trade references."

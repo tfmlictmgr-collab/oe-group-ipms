@@ -40,7 +40,7 @@ export default async function TenancyApplicationsPage() {
   const [orgRes, moduleRes, queueRes, windowsRes] = await Promise.all([
     supabase
       .from("orgs")
-      .select("id, tenant_applications_open")
+      .select("id, slug, tenant_applications_open")
       .eq("id", profile.org_id)
       .single(),
     supabase.rpc("org_has_module", { p_org_id: profile.org_id, p_module: "lettings" }),
@@ -113,6 +113,7 @@ export default async function TenancyApplicationsPage() {
         <CardContent>
           <TenancyApplicationLink
             orgId={profile.org_id}
+            slug={orgRes.data?.slug}
             isOpen={Boolean(orgRes.data?.tenant_applications_open)}
             isAdmin={profile.role === "admin"}
             origin={origin}

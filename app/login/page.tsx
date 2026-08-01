@@ -22,8 +22,11 @@ export default function LoginPage() {
         logoUrl: null,
         primary: "#003366",
         headline: "Facilities and property management, unified.",
+        // Names no client, here of all places — this door is public and B1's
+        // "or existence" rule is exactly what a client list in a tagline breaks.
         tagline:
-          "One auditable workspace for requests, service charges, vendor performance and payments — across TFML and OEA.",
+          "One auditable workspace for requests, service charges, vendor performance and payments.",
+        owner: "OE Group",
       }}
     />
   );

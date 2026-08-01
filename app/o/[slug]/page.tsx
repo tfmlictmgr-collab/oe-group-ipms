@@ -78,8 +78,14 @@ export default async function OrgLoginPage({
         tagline:
           org.tagline ||
           "Requests, service charges, vendor performance and payments — in one auditable place.",
+        // The organisation's own name, so its door carries its copyright and no
+        // one else's (B1).
+        owner: org.name,
       }}
-      backHref="/login"
+      // Deliberately no "not your organisation?" link. It used to point at
+      // /login, which is now the PLATFORM OPERATOR's door — inviting a client to
+      // OE Group's own sign-in, from their own branded page. A client who is on
+      // the wrong org's address should ask whoever sent them the link.
     />
   );
 }

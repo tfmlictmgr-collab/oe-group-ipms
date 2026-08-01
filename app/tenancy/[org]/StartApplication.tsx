@@ -91,8 +91,13 @@ export default function StartApplication({
         <Label htmlFor="s-name">
           {type === "corporate" ? "Your name" : "Full name"} <span className="text-destructive">*</span>
         </Label>
+        {/* autoComplete throughout: most applicants are on a phone, and the
+            three details this screen asks for are exactly the three every
+            keyboard already offers to fill. Typing them out is friction we were
+            imposing for no reason. */}
         <Input
           id="s-name" required value={form.name}
+          autoComplete="name" autoCapitalize="words"
           onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
         />
       </div>
@@ -101,6 +106,8 @@ export default function StartApplication({
         <Label htmlFor="s-email">Email address <span className="text-destructive">*</span></Label>
         <Input
           id="s-email" type="email" required value={form.email}
+          autoComplete="email" inputMode="email"
+          autoCapitalize="off" autoCorrect="off" spellCheck={false}
           onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
         />
         <p className="text-xs text-muted-foreground">
@@ -112,6 +119,7 @@ export default function StartApplication({
         <Label htmlFor="s-phone">Phone number</Label>
         <Input
           id="s-phone" type="tel" inputMode="tel" value={form.phone}
+          autoComplete="tel"
           onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
           placeholder="+234…"
         />

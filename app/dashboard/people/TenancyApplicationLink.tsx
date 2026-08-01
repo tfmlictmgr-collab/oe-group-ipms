@@ -14,16 +14,22 @@ export default function TenancyApplicationLink({
   isOpen,
   isAdmin,
   origin,
+  slug,
 }: {
   orgId: string;
   isOpen: boolean;
   isAdmin: boolean;
   origin: string;
+  /** The org's readable handle, when it has one. */
+  slug?: string | null;
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
   const [copied, setCopied] = React.useState(false);
-  const url = `${origin}/tenancy/${orgId}`;
+  // The slug when there is one: this link gets emailed, printed and read down a
+  // phone, and `/tenancy/oea` survives all three where a uuid survives none.
+  // The id still resolves, so links already sent keep working.
+  const url = `${origin}/tenancy/${slug || orgId}`;
 
   async function toggle() {
     setBusy(true);

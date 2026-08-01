@@ -18,7 +18,38 @@ export type SignInBrand = {
   primary: string;
   headline: string;
   tagline: string;
+  /**
+   * Whose name goes in the copyright line. The organisation's own legal name on
+   * its own door — never a list of the platform's clients (B1).
+   */
+  owner?: string;
 };
+
+/**
+ * Auth failures, said in words rather than in the provider's.
+ *
+ * "Invalid login credentials" is a database's sentence, not a person's, and the
+ * rarer ones ("AuthApiError: request rate limit reached") read as a broken site
+ * to someone who has simply mistyped a password twice. The wording deliberately
+ * does NOT distinguish an unknown email from a wrong password — telling a
+ * stranger which addresses have accounts is how you hand over a user list.
+ */
+function signInMessage(raw: string): string {
+  const m = raw.toLowerCase();
+  if (m.includes("invalid login") || m.includes("invalid credentials")) {
+    return "That email and password don't match. Check both and try again.";
+  }
+  if (m.includes("email not confirmed")) {
+    return "This account hasn't been activated yet. Use the link in your invitation email.";
+  }
+  if (m.includes("rate limit") || m.includes("too many")) {
+    return "Too many attempts. Wait a minute and try again.";
+  }
+  if (m.includes("network") || m.includes("fetch")) {
+    return "Couldn't reach the server. Check your connection and try again.";
+  }
+  return "Something went wrong signing you in. Try again, and tell your administrator if it keeps happening.";
+}
 
 const DEFAULT_POINTS = [
   { icon: Building2, text: "Request intake from WhatsApp, Telegram and the portal" },
@@ -33,7 +64,17 @@ const DEFAULT_POINTS = [
  * The branding is passed in rather than read here, because on an org's own page
  * it is resolved server-side from the slug by `org_public_branding` — a function
  * that returns one row and cannot be made to list. This component never learns
- * that any other organisation exists, which is the point.
+ * that any other organisation exists.
+ *
+ * ⚠️ Except that until Day 8.9 it announced one. The footer was hardcoded
+ * "© OE Group · TFML & Ora Egbunike & Associates" on EVERY door, so a TFML
+ * employee signing in at their own address read the name of the other brand —
+ * the precise thing B1 forbids ("must never see the other brand's data **or
+ * existence**"), sitting three lines under a comment claiming it could not
+ * happen. The isolation was correct everywhere it was enforced and wrong in the
+ * one place nobody enforces anything: a piece of static copy.
+ *
+ * `owner` now says whose door this is, and nothing else appears.
  */
 export default function SignInPanel({
   brand,
@@ -60,7 +101,7 @@ export default function SignInPanel({
     const { error } = await supabase.auth.signInWithPassword({ email, password });
 
     if (error) {
-      setError(error.message);
+      setError(signInMessage(error.message));
       setLoading(false);
       return;
     }
@@ -120,8 +161,9 @@ export default function SignInPanel({
           </ul>
         </div>
 
+        {/* Only ever the organisation whose door this is. */}
         <p className="relative text-xs text-sidebar-muted">
-          © {new Date().getFullYear()} OE Group · TFML &amp; Ora Egbunike &amp; Associates
+          © {new Date().getFullYear()} {brand.owner ?? brand.portalName}
         </p>
       </section>
 

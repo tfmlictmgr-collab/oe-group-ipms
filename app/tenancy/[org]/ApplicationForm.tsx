@@ -288,12 +288,46 @@ function FieldInput({
           // A phone keyboard that matches the field is the difference between a
           // form filled on mobile and one abandoned on mobile.
           inputMode={field.type === "tel" ? "tel" : field.type === "number" ? "decimal" : undefined}
+          // Let the browser fill what it already knows. Derived from the field
+          // key rather than listed per field, so a new question added to
+          // `application-form.ts` inherits this instead of quietly missing it.
+          autoComplete={autoCompleteFor(field.key, field.type)}
+          autoCapitalize={field.type === "email" ? "off" : undefined}
+          autoCorrect={field.type === "email" ? "off" : undefined}
+          spellCheck={field.type === "email" ? false : undefined}
         />
       )}
 
       {field.hint && <p className="text-xs text-muted-foreground">{field.hint}</p>}
     </div>
   );
+}
+
+/**
+ * The autofill hint for a field, from its key.
+ *
+ * Only the applicant's OWN details get a hint. A guarantor's or referee's name
+ * and phone deliberately get `off`: offering to autofill someone else's details
+ * with the applicant's is worse than offering nothing, because it fills
+ * plausible-looking wrong data that a reviewer then verifies against a real
+ * person who never agreed to stand as guarantor.
+ */
+function autoCompleteFor(key: string, type: string): string | undefined {
+  // ⚠️ These prefixes are checked against the real keys in
+  // `lib/application-form.ts`, not guessed. The first version of this list said
+  // `previous_landlord` where the schema says `former_landlord` — so the
+  // previous landlord's phone fell through to the `type === "tel"` fallback and
+  // offered to fill the APPLICANT's number into it. A silently wrong phone
+  // number on a reference is worse than a blank one: nobody notices, and the
+  // reviewer rings a stranger.
+  if (/(guarantor|referee\d|trade_ref\d|next_of_kin|landlord)/.test(key)) return "off";
+
+  if (key === "full_name") return "name";
+  if (key === "date_of_birth") return "bday";
+  if (key === "current_address") return "street-address";
+  if (type === "email") return "email";
+  if (type === "tel") return "tel";
+  return undefined;
 }
 
 function DocRow({
