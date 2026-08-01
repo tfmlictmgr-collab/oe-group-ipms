@@ -6,6 +6,7 @@ import { getSessionProfile } from "@/lib/auth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/patterns/empty-state";
+import DomainField from "./DomainField";
 
 // The OE Group operator launcher: every organisation on the platform as a card,
 // each opening that organisation's own address.
@@ -25,6 +26,7 @@ type Row = {
   name: string;
   portal_name: string | null;
   slug: string | null;
+  custom_domain: string | null;
   logo_url: string | null;
   theme_primary: string | null;
   theme_logo_text: string | null;
@@ -172,11 +174,12 @@ function OrgCard({ org }: { org: Row }) {
         )}
       </div>
 
-      <div className="relative min-w-0 flex-1">
+      <div className="relative min-w-0 flex-1 space-y-0.5">
         <p className="truncate font-medium tracking-tight">{label}</p>
-        <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">
+        <p className="truncate font-mono text-xs text-muted-foreground">
           {org.slug ? `/o/${org.slug}` : "No address set"}
         </p>
+        {!org.retired && <DomainField orgId={org.id} domain={org.custom_domain} />}
       </div>
 
       <div className="relative flex items-center gap-4 text-xs text-muted-foreground">

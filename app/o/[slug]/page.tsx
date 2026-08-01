@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { orgForCurrentHost } from "@/lib/org-host";
 import SignInPanel from "@/components/auth/sign-in-panel";
 
 // An organisation's own front door.
@@ -48,6 +49,16 @@ export default async function OrgLoginPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
+
+  // A hostname bound to one organisation serves ONLY that organisation's door.
+  // Without this, portal.tfmlconsultant.com/o/oea would paint OEA's brand on
+  // TFML's domain — a cross-brand surface on a host a client believes is
+  // exclusively theirs, which is precisely what B1 exists to prevent. Answered
+  // as 404 rather than a redirect, so the host cannot be used to enumerate
+  // which slugs exist.
+  const hostOrg = await orgForCurrentHost();
+  if (hostOrg && hostOrg.slug?.toLowerCase() !== slug.toLowerCase()) notFound();
+
   const org = await brandingFor(slug);
   if (!org) notFound();
 
