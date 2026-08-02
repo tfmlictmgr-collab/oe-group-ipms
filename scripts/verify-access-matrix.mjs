@@ -59,34 +59,78 @@ async function asUser(uid, fn) {
 
 await client.connect();
 try {
+  // ⚠️ ONE user per (org, role) — not every account.
+  //
+  // This swept every active user against all ten tables: with ~45 accounts that
+  // is roughly 2,250 round trips on a single pooled connection held open for
+  // eight minutes, which the Supabase pooler eventually closes underneath us.
+  // The suite then died with ECONNRESET after passing cleanly an hour earlier —
+  // a fragility that reads as a flaky security test.
+  //
+  // 📌 What this asserts is org isolation and role scoping. A SECOND
+  // administrator in the same org exercises the identical policy path and proves
+  // nothing new, so the extra rows bought fragility and no coverage.
+  //
+  // `distinct on (org, role)` preferring the canonical `<slug>.<role>@…` logins
+  // keeps the specific accounts the later sections look up by email.
   const { rows: users } = await client.query(`
-    select u.id, u.role, u.email, u.org_id, o.name as org_name, o.delivery_brand
+    select distinct on (u.org_id, u.role)
+           u.id, u.role, u.email, u.org_id, o.name as org_name, o.delivery_brand
     from users u join orgs o on o.id = u.org_id
     -- Retired accounts cannot sign in, so sweeping them proves nothing and
     -- costs a round trip per table. Test debris accumulates here quickly.
     where u.deactivated_at is null
-    order by o.delivery_brand, u.role;`);
+    order by u.org_id, u.role,
+             -- the seeded per-org credential wins over any other holder of the
+             -- same role, so the by-email lookups below still resolve
+             case when u.email like o.slug || '.%' then 0 else 1 end,
+             u.email;`);
+
+  // Presentation order: grouped by brand, as the report reads.
+  users.sort(
+    (a, b) =>
+      String(a.delivery_brand).localeCompare(String(b.delivery_brand)) ||
+      String(a.role).localeCompare(String(b.role))
+  );
 
   // ── A. ORG ISOLATION ──────────────────────────────────────────────────────
   console.log("A. ORG ISOLATION — every readable row belongs to the caller's org");
   const visibleCounts = {}; // uid -> {table -> count}
+  // ⚠️ ONE query per user, not one per table.
+  //
+  // A separate round trip for each of the ten tables — inside its own
+  // impersonation transaction — is what made this suite an eight-minute run on a
+  // single pooled connection, and eventually an ECONNRESET. The tables are
+  // independent counts against the same session, so they belong in one
+  // statement: ~45 round trips instead of ~450, with identical assertions.
+  //
+  // Every count still runs as the impersonated user, so RLS decides each one
+  // exactly as before — the batching changes the number of trips, not the
+  // security question being asked.
+  const countsSql =
+    "select " +
+    TABLES.map(
+      (t, i) =>
+        `(select count(*)::int from ${t}) as n_${i}, ` +
+        `(select count(*)::int from ${t} where org_id <> $1) as f_${i}`
+    ).join(", ");
+
   for (const u of users) {
     visibleCounts[u.id] = {};
     let leaked = false;
-    for (const table of TABLES) {
-      const rows = await asUser(u.id, async () => {
-        const r = await client.query(
-          `select count(*)::int as n,
-                  count(*) filter (where org_id <> $1)::int as foreign
-           from ${table}`,
-          [u.org_id]
-        );
-        return r.rows;
-      });
-      visibleCounts[u.id][table] = rows[0].n;
-      if (rows[0].foreign > 0) {
+
+    const row = await asUser(u.id, async () => {
+      const r = await client.query(countsSql, [u.org_id]);
+      return r.rows[0];
+    });
+
+    for (const [i, table] of TABLES.entries()) {
+      const n = row[`n_${i}`];
+      const foreign = row[`f_${i}`];
+      visibleCounts[u.id][table] = n;
+      if (foreign > 0) {
         leaked = true;
-        fail(`${u.email} (${u.role}) can read ${rows[0].foreign} ${table} rows from ANOTHER org`);
+        fail(`${u.email} (${u.role}) can read ${foreign} ${table} rows from ANOTHER org`);
       }
     }
     if (!leaked) pass(`${u.email.padEnd(24)} (${u.role}) — no cross-org rows in any table`);
