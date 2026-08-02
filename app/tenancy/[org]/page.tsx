@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import type { Metadata } from "next";
 import { Building2, User, ShieldCheck, ChevronRight } from "lucide-react";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { resolvePublicOrg } from "@/lib/org-public";
@@ -19,6 +20,37 @@ import ApplicationForm from "./ApplicationForm";
 // the next deploy. The person who would notice is a prospect who quietly gives
 // up, so this is a correctness question rather than a performance one.
 export const dynamic = "force-dynamic";
+
+/**
+ * This page's own metadata, carrying the ORG's name and nothing else.
+ *
+ * Without it the page inherited the root description — which named both brands
+ * until it was fixed. This is the most-shared public link in the product: a
+ * letting agent pastes it into WhatsApp, and the preview card is the first
+ * thing a prospective tenant sees. It should say whose it is.
+ *
+ * `noindex` because a tenancy application form has no business in a search
+ * index: the link is given to people, and an indexed one is an open door.
+ */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ org: string }>;
+}): Promise<Metadata> {
+  const { org } = await params;
+  const organisation = await resolvePublicOrg(org);
+  if (!organisation) return { title: "Not found", robots: { index: false, follow: false } };
+
+  const name = organisation.portal_name || organisation.name;
+  const description = `Apply for a tenancy with ${name}. Every application is read by a person.`;
+
+  return {
+    title: `Apply for a tenancy — ${name}`,
+    description,
+    robots: { index: false, follow: false },
+    openGraph: { title: `Apply for a tenancy — ${name}`, description, siteName: name },
+  };
+}
 
 export default async function ApplyPage({
   params,

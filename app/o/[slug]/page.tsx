@@ -40,7 +40,22 @@ export async function generateMetadata({
   const { slug } = await params;
   const org = await brandingFor(slug);
   if (!org) return { title: "Sign in" };
-  return { title: `${org.portal_name || org.name} — Sign in` };
+
+  const name = org.portal_name || org.name;
+  return {
+    title: `${name} — Sign in`,
+    // Set explicitly, so this page cannot inherit the root description. That is
+    // how the other brand's name reached this door: root metadata cascades, and
+    // a link preview of THIS page was rendering it.
+    description: `Sign in to ${name}.`,
+    // A client's own portal has no business in a search index.
+    robots: { index: false, follow: false },
+    openGraph: {
+      title: `${name} — Sign in`,
+      description: `Sign in to ${name}.`,
+      siteName: name,
+    },
+  };
 }
 
 export default async function OrgLoginPage({
