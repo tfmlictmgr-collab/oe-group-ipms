@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/shell/app-shell";
 import { roleLabel } from "@/lib/roles";
 import type { NavContext } from "@/components/shell/nav-config";
+import { seesBi, biScope } from "./bi/scope";
 
 export default async function DashboardLayout({
   children,
@@ -54,9 +55,13 @@ export default async function DashboardLayout({
     isStaff: ["admin", "facility_manager", "finance_approver"].includes(role),
     isAdmin: role === "admin",
     isViewer: role === "viewer",
+    isTenant: role === "tenant",
+    isVendor: role === "vendor",
     seesAudit: role === "admin" || role === "finance_approver",
-    // B7 "Exec / BI dashboard" column
-    seesBi: ["admin", "facility_manager", "finance_approver", "property_owner"].includes(role),
+    // B7 "Exec / BI dashboard" column — one definition, shared with the pages
+    // themselves so the link and the page can never disagree about who may look.
+    seesBi: seesBi(role),
+    seesRequestAnalytics: biScope(role).requests,
     seesAssets: ["admin", "facility_manager", "finance_approver", "property_owner"].includes(role),
     canEnroll: ["admin", "facility_manager"].includes(role),
     seesLedger: ["admin", "finance_approver"].includes(role),

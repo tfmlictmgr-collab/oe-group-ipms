@@ -18,7 +18,7 @@ import { formatNaira } from "@/lib/currency";
 // Validated categorical slots (blue, green) — pass CVD, normal-vision and
 // contrast checks. Each has a light-surface and a dark-surface variant so the
 // same series keeps its identity in both themes without losing contrast.
-type Palette = {
+export type Palette = {
   series1: string;
   series2: string;
   grid: string;
@@ -57,14 +57,14 @@ const PALETTE: Record<"light" | "dark", Palette> = {
 
 // Resolve the active palette on the client. Defaults to light until mounted so
 // server and client markup agree (no hydration mismatch).
-function usePalette() {
+export function usePalette() {
   const { resolvedTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   return mounted && resolvedTheme === "dark" ? PALETTE.dark : PALETTE.light;
 }
 
-function chartChrome(p: Palette) {
+export function chartChrome(p: Palette) {
   return {
     axisProps: {
       stroke: p.axis,

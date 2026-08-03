@@ -739,6 +739,74 @@ vendor completes fastest this quarter?" live, plus a **tenant request tracker**.
 
 **Done when:** filters work, scoping holds, exports produce a file.
 
+### What was built (2026-08-03)
+
+**The fact nobody wrote down.** `tickets` recorded a status and never the moment
+it changed, so "average time-to-resolve" and "which vendor completes fastest"
+were not slow to compute — they were **uncomputable**. `0099` adds `resolved_at`
+and `first_response_at`, stamped by trigger on the transition, set once so a
+reopened ticket keeps its original resolution time. **It does not backfill.**
+Tickets already sitting at `resolved` have no honest duration, and every
+aggregate excludes them explicitly, so each average reads "of what we measured".
+The console says so on screen and in both exports.
+
+**Aggregation (`0100`, `0101`).** Three functions — `bi_ticket_metrics`,
+`bi_vendor_performance`, `bi_category_performance` — each taking every filter,
+rather than a view per filter combination. **None is `SECURITY DEFINER`**: they
+are plain SQL over `tickets`, so RLS scopes them and an FM/PM sees only their own
+properties without the functions knowing that rule exists.
+
+> **Deviation from the prompt, recorded.** The prompt asked for *materialised*
+> aggregates for speed. A materialised view is computed once, as its owner, and
+> cannot vary by caller — it would hand every reader the same numbers and quietly
+> undo the scoping this build spends 42 policy clauses maintaining. Live SQL over
+> an indexed table was chosen instead. If volume ever demands pre-aggregation, it
+> must be per-org and re-checked, not a single shared snapshot.
+
+`0101` exists because the headline pools per-period averages, and weighting the
+first-response average by the *resolution* count is arithmetic across two
+different populations — a ticket can be acknowledged and still open. Each average
+now returns its own count.
+
+**Surfaces.**
+- `/dashboard/bi/analytics` — filters (date range, property, vendor, category,
+  status), week/month/quarter/year toggle (monthly default, board 1 Aug 2026),
+  volume-and-speed trend on two axes, fastest/slowest vendor, vendor turnaround,
+  completion by category, the period table, CSV and a branded PDF report.
+- `/dashboard/my-requests` — the tenant's request tracker: a raised →
+  acknowledged → assigned → completed timeline per request, via `my_requests()`.
+  Replaces the requests list for a tenant rather than sitting beside it.
+- `/dashboard/my-work` — the contractor's own view: pipeline, AURA scorecard and
+  invoice stage. Nothing filters by vendor id; the policies do it.
+
+**Two period traps, both closed.** A partial period is not a decline — comparing
+a three-day-old August against a full July printed "−81.3% raised" in red on an
+executive's screen, so period-over-period now drops the bucket in progress and
+marks it "so far". And a period with nothing timed leaves a **gap** in the trend
+line rather than a straight line drawn through it.
+
+**Gaps found while building, and fixed.**
+- `executive` and `regional_manager` reached **no** BI at all, contrary to B7
+  v3.3. `biScope()` moved out of the page into `bi/scope.ts` — one definition,
+  shared by both pages, the export route and the nav.
+- **No ticket in any org carried an `assigned_vendor_id`**, so every vendor panel
+  was correctly and uselessly empty. `seed-dispatch-demo.mjs` (gated behind
+  `--yes` and a demo-org allowlist) gives the demo a dispatch history.
+- No `vendor@` login was attached to a vendor record, so a contractor signed in
+  to an empty application — a fixture with no subject, reading as broken access
+  control. `seed-org-logins` now links one.
+- A probe contractor, `Perm probe 1785232896727`, was sitting in the live
+  contractor filter: `verify-permissions` inserts a vendor it *expects* to be
+  refused, so it had no cleanup on the run where the refusal failed. Swept at the
+  start of the run now, and the insert captures its id.
+- The vendor picker queried `vendors.deleted_at`, a column that does not exist.
+  The error emptied the picker silently, which reads as "this org has no
+  contractors".
+
+Suites: `verify-analytics-console` (32), `verify-bi-scoping` (mirror updated).
+
+**Day 10 is complete.**
+
 ---
 
 ## Day 11 — Vendor KPI/SLA evaluation, work-order media, UX pass

@@ -1,5 +1,9 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Inbox, CheckCircle2, TrendingUp, Wallet, Banknote, BarChart3 } from "lucide-react";
+import {
+  Inbox, CheckCircle2, TrendingUp, Wallet, Banknote, BarChart3, SlidersHorizontal,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { getSessionProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { formatNaira } from "@/lib/currency";
@@ -8,29 +12,7 @@ import { StatCard } from "@/components/patterns/stat-card";
 import { EmptyState } from "@/components/patterns/empty-state";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CountBar, ScoreBar, BudgetBar, type NamedValue, type BudgetRow } from "./Charts";
-
-// B7 "Exec / BI dashboard" column:
-// Widget gating per B7's "Exec / BI dashboard" column. Every underlying query is
-// RLS-scoped, so FM/owner figures are automatically limited to their properties.
-//   requests    — requests by status/category
-//   vendorPerf  — vendor composite scores (ops management)
-//   collection  — collection rate + outstanding receivables
-//   liabilities — vendor liabilities (payments)
-//   budget      — budget-vs-invoiced utilisation
-function biScope(role: string | undefined) {
-  switch (role) {
-    case "admin":
-      return { requests: true, vendorPerf: true, collection: true, liabilities: true, budget: true };
-    case "facility_manager": // ops KPIs + operational budgets (managed properties)
-      return { requests: true, vendorPerf: true, collection: false, liabilities: false, budget: true };
-    case "finance_approver": // financial
-      return { requests: false, vendorPerf: false, collection: true, liabilities: true, budget: true };
-    case "property_owner": // own portfolio (RLS-scoped to owned properties)
-      return { requests: true, vendorPerf: false, collection: true, liabilities: false, budget: true };
-    default:
-      return { requests: false, vendorPerf: false, collection: false, liabilities: false, budget: false };
-  }
-}
+import { biScope } from "./scope";
 
 function titleize(s: string) {
   return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -154,6 +136,15 @@ export default async function BiDashboardPage() {
       <PageHeader
         title="Executive Dashboard"
         description={`Live data, scoped to the ${titleize(role ?? "")} role.`}
+        actions={
+          scope.requests && (
+            <Button asChild variant="outline">
+              <Link href="/dashboard/bi/analytics">
+                <SlidersHorizontal /> Analytics console
+              </Link>
+            </Button>
+          )
+        }
       />
 
       {/* KPI tiles */}

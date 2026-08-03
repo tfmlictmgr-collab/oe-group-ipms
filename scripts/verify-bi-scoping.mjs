@@ -19,13 +19,16 @@ const client = new pg.Client({
   ssl: { rejectUnauthorized: false },
 });
 
-// Mirrors biScope() in app/dashboard/bi/page.tsx
+// Mirrors biScope() in app/dashboard/bi/scope.ts
 function biScope(role) {
   switch (role) {
     case "admin":
+    case "executive": // B7 v3.3 — "All (RT)" on every column
       return "ops + financial + portfolio";
     case "facility_manager":
       return "ops only";
+    case "regional_manager": // B7 v3.3 — ops KPIs, nothing financial
+      return "ops only (no budgets)";
     case "finance_approver":
       return "financial only";
     case "property_owner":

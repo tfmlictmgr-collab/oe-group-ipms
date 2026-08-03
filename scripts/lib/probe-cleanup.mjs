@@ -86,6 +86,40 @@ export async function sweepProbeProperties(svc, prefixes = ["PROBE", "Probe Cour
   return removed;
 }
 
+/**
+ * Sweeps probe CONTRACTORS.
+ *
+ * ⚠️ Third table, same fault. A vendor named `Perm probe 1785232896727` was found
+ * sitting in the analytics console's contractor filter, offered to an
+ * administrator as a real contractor to report on.
+ *
+ * `verify-permissions` inserts two probe vendors: the first is expected to be
+ * REFUSED (the capability is off), so it has no cleanup — and on the run where
+ * that expectation failed, the row it was never meant to create was the one row
+ * nothing would ever delete. A fixture whose cleanup is conditional on the
+ * assertion passing has no cleanup on exactly the runs that need it.
+ */
+export async function sweepProbeVendors(svc, prefixes = ["Perm probe", "PROBE", "PROBEBI-"]) {
+  let removed = 0;
+  for (const prefix of prefixes) {
+    const { data } = await svc.from("vendors").select("id").ilike("name", `${prefix}%`);
+    if (!data?.length) continue;
+    const ids = data.map((v) => v.id);
+
+    // Anything pointing at them first, or the delete is refused and the sweep
+    // fails silently in the way it exists to prevent.
+    await svc.from("tickets").update({ assigned_vendor_id: null }).in("assigned_vendor_id", ids);
+    await svc.from("vendor_properties").delete().in("vendor_id", ids);
+    await svc.from("vendor_evaluations").delete().in("vendor_id", ids);
+
+    for (const id of ids) {
+      const { error } = await svc.from("vendors").delete().eq("id", id);
+      if (!error) removed++;
+    }
+  }
+  return removed;
+}
+
 /** Applications a suite left behind that were never tied to a probe property. */
 export async function sweepProbeApplications(svc, namePrefix = "Probe ") {
   const { data } = await svc

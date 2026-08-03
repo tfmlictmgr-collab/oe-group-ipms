@@ -115,6 +115,39 @@ console.log("\nB. Unmeasured tickets are excluded, not invented");
     : bad("no timed average produced");
 }
 
+console.log("\nB2. Each average reports the population it was taken over");
+{
+  // 0101. The console pools per-period averages into one headline by weighting
+  // each by how many tickets it covered. Resolution and first-response are
+  // averaged over DIFFERENT sets — a ticket can be acknowledged and still open —
+  // so a single count cannot serve both without silently mis-weighting one.
+  const { data: rows, error } = await svc.rpc("bi_ticket_metrics", { p_bucket: "year" });
+  if (error) bad(`bi_ticket_metrics failed — ${error.message.slice(0, 70)}`);
+  else {
+    const r = (rows ?? [])[0];
+    r && "responded" in r
+      ? ok("the response average carries its own population count")
+      : bad("NO `responded` COLUMN — the headline would weight it by the resolved count");
+
+    // Every row must be self-consistent: an average exists iff its count does.
+    const inconsistent = (rows ?? []).filter(
+      (x) =>
+        (Number(x.responded) > 0) !== (x.avg_hours_to_first_response !== null) ||
+        (Number(x.timed) > 0) !== (x.avg_hours_to_resolve !== null)
+    );
+    inconsistent.length === 0
+      ? ok("and every average exists exactly when its population is non-zero")
+      : bad(`${inconsistent.length} row(s) report an average over nothing, or nothing over a population`);
+
+    // The two populations genuinely differ — otherwise the check above proves
+    // nothing, because one count would do.
+    const differs = (rows ?? []).some((x) => Number(x.responded) !== Number(x.timed));
+    differs
+      ? ok("the two populations do differ, so the distinction is not academic")
+      : bad("responded and timed are identical everywhere — cannot tell the counts apart");
+  }
+}
+
 console.log("\nC. Filters narrow, and compose");
 {
   const all = await svc.rpc("bi_ticket_metrics", { p_bucket: "year" });
@@ -230,6 +263,66 @@ console.log("\nG. A tenant follows their own request, and only theirs");
         : ok("and none belonging to anyone else");
     }
     await c.auth.signOut();
+  }
+}
+
+console.log("\nG2. A contractor sees their own work, and only theirs");
+{
+  // The other half of Day 10: the vendor's own pipeline, scorecard and pay
+  // status. Every one of those policies keys off `vendors.user_id = auth.uid()`,
+  // and until a login was actually attached to a vendor record they all returned
+  // nothing — indistinguishable from a policy that denies everything.
+  const c = await login("oe-group-foundation-poc.vendor@oegroup.test");
+  if (!c) bad("could not sign in as the contractor");
+  else {
+    const { data: mine } = await c.from("vendors").select("id, name");
+    (mine ?? []).length === 1
+      ? ok(`the contractor resolves to exactly one record (${mine[0].name})`)
+      : bad(`the contractor saw ${(mine ?? []).length} vendor record(s) — expected exactly 1`);
+
+    const myId = mine?.[0]?.id;
+    const { count: allVendors } = await svc
+      .from("vendors").select("id", { count: "exact", head: true }).eq("org_id", poc.id);
+    (allVendors ?? 0) > 1
+      ? ok(`and the org holds ${allVendors}, so the boundary has a far side`)
+      : bad("only one vendor exists — own-record scoping cannot be observed");
+
+    if (myId) {
+      const { data: jobs } = await c.from("tickets").select("id, assigned_vendor_id");
+      (jobs ?? []).length > 0
+        ? ok(`they see their dispatched jobs (${(jobs ?? []).length})`)
+        : bad("A CONTRACTOR CANNOT SEE THEIR OWN JOBS");
+      (jobs ?? []).every((t) => t.assigned_vendor_id === myId)
+        ? ok("and every one is assigned to them")
+        : bad("A CONTRACTOR SAW A JOB DISPATCHED TO SOMEONE ELSE");
+
+      const { data: scores } = await c.from("vendor_evaluations").select("vendor_id");
+      (scores ?? []).every((s) => s.vendor_id === myId)
+        ? ok("their scorecard contains no one else's scores")
+        : bad("A CONTRACTOR SAW ANOTHER CONTRACTOR'S SCORES");
+
+      const { data: pays } = await c.from("payments").select("vendor_id");
+      (pays ?? []).every((p) => p.vendor_id === myId)
+        ? ok("and no one else's invoices")
+        : bad("A CONTRACTOR SAW ANOTHER CONTRACTOR'S INVOICES");
+    }
+    await c.auth.signOut();
+  }
+}
+
+console.log("\nH. The PDF export is not a way around the sign-in");
+{
+  // The console's figures are also reachable as a document. A route that renders
+  // a report is a second read path, and a second read path is where the first
+  // one's checks get forgotten.
+  const base = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+  try {
+    const r = await fetch(`${base}/api/analytics/report?bucket=year`);
+    r.status === 401
+      ? ok("an unauthenticated request for the report is refused (401)")
+      : bad(`the report answered ${r.status} with no session`);
+  } catch {
+    console.log("  \x1b[33mSKIP\x1b[0m no dev server on " + base);
   }
 }
 

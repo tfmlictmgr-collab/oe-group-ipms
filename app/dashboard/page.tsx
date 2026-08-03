@@ -14,6 +14,14 @@ export default async function DashboardPage() {
   // page that is actually theirs.
   const session = await getSessionProfile();
   if (session?.profile?.role === "viewer") redirect("/dashboard/overview");
+  // A tenant's rows here and on the tracker are the same rows — RLS narrows both
+  // to what they raised. The tracker adds the timeline they actually want, so it
+  // replaces this page rather than sitting beside it under a second name.
+  if (session?.profile?.role === "tenant") redirect("/dashboard/my-requests");
+  // Same reasoning for a contractor: this list would hold only the jobs they were
+  // dispatched, which is what My Work shows — with their score and pay status
+  // beside it.
+  if (session?.profile?.role === "vendor") redirect("/dashboard/my-work");
 
   const supabase = await createClient();
   // Bounded deliberately. Unbounded, this hit PostgREST's 1000-row cap and older

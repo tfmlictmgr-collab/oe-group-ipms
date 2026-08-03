@@ -15,6 +15,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
+import { sweepProbeVendors } from "./lib/probe-cleanup.mjs";
 
 const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 config({ path: path.join(rootDir, ".env.local") });
@@ -51,6 +52,16 @@ const operator = orgs.find((o) => o.is_platform_operator);
 const tfml = orgs.find((o) => o.delivery_brand === "TFML");
 
 console.log("Permission matrix — the toggles are real\n");
+
+// Repair before testing. Section C's first insert is EXPECTED to be refused and
+// therefore has no cleanup — so the one run where it wrongly succeeds leaves a
+// contractor behind that nothing will ever remove. One did: `Perm probe
+// 1785232896727` turned up in a live contractor filter. End-of-run cleanup
+// cannot fix the runs that never reach it.
+{
+  const swept = await sweepProbeVendors(svc, ["Perm probe"]);
+  if (swept > 0) console.log(`  (swept ${swept} contractor(s) left by an earlier run)\n`);
+}
 
 console.log("A. Exactly one platform operator, and it is OE Group");
 {
@@ -98,9 +109,14 @@ console.log("\nB. A toggle changes what the DATABASE returns");
 console.log("\nC. A revoked WRITE is refused, not merely hidden");
 {
   await setPerm(fmUser.org_id, "facility_manager", "vendors.write", false);
-  const { error } = await fm.from("vendors")
-    .insert({ org_id: fmUser.org_id, name: `Perm probe ${Date.now()}` });
+  // `.select()` so that if the insert wrongly SUCCEEDS we hold the id and can
+  // delete it. Asserting a refusal without capturing the row means the failing
+  // case is the one that leaks.
+  const { data: shouldNotExist, error } = await fm.from("vendors")
+    .insert({ org_id: fmUser.org_id, name: `Perm probe ${Date.now()}` })
+    .select("id").maybeSingle();
   error ? ok("insert refused with the capability off") : bad("INSERT SUCCEEDED without the capability");
+  if (shouldNotExist) await svc.from("vendors").delete().eq("id", shouldNotExist.id);
 
   await setPerm(fmUser.org_id, "facility_manager", "vendors.write", true);
   const { data: made, error: e2 } = await fm.from("vendors")

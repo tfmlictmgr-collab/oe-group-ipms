@@ -13,6 +13,8 @@ import {
   UserPlus,
   LayoutGrid,
   FileSignature,
+  SlidersHorizontal,
+  HardHat,
   type LucideIcon,
 } from "lucide-react";
 
@@ -32,7 +34,20 @@ export type NavContext = {
    * not see this". A single honest page beats four that half-work.
    */
   isViewer: boolean;
+  /**
+   * A resident/occupant.
+   *
+   * Given the request TRACKER rather than the operational requests list — the
+   * two would show the same rows (RLS narrows both to their own), and offering
+   * both under different names invites the reader to believe one is holding
+   * something back.
+   */
+  isTenant: boolean;
+  /** A contractor. Gets their own jobs, score and pay status — B7's vendor row. */
+  isVendor: boolean;
   seesBi: boolean;
+  /** The `requests` capability of the B7 BI matrix — the analytics console. */
+  seesRequestAnalytics: boolean;
   seesAudit: boolean;
   /** Asset register readers: admin, FM/PM, finance, owners. */
   seesAssets: boolean;
@@ -72,12 +87,37 @@ export const NAV_GROUPS: NavGroup[] = [
         icon: LayoutDashboard,
         show: (c) => c.isViewer,
       },
-      { label: "Requests", href: "/dashboard", icon: Inbox, show: (c) => !c.isViewer },
+      {
+        label: "My Requests",
+        href: "/dashboard/my-requests",
+        icon: Inbox,
+        show: (c) => c.isTenant,
+      },
+      {
+        label: "My Work",
+        href: "/dashboard/my-work",
+        icon: HardHat,
+        show: (c) => c.isVendor,
+      },
+      {
+        label: "Requests",
+        href: "/dashboard",
+        icon: Inbox,
+        show: (c) => !c.isViewer && !c.isTenant && !c.isVendor,
+      },
       {
         label: "Analytics",
         href: "/dashboard/bi",
         icon: LayoutDashboard,
         show: (c) => c.seesBi,
+      },
+      {
+        label: "Analytics Console",
+        href: "/dashboard/bi/analytics",
+        icon: SlidersHorizontal,
+        // The ops half of BI. A finance approver's dashboard is the money
+        // columns; a console of ticket turnaround is not theirs (B7).
+        show: (c) => c.seesRequestAnalytics,
       },
     ],
   },

@@ -2411,3 +2411,87 @@ only in someone's memory is one re-seed away from being undone.
 alone. This is an append-only record of what was true when it was written, and
 editing it to match the present would destroy the only account of why the change
 happened.
+
+---
+
+## Day 10 — the console, and the fact nobody wrote down
+
+⚠️ **The two headline questions were not slow to answer. They were
+unanswerable.** "Average time-to-resolve" and "which vendor completes fastest
+this quarter" both need the moment a request was finished, and `tickets`
+recorded a status and never a timestamp. A ticket had been `resolved` since some
+unknown point, and `created_at` minus nothing is not a duration.
+
+📌 Second time this build has wanted a fact nobody wrote down, and the fix is the
+same shape as `payments`: stamp the transition **in a trigger**, so it cannot be
+forgotten by a caller who sets the status directly. Set once — a reopened and
+reclosed ticket keeps its **original** resolution time, because a reopen is a
+fact a report should show, not a faster fix.
+
+⚖️ **And it does not backfill.** Every ticket already sitting at `resolved` has
+no honest resolution time. `created_at`, `now()`, or any interpolation would
+manufacture durations that look real, get averaged, and end up in a board report
+as fact. They stay NULL, every aggregate excludes them explicitly, and the
+console says so on screen: *"4 completed requests were closed before this system
+began recording resolution times."* An average that means "of what we measured"
+is worth more than one that means "of everything, some of which we invented".
+
+⚖️ **The prompt asked for materialised aggregates. It gets live SQL instead.** A
+materialised view is computed once, as its owner, and cannot vary by caller — it
+would hand every reader the same numbers and quietly undo the scoping this build
+spends 42 policy clauses maintaining. Every function here is plain SQL over
+`tickets`; **none is `SECURITY DEFINER`**, so an FM/PM sees 17 where an
+administrator sees 41, through the identical function, and the function does not
+know that rule exists. Speed is worth having. It is not worth buying with the
+one property that makes the figures safe to show.
+
+⚠️ **A partial period is not a decline.** Period-over-period first shipped
+comparing the newest bucket with the one before it. On 3 August that meant a
+three-day-old month against a full July: **−81.3% requests raised, −100%
+completed**, both arithmetically correct, both describing the calendar, both in
+red on an executive's screen. The comparison now drops the period still in
+progress, and the trend marks it *"so far"*. Same class of error as an unmeasured
+vendor ranking fastest — a number that is technically true and completely
+misleading.
+
+⚠️ **Two averages, two populations.** The console pools per-period figures into a
+headline by weighting each average by how many tickets it covered. First-response
+and resolution are averaged over **different** sets — a ticket can be
+acknowledged and still open — so `0101` returns a count for each. Weighting the
+response average by the resolution count would have produced a plausible number,
+in a headline tile, wrong by however much acknowledgement outpaces completion.
+
+⚖️ **Three fixtures with no subject.** `executive` and `regional_manager` reached
+no BI at all, contrary to B7 v3.3. **No ticket in any org carried an
+`assigned_vendor_id`**, so every vendor panel was correctly and uselessly empty.
+And no `vendor@` login was attached to a vendor record, so a contractor signed in
+to a completely empty application — `verify-bi-scoping` had been printing zeros
+across all six tables for the vendor role, indistinguishable from a policy that
+denies everything. The policies were right in all three cases. Nothing was on the
+other side of them to see.
+
+📌 This is now the third distinct table — nodes, properties, and contractors — to
+leak a probe fixture into a live screen. `Perm probe 1785232896727` was sitting
+in the analytics console's contractor filter, offered to an administrator as a
+real contractor to report on. The cause is new, though: `verify-permissions`
+inserts a vendor it **expects to be refused**, so it has no cleanup — and the one
+run where that expectation failed left the row nothing would ever delete. **A
+fixture whose cleanup is conditional on the assertion passing has no cleanup on
+exactly the runs that need it.** Swept at the start of the run, and the insert
+now captures its id so a wrong success cleans up after itself.
+
+⚠️ **`vendors.deleted_at` does not exist.** The vendor picker filtered on it, the
+query errored, and the error surfaced as an **empty dropdown** — which reads as
+"this organisation has no contractors", not as a bug. Fourth time a plausible
+column name has been written from memory rather than checked. The picker now logs
+its own failure instead of silently emptying itself.
+
+⚖️ **Seeding synthetic timings, deliberately and loudly.** `0099` refuses to
+backfill because the moment was never recorded and any value would be a guess
+presented as fact. `seed-dispatch-demo.mjs` writes exactly such timings — and the
+distinction is *where*, not *whether*: CLAUDE.md B5 defines the POC as synthetic
+sample data with no live client data, so there is no real history to
+misrepresent. It refuses to run without `--yes`, refuses any org outside a demo
+allowlist, and prints that its timings are fabricated. Without it the day's
+visible deliverable — "which vendor completes fastest?" — cannot be demonstrated
+at all.

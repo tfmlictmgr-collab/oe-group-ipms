@@ -359,6 +359,54 @@ for (const org of orgs.filter((o) => !o.is_platform_operator)) {
 
 if (attached > 0) console.log(`Attached ${attached} property assignment(s) to scoped roles.\n`);
 
+// ── 5b. The contractor login IS a contractor ──────────────────────────────
+//
+// ⚠️ Every vendor policy keys off `vendors.user_id = auth.uid()` — own jobs, own
+// scorecard, own payments, own remittances. A `vendor@` login with no vendor row
+// attached therefore satisfies none of them and signs in to a completely empty
+// application, which reads as broken access control rather than an unattached
+// fixture. `verify-bi-scoping` showed exactly that: zeros across all six tables
+// for the vendor role, indistinguishable from a policy that denies everything.
+//
+// This is the same class of fault as the unassigned FM above: the policy was
+// right, the fixture had no subject.
+let linked = 0;
+for (const org of orgs.filter((o) => !o.is_platform_operator)) {
+  const { data: person } = await svc
+    .from("users").select("id").eq("email", `${org.slug}.vendor@oegroup.test`).maybeSingle();
+  if (!person) continue;
+
+  const { data: already } = await svc
+    .from("vendors").select("id").eq("user_id", person.id).limit(1);
+  if (already?.length) continue;
+
+  const { data: candidates } = await svc
+    .from("vendors").select("id, name").eq("org_id", org.id).is("user_id", null);
+  if (!candidates?.length) continue;
+
+  // Prefer the vendor with the most work dispatched to it, so the pipeline the
+  // login lands on has something in it. A contractor portal proving itself on an
+  // empty table proves nothing.
+  const { data: assigned } = await svc
+    .from("tickets").select("assigned_vendor_id")
+    .in("assigned_vendor_id", candidates.map((v) => v.id));
+  const jobs = new Map();
+  for (const t of assigned ?? []) {
+    jobs.set(t.assigned_vendor_id, (jobs.get(t.assigned_vendor_id) ?? 0) + 1);
+  }
+  const pick = [...candidates].sort(
+    (a, b) => (jobs.get(b.id) ?? 0) - (jobs.get(a.id) ?? 0)
+  )[0];
+
+  const { error } = await svc.from("vendors").update({ user_id: person.id }).eq("id", pick.id);
+  if (error) failures.push(`${org.slug}.vendor → ${error.message.slice(0, 50)}`);
+  else {
+    linked++;
+    console.log(`  ${org.slug}.vendor@ → ${pick.name} (${jobs.get(pick.id) ?? 0} job(s))`);
+  }
+}
+if (linked > 0) console.log(`Linked ${linked} contractor login(s) to a contractor record.\n`);
+
 // ── 6. Report ─────────────────────────────────────────────────────────────
 const failed = rows.filter((r) => !r.ok);
 let currentOrg = null;
