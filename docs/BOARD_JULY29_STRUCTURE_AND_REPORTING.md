@@ -403,3 +403,65 @@ The hierarchy has to exist before a role can be scoped to a node, so:
 | **B2** | Node-scoped stakeholders + extended `current_user_property_ids()` |
 | **B3** | `scope.org_wide`, write policies bounded, confirmed against live data |
 | **B4** | `regional_manager` and `executive` roles, invitation escalation rules, `executive` added to the approval trigger |
+
+---
+
+# Amendments minuted 3 August 2026
+
+Two decisions changed after this paper was approved. Both are recorded here
+because the paper above is what the board actually read, and a design document
+that quietly matches the present tells nobody why anything moved.
+
+## A1 — The hierarchy order: REGION → **LOCATION → PROJECT** → SITE
+
+§1 above specifies REGION → PROJECT → LOCATION → SITE. **That order is
+amended:** LOCATION now sits above PROJECT.
+
+**Why.** The paper's own description of the structure is geographic — regions
+follow Nigeria's geopolitical mapping, and the places named beneath them are
+cities. Under the minuted order, "Kano" could not be recorded until a *project*
+had been invented to contain it, because PROJECT sat between REGION and
+LOCATION. A project happens **in** a place; a place does not happen in a
+project. "Kano Housing Scheme" is a project in Kano, and there is no sense in
+which Kano is inside a scheme.
+
+The practical cost was a fiction in every regional report: a placeholder project
+created solely so a city could exist beneath it.
+
+**What it did not change.** `properties.site_node_id` still points at a SITE,
+the path is still materialised, and `current_user_property_ids()` was untouched
+— the resolver walks paths and never names a level, which is why reordering was
+contained rather than sweeping. Existing nodes were re-levelled, never deleted,
+because a node's id appears in the path of everything beneath it.
+
+Nigeria's cities are seeded as **locations** under the three regions, for every
+live organisation: Abuja, Kano, Sokoto, Kaduna, Jos, Maiduguri, Ilorin, Katsina
+· Lagos, Ibadan, Benin City, Abeokuta, Akure, Osogbo, Warri · Port Harcourt,
+Enugu, Owerri, Aba, Onitsha, Awka, Calabar, Uyo, Yenagoa, Umuahia.
+
+*(Implemented in migration `0087`; the enum's own error message was corrected to
+state the amended order in `0096`.)*
+
+## A2 — Rent cadence and notice lead times
+
+Not covered by this paper, and now settled: rent is billed **annually in
+advance**, and renewal notices go out at **90, 60 and 30 days** before a tenancy
+ends.
+
+**Why annual in advance.** It is the Nigerian norm — one or two years up front
+is ordinary and a monthly cycle is the exception. Most off-the-shelf property
+systems assume monthly, and adopting that assumption would have modelled this
+market wrongly at the root rather than at the edges.
+
+**Both are per-organisation configuration**, not constants
+(`orgs.rent_demand_lead_days`, `orgs.renewal_notice_days`, Settings → Lettings).
+A commercial portfolio legitimately wants longer notice than a residential one,
+and the moment a number like this becomes a constant is the moment the second
+client cannot have it their way.
+
+A notice fires once per (lease, threshold): the **record** decides, never the
+schedule, so a retrying job cannot tell a tenant the same thing three times.
+Rent demands are raised on the same principle — the unique constraint on
+(lease, period) means a repeated run cannot bill a year twice.
+
+*(Locked decision 15; implemented in `0093` and `0098`.)*
