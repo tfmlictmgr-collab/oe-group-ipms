@@ -80,16 +80,37 @@ export default function SignInPanel({
   brand,
   redirectTo = "/dashboard",
   backHref,
+  expectedOrgId,
+  notice,
 }: {
   brand: SignInBrand;
   redirectTo?: string;
   backHref?: string;
+  /**
+   * The organisation whose door this is. When set, an account belonging to any
+   * OTHER organisation is signed straight back out rather than admitted.
+   *
+   * ⚠️ Why this was missing. Auth is global to the platform — Supabase verifies
+   * a password without caring which hostname the form was served from — so
+   * `oeaportal.com` accepted a TFML password, then landed that person on their
+   * OWN dashboard under OEA's domain. No data crossed: RLS scopes every row to
+   * the real signed-in identity, not to the door used. But "your data is safe"
+   * is not the same as "this behaved correctly", and a client watching a rival
+   * brand's login work on their own address has no way to know the difference.
+   *
+   * The design note on hostnames says a host is "branding and routing, never
+   * authority" — written to keep a forged Host header from granting anything.
+   * It was never meant to imply the login gate should ignore the host entirely.
+   */
+  expectedOrgId?: string;
+  /** Shown before any attempt — e.g. after being bounced from a wrong-org session. */
+  notice?: string;
 }) {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(notice ?? null);
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -98,12 +119,41 @@ export default function SignInPanel({
     setError(null);
 
     const supabase = createClient();
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
     if (error) {
       setError(signInMessage(error.message));
       setLoading(false);
       return;
+    }
+
+    // ── The door checks who you are, not just that you are someone ──────────
+    //
+    // One extra read, on the sign-in submit only — never on a page load. The
+    // caller's own `users` row is readable by `users_select` (`id = auth.uid()`),
+    // so this needs no elevated access and no new policy.
+    //
+    // On a mismatch the session is ended immediately. Leaving it alive and only
+    // redirecting would mean a valid cross-org session existed, however briefly,
+    // and "briefly" is not a security property anyone can verify later.
+    if (expectedOrgId && data.user) {
+      const { data: profile } = await supabase
+        .from("users")
+        .select("org_id")
+        .eq("id", data.user.id)
+        .maybeSingle();
+
+      if (!profile || profile.org_id !== expectedOrgId) {
+        await supabase.auth.signOut();
+        // Deliberately does NOT name the organisation this account belongs to.
+        // The person reading it already knows; anyone holding a stolen
+        // credential would be learning which client their victim works for.
+        setError(
+          "That account isn't set up for this portal. Check the address you were given, or ask whoever invited you."
+        );
+        setLoading(false);
+        return;
+      }
     }
 
     router.push(redirectTo);

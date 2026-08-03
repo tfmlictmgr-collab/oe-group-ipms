@@ -60,10 +60,13 @@ export async function generateMetadata({
 
 export default async function OrgLoginPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<{ wrong_org?: string }>;
 }) {
   const { slug } = await params;
+  const { wrong_org } = await searchParams;
 
   // A hostname bound to one organisation serves ONLY that organisation's door.
   // Without this, portal.tfmlconsultant.com/o/oea would paint OEA's brand on
@@ -97,6 +100,18 @@ export default async function OrgLoginPage({
         // one else's (B1).
         owner: org.name,
       }}
+      // This door admits this organisation's people only. Another client's
+      // valid password is still a valid password — it is simply not a key to
+      // this address.
+      expectedOrgId={org.id}
+      // Set when the dashboard guard bounced an existing session that belongs
+      // elsewhere — so the person is told why they are back here, rather than
+      // silently returned to a login they thought they had passed.
+      notice={
+        wrong_org
+          ? "You were signed in with an account from another organisation. Sign in with an account for this portal."
+          : undefined
+      }
       // Deliberately no "not your organisation?" link. It used to point at
       // /login, which is now the PLATFORM OPERATOR's door — inviting a client to
       // OE Group's own sign-in, from their own branded page. A client who is on

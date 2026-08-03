@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getSessionProfile } from "@/lib/auth";
+import { orgForCurrentHost } from "@/lib/org-host";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/shell/app-shell";
 import { roleLabel } from "@/lib/roles";
@@ -14,6 +15,26 @@ export default async function DashboardLayout({
   if (!session) redirect("/login");
 
   const { profile, org, theme } = session;
+
+  // ── A brand's hostname shows that brand's people, and nobody else ────────
+  //
+  // Defence in depth behind the sign-in check. A session can reach a dashboard
+  // without passing through this deployment's login form at all — a cookie set
+  // on a shared parent domain, a link opened in a browser already signed in
+  // elsewhere — and none of those routes touch the panel's check.
+  //
+  // ⚠️ Deliberately FREE at page-load time. `orgForCurrentHost()` is cached per
+  // host and `profile` is already in hand for the shell, so this is a string
+  // comparison, not a query. An unbound host (localhost, *.vercel.app, the
+  // operator's own domain) returns null and nothing is enforced — the platform
+  // door is meant to serve everyone.
+  const hostOrg = await orgForCurrentHost();
+  if (hostOrg && profile?.org_id && profile.org_id !== hostOrg.id) {
+    // Back to the door they knocked on, which will refuse them by name. Not to
+    // their OWN portal: this deployment should not tell one client's browser
+    // where another client's portal lives.
+    redirect(`/o/${hostOrg.slug}?wrong_org=1`);
+  }
   const role = profile?.role ?? "member";
   // Brand-aware: OEA renders facility_manager as "Properties Manager".
   const label = roleLabel(role, org?.delivery_brand);
