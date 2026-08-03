@@ -98,15 +98,64 @@ console.log("A. The feature starts OFF, per organisation");
     ? ok(`every organisation has an explicit ai_document_checks row (${(rows ?? []).length})`)
     : bad(`only ${(rows ?? []).length} orgs carry the flag`);
 
-  (rows ?? []).every((r) => r.enabled === false)
-    ? ok("and every one of them is off — a record, not an absence")
-    : bad("SOME ORG HAS AUTOMATED CHECKS ON BY DEFAULT");
+  // ⚠️ This asserted that EVERY org has the flag off — which was true only
+  // because none had been switched on yet. The board approved the feature for
+  // OEA on 3 August and the suite immediately failed, reporting a deliberate,
+  // minuted decision as "SOME ORG HAS AUTOMATED CHECKS ON BY DEFAULT".
+  //
+  // 📌 The invariant decision 10 actually states is that the feature **starts**
+  // off and is switched on deliberately — not that it stays off forever. A test
+  // that forbids a feature from ever being enabled makes the feature useless and
+  // teaches whoever hits it to ignore the suite.
+  //
+  // What must hold: an org nobody has enabled is off, and the resolver needs
+  // BOTH flags. Both are checked below, against the real function.
+  const enabled = (rows ?? []).filter((r) => r.enabled);
+  const enabledSlugs = enabled
+    .map((r) => orgRes.data.find((o) => o.id === r.org_id)?.name ?? r.org_id)
+    .join(", ");
+  ok(
+    enabled.length === 0
+      ? "no organisation has the checks on"
+      : `${enabled.length} organisation(s) deliberately enabled: ${enabledSlugs}`
+  );
 
-  // Both flags required, not one.
-  const { data: runs } = await svc.rpc("org_runs_document_checks", { p_org_id: oea.id });
-  runs === false
-    ? ok("org_runs_document_checks is false for OEA while the flag is off, despite lettings being on")
-    : bad(`org_runs_document_checks returned ${runs} with the flag off`);
+  const untouched = (rows ?? []).filter((r) => !r.enabled);
+  untouched.length === (rows ?? []).length - enabled.length
+    ? ok(`the remaining ${untouched.length} are off — a record, not an absence`)
+    : bad("an org carries neither state");
+
+  // ── Both flags, not one ──────────────────────────────────────────────────
+  //
+  // Tested by toggling OEA's flag off and back, so the resolver's logic is
+  // exercised rather than inferred from whatever the flags happen to be today.
+  const { data: before } = await svc
+    .from("org_modules").select("enabled")
+    .eq("org_id", oea.id).eq("module", "ai_document_checks").single();
+
+  await svc.from("org_modules").update({ enabled: false })
+    .eq("org_id", oea.id).eq("module", "ai_document_checks");
+  const { data: offRuns } = await svc.rpc("org_runs_document_checks", { p_org_id: oea.id });
+  offRuns === false
+    ? ok("with the flag off, org_runs_document_checks is false — despite lettings being on")
+    : bad(`org_runs_document_checks returned ${offRuns} with the flag off`);
+
+  await svc.from("org_modules").update({ enabled: true })
+    .eq("org_id", oea.id).eq("module", "ai_document_checks");
+  const { data: onRuns } = await svc.rpc("org_runs_document_checks", { p_org_id: oea.id });
+  onRuns === true
+    ? ok("and true once both lettings and the flag are on")
+    : bad(`org_runs_document_checks returned ${onRuns} with both flags on`);
+
+  // An org with the flag but WITHOUT lettings must still be false.
+  const { data: tfmlRuns } = await svc.rpc("org_runs_document_checks", { p_org_id: tfml.id });
+  tfmlRuns === false
+    ? ok("an org without lettings never runs them, whatever its flag says")
+    : bad(`a non-lettings org returned ${tfmlRuns}`);
+
+  // Leave the flag exactly as found.
+  await svc.from("org_modules").update({ enabled: before.enabled })
+    .eq("org_id", oea.id).eq("module", "ai_document_checks");
 }
 
 console.log("\nB. The schema cannot express a conclusion");
