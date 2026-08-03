@@ -689,8 +689,22 @@ than a residential one.
 Suites: `verify-leases-and-rent` (20), `verify-rent-money` (16),
 `verify-lease-notices` (11).
 
-**Still to do:** the rent demand lead is stored and honoured by nothing yet —
-demands are raised by hand from the rent roll rather than on a schedule.
+**Closed 3 August — demands now raise themselves.** `rent_demand_lead_days` was
+stored and read by nothing; demands were raised by clicking "Bill rent", which
+works until the day nobody clicks it. With rent billed annually in advance, that
+is a year's rent never asked for.
+
+`leases_needing_rent_demand()` (`0098`) reports which lease is due and for what
+period; `raise_rent_charge()` still writes it and still snapshots the fee, so
+the scheduled path and the button share one writer. Runs daily at 08:30 via
+Vercel Cron. The next period starts where the last ended — no gap — and a period
+beginning on or after the lease end is excluded, so the final demand of a
+tenancy is never followed by one more. Idempotency is the existing unique
+constraint on `(lease_id, period_start)`.
+
+Suite: `verify-rent-demands` (16).
+
+**Day 9 is complete.**
 
 ---
 
