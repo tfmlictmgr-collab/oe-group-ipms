@@ -144,7 +144,7 @@ export async function inviteMember(
  * unmonitored sending subdomain.
  *
  * The copy names the CLIENT-FACING BRAND, never the holding entity (B1): a TFML
- * recipient reads "TFML Nigeria portal". The role is rendered with the
+ * recipient reads "TFML portal". The role is rendered with the
  * brand-aware label, so TFML says "Operations Staff" where OEA says "Property
  * Operations Staff" — not the raw database value.
  */

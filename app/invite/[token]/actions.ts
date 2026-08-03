@@ -9,7 +9,7 @@ import { ok, fail, type ActionResult } from "@/lib/action-result";
 
 export type InvitePreview = {
   orgName: string;
-  /** What the inviting org calls its portal, e.g. "TFML Nigeria Portal". */
+  /** What the inviting org calls its portal, e.g. "TFML Portal". */
   portalName: string | null;
   logoUrl: string | null;
   primary: string | null;

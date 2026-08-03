@@ -63,12 +63,23 @@ console.log("\nE. Each brand sends as ITSELF, never as the holding entity");
 {
   const oea = orgs.find(o => o.delivery_brand === "OEA");
   const t = sender(tfml), o = sender(oea);
-  t === '"TFML Nigeria" <no-reply@notify.tfmlconsultant.com>'
-    ? ok(`TFML sends as ${t}`) : bad(`TFML sender is ${t}`);
+  // ⚠️ This asserted the literal `"TFML Nigeria" <no-reply@…>`. A brand rename
+  // is a legitimate business decision, and it broke this security test — the
+  // same fault as the deployment gate that matched error prose. Assert what the
+  // From header must be TRUE of, not what it currently says.
+  t && t.includes("notify.tfmlconsultant.com")
+    ? ok(`TFML sends from its own domain (${t})`)
+    : bad(`TFML sender is ${t}`);
   o && o.includes("oraegbunike.com") ? ok(`OEA sends as ${o}`) : bad(`OEA sender is ${o}`);
   [t, o].every(v => v && !/OE Group/i.test(v))
     ? ok("neither brand exposes the holding entity in the From header")
     : bad("a brand is sending as OE Group");
+
+  // "TFML Nigeria" was retired because it collides with an unrelated business.
+  // Encoded here so a re-seed or a well-meaning edit cannot quietly restore it.
+  [t, o].every(v => v && !/nigeria/i.test(v))
+    ? ok('no sender identity carries "Nigeria" — the retired name stays retired')
+    : bad('a sender identity still says "Nigeria" — it conflicts with an unrelated brand');
   t && o && t !== o ? ok("the two brands have distinct sender identities") : bad("brands share a sender");
 }
 

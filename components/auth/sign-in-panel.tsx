@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 export type SignInBrand = {
-  /** What the portal calls itself — "OEA Portal", "TFML Nigeria". */
+  /** What the portal calls itself — "OEA Portal", "TFML Portal". */
   portalName: string;
   /** The monogram, when there is no logo image. */
   logoText: string;

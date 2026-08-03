@@ -206,7 +206,7 @@ console.log("\nH. A receipt renders, and carries the verified figures");
   const buf = await renderToBuffer(
     React.createElement(ReceiptDocument, {
       d: {
-        org: { name: "TFML Nigeria", logoUrl: null, primary: "#003366",
+        org: { name: "TFML", logoUrl: null, primary: "#003366",
                supportEmail: "info@tfmlconsultant.com", supportPhone: null, tagline: null },
         reference: REF, ledgerEntryId: i.ledger_entry_id, purpose: "service_charge",
         description: "Collection — service charge", payerName: "Test Resident",

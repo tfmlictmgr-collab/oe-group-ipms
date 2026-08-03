@@ -2381,3 +2381,33 @@ bug was found, but because the blast radius of a wrong pattern there is every
 login in the system. What genuinely needed fixing was the reporting: **a cleanup
 that prints only a count cannot tell you whether it touched the right rows.** It
 now names every address it sweeps.
+
+---
+
+## "TFML Nigeria" retired
+
+⚖️ The portal was named **TFML Nigeria Portal** and sent email as **TFML
+Nigeria**. That collides with an unrelated business with no connection to Total
+Facilities Management Limited, so it is retired in favour of **TFML Portal**,
+sending as **TFML**.
+
+Changed in the two places a client actually sees — `orgs.portal_name` and
+`orgs.email_from_name` — and in the code comments, the settings placeholder and
+the test fixtures that carried it as an example, so a re-seed or a copied
+snippet cannot quietly reintroduce it.
+
+⚠️ `verify-email-routing` asserted the literal string
+`"TFML Nigeria" <no-reply@notify.tfmlconsultant.com>`, so a legitimate brand
+rename broke a security test. Same fault as the deploy gate that matched error
+prose: it now asserts what the From header must be TRUE of — that TFML sends
+from its own domain, that neither brand exposes the holding entity, that the two
+are distinct — rather than what it happens to say today.
+
+📌 And the requirement itself is now enforced rather than remembered: the suite
+fails if any sender identity contains "Nigeria". A naming decision that lives
+only in someone's memory is one re-seed away from being undone.
+
+⚠️ Earlier entries in this journal still say "TFML Nigeria". They are left
+alone. This is an append-only record of what was true when it was written, and
+editing it to match the present would destroy the only account of why the change
+happened.

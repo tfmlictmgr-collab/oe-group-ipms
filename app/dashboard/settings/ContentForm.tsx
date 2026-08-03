@@ -134,7 +134,7 @@ export default function ContentForm({
             value={form.emailFromName}
             onChange={set("emailFromName")}
             maxLength={60}
-            placeholder="e.g. TFML Nigeria"
+            placeholder="e.g. TFML"
           />
           <p className="text-xs text-muted-foreground">
             What recipients see in their inbox. Use your client-facing brand.

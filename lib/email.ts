@@ -93,7 +93,7 @@ export type MailContext = { brandName: string };
 /**
  * Copy may be a plain string, or a function of the brand context. Use the
  * function form whenever the wording names the organisation — a recipient of a
- * TFML property must read "TFML Nigeria", never the holding entity (B1).
+ * TFML property must read "TFML", never the holding entity (B1).
  */
 type Copy = string | ((ctx: MailContext) => string);
 
@@ -121,7 +121,7 @@ export async function sendEmail(opts: {
   // The env default is a fallback ONLY when there is no org context at all
   // (system mail with no owner). It used to apply whenever an org had no sender
   // of its own, and the result was an invitation from the OE Group operator org
-  // arriving From "TFML Nigeria" while its body named OE Group — two brands in
+  // arriving From "TFML" while its body named OE Group — two brands in
   // one message, which reads as a phishing attempt and breaches B1. Borrowing
   // another organisation's identity is never the safe default; declining is.
   const from = identity ? senderFor(identity) : envFrom;
