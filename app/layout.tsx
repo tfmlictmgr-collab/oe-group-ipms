@@ -2,17 +2,37 @@ import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
-import { Toaster } from "sonner";
+import LazyToaster from "@/components/lazy-toaster";
 
+// ⚠️ 131 kB of font was downloading on every page, including the sign-in screen
+// — measured on a live domain, where fonts and JS were 381 kB of a 394 kB cold
+// load. On a 400 kbps connection that is the difference between slow and
+// abandoned, and Nigerian mobile bandwidth is the target here, not an edge case.
+//
+// `display: "swap"` renders the text immediately in a fallback face and swaps
+// when the webfont arrives. Without it the browser holds text invisible while it
+// waits — the worst possible behaviour on a slow link, because the page looks
+// broken rather than plain.
 const geistSans = localFont({
   src: "./fonts/GeistVF.woff",
   variable: "--font-geist-sans",
   weight: "100 900",
+  display: "swap",
 });
+
+// ⚠️ NOT preloaded. Monospace is used for asset tags, payment references and a
+// few form fields — real usage, so it cannot simply be dropped — but nothing on
+// the sign-in page renders it, and it was still costing ~66 kB there.
+//
+// `preload: false` keeps the face available everywhere while leaving the fetch
+// to the browser, which only requests it when a rule actually applies it. The
+// pages that use it pay for it; the pages that do not, do not.
 const geistMono = localFont({
   src: "./fonts/GeistMonoVF.woff",
   variable: "--font-geist-mono",
   weight: "100 900",
+  display: "swap",
+  preload: false,
 });
 
 // ⚠️ Names no client, and must not.
@@ -50,7 +70,7 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           {children}
-          <Toaster richColors position="top-right" closeButton />
+          <LazyToaster />
         </ThemeProvider>
       </body>
     </html>

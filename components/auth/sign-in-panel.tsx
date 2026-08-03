@@ -34,10 +34,25 @@ export type SignInBrand = {
  * does NOT distinguish an unknown email from a wrong password — telling a
  * stranger which addresses have accounts is how you hand over a user list.
  */
+/**
+ * The one refusal used for every "you are not getting in" case.
+ *
+ * ⚠️ Shared deliberately, and it must stay shared. A wrong password and a valid
+ * password belonging to ANOTHER organisation return this exact string, so the
+ * two are indistinguishable to whoever is typing.
+ *
+ * The first version of the cross-org refusal read "That account isn't set up for
+ * this portal" — which quietly confirmed the account exists and belongs
+ * somewhere else on the platform. Someone testing a stolen credential against a
+ * client's door would have learned their victim is a customer here, and that two
+ * portals share a system. Both are things B1 exists to keep private.
+ */
+const REFUSED = "That email and password don't match. Check both and try again.";
+
 function signInMessage(raw: string): string {
   const m = raw.toLowerCase();
   if (m.includes("invalid login") || m.includes("invalid credentials")) {
-    return "That email and password don't match. Check both and try again.";
+    return REFUSED;
   }
   if (m.includes("email not confirmed")) {
     return "This account hasn't been activated yet. Use the link in your invitation email.";
@@ -145,12 +160,10 @@ export default function SignInPanel({
 
       if (!profile || profile.org_id !== expectedOrgId) {
         await supabase.auth.signOut();
-        // Deliberately does NOT name the organisation this account belongs to.
-        // The person reading it already knows; anyone holding a stolen
-        // credential would be learning which client their victim works for.
-        setError(
-          "That account isn't set up for this portal. Check the address you were given, or ask whoever invited you."
-        );
+        // The SAME string a wrong password returns. Anything more specific —
+        // even something as mild as "not set up for this portal" — confirms the
+        // account exists and belongs to another organisation on this platform.
+        setError(REFUSED);
         setLoading(false);
         return;
       }

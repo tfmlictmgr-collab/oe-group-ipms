@@ -107,11 +107,10 @@ export default async function OrgLoginPage({
       // Set when the dashboard guard bounced an existing session that belongs
       // elsewhere — so the person is told why they are back here, rather than
       // silently returned to a login they thought they had passed.
-      notice={
-        wrong_org
-          ? "You were signed in with an account from another organisation. Sign in with an account for this portal."
-          : undefined
-      }
+      // Says only that a sign-in is needed. The earlier wording named the
+      // situation — "an account from another organisation" — which tells anyone
+      // holding the session that this platform hosts other organisations.
+      notice={wrong_org ? "Please sign in to continue." : undefined}
       // Deliberately no "not your organisation?" link. It used to point at
       // /login, which is now the PLATFORM OPERATOR's door — inviting a client to
       // OE Group's own sign-in, from their own branded page. A client who is on
