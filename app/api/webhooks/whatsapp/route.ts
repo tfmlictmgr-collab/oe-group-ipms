@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { handleInboundMessage } from "@/lib/handle-inbound";
 import { sendCascade } from "@/lib/cascade";
+import { whatsappSenderForNumber } from "@/lib/notify";
 import { verifyWhatsAppSignature } from "@/lib/webhook-security";
 import { checkRateLimit, clientIp, INTAKE_LIMITS } from "@/lib/rate-limit";
 import { resolveOrgForChannel } from "@/lib/channel-routing";
@@ -140,10 +141,10 @@ export async function POST(request: NextRequest) {
       whatsapp: senderWaId,
       // Answer on the number they wrote to. `phoneNumberId` came from a payload
       // already HMAC-verified as Meta's, and it is the whole point: a person who
-      // messaged OEA must hear back from OEA.
-      whatsappSender: process.env.WHATSAPP_ACCESS_TOKEN && phoneNumberId
-        ? { phoneNumberId, accessToken: process.env.WHATSAPP_ACCESS_TOKEN }
-        : null,
+      // messaged OEA must hear back from OEA. The credential for THIS exact
+      // number, not the org's default (`whatsappSenderForOrg` would answer that
+      // different question) — see lib/notify.ts.
+      whatsappSender: phoneNumberId ? await whatsappSenderForNumber(phoneNumberId) : null,
     });
   } catch (error) {
     console.error("Failed to classify/create ticket or send reply:", error);

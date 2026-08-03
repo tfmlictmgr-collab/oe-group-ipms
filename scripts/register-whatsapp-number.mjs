@@ -8,13 +8,24 @@
 // So a wrong or missing entry is not cosmetic: a message either lands in the
 // wrong brand's data, or is dropped, or is answered by the wrong brand.
 //
-// Find the id in Meta: developers.facebook.com → your app → WhatsApp → API Setup
-// → the "Phone number ID" beside each number. It is a long numeric string, not
-// the +234… number.
+// ⚠️ The API KEY is now required, not optional. It used to be that Meta issued
+// one System User token per business, covering every number under it, so a
+// single `WHATSAPP_ACCESS_TOKEN` env var worked for every org. That stopped
+// being true the moment TFML and OEA became separate businesses on a BSP
+// (360dialog): each business now has its own key, and there is no longer one
+// shared credential that answers for both. Skipping the key here would leave
+// this route silently falling back to whatever the env var happens to hold —
+// exactly the wrong-brand-answers fault this file exists to prevent, just moved
+// from the number to the token.
+//
+// Find the phone_number_id: on 360dialog, the channel's own API/integration
+// details; on native Meta, developers.facebook.com → your app → WhatsApp →
+// API Setup → "Phone number ID" beside each number. Either way it is a long
+// numeric string, not the +234… number.
 //
 // Usage:
-//   node scripts/register-whatsapp-number.mjs TFML 123456789012345 "TFML main line"
-//   node scripts/register-whatsapp-number.mjs OEA  987654321098765 "OEA lettings line"
+//   node scripts/register-whatsapp-number.mjs TFML 123456789012345 <api-key> "TFML main line"
+//   node scripts/register-whatsapp-number.mjs OEA  987654321098765 <api-key> "OEA lettings line"
 //   node scripts/register-whatsapp-number.mjs --list
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -30,12 +41,12 @@ const svc = createClient(
   { auth: { persistSession: false } }
 );
 
-const [brandArg, phoneNumberId, ...labelParts] = process.argv.slice(2);
+const [brandArg, phoneNumberId, apiKey, ...labelParts] = process.argv.slice(2);
 
 async function show() {
   const { data: routes } = await svc
     .from("channel_routes")
-    .select("channel, external_id, label, org_id")
+    .select("channel, external_id, label, org_id, outbound_token")
     .eq("channel", "whatsapp");
   const { data: orgs } = await svc.from("orgs").select("id, name, portal_name, delivery_brand");
   const byId = Object.fromEntries(orgs.map((o) => [o.id, o.portal_name || o.name]));
@@ -48,6 +59,8 @@ async function show() {
       label: r.label,
       // A placeholder cannot receive or send anything.
       real: /^\d{10,}$/.test(r.external_id) ? "yes" : "NO — placeholder",
+      // Per-route key, or still riding the single shared env var (pre-BSP org).
+      key: r.outbound_token ? "per-route" : "env var fallback",
     }))
   );
   console.log("\nOrganisations available:");
@@ -57,7 +70,7 @@ async function show() {
 if (!brandArg || brandArg === "--list") {
   await show();
   console.log(
-    "\nTo register:  node scripts/register-whatsapp-number.mjs <TFML|OEA|POC> <phone_number_id> [label]\n"
+    "\nTo register:  node scripts/register-whatsapp-number.mjs <TFML|OEA|POC> <phone_number_id> <api-key> [label]\n"
   );
   process.exit(0);
 }
@@ -65,7 +78,19 @@ if (!brandArg || brandArg === "--list") {
 if (!/^\d{10,}$/.test(phoneNumberId ?? "")) {
   console.error(
     `\n"${phoneNumberId}" does not look like a Meta phone_number_id.\n` +
-      "It is a long numeric id from WhatsApp → API Setup, not the +234… number.\n"
+      "It is a long numeric id — on 360dialog, the channel's own API/integration\n" +
+      "details; on native Meta, WhatsApp → API Setup. Not the +234… number.\n"
+  );
+  process.exit(1);
+}
+
+if (!apiKey || apiKey.trim().length < 8) {
+  console.error(
+    `\nNo API key given (or it's suspiciously short).\n` +
+      "This is the per-business credential from your WhatsApp provider — on\n" +
+      "360dialog, each channel's own API key. Required: with two businesses now\n" +
+      "holding separate keys, there is no single shared token that answers for\n" +
+      "both, so a route with no key of its own cannot safely send.\n"
   );
   process.exit(1);
 }
@@ -112,6 +137,7 @@ await svc.from("channel_routes").delete().eq("channel", "whatsapp").eq("org_id",
 
 const { error } = await svc.from("channel_routes").insert({
   org_id: org.id, channel: "whatsapp", external_id: phoneNumberId, label,
+  outbound_token: apiKey.trim(),
 });
 if (error) {
   console.error(`\nCould not register: ${error.message}\n`);

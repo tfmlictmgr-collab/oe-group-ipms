@@ -13,44 +13,82 @@ const WHATSAPP_API_VERSION = "v20.0";
 // crosses brands.
 //
 // The sending number is therefore always passed in explicitly. There is no
-// default and no env fallback: a fallback is precisely how the wrong brand
-// answers, and it fails silently because the message does get delivered.
+// default and no env fallback for WHICH NUMBER: a fallback is precisely how the
+// wrong brand answers, and it fails silently because the message does get
+// delivered.
+//
+// ⚠️ The TOKEN is a separate question from the number, and the answer changed.
+// The comment this replaced said Meta issues one System User token per business,
+// covering every number under it — true for a single native Meta Business
+// Manager holding both brands. It stopped being true the moment TFML and OEA
+// became separate businesses on a BSP (360dialog), each with its own API key:
+// one shared token can no longer answer for both. The token therefore now
+// belongs beside the route (`channel_routes.outbound_token`, service-role-only
+// since 0039 — the same column Telegram's per-bot tokens already use, 0047),
+// with the single shared env var kept only as the fallback for an org that has
+// not been migrated to a per-route credential yet.
 
 export type WhatsAppSender = {
   phoneNumberId: string;
   /**
-   * Meta issues one System User token per business and it covers every number
-   * under that business — so the token is shared while the number is not. If the
-   * brands ever sit under separate WABAs this becomes per-route and belongs in
-   * `channel_routes`, which has been service-role-only since 0039.
+   * Either the per-route credential this number was registered with
+   * (`register-whatsapp-number.mjs`, one key per business on a BSP), or the
+   * single shared System User token when the org's route predates per-route
+   * credentials. Never both consulted for the same number — whichever
+   * `channel_routes` row names is authoritative.
    */
   accessToken: string;
 };
 
-/** The number this org answers from, or null if it has none registered. */
+/**
+ * The number this org answers from, or null if it has none registered.
+ *
+ * This is only the fallback for messages WE initiate (e.g. a payment
+ * notification). A reply always uses the exact number the message arrived on —
+ * see `whatsappSenderForNumber` — because an org holding more than one line
+ * must not have a proactive-message default stand in for "the number someone
+ * actually wrote to."
+ */
 export async function whatsappSenderForOrg(orgId: string): Promise<WhatsAppSender | null> {
-  const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
-  if (!accessToken) return null;
+  // Ordered, not merely limited, for the same reason `channel_sender_for_org`
+  // documents for Telegram: an org may hold more than one number, and
+  // `limit(1)` with no ORDER BY lets the planner decide which brand's number a
+  // proactive message goes out from.
+  const { data, error } = await supabaseAdmin.rpc("channel_sender_for_org", {
+    p_org_id: orgId,
+    p_channel: "whatsapp",
+  });
+  if (error) return null;
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row?.external_id) return null;
 
-  // Ordered, not just limited. An org may hold more than one number (a second
-  // line, a migration in progress), and `limit(1)` with no ORDER BY lets the
-  // planner decide which brand's number a proactive message goes out from. The
-  // oldest registered route is the org's established number.
-  //
-  // This is only the fallback for messages WE initiate. A reply always uses the
-  // number the message arrived on, passed explicitly by the webhook.
+  const accessToken = row.outbound_token ?? process.env.WHATSAPP_ACCESS_TOKEN;
+  if (!accessToken) return null;
+  return { phoneNumberId: row.external_id, accessToken };
+}
+
+/**
+ * The credential for ONE EXACT number, keyed by its phone_number_id — not the
+ * org's default. A reply must leave from the number the message arrived on,
+ * which is not necessarily what `whatsappSenderForOrg` would answer once an org
+ * holds more than one line: that function picks the org's established number
+ * for messages WE initiate, and this one answers the different question "what
+ * does this specific route send with," for messages we are replying to.
+ */
+export async function whatsappSenderForNumber(
+  phoneNumberId: string
+): Promise<WhatsAppSender | null> {
   const { data, error } = await supabaseAdmin
     .from("channel_routes")
-    .select("external_id")
+    .select("outbound_token")
     .eq("channel", "whatsapp")
-    .eq("org_id", orgId)
-    .order("created_at", { ascending: true })
-    .order("external_id", { ascending: true })
-    .limit(1)
+    .eq("external_id", phoneNumberId)
     .maybeSingle();
+  if (error || !data) return null;
 
-  if (error || !data?.external_id) return null;
-  return { phoneNumberId: data.external_id, accessToken };
+  const accessToken = data.outbound_token ?? process.env.WHATSAPP_ACCESS_TOKEN;
+  if (!accessToken) return null;
+  return { phoneNumberId, accessToken };
 }
 
 export async function sendWhatsApp(sender: WhatsAppSender, to: string, text: string) {
