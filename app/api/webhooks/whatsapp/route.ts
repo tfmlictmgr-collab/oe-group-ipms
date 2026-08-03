@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { handleInboundMessage } from "@/lib/handle-inbound";
 import { sendCascade } from "@/lib/cascade";
-import { whatsappSenderForNumber } from "@/lib/notify";
-import { verifyWhatsAppSignature } from "@/lib/webhook-security";
+import { whatsappSenderForOrg, whatsappSenderForNumber } from "@/lib/notify";
+import { verifyWhatsAppInbound } from "@/lib/webhook-security";
 import { checkRateLimit, clientIp, INTAKE_LIMITS } from "@/lib/rate-limit";
-import { resolveOrgForChannel } from "@/lib/channel-routing";
+import { resolveOrgForChannel, type ChannelRoute } from "@/lib/channel-routing";
 
 // Meta's webhook verification handshake (run once when you register the
 // Callback URL in the Meta App Dashboard).
@@ -42,15 +42,37 @@ export async function POST(request: NextRequest) {
     return new NextResponse("OK", { status: 200 });
   }
 
-  // Raw body first: HMAC verification must run over the exact bytes Meta signed.
   const rawBody = await request.text();
-  const sig = verifyWhatsAppSignature(
-    rawBody,
-    request.headers.get("x-hub-signature-256")
-  );
-  if (!sig.ok) {
-    console.warn("Rejected WhatsApp webhook:", sig.reason);
-    return new NextResponse("Forbidden", { status: 403 });
+
+  // ⚠️ Two authentication schemes, decided by what the request carries.
+  //
+  // Per-channel webhook TOKEN (the live path — both brands run through
+  // 360dialog as direct clients, who do not get a Platform Secret and
+  // therefore send no signature of any kind; see webhook-security.ts). Present
+  // on the URL each channel was configured with in the 360dialog Hub. It is
+  // BOTH auth and route key, exactly as Telegram's secret token already is: a
+  // token matching no row is forged or unregistered → reject (403), and once
+  // matched the request IS authenticated — this path does not, and must not,
+  // trust `metadata.phone_number_id` in the body for anything security-
+  // relevant, since there is no signature backing it.
+  //
+  // HMAC signature (the fallback — a natively-registered Meta number, or a
+  // BSP with a Platform Secret enabled). No token on the URL routes here.
+  const webhookToken = new URL(request.url).searchParams.get("token");
+
+  let route: ChannelRoute | null = null;
+  if (webhookToken) {
+    route = await resolveOrgForChannel("whatsapp", webhookToken);
+    if (!route) {
+      console.warn("Rejected WhatsApp webhook: unknown webhook token (no route)");
+      return new NextResponse("Forbidden", { status: 403 });
+    }
+  } else {
+    const sig = verifyWhatsAppInbound(rawBody, request.headers);
+    if (!sig.ok) {
+      console.warn("Rejected WhatsApp webhook:", sig.reason);
+      return new NextResponse("Forbidden", { status: 403 });
+    }
   }
 
   let payload: unknown;
@@ -75,15 +97,19 @@ export async function POST(request: NextRequest) {
     return new NextResponse("OK", { status: 200 });
   }
 
-  // Route by the business number that RECEIVED the message. The payload is
-  // already HMAC-verified as Meta's, so phone_number_id is trustworthy. No
-  // route → drop (200): never fall back to a default org (that's the collapse
-  // this replaces, and for money messages a cross-brand leak).
   const phoneNumberId = value.metadata?.phone_number_id;
-  const route = await resolveOrgForChannel("whatsapp", phoneNumberId);
+
   if (!route) {
-    console.warn("No WhatsApp channel route for phone_number_id:", phoneNumberId);
-    return new NextResponse("OK", { status: 200 });
+    // Only reached on the HMAC path — the token path already has its route.
+    // The body was verified as Meta's above, so phone_number_id is trustworthy
+    // here specifically. No route → drop (200): never fall back to a default
+    // org (that's the collapse this replaces, and for money messages a
+    // cross-brand leak).
+    route = await resolveOrgForChannel("whatsapp", phoneNumberId);
+    if (!route) {
+      console.warn("No WhatsApp channel route for phone_number_id:", phoneNumberId);
+      return new NextResponse("OK", { status: 200 });
+    }
   }
 
   const message = value.messages[0];
@@ -139,12 +165,19 @@ export async function POST(request: NextRequest) {
       entityId: outcome.ticketId,
       message: outcome.reply,
       whatsapp: senderWaId,
-      // Answer on the number they wrote to. `phoneNumberId` came from a payload
-      // already HMAC-verified as Meta's, and it is the whole point: a person who
-      // messaged OEA must hear back from OEA. The credential for THIS exact
-      // number, not the org's default (`whatsappSenderForOrg` would answer that
-      // different question) — see lib/notify.ts.
-      whatsappSender: phoneNumberId ? await whatsappSenderForNumber(phoneNumberId) : null,
+      // Answer on the channel they wrote to. On the token path `route` already
+      // names the exact channel (the token identifies it 1:1, same as
+      // Telegram), so the org's own registered sender IS that channel's sender
+      // — `whatsappSenderForOrg` is correct here, not a compromise, because
+      // each org holds exactly one 360dialog channel today. On the HMAC path,
+      // `phoneNumberId` is the authenticated identity instead, and
+      // `whatsappSenderForNumber` answers the more exact question in case an
+      // org ever holds more than one natively-registered number.
+      whatsappSender: webhookToken
+        ? await whatsappSenderForOrg(route.orgId)
+        : phoneNumberId
+          ? await whatsappSenderForNumber(phoneNumberId)
+          : null,
     });
   } catch (error) {
     console.error("Failed to classify/create ticket or send reply:", error);

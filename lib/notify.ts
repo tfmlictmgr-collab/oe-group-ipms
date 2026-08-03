@@ -1,6 +1,8 @@
 import { supabaseAdmin } from "./supabase/admin";
 
-const WHATSAPP_API_VERSION = "v20.0";
+// 360dialog's WhatsApp Business API host. Both brands' numbers are provisioned
+// through it, so this — not graph.facebook.com — is where sends go.
+const WHATSAPP_360D_BASE = "https://waba-v2.360dialog.io";
 
 // Outbound messaging.
 //
@@ -91,12 +93,37 @@ export async function whatsappSenderForNumber(
   return { phoneNumberId, accessToken };
 }
 
+/**
+ * Sends one WhatsApp text message.
+ *
+ * ⚠️ This posts to **360dialog**, the BSP both live numbers now sit behind — not
+ * to Meta's Graph API directly. Three things differ from the native Cloud API
+ * and all three are load-bearing:
+ *
+ *   • the host is `waba-v2.360dialog.io`, not `graph.facebook.com`
+ *   • the path carries **no phone_number_id** — the API key identifies the
+ *     channel, which is precisely why the key must be the per-route one
+ *     (`channel_routes.outbound_token`) and never a shared default: with the
+ *     number gone from the URL, the credential is the ONLY thing deciding which
+ *     brand the message leaves as
+ *   • auth is `D360-API-KEY: <key>`, not `Authorization: Bearer <token>`
+ *
+ * The request body is unchanged — 360dialog mirrors Meta's message schema.
+ *
+ * `sender.phoneNumberId` is therefore no longer part of the URL. It is retained
+ * because it is what the route was looked up BY, and it is worth having in an
+ * error message: "send failed" is much harder to place than "send failed for
+ * 1261550270372677".
+ *
+ * If a natively-registered Meta number is ever added back alongside these, this
+ * function needs a provider discriminator on `channel_routes` rather than a
+ * guess — today every live route is 360dialog, so there is nothing to guess.
+ */
 export async function sendWhatsApp(sender: WhatsAppSender, to: string, text: string) {
-  const url = `https://graph.facebook.com/${WHATSAPP_API_VERSION}/${sender.phoneNumberId}/messages`;
-  const response = await fetch(url, {
+  const response = await fetch(`${WHATSAPP_360D_BASE}/messages`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${sender.accessToken}`,
+      "D360-API-KEY": sender.accessToken,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
@@ -107,7 +134,9 @@ export async function sendWhatsApp(sender: WhatsAppSender, to: string, text: str
     }),
   });
   if (!response.ok) {
-    throw new Error(`WhatsApp send failed: ${response.status} ${await response.text()}`);
+    throw new Error(
+      `WhatsApp send failed from ${sender.phoneNumberId}: ${response.status} ${await response.text()}`
+    );
   }
   return response.json();
 }

@@ -1,31 +1,39 @@
-// Registers a WhatsApp Cloud API number against a brand.
+// Registers a WhatsApp channel against a brand.
 //
-// `channel_routes.external_id` is the Meta `phone_number_id` — NOT the phone
-// number itself. It decides two things:
-//   • inbound  — which org a message that arrives on this number belongs to
-//   • outbound — which number that org answers from
+// `channel_routes.external_id` decides two things:
+//   • inbound  — which org a message that arrives on this channel belongs to
+//   • outbound — which channel that org answers from
 //
 // So a wrong or missing entry is not cosmetic: a message either lands in the
 // wrong brand's data, or is dropped, or is answered by the wrong brand.
 //
-// ⚠️ The API KEY is now required, not optional. It used to be that Meta issued
-// one System User token per business, covering every number under it, so a
-// single `WHATSAPP_ACCESS_TOKEN` env var worked for every org. That stopped
-// being true the moment TFML and OEA became separate businesses on a BSP
-// (360dialog): each business now has its own key, and there is no longer one
-// shared credential that answers for both. Skipping the key here would leave
-// this route silently falling back to whatever the env var happens to hold —
-// exactly the wrong-brand-answers fault this file exists to prevent, just moved
-// from the number to the token.
+// ⚠️ `external_id` is a WEBHOOK TOKEN, not the Meta phone_number_id.
 //
-// Find the phone_number_id: on 360dialog, the channel's own API/integration
-// details; on native Meta, developers.facebook.com → your app → WhatsApp →
-// API Setup → "Phone number ID" beside each number. Either way it is a long
-// numeric string, not the +234… number.
+// TFML and OEA run through 360dialog as direct clients, who do not get a
+// Platform Secret and therefore send no signature of any kind — not
+// 360dialog's own `x-360dialog-signature`, and not Meta's `X-Hub-Signature-256`.
+// Without a signature, the request body cannot be trusted for routing: any
+// unsigned POST claiming any phone_number_id would route correctly if that
+// field were still the key. The fix is the one this codebase already uses for
+// Telegram — a per-channel secret that is BOTH the route key and the proof the
+// request is genuine, embedded in the webhook URL each channel is configured
+// with in the 360dialog Hub (`…/api/webhooks/whatsapp?token=<this value>`). A
+// token matching no row is forged or unregistered → the endpoint rejects it.
+//
+// Generate one per channel — high-entropy, e.g. `openssl rand -hex 24` — never
+// reuse a token across TFML and OEA: a shared token means a single leak
+// compromises both brands' inbound trust instead of one.
+//
+// ⚠️ The API KEY is required for the same reason the token is per-channel. It
+// used to be that Meta issued one System User token per business, covering
+// every number under it, so a single `WHATSAPP_ACCESS_TOKEN` env var worked
+// for every org. That stopped being true the moment TFML and OEA became
+// separate businesses on 360dialog: each business now has its own key, and
+// there is no longer one shared credential that answers for both.
 //
 // Usage:
-//   node scripts/register-whatsapp-number.mjs TFML 123456789012345 <api-key> "TFML main line"
-//   node scripts/register-whatsapp-number.mjs OEA  987654321098765 <api-key> "OEA lettings line"
+//   node scripts/register-whatsapp-number.mjs TFML <webhook-token> <api-key> "TFML Support — +234 703 689 1329"
+//   node scripts/register-whatsapp-number.mjs OEA  <webhook-token> <api-key> "OEA Support — +234 708 471 4148"
 //   node scripts/register-whatsapp-number.mjs --list
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -41,7 +49,7 @@ const svc = createClient(
   { auth: { persistSession: false } }
 );
 
-const [brandArg, phoneNumberId, apiKey, ...labelParts] = process.argv.slice(2);
+const [brandArg, webhookToken, apiKey, ...labelParts] = process.argv.slice(2);
 
 async function show() {
   const { data: routes } = await svc
@@ -51,16 +59,15 @@ async function show() {
   const { data: orgs } = await svc.from("orgs").select("id, name, portal_name, delivery_brand");
   const byId = Object.fromEntries(orgs.map((o) => [o.id, o.portal_name || o.name]));
 
-  console.log("\nWhatsApp numbers currently registered:");
+  console.log("\nWhatsApp channels currently registered:");
   console.table(
     (routes ?? []).map((r) => ({
       org: byId[r.org_id],
-      phone_number_id: r.external_id,
+      // Only the token's shape, never the value — this table is meant to be
+      // safe to paste into a chat or a ticket.
+      webhook_token: `${r.external_id.slice(0, 6)}…(${r.external_id.length} chars)`,
       label: r.label,
-      // A placeholder cannot receive or send anything.
-      real: /^\d{10,}$/.test(r.external_id) ? "yes" : "NO — placeholder",
-      // Per-route key, or still riding the single shared env var (pre-BSP org).
-      key: r.outbound_token ? "per-route" : "env var fallback",
+      key: r.outbound_token ? "per-route" : "MISSING — cannot send",
     }))
   );
   console.log("\nOrganisations available:");
@@ -70,16 +77,19 @@ async function show() {
 if (!brandArg || brandArg === "--list") {
   await show();
   console.log(
-    "\nTo register:  node scripts/register-whatsapp-number.mjs <TFML|OEA|POC> <phone_number_id> <api-key> [label]\n"
+    "\nTo register:  node scripts/register-whatsapp-number.mjs <TFML|OEA|POC> <webhook-token> <api-key> [label]\n"
   );
   process.exit(0);
 }
 
-if (!/^\d{10,}$/.test(phoneNumberId ?? "")) {
+if (!webhookToken || webhookToken.trim().length < 20) {
   console.error(
-    `\n"${phoneNumberId}" does not look like a Meta phone_number_id.\n` +
-      "It is a long numeric id — on 360dialog, the channel's own API/integration\n" +
-      "details; on native Meta, WhatsApp → API Setup. Not the +234… number.\n"
+    `\nNo webhook token given (or it's suspiciously short).\n` +
+      "Generate one yourself — e.g. `openssl rand -hex 24` — and use the SAME\n" +
+      "value in this command and in the channel's webhook URL on 360dialog\n" +
+      "(…/api/webhooks/whatsapp?token=<this value>). A different token per\n" +
+      "channel, always: one shared token means a single leak compromises both\n" +
+      "brands' inbound trust instead of one.\n"
   );
   process.exit(1);
 }
@@ -87,10 +97,10 @@ if (!/^\d{10,}$/.test(phoneNumberId ?? "")) {
 if (!apiKey || apiKey.trim().length < 8) {
   console.error(
     `\nNo API key given (or it's suspiciously short).\n` +
-      "This is the per-business credential from your WhatsApp provider — on\n" +
-      "360dialog, each channel's own API key. Required: with two businesses now\n" +
-      "holding separate keys, there is no single shared token that answers for\n" +
-      "both, so a route with no key of its own cannot safely send.\n"
+      "This is the per-channel credential from 360dialog (Direct API Access →\n" +
+      "Generate API key). Required: with two businesses now holding separate\n" +
+      "keys, there is no single shared token that answers for both, so a route\n" +
+      "with no key of its own cannot safely send.\n"
   );
   process.exit(1);
 }
@@ -102,29 +112,52 @@ if (!brand) {
   process.exit(1);
 }
 
-const { data: org } = await svc
-  .from("orgs").select("id, name, portal_name").eq("delivery_brand", brand).limit(1).maybeSingle();
-if (!org) {
+// ⚠️ `delivery_brand` is NOT a unique key (0085 already learned this the hard
+// way for org slugs) — leftover probe/test fixtures can and do share a brand
+// with the real org. `.limit(1)` with no ORDER BY let Postgres pick either one,
+// and it has silently picked the wrong one before: a brand's WhatsApp key was
+// once attached to a stray "PROBEOP-Brand-…" fixture instead of the real org,
+// leaving the real org's route untouched and the key live on an org nobody
+// uses. Refuse rather than guess when there is more than one candidate.
+const { data: candidates } = await svc
+  .from("orgs").select("id, name, portal_name, created_at")
+  .eq("delivery_brand", brand).is("deleted_at", null);
+
+if (!candidates?.length) {
   console.error(`\nNo organisation with delivery_brand "${brand}".\n`);
   process.exit(1);
 }
+if (candidates.length > 1) {
+  console.error(
+    `\nAmbiguous: ${candidates.length} organisations share delivery_brand "${brand}".\n` +
+    "Refusing to guess which one gets the key. Candidates:\n"
+  );
+  console.table(candidates.map((c) => ({ id: c.id, name: c.name, created_at: c.created_at })));
+  console.error(
+    "\nRetire the stray one(s) first (the operator launcher, or a targeted\n" +
+    "`update orgs set deleted_at = now() where id = '<id>'`), then re-run.\n"
+  );
+  process.exit(1);
+}
+const org = candidates[0];
 
-// One number belongs to exactly one org. Registering it elsewhere would split a
+// One token belongs to exactly one org. Registering it elsewhere would split a
 // conversation across brands, so an existing claim is reported rather than
 // silently moved.
 const { data: claimed } = await svc
   .from("channel_routes")
   .select("org_id, label")
   .eq("channel", "whatsapp")
-  .eq("external_id", phoneNumberId)
+  .eq("external_id", webhookToken.trim())
   .maybeSingle();
 
 if (claimed && claimed.org_id !== org.id) {
   const { data: other } = await svc
     .from("orgs").select("name, portal_name").eq("id", claimed.org_id).single();
   console.error(
-    `\nThat phone_number_id is already registered to "${other.portal_name || other.name}".\n` +
-      "Remove it there first — a number cannot serve two brands.\n"
+    `\nThat webhook token is already registered to "${other.portal_name || other.name}".\n` +
+      "Remove it there first, or generate a fresh token for this channel —\n" +
+      "a token cannot serve two brands.\n"
   );
   process.exit(1);
 }
@@ -136,7 +169,7 @@ const label = labelParts.join(" ") || `${brandArg.toUpperCase()} WhatsApp`;
 await svc.from("channel_routes").delete().eq("channel", "whatsapp").eq("org_id", org.id);
 
 const { error } = await svc.from("channel_routes").insert({
-  org_id: org.id, channel: "whatsapp", external_id: phoneNumberId, label,
+  org_id: org.id, channel: "whatsapp", external_id: webhookToken.trim(), label,
   outbound_token: apiKey.trim(),
 });
 if (error) {
@@ -144,7 +177,11 @@ if (error) {
   process.exit(1);
 }
 
-console.log(`\nRegistered ${phoneNumberId} to ${org.portal_name || org.name} (${label}).`);
-console.log("Messages arriving on it now belong to that org, and it is the number");
-console.log("that org replies from.");
+console.log(`\nRegistered a WhatsApp channel to ${org.portal_name || org.name} (${label}).`);
+console.log("Messages arriving via that token now belong to that org, and it is");
+console.log("the channel that org replies through.");
+console.log(
+  "\nMake sure the 360dialog channel's webhook URL carries this SAME token:\n" +
+  "  …/api/webhooks/whatsapp?token=<the value you just registered>\n"
+);
 await show();
