@@ -62,20 +62,35 @@ export default async function DashboardLayout({
   // A viewer is outside the organisation, so it is listed in none of the sets
   // below rather than added to any of them. The nav is presentation; RLS is what
   // actually decides, and 0038 grants a viewer no policy on any of these tables.
+  // ⚠️ `executive` belongs in the READ sets below and in none of the write ones.
+  //
+  // The database already settled this and the nav had not caught up. `0072a`
+  // put the executive into `oversight_roles()`, which grants them audit_log,
+  // ledger and bank_accounts reads; `biScope()` gives them every BI column
+  // ("All (RT)", B7 v3.3); `enforce_payment_transition()` lets them co-approve
+  // a payment, including above the threshold. Yet every one of the flags here
+  // omitted them — so an MD could authorise a disbursement they were not shown
+  // the ledger for, and audit a trail whose link they could not see. The policy
+  // said oversight; the menu said no such person.
+  //
+  // What stays closed stays closed, and for a stated reason each time:
+  // `canEnroll` is enrolment (a write), `isOperator` is governance of OTHER
+  // organisations, and remittance is refused in the database itself — an
+  // executive may authorise money and may never move it (board, 29 Jul 2026).
   const ctx: NavContext = {
-    isStaff: ["admin", "facility_manager", "finance_approver"].includes(role),
+    isStaff: ["admin", "facility_manager", "finance_approver", "executive"].includes(role),
     isAdmin: role === "admin",
     isViewer: role === "viewer",
     isTenant: role === "tenant",
     isVendor: role === "vendor",
-    seesAudit: role === "admin" || role === "finance_approver",
+    seesAudit: ["admin", "finance_approver", "executive"].includes(role),
     // B7 "Exec / BI dashboard" column — one definition, shared with the pages
     // themselves so the link and the page can never disagree about who may look.
     seesBi: seesBi(role),
     seesRequestAnalytics: biScope(role).requests,
-    seesAssets: ["admin", "facility_manager", "finance_approver", "property_owner"].includes(role),
+    seesAssets: ["admin", "facility_manager", "finance_approver", "property_owner", "executive"].includes(role),
     canEnroll: ["admin", "facility_manager"].includes(role),
-    seesLedger: ["admin", "finance_approver"].includes(role),
+    seesLedger: ["admin", "finance_approver", "executive"].includes(role),
     // Administrator of the platform operator org. Asked of the org record
     // rather than inferred from the role, because "admin" means admin of YOUR
     // org — every brand has one, and only one org is the operator.

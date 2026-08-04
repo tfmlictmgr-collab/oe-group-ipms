@@ -23,7 +23,14 @@ type Row = {
 export default async function PaymentsPage() {
   const session = await getSessionProfile();
   if (!session) redirect("/login");
-  if (!roleAllowed(session.profile?.role, ["admin", "facility_manager", "finance_approver"])) {
+  // `executive` reads this screen because they are part of the gate on it:
+  // `enforce_payment_transition()` lets an MD / Managing Partner co-approve a
+  // payment, and above the threshold it REQUIRES one. Refusing them the page
+  // was asking for an authorisation without showing what was being authorised.
+  // Remittance stays refused in the database regardless of who opens this page.
+  if (!roleAllowed(session.profile?.role, [
+    "admin", "facility_manager", "finance_approver", "executive",
+  ])) {
     return <RoleGate title="Vendor Payments" />;
   }
 

@@ -29,7 +29,12 @@ function bandVariant(score: number) {
 export default async function VendorsPage() {
   const session = await getSessionProfile();
   if (!session) redirect("/login");
-  if (!roleAllowed(session.profile?.role, ["admin", "facility_manager", "finance_approver"])) {
+  // `executive` holds `vendors.read`. Scoring a vendor (`vendors.evaluate`) is
+  // deliberately not theirs — an evaluation feeds the payment gate they sit on,
+  // so writing one would let the same person set and clear their own bar.
+  if (!roleAllowed(session.profile?.role, [
+    "admin", "facility_manager", "finance_approver", "executive",
+  ])) {
     return <RoleGate title="Vendors" />;
   }
 

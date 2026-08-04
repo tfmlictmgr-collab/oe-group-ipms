@@ -11,7 +11,7 @@ import { PageHeader } from "@/components/patterns/page-header";
 import { StatCard } from "@/components/patterns/stat-card";
 import { EmptyState } from "@/components/patterns/empty-state";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { CountBar, ScoreBar, BudgetBar, type NamedValue, type BudgetRow } from "./Charts";
+import { CountBar, ScoreBar, BudgetBar, MixDonut, type NamedValue, type BudgetRow } from "./Charts";
 import { biScope } from "./scope";
 
 function titleize(s: string) {
@@ -194,11 +194,17 @@ export default async function BiDashboardPage() {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {scope.requests && (
           <>
+            {/* Status is a pipeline — open, in progress, resolved, closed read
+                in that order, and a bar chart keeps them on a shared baseline
+                so the backlog is comparable stage to stage. */}
             <Panel title="Requests by status">
               <CountBar data={statusData} />
             </Panel>
-            <Panel title="Requests by category">
-              <CountBar data={categoryData} />
+            {/* Category is a composition — the question is what the workload is
+                MADE of, which a ring answers directly and a bar chart makes the
+                reader assemble. */}
+            <Panel title="Requests by category" subtitle="Share of all requests">
+              <MixDonut data={categoryData} centreLabel="requests" />
             </Panel>
           </>
         )}

@@ -12,9 +12,18 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { runAction, describeError } from "@/lib/run-action";
 import { setPermission, resetToB7, type MatrixView } from "./actions";
 
+// ⚠️ Every role the matrix governs must appear here, or it is governed in the
+// dark. `executive` and `regional_manager` were added to `user_role` (0071) and
+// given real seeded rows by `seed_b7_permissions` (0072b, revised 0077) — but
+// were never added to this list, so the two newest roles were the only ones an
+// administrator could not see or adjust. A permission an operator cannot read
+// is not a governed permission; it is a default nobody has reviewed.
+//
+// Ordered roughly by seniority so the matrix reads the way the org does.
 const ROLES = [
   "tenant", "vendor", "fm_ops_staff", "facility_manager",
-  "finance_approver", "property_owner", "viewer", "admin",
+  "regional_manager", "finance_approver", "property_owner", "viewer",
+  "executive", "admin",
 ] as const;
 
 export default function MatrixEditor({

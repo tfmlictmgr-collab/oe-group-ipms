@@ -18,7 +18,8 @@ import {
 import { cn } from "@/lib/utils";
 import { loadAnalytics, exportAnalyticsCsv, type Filters, type MetricRow, type VendorRow, type CategoryRow } from "./actions";
 import {
-  TrendChart, VendorSpeedBar, CategoryCompletionBar, periodLabel, isPartialPeriod,
+  TrendChart, ResolveSpeedLine, CategoryMixDonut, VendorSpeedBar, CategoryCompletionBar,
+  periodLabel, isPartialPeriod,
 } from "./AnalyticsCharts";
 
 export type Option = { id: string; name: string };
@@ -353,12 +354,15 @@ export default function AnalyticsConsole({
         </p>
       )}
 
-      {/* ── Trend ─────────────────────────────────────────────────────────── */}
+      {/* ── Trend ─────────────────────────────────────────────────────────────
+          Volume and speed were one plot on two y-axes. They are two plots now:
+          with two scales the line's position against the bars is arbitrary, so
+          the chart implied a relationship it could not support. */}
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">Volume and speed over time</CardTitle>
+          <CardTitle className="text-base">Volume over time</CardTitle>
           <CardDescription>
-            Requests raised and completed per {bucket}, with average resolution time on the right axis.
+            Requests raised and completed per {bucket}.
             {data.metrics.length > 0 &&
               isPartialPeriod(data.metrics[data.metrics.length - 1].period, bucket) && (
                 <> The final bar is the current {bucket}, still in progress.</>
@@ -369,6 +373,34 @@ export default function AnalyticsConsole({
           <TrendChart data={data.metrics} bucket={bucket} />
         </CardContent>
       </Card>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Resolution speed</CardTitle>
+            <CardDescription>
+              Average hours from raised to resolved, per {bucket}. A gap is a
+              {" "}{bucket} in which nothing was resolved and timed — not a zero.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="pt-2">
+            <ResolveSpeedLine data={data.metrics} bucket={bucket} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">What the workload is made of</CardTitle>
+            <CardDescription>
+              Share of requests by classification. Composition at a glance — for
+              comparing categories against each other, read the completion bars below.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="pt-2">
+            <CategoryMixDonut data={data.categories} />
+          </CardContent>
+        </Card>
+      </div>
 
       {/* ── Best / worst ──────────────────────────────────────────────────── */}
       {showVendors && (best || worst) && (

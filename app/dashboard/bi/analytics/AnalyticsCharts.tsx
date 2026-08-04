@@ -1,10 +1,8 @@
 "use client";
 
 import {
-  ComposedChart,
   BarChart,
   Bar,
-  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -12,7 +10,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
-import { usePalette, chartChrome } from "../Charts";
+import { usePalette, chartChrome, MixDonut, TrendLine } from "../Charts";
 import type { MetricRow, VendorRow } from "./actions";
 
 // Charts for the filterable console. Built on the same palette as the executive
@@ -67,11 +65,17 @@ export function isPartialPeriod(iso: string, bucket: string): boolean {
 }
 
 /**
- * Volume and speed on one plot.
+ * Volume over time — raised against completed, both counts, ONE axis.
  *
- * Two axes, deliberately: counts and hours share no scale, and forcing them onto
- * one makes a 4-hour average invisible beside a 400-ticket month. The right axis
- * is labelled in its own unit so nobody reads the line as a count.
+ * ⚠️ This used to carry the average-resolve line as well, on a second y-axis,
+ * and the comment defending it argued that counts and hours "share no scale".
+ * That is exactly the reason not to draw them together: with two scales the
+ * alignment between the bars and the line is arbitrary, so the plot invents a
+ * relationship the data never contained — a line crossing above the bars means
+ * nothing at all. It is the most common charting mistake there is.
+ *
+ * Speed now has its own plot (`ResolveSpeedLine`), on its own single axis, where
+ * the shape of the line is the only thing it can be read against.
  */
 export function TrendChart({
   data,
@@ -82,46 +86,83 @@ export function TrendChart({
 }) {
   const p = usePalette();
   const { axisProps, tooltipStyle } = chartChrome(p);
-  if (data.length === 0) return <EmptyPlot height={300} />;
+  if (data.length === 0) return <EmptyPlot height={280} />;
 
   const rows = data.map((r) => ({
     label: periodLabel(r.period, bucket),
     total: Number(r.total),
     completed: Number(r.completed),
-    hours: r.avg_hours_to_resolve === null ? null : Number(r.avg_hours_to_resolve),
   }));
 
   return (
-    <ResponsiveContainer width="100%" height={300}>
-      <ComposedChart data={rows} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+    <ResponsiveContainer width="100%" height={280}>
+      <BarChart data={rows} margin={{ top: 8, right: 8, left: -16, bottom: 0 }} barGap={2}>
         <CartesianGrid stroke={p.grid} vertical={false} />
         <XAxis dataKey="label" {...axisProps} interval="preserveStartEnd" />
-        <YAxis yAxisId="count" allowDecimals={false} {...axisProps} />
-        <YAxis
-          yAxisId="hours"
-          orientation="right"
-          {...axisProps}
-          tickFormatter={(v: number) => `${v}h`}
-        />
-        <Tooltip
-          {...tooltipStyle}
-          formatter={(v, name) =>
-            name === "Avg. resolve" ? `${Number(v).toFixed(1)} h` : Number(v).toLocaleString()
-          }
-        />
+        <YAxis allowDecimals={false} {...axisProps} />
+        <Tooltip {...tooltipStyle} formatter={(v) => Number(v).toLocaleString()} />
         <Legend wrapperStyle={{ fontSize: 12, color: p.muted }} />
-        <Bar yAxisId="count" dataKey="total" name="Raised" fill={p.series1}
+        <Bar dataKey="total" name="Raised" fill={p.series1}
              radius={[4, 4, 0, 0]} maxBarSize={40} />
-        <Bar yAxisId="count" dataKey="completed" name="Completed" fill={p.series2}
+        <Bar dataKey="completed" name="Completed" fill={p.series2}
              radius={[4, 4, 0, 0]} maxBarSize={40} />
-        {/* connectNulls={false}: a period with nothing timed leaves a GAP rather
-            than a straight line drawn through it, which would read as a measured
-            trend across months where nothing was measured at all. */}
-        <Line yAxisId="hours" type="monotone" dataKey="hours" name="Avg. resolve"
-              stroke={p.muted} strokeWidth={2} dot={{ r: 3 }} connectNulls={false} />
-      </ComposedChart>
+      </BarChart>
     </ResponsiveContainer>
   );
+}
+
+/**
+ * How long a request took to resolve, period by period — the other half of what
+ * the old two-axis plot tried to say at once, now readable on its own terms.
+ */
+export function ResolveSpeedLine({
+  data,
+  bucket,
+}: {
+  data: MetricRow[];
+  bucket: string;
+}) {
+  const points = data.map((r) => ({
+    label: periodLabel(r.period, bucket),
+    value: r.avg_hours_to_resolve === null ? null : Number(r.avg_hours_to_resolve),
+  }));
+
+  if (points.length === 0 || points.every((pt) => pt.value === null)) {
+    return <EmptyPlot height={240} note="Nothing has been resolved and timed in this window yet" />;
+  }
+
+  return (
+    <TrendLine
+      data={points}
+      height={240}
+      unit="h"
+      formatValue={(n) => `${n.toFixed(1)} h`}
+    />
+  );
+}
+
+/**
+ * What the workload is made OF — the classification mix.
+ *
+ * A ring rather than another bar because the question here is composition, not
+ * ranking: "half of everything is maintenance" is the reading, and no bar chart
+ * says that as directly. Comparison between similar categories stays with the
+ * completion-rate bars below, where lengths share a baseline.
+ */
+export function CategoryMixDonut({
+  data,
+}: {
+  data: { category: string; total: number }[];
+}) {
+  const rows = data
+    .map((c) => ({
+      name: c.category.replace(/_/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase()),
+      value: Number(c.total),
+    }))
+    .filter((r) => r.value > 0);
+
+  if (rows.length === 0) return <EmptyPlot />;
+  return <MixDonut data={rows} height={280} centreLabel="requests" />;
 }
 
 /**

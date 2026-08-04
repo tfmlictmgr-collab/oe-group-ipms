@@ -13,13 +13,17 @@ export default async function AssetsPage() {
   const session = await getSessionProfile();
   if (!session) redirect("/login");
 
-  // Owners and finance can read the register; only admin + FM/PM may write.
+  // Owners, finance and oversight can read the register; only admin + FM/PM may
+  // write. `executive` holds `assets.read` in the seeded matrix and nothing
+  // further — `canWrite` below already excludes them, so the New/Import buttons
+  // stay hidden and their own pages refuse independently.
   if (
     !roleAllowed(session.profile?.role, [
       "admin",
       "facility_manager",
       "finance_approver",
       "property_owner",
+      "executive",
     ])
   ) {
     return <RoleGate title="Asset Register" />;
