@@ -55,6 +55,28 @@ function hmacMatches(rawBody: string, secret: string, presented: string): boolea
   return crypto.timingSafeEqual(a, b);
 }
 
+/**
+ * Compares a presented shared secret with the expected one, in constant time.
+ *
+ * ⚠️ Audit 0804 E1. The two cron job routes compared their bearer token with
+ * `===`, which returns as soon as two bytes differ — the exact pattern
+ * `hmacMatches` above exists to avoid, reintroduced two files away from its own
+ * reasoning. A remote timing oracle on a job secret is a stretch (network jitter
+ * dominates, and the secret gates a billing run rather than data), but the fix
+ * costs one function call and the inconsistency is what actually causes harm:
+ * a codebase where the safe comparison is sometimes used teaches nobody which
+ * one to reach for.
+ *
+ * Both values are hashed first, so unequal LENGTHS cannot leak either — unlike a
+ * signature, a shared secret's length is not public.
+ */
+export function secretMatches(presented: string | null | undefined, expected: string | null | undefined): boolean {
+  if (!presented || !expected) return false;
+  const a = crypto.createHash("sha256").update(presented).digest();
+  const b = crypto.createHash("sha256").update(expected).digest();
+  return crypto.timingSafeEqual(a, b);
+}
+
 // WhatsApp Cloud API signs each POST with the App Secret:
 //   X-Hub-Signature-256: sha256=<hmac hex of the raw body>
 export function verifyWhatsAppSignature(

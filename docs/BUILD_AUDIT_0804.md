@@ -168,3 +168,33 @@ No `is("deleted_at", null)`, and `.maybeSingle()` throws on >1 row rather than s
 ## Not independently re-verified (time budget)
 
 Per the brief's priority order, WhatsApp webhook/notify internals were sanity-checked against `docs/WHATSAPP_360DIALOG_MIGRATION.md` only (confirmed the doc's claims match the route's dual-path token/HMAC structure at a glance) rather than re-derived from scratch. `scripts/verify-*.mjs` diffs beyond rent/domains/analytics were skimmed for what they revealed (journal cross-referenced above) rather than read line-by-line.
+
+---
+
+## PC1 response — actioned 2026-08-04
+
+| # | Status | What was done |
+|---|--------|---------------|
+| **S1** | **Fixed** (`0102`) | `create_rent_remittance` locks the charges it aggregates (`for update of rc`, ordered by id so concurrent callers queue rather than deadlock), re-checks `remitted_at is null` in the closing UPDATE, and aborts if it did not claim every row it counted. New suite `verify-remittance-race` drives two overlapping connections; **it was run against the pre-fix function first and reported "THE SAME RENT WAS REMITTED TWICE"**, so it is known to be capable of failing. |
+| **S2** | **Fixed** (`0102`) | Vacuous `unique (id) where remitted_at is not null` dropped — it was on the primary key. Replaced with `rent_charges_unremitted_idx (org_id, lease_id) where remitted_at is null`, and the column comment now names the lock as the guard instead of implying an index does it. |
+| **S3** | **Fixed differently — please note** (`0102`) | `remittance.execute` was **not** seeded, deliberately. Locked decision 7 lists remittance execution among the controls that are hardwired and "never appear as toggles", and `capabilities` already carries **`payment.remit`** ("Execute a transfer to a vendor or landlord") as *locked* for this exact act — a grantable `remittance.execute` would make a non-delegable control delegable and give one act two names. Instead the function was brought into line with its four siblings in 0041: **`authenticated` revoked, `service_role` only**, in-function check hardwired to `admin`/`finance_approver` as defence in depth. This unblocks a UI (a server action authorises, then calls via the service client — exactly what `executeRemittance()` does today) without creating the toggle. |
+| **E1** | **Fixed** | Both cron routes now use a new `secretMatches()` in `lib/webhook-security.ts` (SHA-256 both sides, then `timingSafeEqual`, so length is not leaked either). Unit-checked across equal / differing / empty / null / length-mismatch. |
+| **D2** | **Fixed** (`0102`) | The four columns added to the 0083c allowlist. Reproduced live as a signed-in OEA administrator before the fix (`management_fee_pct` refused, `portal_name` succeeded) and confirmed after. New suite **`verify-lettings-grants`** signs in as a real administrator rather than using `service_role`, asserts the exclusions (`deleted_at`, `is_platform_operator`, `slug`, `custom_domain`) still hold, and **fails if any `orgs` column is neither allowlisted nor deliberately excluded** — so the next added column must be classified rather than silently unwritable. |
+| **D3** | **Fixed** | `scripts/lib/org-lookup.mjs` — one guard, used by both registration scripts: live orgs only, refuse and list candidates on ambiguity, never pick. `register-telegram-bot.mjs` also accepts a **slug**, because `POC` maps to `delivery_brand = 'direct'` and **three live orgs carry that today** (POC, SC client, platform operator) — the old `.maybeSingle()` discarded its error and reported "No organisation with delivery_brand direct" when in fact several matched. |
+| **C1** | **Fixed** | `/dashboard/my-work` open/completed tiles are now counted in the database (`head: true`, still RLS-scoped) instead of derived from the 100-row list, and the list says so when it is truncated. |
+| **C2** | **Fixed** | The wrong-host dashboard redirect now signs the session out before redirecting, matching `sign-in-panel.tsx`. |
+| **D1** | **Open — by design, for now** | Landlord rent remittance still has no UI. S3 no longer blocks it: the pattern is a server action that checks `admin`/`finance_approver` and calls the RPC through the service client, as `executeRemittance()` already does for vendors. Scheduled with the owner-statement work (`FEATURE_BACKLOG` G8) rather than bolted on here. |
+
+### One finding this audit did not have, introduced and closed in the same session
+
+`verify-lettings-grants`, on its first run, read `orgs.select("*").limit(1)` to
+learn the column names — an arbitrary row — and echoed those values onto the
+signed-in administrator's org. It overwrote the **OEA organisation's** name,
+brand, portal name and sender identity with the POC's, so `oeaportal.com` served
+the wrong entity until it was restored from `audit_log.before_state`.
+
+Recorded here because it is the same species as D3 and worth the same
+generalisation: **a lookup that returns *a* row where the code assumes *the*
+row.** The suite now reads the row it is about to write. `verify-email-routing`
+caught the damage on the next run precisely because it asserts that a brand sends
+as itself rather than asserting a fixed string.

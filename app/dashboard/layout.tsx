@@ -31,6 +31,17 @@ export default async function DashboardLayout({
   // door is meant to serve everyone.
   const hostOrg = await orgForCurrentHost();
   if (hostOrg && profile?.org_id && profile.org_id !== hostOrg.id) {
+    // ⚠️ Audit 0804 C2. End the session, don't just move the browser.
+    //
+    // `sign-in-panel.tsx` signs out on exactly this mismatch; this sibling only
+    // redirected, leaving a live session for the other org's portal sitting in a
+    // cookie on this host. No data was exposed — RLS scopes every read to the
+    // user's own org whatever hostname they arrived on — but a redirect that
+    // leaves the session standing is a bounce, not a boundary, and the two
+    // checks disagreeing about that is how one of them later gets relaxed.
+    const supabaseAuth = await createClient();
+    await supabaseAuth.auth.signOut();
+
     // Back to the door they knocked on, which will refuse them by name. Not to
     // their OWN portal: this deployment should not tell one client's browser
     // where another client's portal lives.

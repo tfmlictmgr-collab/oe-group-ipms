@@ -78,12 +78,29 @@ export default async function MyWorkPage() {
     );
   }
 
-  const [jobsRes, evalsRes, paymentsRes] = await Promise.all([
+  const [jobsRes, openRes, doneRes, evalsRes, paymentsRes] = await Promise.all([
+    // ⚠️ Audit 0804 C1. The counts used to be derived from THIS bounded list, so
+    // a contractor with more than 100 assigned jobs was shown an "Open jobs"
+    // figure that silently stopped counting — while the card beside it was
+    // honestly labelled "of the last 100 assigned". A tile that undercounts
+    // without saying so is worse than one that admits its bound.
+    //
+    // The list stays bounded (nobody reads 400 rows); the COUNTS are asked of
+    // the database, which counts all of them. Still RLS-scoped — `head: true`
+    // runs the same policy, it just returns no rows.
     supabase
       .from("tickets")
       .select("id, summary, message_text, category, urgency, status, created_at, resolved_at, property_or_unit")
       .order("created_at", { ascending: false })
       .limit(100),
+    supabase
+      .from("tickets")
+      .select("id", { count: "exact", head: true })
+      .in("status", OPEN_STATES),
+    supabase
+      .from("tickets")
+      .select("id", { count: "exact", head: true })
+      .not("status", "in", `(${OPEN_STATES.join(",")})`),
     supabase
       .from("vendor_evaluations")
       .select("id, period, quality_score, response_score, completion_score, satisfaction_score, compliance_score, composite_score, created_at")
@@ -102,8 +119,14 @@ export default async function MyWorkPage() {
   };
   const jobs = (jobsRes.data ?? []) as Job[];
   const open = jobs.filter((j) => OPEN_STATES.includes(j.status));
-  const done = jobs.filter((j) => !OPEN_STATES.includes(j.status));
   const inProgress = jobs.filter((j) => j.status === "in_progress").length;
+
+  // Counted in the database, so the tiles are true past the list's bound. If the
+  // count query fails, fall back to what the list can see rather than showing a
+  // zero that reads as "no work".
+  const openCount = openRes.count ?? open.length;
+  const doneCount = doneRes.count ?? jobs.filter((j) => !OPEN_STATES.includes(j.status)).length;
+  const listTruncated = jobs.length >= 100;
 
   type Evaluation = {
     id: string; period: string | null; composite_score: number | string | null;
@@ -143,10 +166,10 @@ export default async function MyWorkPage() {
       />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Open jobs" value={open.length} icon={<Briefcase />}
-                  hint={`${inProgress} in progress`} />
-        <StatCard label="Completed" value={done.length} icon={<CheckCircle2 />}
-                  hint="of the last 100 assigned" />
+        <StatCard label="Open jobs" value={openCount} icon={<Briefcase />}
+                  hint={`${inProgress}${listTruncated ? "+" : ""} in progress`} />
+        <StatCard label="Completed" value={doneCount} icon={<CheckCircle2 />}
+                  hint="all time" />
         <StatCard
           label="Performance score"
           value={average === null ? "—" : average.toFixed(1)}
@@ -165,6 +188,9 @@ export default async function MyWorkPage() {
           <CardTitle className="text-base">Current jobs</CardTitle>
           <CardDescription>
             Work assigned to you and not yet completed, newest first.
+            {listTruncated && (
+              <> Showing the 100 most recent of your {(openCount + doneCount).toLocaleString()} jobs.</>
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent className="pt-2">

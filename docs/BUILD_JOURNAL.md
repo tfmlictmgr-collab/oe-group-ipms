@@ -2495,3 +2495,98 @@ misrepresent. It refuses to run without `--yes`, refuses any org outside a demo
 allowlist, and prints that its timings are fabricated. Without it the day's
 visible deliverable — "which vendor completes fastest?" — cannot be demonstrated
 at all.
+
+---
+
+## Audit 0804 — the race, the gate that could never open, and a settings screen nobody could save
+
+⚠️ **`create_rent_remittance` could pay a landlord twice.** It aggregated the
+unremitted charges, inserted a remittance for the total, then marked them
+remitted — with no row lock and an unconditional closing UPDATE. Under READ
+COMMITTED two overlapping calls both read the same charges as unremitted and both
+insert a full-amount payout. A double-click was enough.
+
+📌 What makes it a slip rather than a design choice is that both neighbours in
+the same path already do it right: `record_collection` takes `for update` before
+posting, and `claim_remittance_for_sending` takes `for update` and gates on
+`status = 'queued'` — the exact claim-before-you-send discipline the aggregation
+step skipped. The fix takes the lock in a subquery ordered by id (two callers
+queue in the same sequence and cannot deadlock), re-checks `remitted_at is null`
+in the write, and aborts if it did not claim every row it counted.
+
+🔎 **The suite was made to fail first.** The pre-fix function was restored
+temporarily and `verify-remittance-race` reported *"THE SAME RENT WAS REMITTED
+TWICE"*, then the fix was reapplied and it passed. Worth doing because one of its
+own assertions is a false comfort: "the second call blocked" passes on the BROKEN
+code too — B sailed through the unlocked SELECT, inserted its remittance, and
+only then blocked on the UPDATE. It blocked; it blocked too late. That check is
+now labelled as diagnosis, and the outcome is what decides the suite.
+
+⚖️ **The gate it checked could never open, and it was the wrong gate.**
+`has_permission('remittance.execute')` denies everyone permanently —
+`remittance.execute` is in no catalogue, no matrix, no seed. That masked the race
+by making the function `service_role`-only in practice.
+
+The audit filed it as "needs seeding". It is not being seeded. Locked decision 7
+names remittance execution among the controls that are hardwired and **never
+appear as toggles**, and `capabilities` already carries `payment.remit` —
+*"Execute a transfer to a vendor or landlord"* — as locked, for this exact act. A
+grantable `remittance.execute` row would make a non-delegable control delegable
+and give one act two names that can disagree. So the function joins its four
+siblings instead: `authenticated` revoked, `service_role` only, authorisation in
+the calling action — which is what `executeRemittance()` already says in as many
+words. The feature is unblocked for a UI; the toggle is not created.
+
+⚖️ **An index that claimed a guarantee it did not provide.**
+`rent_charges_remittance_uidx` was `unique (id) where remitted_at is not null` —
+`id` is the primary key, so it enforced nothing a plain PK did not, while the
+column comment beside it announced "the guard against paying the same month
+twice". That combination is worse than no index: a reader auditing the double-pay
+concludes it is closed and stops looking. Dropped, replaced with a partial index
+that is actually useful for the lookup, and the comment now names the lock.
+
+⚠️ **Settings → Lettings could not be saved by any administrator, since Day 9.**
+0083c replaced `orgs`'s table-level UPDATE grant with a column allowlist, and
+**Postgres does not extend such a grant to columns added later**. All four
+lettings columns arrived unwritable; every admin got "permission denied for table
+orgs".
+
+📌 It was invisible because **every suite that touches those columns writes as
+`service_role`**, which bypasses column grants entirely. A suite that only ever
+uses the service key is testing the database, not the application's access to it.
+`verify-lettings-grants` signs in as a real administrator, asserts in both
+directions, and fails if any `orgs` column is neither on the allowlist nor on the
+deliberately-excluded list — so the next column added has to be classified rather
+than silently unwritable.
+
+⚠️ **And that new suite destroyed the OEA organisation on its first run.** To
+learn the column names it read `orgs.select("*").limit(1)` — an arbitrary row,
+which Postgres returned as the POC's — and then echoed those values onto the
+signed-in admin's org. `oeaportal.com` served "OE Group — Foundation POC" with no
+OEA branding and no sender identity until it was restored.
+
+📌 Two things saved it, and both are worth naming. The append-only `audit_log`
+held the full `before_state`, so the org was restored from what it actually was
+rather than from what someone remembered. And `verify-email-routing` failed
+loudly on the next run — "OEA sender is null" — because it asserts a brand sends
+as itself rather than asserting a string. The lesson for the suite: **a script
+that writes must read the row it is going to write.** Learning a schema from one
+row and applying it to another is the same error as trusting `delivery_brand` to
+identify an org — a lookup that returns *a* row where the code assumes *the* row.
+
+⚖️ **Which is the third instance of that error.** 0085 found it for slugs; the
+360dialog migration found it attaching a live WhatsApp key to a retired probe
+fixture; `register-telegram-bot.mjs` still had it, and worse — `.maybeSingle()`
+with the error discarded, so on two matches it printed *"No organisation with
+delivery_brand X"*, announcing that none exists at the moment several do.
+`'direct'` is the sharp case and it is live today: the POC, the SC client and the
+platform operator all carry it. `scripts/lib/org-lookup.mjs` now refuses and
+lists candidates for both registration scripts, and accepts a slug — the only
+identifier an org actually has.
+
+📌 Two smaller ones closed in the same pass: the wrong-host dashboard redirect
+now **signs the session out** rather than only moving the browser (its sign-in
+sibling always did, and two checks disagreeing is how one of them later gets
+relaxed); and the two cron routes compare their bearer token with a constant-time
+`secretMatches()` instead of `===` — the pattern `lib/webhook-security.ts` was
+written to avoid, reintroduced two files from its own reasoning.

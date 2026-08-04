@@ -2,7 +2,12 @@
 //
 //   node scripts/register-telegram-bot.mjs TFML 8123456789:AA...token
 //   node scripts/register-telegram-bot.mjs OEA  8987654321:BB...token
-//   node scripts/register-telegram-bot.mjs POC  <token>        (delivery_brand 'direct')
+//   node scripts/register-telegram-bot.mjs oe-group-foundation-poc <token>
+//
+// TFML and OEA are brands; anything else is read as an organisation SLUG, which
+// is the only unique identifier an org has (0085). `POC` still works and maps to
+// delivery_brand 'direct' — but three live orgs carry that, so it will refuse
+// and list them rather than pick one.
 //
 // What it does:
 //   1. generates a fresh per-bot SECRET (the routing key AND the webhook's
@@ -45,13 +50,31 @@ const svc = createClient(
   { auth: { persistSession: false } }
 );
 
-const wantedBrand = brandArg.toUpperCase() === "POC" ? "direct" : brandArg.toUpperCase();
-const { data: org } = await svc
-  .from("orgs").select("id, name, delivery_brand").eq("delivery_brand", wantedBrand).maybeSingle();
+// ⚠️ Audit 0804 D3. This resolved the org with
+// `eq("delivery_brand", brand).maybeSingle()`, destructuring only `data` —
+// which fails in two ways at once. `delivery_brand` is not unique, so on more
+// than one match PostgREST returns an error and null data; the ignored error
+// then surfaced as "No organisation with delivery_brand X", announcing that
+// none exists at the moment several do. And a RETIRED probe fixture counted as
+// a match, which is exactly how a live WhatsApp key ended up on a stray org.
+//
+// `POC` is the sharp case and it is live today: the POC, the SC client and the
+// platform operator all carry `delivery_brand = 'direct'`. So a slug is
+// accepted too, and it is the only way to name one of those three.
+import { requireOrgForBrand, liveOrgBySlug } from "./lib/org-lookup.mjs";
 
-if (!org) {
-  console.error(`No organisation with delivery_brand "${wantedBrand}".`);
-  process.exit(1);
+const wantedBrand = brandArg.toUpperCase() === "POC" ? "direct" : brandArg.toUpperCase();
+let org;
+if (["TFML", "OEA", "direct"].includes(wantedBrand)) {
+  org = await requireOrgForBrand(svc, wantedBrand);
+} else {
+  // Anything else is treated as a slug — `oe-group-foundation-poc`, `sc-client`.
+  const { org: bySlug, error } = await liveOrgBySlug(svc, brandArg);
+  if (!bySlug) {
+    console.error(`\n${error}\nPass TFML, OEA, or an organisation's slug.\n`);
+    process.exit(1);
+  }
+  org = bySlug;
 }
 
 // Confirm the token really is the bot it claims, before anything is stored.

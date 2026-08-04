@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { secretMatches } from "@/lib/webhook-security";
 
 // The daily rent-demand run.
 //
@@ -31,7 +32,9 @@ function authorised(req: NextRequest): boolean {
 
   const header = req.headers.get("authorization") ?? "";
   const bearer = header.startsWith("Bearer ") ? header.slice(7) : null;
-  return bearer === secret;
+  // Constant-time, matching the discipline `lib/webhook-security.ts` documents
+  // for every other shared secret in this codebase (audit 0804 E1).
+  return secretMatches(bearer, secret);
 }
 
 // Vercel Cron invokes with GET and an `Authorization: Bearer $CRON_SECRET`
