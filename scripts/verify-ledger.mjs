@@ -48,9 +48,15 @@ const orgId = me.org_id;
 // only true against a pristine database. The moment any other suite, or a real
 // test payment, left a balance behind, a correct system reported a failure.
 // A test that owns only part of the state must assert only its own effect.
+// ⚠️ Scoped to NGN explicitly. `client_funds_position` is one row PER
+// CURRENCY an org has enabled (0103 — Flutterwave/FX collections), not one row
+// per org — `.maybeSingle()`/`.single()` with no currency filter now THROWS
+// the moment a second currency exists, which it does the instant an admin adds
+// one foreign-currency bank account. This suite tests the Naira ledger
+// specifically, so it asks for Naira specifically.
 const baseline = await (async () => {
   const { data } = await svc.from("client_funds_position")
-    .select("funds_held, funds_owed").eq("org_id", orgId).maybeSingle();
+    .select("funds_held, funds_owed").eq("org_id", orgId).eq("currency", "NGN").maybeSingle();
   return { held: Number(data?.funds_held ?? 0), owed: Number(data?.funds_owed ?? 0) };
 })();
 
@@ -213,7 +219,8 @@ console.log("\nG. Balances and the segregation position are correct");
   // is worth nothing.
   const { data: pos } = await finance.c
     .from("client_funds_position")
-    .select("funds_held, funds_owed, unallocated").eq("org_id", orgId).single();
+    .select("funds_held, funds_owed, unallocated")
+    .eq("org_id", orgId).eq("currency", "NGN").single();
 
   const held = Number(pos.funds_held) - baseline.held;
   const owed = Number(pos.funds_owed) - baseline.owed;

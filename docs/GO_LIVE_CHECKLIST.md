@@ -37,16 +37,33 @@ everything around them but cannot execute them.
 - [ ] **Publish the privacy notice** — covers the automated document-verification
       consent line added for decision 10 (AI may verify, never screen).
 - [ ] **Obtain live payment gateway keys.** Checked directly against the
-      deployed dev host (`oe-group-ipms-dev.vercel.app`, 2026-08-04): Paystack
-      is already configured with a **test** key — the Collections screen shows
-      "Paystack test mode. Checkout is the real Paystack page, but no card is
-      charged" and real (test) checkouts are working, not the `simulated`
-      adapter. **Flutterwave has no key set anywhere** — `FLUTTERWAVE_SECRET_KEY`
-      does not appear in the Vercel project's env var list at all, so FX
-      collections are entirely unbuilt-for in practice today, not just untested.
-      At cutover: swap the Paystack key for its live counterpart, and decide
-      whether Flutterwave (FX collections, B3) is in scope for go-live or a
-      fast-follow — nothing currently depends on it being ready.
+      deployed dev host (`oe-group-ipms-dev.vercel.app`): Paystack is already
+      configured with a **test** key — the Collections screen shows "Paystack
+      test mode. Checkout is the real Paystack page, but no card is charged"
+      and real (test) checkouts are working, not the `simulated` adapter. At
+      cutover: swap for the live key.
+      **Flutterwave** — updated 2026-08-04: no key is set on any environment
+      yet, so this remains the item to action, but everything CODE-SIDE it
+      needed is now built and verified, not just the pre-existing adapter
+      class:
+        - a foreign-currency client-funds account is a genuinely separate,
+          independently-segregated balance (its own bank account, its own
+          `client_funds`+`suspense` ledger accounts) — never summed with Naira
+          in the segregation position, the balances page, or the journal;
+        - Settings → Banking lets an admin add one (currently USD/GBP/EUR);
+        - Collections has a "Request an international payment" flow, currency-
+          correct formatting throughout (checkout page, receipts, reconciliation,
+          journal), and its own Flutterwave-mode banner;
+        - `verify-fx-collections` (21 checks) proves the isolation end to end —
+          a foreign-currency collection cannot leak into or be summed with the
+          NGN position, an opening-balance allocation cannot cross currencies,
+          and the resolvers never return the wrong currency's account.
+      **What's still open:** get a Flutterwave account and a test/live secret
+      key + webhook hash, set `FLUTTERWAVE_SECRET_KEY` /
+      `FLUTTERWAVE_WEBHOOK_HASH`, then the existing "Add a foreign-currency
+      account" flow is how it goes live — no further code change. Decide
+      before cutover whether FX collections are in scope for go-live or a
+      fast-follow; nothing currently depends on it being ready.
 - [ ] **Confirm the 360dialog account tier** for both numbers (TFML
       `+234 703 689 1329`, OEA `+234 708 471 4148`) — direct-client tier has no
       request signature at all (see `WHATSAPP_360DIALOG_MIGRATION.md`); if that
@@ -122,7 +139,7 @@ missing several of these locally even though they're set on Vercel.
 | `WHATSAPP_360D_SIGNING_SECRET` | the dormant signature-verification path | not set | only matters if 360dialog Partner tier is obtained |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET` | Telegram — same fallback/per-org split | ✅ set (Production) | re-register to the new host |
 | `PAYSTACK_SECRET_KEY`, `NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY` | Naira collections + vendor/landlord transfers | ✅ set, **test mode confirmed live on screen** ("Paystack test mode... no card is charged") | swap for the live key pair |
-| `FLUTTERWAVE_SECRET_KEY`, `FLUTTERWAVE_WEBHOOK_HASH` | FX collections | ❌ **not set at all** — FX collections are unbuilt-for in practice, not just untested | decide in/out of scope for go-live (§1) |
+| `FLUTTERWAVE_SECRET_KEY`, `FLUTTERWAVE_WEBHOOK_HASH` | FX collections | ❌ not set — but the code path IS built and verified now (`verify-fx-collections`, §1); this is purely a missing credential | decide in/out of scope for go-live (§1) |
 | `RESEND_API_KEY`, `RESEND_FROM`, `RESEND_WEBHOOK_SECRET` | email notifications | ✅ set (Preview + Production) | reuse or rotate; confirm the sending domain is verified for both brands (`notify.tfmlconsultant.com`, `notify.oraegbunike.com`) |
 | `AFRICASTALKING_API_KEY` | SMS fallback | ❌ not set — cascade logs `skipped`, other channels unaffected | decide in/out of scope |
 | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | rate limiting | ✅ set (Production) | reuse; confirm fail-open posture is still intended (§5) |

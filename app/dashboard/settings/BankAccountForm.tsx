@@ -9,7 +9,7 @@ import { Input, Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { formatNaira } from "@/lib/currency";
+import { formatMoney } from "@/lib/currency";
 import { runAction, describeError } from "@/lib/run-action";
 import {
   ensureChartOfAccounts,
@@ -17,7 +17,7 @@ import {
   recordOpeningBalance,
 } from "./bank-actions";
 
-export type LedgerAccountOption = { id: string; code: string; name: string };
+export type LedgerAccountOption = { id: string; code: string; name: string; currency: string };
 
 export type BankAccount = {
   id: string;
@@ -26,6 +26,7 @@ export type BankAccount = {
   account_name: string | null;
   account_number_last4: string | null;
   purpose: string;
+  currency: string;
   opening_balance: number | string;
   opening_date: string | null;
   opening_entry_id: string | null;
@@ -34,18 +35,25 @@ export type BankAccount = {
 
 export default function BankAccountForm({
   account,
+  currency,
   liabilityAccounts,
   hasChart,
 }: {
   account: BankAccount;
+  /** The currency this card is for. Ignored once `account` exists — its own
+      currency is authoritative and cannot be changed (bank-actions.ts). */
+  currency: string;
+  /** Already filtered to THIS currency by the caller — an opening-balance
+      allocation must never point at another currency's liability account. */
   liabilityAccounts: LedgerAccountOption[];
   hasChart: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
+  const effectiveCurrency = account?.currency ?? currency;
 
   const [form, setForm] = React.useState({
-    label: account?.label ?? "Client funds account",
+    label: account?.label ?? (effectiveCurrency === "NGN" ? "Client funds account" : `Client funds — ${effectiveCurrency}`),
     bankName: account?.bank_name ?? "",
     accountName: account?.account_name ?? "",
     accountNumberLast4: account?.account_number_last4 ?? "",
@@ -59,7 +67,7 @@ export default function BankAccountForm({
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
 
-  const allocTotal = rows.reduce((s, r) => s + (Number(r.amount.replace(/[,\s₦]/g, "")) || 0), 0);
+  const allocTotal = rows.reduce((s, r) => s + (Number(r.amount.replace(/[,\s₦$£€]/g, "")) || 0), 0);
   const openingRecorded = Boolean(account?.opening_entry_id);
 
   async function run(fn: () => Promise<unknown>, success: string) {
@@ -77,7 +85,11 @@ export default function BankAccountForm({
     }
   }
 
-  if (!hasChart) {
+  // Only the NGN card is gated behind the standard chart of accounts —
+  // landlord/vendor/deposit accounts a domestic obligation needs. A foreign
+  // currency has no such gate: saveBankAccount() provisions its (narrower)
+  // client_funds + suspense pair automatically on save (0103).
+  if (!hasChart && effectiveCurrency === "NGN") {
     return (
       <div className="space-y-4">
         <p className="text-sm text-muted-foreground">
@@ -102,7 +114,12 @@ export default function BankAccountForm({
       <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-2">
           <Landmark className="size-4 text-brand" />
-          <p className="text-sm font-medium">Client-funds account</p>
+          <p className="text-sm font-medium">
+            Client-funds account
+            {effectiveCurrency !== "NGN" && (
+              <span className="ml-1.5 font-mono text-xs text-muted-foreground">({effectiveCurrency})</span>
+            )}
+          </p>
           {account ? (
             account.bank_name && account.account_number_last4 ? (
               <Badge variant="success">Configured</Badge>
@@ -164,7 +181,9 @@ export default function BankAccountForm({
           disabled={busy}
           onClick={() =>
             run(
-              () => runAction(saveBankAccount({ id: account?.id, purpose: "client_funds", ...form })),
+              () => runAction(saveBankAccount({
+                id: account?.id, purpose: "client_funds", currency: effectiveCurrency, ...form,
+              })),
               account ? "Bank account updated" : "Bank account added"
             )
           }
@@ -182,7 +201,7 @@ export default function BankAccountForm({
               <p className="text-sm font-medium">Opening balance</p>
               {openingRecorded ? (
                 <Badge variant="success">
-                  Recorded {account.opening_date} · {formatNaira(account.opening_balance)}
+                  Recorded {account.opening_date} · {formatMoney(account.opening_balance, effectiveCurrency)}
                 </Badge>
               ) : (
                 <Badge variant="warning">Not recorded</Badge>
@@ -269,7 +288,7 @@ export default function BankAccountForm({
                     Total — must equal the bank balance on that date
                   </span>
                   <span className="text-lg font-semibold tabular-nums">
-                    {formatNaira(allocTotal)}
+                    {formatMoney(allocTotal, effectiveCurrency)}
                   </span>
                 </div>
 

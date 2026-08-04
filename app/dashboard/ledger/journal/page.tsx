@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { BookOpen } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
-import { formatNaira } from "@/lib/currency";
+import { formatMoney } from "@/lib/currency";
 import { EmptyState } from "@/components/patterns/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,7 +11,7 @@ type Posting = {
   id: string;
   amount: number | string;
   memo: string | null;
-  ledger_accounts: { code: string; name: string } | null;
+  ledger_accounts: { code: string; name: string; currency: string } | null;
 };
 
 type Entry = {
@@ -47,7 +47,7 @@ export default async function JournalPage() {
   const { data } = await supabase
     .from("ledger_entries")
     .select(
-      "id, entry_date, description, reference, source, created_at, ledger_postings(id, amount, memo, ledger_accounts(code, name))"
+      "id, entry_date, description, reference, source, created_at, ledger_postings(id, amount, memo, ledger_accounts(code, name, currency))"
     )
     .order("entry_date", { ascending: false })
     .order("created_at", { ascending: false })
@@ -73,6 +73,11 @@ export default async function JournalPage() {
         const debits = e.ledger_postings
           .filter((p) => Number(p.amount) > 0)
           .reduce((s, p) => s + Number(p.amount), 0);
+        // Every posting in one entry shares a currency — record_collection and
+        // every other money-path function only ever touch one currency's
+        // accounts per entry (0103) — so the first posting's account speaks
+        // for the whole entry.
+        const currency = e.ledger_postings[0]?.ledger_accounts?.currency ?? "NGN";
 
         return (
           <Card key={e.id}>
@@ -89,7 +94,7 @@ export default async function JournalPage() {
                   <Badge variant={SOURCE_VARIANT[e.source] ?? "muted"}>
                     {e.source.replace(/_/g, " ")}
                   </Badge>
-                  <span className="font-semibold tabular-nums">{formatNaira(debits)}</span>
+                  <span className="font-semibold tabular-nums">{formatMoney(debits, currency)}</span>
                 </div>
               </div>
             </CardHeader>
@@ -116,7 +121,7 @@ export default async function JournalPage() {
                         <span className="text-xs uppercase tracking-wide text-muted-foreground">
                           {isDebit ? "Dr" : "Cr"}
                         </span>
-                        <span className="tabular-nums">{formatNaira(Math.abs(amt))}</span>
+                        <span className="tabular-nums">{formatMoney(Math.abs(amt), currency)}</span>
                       </span>
                     </li>
                   );

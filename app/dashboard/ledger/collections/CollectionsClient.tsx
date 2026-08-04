@@ -7,9 +7,11 @@ import {
   CreditCard, Link2, ExternalLink, RefreshCw, FileText, TriangleAlert,
   CheckCircle2, Clock, Receipt, FlaskConical,
 } from "lucide-react";
-import { formatNaira } from "@/lib/currency";
+import { formatMoney } from "@/lib/currency";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input, Select } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { EmptyState } from "@/components/patterns/empty-state";
 import { StatCard } from "@/components/patterns/stat-card";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -63,25 +65,46 @@ const fmtDate = (d: string | null) =>
     : "—";
 
 export default function CollectionsClient({
-  intents, billable, returnedRef, returnedIntentId, mode,
+  intents, billable, returnedRef, returnedIntentId, mode, fxMode, fxCurrencies,
 }: {
   intents: IntentRow[];
   billable: BillableRow[];
   returnedRef: string | null;
   returnedIntentId: string | null;
   mode: "live" | "test" | "simulated";
+  /** Flutterwave's mode — one for every non-NGN currency, B3's single FX adapter. */
+  fxMode: "live" | "test" | "simulated";
+  /** Currencies this org actually has a client-funds account for (0103). */
+  fxCurrencies: string[];
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState<string | null>(null);
   const checkedRef = React.useRef(false);
+  const [fxForm, setFxForm] = React.useState({ amount: "", currency: fxCurrencies[0] ?? "", email: "" });
 
-  const collected = intents
-    .filter((i) => i.ledger_entry_id)
-    .reduce((s, i) => s + Number(i.amount_paid ?? 0), 0);
-  const awaiting = intents
-    .filter((i) => ["pending", "part_paid"].includes(i.status))
-    .reduce((s, i) => s + (Number(i.amount_expected) - Number(i.amount_paid ?? 0)), 0);
-  const flagged = intents.filter((i) => i.amount_mismatch).length;
+  // ⚠️ Grouped by currency, not summed across all of them. `intents` can now
+  // legitimately mix NGN and FX rows (0103) — summing a ₦ figure and a $ figure
+  // together and printing it with a single "₦" prefix would misstate both. Same
+  // reasoning as the ledger's `client_funds_position` view: a total is only
+  // meaningful within one currency.
+  type Stat = { collected: number; awaiting: number; flagged: number };
+  const byCurrency = new Map<string, Stat>();
+  for (const i of intents) {
+    const cur = i.currency || "NGN";
+    const s = byCurrency.get(cur) ?? { collected: 0, awaiting: 0, flagged: 0 };
+    if (i.ledger_entry_id) s.collected += Number(i.amount_paid ?? 0);
+    if (["pending", "part_paid"].includes(i.status)) {
+      s.awaiting += Number(i.amount_expected) - Number(i.amount_paid ?? 0);
+    }
+    if (i.amount_mismatch) s.flagged += 1;
+    byCurrency.set(cur, s);
+  }
+  // NGN always shown, even at zero — it's the default currency and its absence
+  // would read as "nothing collected" rather than "nothing collected yet".
+  if (!byCurrency.has("NGN")) byCurrency.set("NGN", { collected: 0, awaiting: 0, flagged: 0 });
+  const statRows = Array.from(byCurrency.entries()).sort(([a], [b]) =>
+    a === "NGN" ? -1 : b === "NGN" ? 1 : a.localeCompare(b)
+  );
 
   const check = React.useCallback(
     async (id: string, quiet = false) => {
@@ -151,6 +174,45 @@ export default function CollectionsClient({
     }
   }
 
+  async function raiseFx() {
+    const amount = Number(fxForm.amount.replace(/[,\s]/g, ""));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast.error("Enter a positive amount.");
+      return;
+    }
+    setBusy("fx");
+    try {
+      // purpose: "other" — an ad-hoc international collection has no invoice
+      // behind it, so it lands in suspense pending a human deciding what it
+      // actually is (0032/0103), exactly like any other unattached receipt.
+      const r = await raisePaymentRequest({
+        purpose: "other", amount, currency: fxForm.currency, email: fxForm.email,
+      });
+
+      if (!r.ok) {
+        toast.error(r.message, { description: r.hint, duration: Infinity, closeButton: true });
+        return;
+      }
+
+      if (r.data.checkoutUrl) {
+        await navigator.clipboard.writeText(absolute(r.data.checkoutUrl)).catch(() => {});
+        toast.success("International payment request raised", {
+          description: `${r.data.reference} — checkout link copied to the clipboard.`,
+        });
+      } else {
+        toast.success("International payment request raised", { description: r.data.reference });
+      }
+      setFxForm((f) => ({ ...f, amount: "", email: "" }));
+      router.refresh();
+    } catch {
+      toast.error("Something went wrong", {
+        description: "The request could not be raised. Please try again.",
+      });
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const returned = returnedRef ? intents.find((i) => i.gateway_reference === returnedRef) : null;
 
   return (
@@ -166,7 +228,7 @@ export default function CollectionsClient({
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium">
                 {returned.ledger_entry_id
-                  ? `${formatNaira(returned.amount_paid)} received and posted to the ledger.`
+                  ? `${formatMoney(returned.amount_paid, returned.currency)} received and posted to the ledger.`
                   : "Returned from the gateway — confirming the payment."}
               </p>
               <p className="text-xs text-muted-foreground">Reference {returned.gateway_reference}</p>
@@ -182,11 +244,19 @@ export default function CollectionsClient({
         </Card>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <StatCard label="Collected (last 60 requests)" value={formatNaira(collected)} icon={<CheckCircle2 />} />
-        <StatCard label="Still awaiting payment" value={formatNaira(awaiting)} icon={<Clock />} />
-        <StatCard label="Amount mismatches" value={String(flagged)} icon={<TriangleAlert />} />
-      </div>
+      {statRows.map(([currency, s]) => (
+        <div key={currency} className="grid gap-4 sm:grid-cols-3">
+          <StatCard
+            label={currency === "NGN" ? "Collected (last 60 requests)" : `Collected — ${currency}`}
+            value={formatMoney(s.collected, currency)} icon={<CheckCircle2 />}
+          />
+          <StatCard
+            label="Still awaiting payment"
+            value={formatMoney(s.awaiting, currency)} icon={<Clock />}
+          />
+          <StatCard label="Amount mismatches" value={String(s.flagged)} icon={<TriangleAlert />} />
+        </div>
+      ))}
 
       {/* Which gateway mode is in force. Nothing else on screen distinguishes a
           test key from a live one, and the difference is whether real cards are
@@ -227,6 +297,91 @@ export default function CollectionsClient({
         </div>
       )}
 
+      {/* Flutterwave's own mode — shown only once an admin has actually enabled
+          a foreign currency (Settings → Banking). An org that never touches FX
+          sees nothing extra here; the badge would otherwise be noise about a
+          capability nobody asked for. */}
+      {fxCurrencies.length > 0 && fxMode === "simulated" && (
+        <div className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/8 px-4 py-3 text-sm">
+          <FlaskConical className="mt-0.5 size-4 flex-shrink-0 text-warning" />
+          <p className="text-muted-foreground">
+            <span className="font-medium text-foreground">Simulated FX gateway.</span>{" "}
+            No Flutterwave key is configured yet, so international checkout runs
+            in-app — the intent, webhook, verification and ledger posting are
+            all real, only the card is not.
+          </p>
+        </div>
+      )}
+      {fxCurrencies.length > 0 && fxMode === "test" && (
+        <div className="flex items-start gap-2 rounded-lg border border-info/40 bg-info/8 px-4 py-3 text-sm">
+          <FlaskConical className="mt-0.5 size-4 flex-shrink-0 text-info" />
+          <p className="text-muted-foreground">
+            <span className="font-medium text-foreground">Flutterwave test mode.</span>{" "}
+            International checkout is the real Flutterwave page, but no card is
+            charged.
+          </p>
+        </div>
+      )}
+      {fxCurrencies.length > 0 && fxMode === "live" && (
+        <div className="flex items-start gap-2 rounded-lg border border-destructive/50 bg-destructive/8 px-4 py-3 text-sm">
+          <TriangleAlert className="mt-0.5 size-4 flex-shrink-0 text-destructive" />
+          <p className="text-muted-foreground">
+            <span className="font-semibold text-destructive">Live Flutterwave keys — real money.</span>{" "}
+            Any international payment raised here charges a real card.
+          </p>
+        </div>
+      )}
+
+      {fxCurrencies.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Request an international payment</CardTitle>
+            <CardDescription>
+              For a tenant, vendor or client paying in a currency other than
+              Naira — kept in its own, separately-segregated {fxForm.currency || "—"}{" "}
+              client-funds account, never mixed with the Naira figures above.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap items-end gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="fx-amount">Amount</Label>
+              <Input
+                id="fx-amount" inputMode="decimal" placeholder="0.00" className="w-36"
+                value={fxForm.amount}
+                onChange={(e) => setFxForm((f) => ({ ...f, amount: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="fx-currency">Currency</Label>
+              <Select
+                id="fx-currency" className="w-28"
+                value={fxForm.currency}
+                onChange={(e) => setFxForm((f) => ({ ...f, currency: e.target.value }))}
+              >
+                {fxCurrencies.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </Select>
+            </div>
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <Label htmlFor="fx-email">Payer&apos;s email</Label>
+              <Input
+                id="fx-email" type="email" placeholder="payer@example.com"
+                value={fxForm.email}
+                onChange={(e) => setFxForm((f) => ({ ...f, email: e.target.value }))}
+              />
+            </div>
+            <Button
+              disabled={busy === "fx" || !fxForm.amount || !fxForm.currency || !fxForm.email}
+              onClick={raiseFx}
+            >
+              <CreditCard className="size-4" />
+              {busy === "fx" ? "Raising…" : "Request"}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Request a payment</CardTitle>
@@ -264,7 +419,7 @@ export default function CollectionsClient({
                       </TableCell>
                       <TableCell className="text-muted-foreground">{c.billing_period ?? "—"}</TableCell>
                       <TableCell className="text-muted-foreground">{fmtDate(c.due_date)}</TableCell>
-                      <TableCell className="text-right tabular-nums">{formatNaira(c.amount)}</TableCell>
+                      <TableCell className="text-right tabular-nums">{formatMoney(c.amount, "NGN")}</TableCell>
                       <TableCell className="text-right">
                         <Button size="sm" disabled={busy === c.id} onClick={() => raise(c.id)}>
                           <CreditCard className="size-4" />
@@ -323,10 +478,10 @@ export default function CollectionsClient({
                         <TableCell className="font-mono text-xs">{i.gateway_reference}</TableCell>
                         <TableCell className="text-muted-foreground">{fmtDate(i.created_at)}</TableCell>
                         <TableCell className="text-right tabular-nums">
-                          {formatNaira(i.amount_expected)}
+                          {formatMoney(i.amount_expected, i.currency)}
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
-                          {i.amount_paid == null ? "—" : formatNaira(i.amount_paid)}
+                          {i.amount_paid == null ? "—" : formatMoney(i.amount_paid, i.currency)}
                           {i.amount_mismatch && (
                             <TriangleAlert className="ml-1 inline size-3.5 text-warning" />
                           )}

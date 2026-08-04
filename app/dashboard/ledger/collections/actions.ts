@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getGateway, gatewayConfigured, newPaymentReference } from "@/lib/gateway";
 import { unusableForCheckout } from "@/lib/email-address";
+import { SUPPORTED_CURRENCIES } from "@/lib/currency";
 import { ok, fail, failFromDb, type ActionResult } from "@/lib/action-result";
 
 // Raising a request for payment. Staff-only by RLS; this layer additionally
@@ -53,6 +54,26 @@ export async function raisePaymentRequest(input: RaiseInput): Promise<RaiseResul
   }
 
   const currency = (input.currency ?? "NGN").toUpperCase();
+  if (!(SUPPORTED_CURRENCIES as readonly string[]).includes(currency)) {
+    return fail(`${currency} is not a supported currency.`);
+  }
+
+  // Refused HERE, before a checkout link is ever raised with the gateway — not
+  // discovered as a posting failure once someone has already paid. A currency
+  // with no client-funds account configured has nowhere for the money to be
+  // credited to; `record_collection` (0103) would refuse it too, but by then a
+  // real payer may have already been charged with no way to complete.
+  if (currency !== "NGN") {
+    const { data: fundsAccount } = await supabase.rpc("collection_bank_account", {
+      p_org_id: me.org_id, p_currency: currency,
+    });
+    if (!fundsAccount) {
+      return fail(
+        `No ${currency} client-funds account is configured for this organisation.`,
+        `An administrator needs to add one under Settings → Client Funds & Banking before you can collect in ${currency}.`
+      );
+    }
+  }
 
   // The amount comes from the invoice we issued, never from the caller, so a
   // tampered request cannot change what is charged.

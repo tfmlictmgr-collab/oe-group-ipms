@@ -3,7 +3,7 @@ import Link from "next/link";
 import { Landmark, TriangleAlert, CheckCircle2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
-import { formatNaira } from "@/lib/currency";
+import { formatMoney } from "@/lib/currency";
 import { EmptyState } from "@/components/patterns/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,19 +22,30 @@ const fmtDate = (d: string) =>
     year: "numeric",
   });
 
-export default async function ReconciliationPage() {
+export default async function ReconciliationPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ account?: string }>;
+}) {
   const session = await getSessionProfile();
   if (!session) redirect("/login");
+  const { account: requestedAccountId } = await searchParams;
 
   const supabase = await createClient();
-  const { data: bank } = await supabase
+  // ⚠️ Every active client-funds account, not `.maybeSingle()`. An org can now
+  // hold several — one per currency (0103) — and reconciliation is inherently
+  // PER ACCOUNT: a bank statement is denominated in one currency, and matching
+  // a USD statement line against an NGN ledger balance would be meaningless.
+  // `.maybeSingle()` here would have THROWN the moment a second account
+  // existed, not silently picked one — this was found live, not hypothesised.
+  const { data: banks } = await supabase
     .from("bank_accounts")
-    .select("id, label, ledger_account_id")
+    .select("id, label, currency, ledger_account_id")
     .eq("purpose", "client_funds")
     .eq("active", true)
-    .maybeSingle();
+    .order("currency", { ascending: true }); // NGN sorts first
 
-  if (!bank) {
+  if (!banks?.length) {
     return (
       <EmptyState
         icon={<Landmark />}
@@ -48,6 +59,11 @@ export default async function ReconciliationPage() {
       />
     );
   }
+
+  // Default to NGN (or whichever sorts first) so the common single-currency
+  // org sees exactly the page it always saw — the picker below only appears
+  // once there is genuinely something to pick between.
+  const bank = banks.find((b) => b.id === requestedAccountId) ?? banks[0];
 
   const [refs, runsRes, unmatchedRes] = await Promise.all([
     existingStatementRefs(bank.id),
@@ -73,7 +89,31 @@ export default async function ReconciliationPage() {
 
   return (
     <div className="space-y-4">
-      <ReconcileClient bankAccountId={bank.id} bankLabel={bank.label} existingRefs={refs.ok ? refs.data : []} />
+      {banks.length > 1 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium text-muted-foreground">Account:</span>
+          {banks.map((b) => (
+            <Link
+              key={b.id}
+              href={`/dashboard/ledger/reconciliation?account=${b.id}`}
+              className={
+                b.id === bank.id
+                  ? "rounded-full bg-[var(--brand)] px-3 py-1 text-xs font-medium text-[var(--brand-fg)]"
+                  : "rounded-full border border-input px-3 py-1 text-xs text-muted-foreground hover:bg-accent"
+              }
+            >
+              {b.currency} · {b.label}
+            </Link>
+          ))}
+        </div>
+      )}
+
+      <ReconcileClient
+        bankAccountId={bank.id}
+        bankLabel={bank.label}
+        currency={bank.currency}
+        existingRefs={refs.ok ? refs.data : []}
+      />
 
       {unmatched.length > 0 && (
         <Card>
@@ -101,7 +141,7 @@ export default async function ReconciliationPage() {
                     <TableCell className="max-w-[20rem] truncate">{l.description ?? "—"}</TableCell>
                     <TableCell className="text-muted-foreground">{l.reference ?? "—"}</TableCell>
                     <TableCell className="text-right font-medium tabular-nums">
-                      {formatNaira(l.amount)}
+                      {formatMoney(l.amount, bank.currency)}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -141,13 +181,13 @@ export default async function ReconciliationPage() {
                   <TableRow key={r.id}>
                     <TableCell className="whitespace-nowrap">{fmtDate(r.as_of_date)}</TableCell>
                     <TableCell className="text-right tabular-nums">
-                      {formatNaira(r.ledger_balance)}
+                      {formatMoney(r.ledger_balance, bank.currency)}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
-                      {formatNaira(r.statement_balance)}
+                      {formatMoney(r.statement_balance, bank.currency)}
                     </TableCell>
                     <TableCell className="text-right font-medium tabular-nums">
-                      {formatNaira(r.variance)}
+                      {formatMoney(r.variance, bank.currency)}
                     </TableCell>
                     <TableCell className="text-right tabular-nums text-muted-foreground">
                       {r.unmatched_lines}

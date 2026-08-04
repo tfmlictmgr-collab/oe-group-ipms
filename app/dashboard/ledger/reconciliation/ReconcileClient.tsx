@@ -7,7 +7,7 @@ import {
   Upload, FileSpreadsheet, Play, Wand2, CheckCircle2, TriangleAlert, AlertCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { formatNaira } from "@/lib/currency";
+import { formatMoney } from "@/lib/currency";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,10 +24,12 @@ import { commitStatementImport, autoMatch, runReconciliation, type Reconciliatio
 export default function ReconcileClient({
   bankAccountId,
   bankLabel,
+  currency,
   existingRefs,
 }: {
   bankAccountId: string;
   bankLabel: string;
+  currency: string;
   existingRefs: string[];
 }) {
   const router = useRouter();
@@ -141,7 +143,7 @@ export default function ReconcileClient({
                         <TableCell className="whitespace-nowrap">{r.raw.date || "—"}</TableCell>
                         <TableCell className="max-w-[18rem] truncate">{r.raw.description || "—"}</TableCell>
                         <TableCell className="text-right tabular-nums">
-                          {r.values ? formatNaira(r.values.amount) : "—"}
+                          {r.values ? formatMoney(r.values.amount, currency) : "—"}
                         </TableCell>
                         <TableCell>
                           {r.valid ? (
@@ -234,7 +236,7 @@ export default function ReconcileClient({
                     toast.success("Reconciled — no variance");
                   } else {
                     toast.error("Variance found", {
-                      description: `${formatNaira(r.variance)} unexplained.`,
+                      description: `${formatMoney(r.variance, currency)} unexplained.`,
                     });
                   }
                 })
@@ -257,17 +259,17 @@ export default function ReconcileClient({
                 {result.status === "balanced" ? (
                   <><CheckCircle2 className="size-4 text-success" /> Balanced — {bankLabel} agrees with the ledger</>
                 ) : (
-                  <><TriangleAlert className="size-4 text-destructive" /> Variance of {formatNaira(result.variance)}</>
+                  <><TriangleAlert className="size-4 text-destructive" /> Variance of {formatMoney(result.variance, currency)}</>
                 )}
               </p>
               <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
                 <div>
                   <dt className="text-xs uppercase tracking-wide text-muted-foreground">Ledger says</dt>
-                  <dd className="tabular-nums">{formatNaira(result.ledger_balance)}</dd>
+                  <dd className="tabular-nums">{formatMoney(result.ledger_balance, currency)}</dd>
                 </div>
                 <div>
                   <dt className="text-xs uppercase tracking-wide text-muted-foreground">Bank says</dt>
-                  <dd className="tabular-nums">{formatNaira(result.statement_balance)}</dd>
+                  <dd className="tabular-nums">{formatMoney(result.statement_balance, currency)}</dd>
                 </div>
                 <div>
                   <dt className="text-xs uppercase tracking-wide text-muted-foreground">Matched</dt>

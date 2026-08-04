@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { gatewayConfigured, isProduction } from "@/lib/gateway";
-import { formatNaira } from "@/lib/currency";
+import { formatMoney } from "@/lib/currency";
 import SimulatedCheckout from "./SimulatedCheckout";
 
 // The simulated gateway's checkout page. It exists so the whole path — intent →
@@ -52,19 +52,20 @@ export default async function SimulatedCheckoutPage({
         <div className="my-6 rounded-xl bg-muted/50 p-5">
           <p className="text-xs uppercase tracking-wide text-muted-foreground">Amount due</p>
           <p className="mt-1 text-3xl font-semibold tabular-nums">
-            {formatNaira(intent.amount_expected)}
+            {formatMoney(intent.amount_expected, intent.currency)}
           </p>
           <p className="mt-2 font-mono text-xs text-muted-foreground">{reference}</p>
         </div>
 
         {settled ? (
           <p className="rounded-lg bg-success/10 px-4 py-3 text-sm text-success">
-            This payment has already been received — {formatNaira(intent.amount_paid)}.
+            This payment has already been received — {formatMoney(intent.amount_paid, intent.currency)}.
           </p>
         ) : (
           <SimulatedCheckout
             reference={reference}
             amount={Number(intent.amount_expected)}
+            currency={intent.currency}
           />
         )}
 

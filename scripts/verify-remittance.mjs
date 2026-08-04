@@ -346,8 +346,10 @@ console.log("\nJ. An unknown outcome stays unknown");
 
 console.log("\nK. Segregation still holds");
 {
+  // Scoped to NGN — client_funds_position is one row per currency an org has
+  // enabled (0103), and remittance is NGN-only (Flutterwave is collections-only).
   const { data: pos } = await svc.from("client_funds_position")
-    .select("funds_held, funds_owed").eq("org_id", orgId).single();
+    .select("funds_held, funds_owed").eq("org_id", orgId).eq("currency", "NGN").single();
   Number(pos.funds_held) >= 0
     ? ok(`held ₦${Number(pos.funds_held).toLocaleString()}, owed ₦${Number(pos.funds_owed).toLocaleString()}`)
     : bad("client funds went negative");

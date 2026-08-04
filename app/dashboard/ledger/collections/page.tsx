@@ -15,7 +15,7 @@ export default async function CollectionsPage({
 
   const supabase = await createClient();
 
-  const [{ data: intents }, { data: charges }] = await Promise.all([
+  const [{ data: intents }, { data: charges }, { data: fxAccounts }] = await Promise.all([
     supabase
       .from("payment_intents")
       .select(
@@ -31,6 +31,16 @@ export default async function CollectionsPage({
       .is("deleted_at", null)
       .order("due_date", { ascending: true, nullsFirst: false })
       .limit(50),
+    // Which non-Naira currencies this org can actually collect in — an admin
+    // has to add a client-funds account for one first (Settings → Banking,
+    // 0103). Feeds the ad-hoc international-payment picker so staff are never
+    // offered a currency that would only fail once raised.
+    supabase
+      .from("bank_accounts")
+      .select("currency")
+      .eq("purpose", "client_funds")
+      .eq("active", true)
+      .neq("currency", "NGN"),
   ]);
 
   const rows = (intents ?? []) as unknown as IntentRow[];
@@ -44,6 +54,11 @@ export default async function CollectionsPage({
   );
   const billable = ((charges ?? []) as unknown as BillableRow[]).filter((c) => !live.has(c.id));
 
+  // Every non-NGN gateway request resolves to the same Flutterwave key (B3: one
+  // FX/international adapter for every foreign currency), so one representative
+  // mode covers all of them — there is no per-currency Flutterwave account.
+  const fxCurrencies = Array.from(new Set((fxAccounts ?? []).map((a) => a.currency)));
+
   return (
     <CollectionsClient
       intents={rows}
@@ -51,6 +66,8 @@ export default async function CollectionsPage({
       returnedRef={ref ?? null}
       returnedIntentId={requested?.id ?? null}
       mode={gatewayMode("NGN")}
+      fxMode={gatewayMode("USD")}
+      fxCurrencies={fxCurrencies}
     />
   );
 }

@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { formatNaira } from "@/lib/currency";
+import { formatMoney } from "@/lib/currency";
 import { simulatePayment } from "./actions";
 import { runAction, describeError } from "@/lib/run-action";
 
@@ -13,10 +13,11 @@ import { runAction, describeError } from "@/lib/run-action";
 // being able to demonstrate, because it is the one that must NOT quietly mark
 // an invoice paid.
 export default function SimulatedCheckout({
-  reference, amount,
+  reference, amount, currency,
 }: {
   reference: string;
   amount: number;
+  currency: string;
 }) {
   const [value, setValue] = React.useState(String(amount));
   const [busy, setBusy] = React.useState(false);
@@ -57,7 +58,7 @@ export default function SimulatedCheckout({
         />
         {short && (
           <p className="text-xs text-warning">
-            {formatNaira(amount - paid)} short — this will be recorded as a part
+            {formatMoney(amount - paid, currency)} short — this will be recorded as a part
             payment and flagged, not marked paid.
           </p>
         )}
@@ -66,7 +67,7 @@ export default function SimulatedCheckout({
         className="w-full" disabled={busy || !Number.isFinite(paid) || paid <= 0}
         onClick={pay}
       >
-        {busy ? "Processing…" : `Pay ${formatNaira(paid || 0)}`}
+        {busy ? "Processing…" : `Pay ${formatMoney(paid || 0, currency)}`}
       </Button>
     </div>
   );

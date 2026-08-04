@@ -186,8 +186,12 @@ console.log("\nH. The money is held against the right liability");
 
 console.log("\nI. Segregation still holds after collecting");
 {
+  // Scoped to NGN — client_funds_position is one row per currency an org has
+  // enabled (0103), and this suite's fixtures are all Naira.
   const { data: pos } = await svc
-    .from("client_funds_position").select("funds_held, funds_owed, unallocated").eq("org_id", orgId).single();
+    .from("client_funds_position")
+    .select("funds_held, funds_owed, unallocated")
+    .eq("org_id", orgId).eq("currency", "NGN").single();
   // Every naira collected was credited to a liability, so collections alone can
   // never create a shortfall.
   Number(pos.unallocated) <= 0 || Number(pos.funds_held) >= 0

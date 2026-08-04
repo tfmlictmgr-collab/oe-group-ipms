@@ -36,6 +36,28 @@ const oea = orgs.find((o) => o.slug === "oea");
 const S = Date.now().toString(36).toUpperCase().slice(-5);
 const made = { properties: [], units: [], leases: [], intents: [], entries: [] };
 
+// ⚠️ Sweep stray PROBEMONEY-SC rows from any earlier run that died before
+// reaching its own cleanup block — same lesson as `scripts/lib/probe-cleanup.mjs`
+// for hierarchy nodes and properties, and `verify-fx-collections`'s equivalent
+// sweep. Found live: 16 orphaned "Collection — service charge" ledger entries
+// (postings already gone, intents already gone, only the entry left) had
+// accumulated over several days in `oea`'s journal — each run's OWN cleanup is
+// correctly ordered, so every one of those runs must have thrown somewhere
+// AFTER section E created and tracked the row but BEFORE reaching the cleanup
+// at the bottom. End-of-run cleanup cannot fix the run that needed it most.
+{
+  const { data: strayEntries } = await svc
+    .from("ledger_entries").select("id").ilike("reference", "PROBEMONEY-SC%");
+  if (strayEntries?.length) {
+    await svc.from("ledger_postings").delete().in("entry_id", strayEntries.map((e) => e.id));
+    const { data: strayIntents } = await svc
+      .from("payment_intents").select("id").ilike("gateway_reference", "PROBEMONEY-SC%");
+    if (strayIntents?.length) await svc.from("payment_intents").delete().in("id", strayIntents.map((i) => i.id));
+    await svc.from("ledger_entries").delete().in("id", strayEntries.map((e) => e.id));
+    console.log(`  (swept ${strayEntries.length} orphaned ledger entr${strayEntries.length === 1 ? "y" : "ies"} from earlier run(s))`);
+  }
+}
+
 // ── Fixtures ──────────────────────────────────────────────────────────────
 const prop = (await svc.from("properties")
   .insert({ org_id: oea.id, name: `PROBEMONEY-Property-${S}` }).select("id").single()).data;

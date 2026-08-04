@@ -2590,3 +2590,105 @@ sibling always did, and two checks disagreeing is how one of them later gets
 relaxed); and the two cron routes compare their bearer token with a constant-time
 `secretMatches()` instead of `===` — the pattern `lib/webhook-security.ts` was
 written to avoid, reintroduced two files from its own reasoning.
+
+---
+
+## Flutterwave, made real — and what "made real" actually required
+
+⚠️ **The gap was never the missing API key.** `FlutterwaveAdapter` has existed
+since B3's payment gateway build, complete and correct — but the double-entry
+ledger underneath it was **currency-blind**. `ledger_accounts` had no currency
+column; exactly one active `client_funds` bank account was permitted per org,
+full stop; `canonical_ledger_account()`/`collection_bank_account()` resolved
+"the" account for a purpose with `limit 1` and no notion of currency; and
+`client_funds_position` — its own comment calls it "the single most important
+number in the system" — summed `funds_held`/`funds_owed` across the whole org
+with no currency grouping. A USD collection posted through that code as it
+stood would either be structurally impossible (no second client-funds account
+could exist) or, worse, land in the Naira accounts and silently misstate the
+one figure this entire ledger exists to keep honest. "Wire up Flutterwave"
+without fixing this first was building a button that corrupts the books the
+first time someone clicks it in anger.
+
+📌 What did **not** need to change is worth naming, because it's what made the
+fix tractable: `assert_funds_available()` — the trigger enforcing "cannot go
+negative" / "cannot overpay a counterparty" — already checks balance **per
+account row**, not per purpose aggregated across accounts. A USD `client_funds`
+row and an NGN `client_funds` row were already two independent balances as far
+as that invariant is concerned. Only the *resolvers* (which account is "the"
+one for a purpose) and the *display aggregates* (which sum across accounts)
+needed to learn about currency — `0103_flutterwave_multicurrency_collections.sql`.
+
+Every existing call site keeps working unchanged: both resolvers gained a
+`p_currency` parameter defaulting to `'NGN'`, so a caller that has never heard
+of multi-currency — every remittance, rent, service-charge and fee-income
+lookup in the codebase — gets exactly the Naira account it always got.
+
+⚠️ **Two migration mechanics worth remembering.** `create or replace function
+foo(a, b default X)` does **not** replace an existing `foo(a)` — Postgres
+identifies a function by name *and parameter types*, so `(uuid)` and
+`(uuid, text)` coexist as separate overloads, and a 1-argument caller becomes
+**ambiguous** ("Could not choose the best candidate function between..."),
+confirmed live the moment the migration first ran. The old signatures had to be
+dropped explicitly first. And `create or replace view` refuses to change an
+existing output column's position or name — a new column must be appended at
+the end of the select list, never inserted where it would naturally read.
+
+⚠️ **A script that writes must read the row it is about to write, encore.**
+`verify-lettings-grants` — from the previous session, unrelated to this work —
+had already taught this lesson once (it overwrote OEA's org row with an
+arbitrary one). This session found a second, independent instance of the
+adjacent mistake: my own `verify-fx-collections` suite's cleanup deleted
+`ledger_entries` **before** `payment_intents`, and `payment_intents.ledger_entry_id`
+has no cascade delete rule — so the delete was silently refused (the error was
+never checked) and an orphaned entry, "Collection — other (GBP) · ₦0.00" with
+no postings under it, surfaced in the live Journal UI. Same root cause as the
+probe-node/probe-property/probe-vendor leaks this build has hit before:
+**cleanup order must follow the foreign keys, and a delete's error must be
+checked** — a silent no-op is indistinguishable from success until someone
+reads the screen it left dirty.
+
+📌 **The browser-testing detour, recorded because it wasted real time.** Debugging
+"the currency-add button does nothing" turned out to be nothing — the Browser
+pane's `screenshot`/`read_page` calls were serving stale cached output for
+several minutes (confirmed when `location.href` read live via `javascript_exec`
+showed the login had actually succeeded and navigated to `/dashboard`, while
+`screenshot` kept showing the login form). Restarting the dev server cleared it.
+Lesson for next time: when a UI interaction seems to silently do nothing, check
+`location.href` via `javascript_exec` before concluding the interaction failed —
+it reads live DOM state, where `screenshot`/`read_page` in this session did not.
+
+⚠️ **The regression the full suite run caught.** `client_funds_position` moved
+from one row per org to one row per (org, currency) — correct and necessary,
+but `verify-ledger`, `verify-collections` and `verify-remittance` all queried it
+with `.single()`/`.maybeSingle()` and no currency filter, because until this
+session no org had ever held more than one. The instant a real USD account
+existed (added live, through the browser, to prove the feature), all three
+suites started throwing "multiple (or no) rows returned". Fixed by scoping each
+to `.eq("currency", "NGN")` — they test the Naira ledger specifically, so they
+now ask for Naira specifically, same fix already applied to the three app pages
+that had the identical assumption (Ledger Balances, Reconciliation, and the
+simulated-checkout/receipt currency symbol).
+
+Two further formatting bugs were caught only because the feature was actually
+exercised end-to-end in the browser, not just verified at the database layer:
+the simulated checkout page (`/pay/[reference]`) and the reconciliation screen
+both hardcoded `formatNaira()` regardless of the underlying intent's or bank
+account's own currency — a USD payment showed "₦1,250.50" on the page a real
+payer would see. `lib/currency.ts` gained `formatMoney(amount, currency)`
+(₦/$/£/€, falling back to the ISO code for anything else — never guessing a
+symbol for a currency this build doesn't actually issue checkout links in).
+
+New: `scripts/verify-fx-collections.mjs` (21 checks) — enabling a currency
+provisions exactly `client_funds`+`suspense`, idempotently; a second account in
+the same currency is refused while a different currency is not; the resolvers
+never cross currencies; `record_collection` posts a foreign receipt into only
+that currency's accounts while the NGN segregation position is provably
+untouched; `client_funds_position` reports per currency; an opening-balance
+allocation cannot cross currencies; and `gatewayMode()` reads a Flutterwave
+key's own prefix correctly.
+
+**Still open, deliberately:** no Flutterwave account/key exists yet — that is
+the one remaining external dependency, tracked in `GO_LIVE_CHECKLIST.md`. Once
+a key is set, the feature is live with no further code change — an admin adds
+the foreign-currency account under Settings → Banking, exactly as demonstrated.
