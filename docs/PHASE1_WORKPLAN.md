@@ -834,6 +834,13 @@ checklist**, and a visibly **polished mobile UI**.
 # TRACK E — Harden & launch (Day 12)
 
 ## Day 12 — Security, compliance, UAT, training, go-live
+
+> **`docs/GO_LIVE_CHECKLIST.md` is the executable version of this section** —
+> what needs doing by the board vs by Claude, environment variables, the
+> role-based user-guide plan, and rollback. Started 2026-08-04, not yet
+> executed. This section stays the narrative; that doc is the checklist to work
+> through on the day.
+
 **Claude prompt:**
 > "Run the production security pass: dependency + secret scan, OWASP ZAP against the
 > Phase-1 URL, k6 load test to target, and confirm rate limits. Produce the NDPA

@@ -1,73 +1,96 @@
 # Project Handoff / Current State
 
 > **Read this first** when picking the project up on a new machine or in a new
-> session. It is the fast catch-up; CLAUDE.md is the master brief; the rest of
-> `docs/` and the git log are the detail.
+> session. It is the fast catch-up; `CLAUDE.md` is the master brief;
+> `PHASE1_WORKPLAN.md` is the authoritative day-by-day status;
+> `GO_LIVE_CHECKLIST.md` is the cutover plan; the rest of `docs/` and the git
+> log are the detail.
+>
+> **Last verified current:** 2026-08-04. If this is stale when you're reading
+> it, `PHASE1_WORKPLAN.md`'s status board and the last few `BUILD_JOURNAL.md`
+> entries are more likely to be right than this file — update this section
+> when you notice the drift rather than trusting it blindly.
 
 ## What this is
 OE Group's AI-powered Integrated FM/Property Management System (IWMS) — a
 WhatsApp-first, cloud-native platform unifying TFML (facilities) and OEA
-(property) on one backend with strict per-brand data isolation.
+(property) on one backend with strict per-brand data isolation, now extended
+into full Phase 1 (lettings, ledger, remittance, analytics, permissions).
 
-## Where everything lives (all cloud — nothing critical on any laptop)
-- **Code:** GitHub `tfmlictmgr-collab/oe-group-ipms` (branch `main`)
-- **Database:** Supabase (cloud Postgres) — URL `egqzjrmzxqqxrrqpdwbt.supabase.co`
-- **Hosting:** Vercel — live at `https://oe-group-ipms.vercel.app`
-- **Secrets:** `.env.local` only (git-ignored) — the one file to carry between
-  machines. Contains Supabase keys, Anthropic key, WhatsApp token + phone id,
-  Telegram token, DEMO_ORG_ID.
+## Two worlds — do not confuse them
 
-## Current state (POC complete)
-All six AURA modules built, verified, and deployed:
-1. Resident/Tenant Portal · 2. Vendor Management · 3. Service Charge Admin ·
-4. Gated Vendor Payments (simulated) · 5. Immutable Audit · 6. Role-scoped BI.
-Plus: dual-brand instantiated & isolated, dispatch/assignment, B8 notification
-cascade, classifier accuracy (category 100%), property-scoped RBAC for FM/owner,
-one-command demo seed (`npm run seed`), QA script, and a board demo narrative.
+| | Frozen POC demo | **Phase 1 (current work)** |
+|---|---|---|
+| Branch | `main`, tag `poc-demo-v1` | `phase-1` |
+| Database | separate POC Supabase project | `oe-group-dev` Supabase project |
+| Deployment | `oe-group-ipms.vercel.app` | `oe-group-ipms-dev.vercel.app`, plus `tfmlportal.com` / `oeaportal.com` (org-specific fronts, live) |
+| Logins | the original 9 flat `@oegroup.test` demo accounts | per-org logins, e.g. `oe-group-foundation-poc.admin@oegroup.test`, `oea.admin@oegroup.test`, `tfml.facilitymanager@oegroup.test` — password still `OEGroupDemo2026!` for all of them; see `scripts/seed-org-logins.mjs` for the full roster |
+| WhatsApp | native Meta Cloud API, single shared number | **360dialog**, per-org routing — two live numbers (TFML `+234 703 689 1329`, OEA `+234 708 471 4148`); see `WHATSAPP_360DIALOG_MIGRATION.md` |
+| Purpose | sales/demo artifact — do not touch | everything currently being built |
 
-The 21-day POC workflow is complete through demo prep. Against the 6-week board
-milestone plan, Weeks 0–5 deliverables are done (see `RECONCILED_ROADMAP.md`).
+Neither `npm run seed` nor a migration run should ever be pointed at the POC
+demo's database from a Phase-1 machine. `PHASE1_SETUP.md` has the full
+environment-split rationale and setup steps.
 
-## Where to sign in (updated 31 July 2026)
-- **`/login`** — the OE Group front door. Names no organisation and lists none.
-- **`/o/<slug>`** — an organisation's own branded sign-in (`/o/tfml`, `/o/oea`).
-  Hand this to that org's people; it reveals nothing about any other org.
-- **`/orgs`** — the operator launcher: every organisation as a card. Visible
-  **only** to a member of the platform-operator org. A brand administrator who
-  opens it is told, plainly, that it is not for them.
+**A real production environment does not exist yet.** It is a third, still
+unprovisioned world — see `GO_LIVE_CHECKLIST.md`.
 
-## The 9 demo logins (all password `OEGroupDemo2026!`)
-`demo@` admin · `finance@` Oke Anderson · `fm@` Abdul Owo · `ops@` Emeka Ade ·
-`owner@` Bola Adeyemi · `vendor@` Sparkle · `resident@` Tamuno Gab ·
-`tfml@` (navy brand) · `oea@` (red brand). All `@oegroup.test`.
+## Where to sign in (Phase 1)
+- **`/login`** — the OE Group operator front door on the base Vercel domain.
+- **`/o/<slug>`** — an organisation's own branded sign-in (also reachable via
+  its custom domain: `tfmlportal.com`, `oeaportal.com`). Hand this to that
+  org's people; it reveals nothing about any other org.
+- **`/orgs`** — the operator launcher: every organisation as a card, visible
+  only to a member of the platform-operator org (`oe-group`).
 
-## WhatsApp status
-Live on the real number **+234 708 471 4148** (Phone Number ID
-`1213024785231544`); inbound→AI→ticket→reply round-trip confirmed. Business
-Verification is optional/in-progress (only unlocks the org display name + higher
-limits) — see `BUSINESS_VERIFICATION.md`. Does not block anything.
+## Roles (9, current)
+`admin` · `executive` · `regional_manager` · `facility_manager` (branded
+"Properties Manager" on OEA) · `finance_approver` · `property_owner` ·
+`fm_ops_staff` · `vendor` · `tenant` · plus `viewer` (read-only external
+oversight). Full capability matrix: `CLAUDE.md` B7, editable per-org (except
+locked/non-delegable capabilities) at Settings → Permissions.
 
 ## Key documents (index)
-- `CLAUDE.md` — master build brief (auto-loaded)
-- `RECONCILED_ROADMAP.md` — merged board+daily plan, status, tracked Phase-1 gaps
-- `OE_Group_Phase1_Production_Roadmap.docx` — the 14-day Phase 1 build plan
-- `DEV_SETUP.md` — set up on a new machine + work across two machines
-- `WEEK2_CHECKPOINT.md` — access-matrix pass + module state
-- `QA_SCRIPT.md` — end-to-end demo runbook
-- `DEMO_NARRATIVE.md` — spoken board-demo script + screenshot shot-list
-- `BUSINESS_VERIFICATION.md` — Meta verification checklist
+- `CLAUDE.md` — master build brief (auto-loaded every session)
+- `PHASE1_WORKPLAN.md` — the day-by-day plan and status; **the source of truth
+  for "what's built"**
+- `GO_LIVE_CHECKLIST.md` — production cutover: who does what, env vars,
+  role-based user guide plan, rollback
+- `BUILD_JOURNAL.md` — append-only record of what was built, why, and what
+  went wrong along the way (read the tail for recent context)
+- `BUILD_AUDIT_0804.md` (and earlier `BUILD_AUDIT_*`) — dated security/
+  correctness audit snapshots with a PC1-response table
+- `PHASE1_SETUP.md` — the three-world environment split, one-time setup on a
+  new machine
+- `WHATSAPP_360DIALOG_MIGRATION.md` — why/how WhatsApp auth changed; read
+  before touching `lib/notify.ts`, `lib/webhook-security.ts`, the WhatsApp
+  webhook route, or the registration script
+- `CUSTOM_DOMAINS.md` — how `tfmlportal.com`/`oeaportal.com` are wired
+- `OEA_TENANT_ONBOARDING.md` — tenant application/KYC design
 - `PHASE1_VENDOR_EVALUATION.md` — KPI/SLA dual-source vendor scoring spec
+- `RECONCILED_ROADMAP.md`, `QA_SCRIPT.md`, `DEMO_NARRATIVE.md`,
+  `DEPLOYMENT.md`, `BUSINESS_VERIFICATION.md`, `WEEK2_CHECKPOINT.md` — POC-era,
+  dated snapshots describing the frozen demo. Useful history; not current
+  state.
 
-## Next up: Phase 1 (start safely — do NOT touch the live POC)
-Plan: build Phase 1 in parallel on a `phase-1` branch against a **separate**
-Supabase dev project, so `main` + the live demo stay untouched.
-1. New machine: clone, `npm install`, copy `.env.local` (see `DEV_SETUP.md`).
-2. Create a new Supabase project `oe-group-dev` (separate from the POC DB).
-3. `git checkout -b phase-1`; point `.env.local` at the dev DB; `npm run migrate` + `npm run seed`.
-4. Build Phase 1 per the roadmap docx; deploy to a Vercel **preview**, not prod.
-5. Merge `phase-1` → `main` only when tested.
+## Running it
+- `npm run dev` — local dev server
+- `npm run migrate` — apply pending Supabase migrations (`.env.local` must
+  point at `oe-group-dev`, never the POC project)
+- `npm run seed` — synthetic demo data (same caveat)
+- `npm run verify` — the full suite (`npm run verify -- <filter>` to run a
+  subset); see `scripts/verify-all.mjs` for the runner's own notes on why it
+  uses `node --import tsx` rather than the `tsx` shim
 
-## ⚠️ Gotcha to remember
-Local dev and production currently **share one Supabase DB**, so `npm run seed`
-(which truncates) affects live data. Phase 1 Day 1 splits environments and
-removes this risk. Until then, run `seed` only when you intend to reset the demo.
+## ⚠️ Gotchas to remember
+- `.env.local` is the one file to carry between machines (git-ignored) — see
+  `DEV_SETUP.md`.
+- A script that resolves an org by `delivery_brand` rather than `slug` is
+  reading a non-unique key — this has caused a real incident (a live WhatsApp
+  API key attached to a leftover probe org). Use `scripts/lib/org-lookup.mjs`
+  for any new script that needs to resolve an org by brand.
+- A script that writes to a row it looked up with an unfiltered `.select("*")`
+  or `.limit(1)` can end up writing an arbitrary org's data onto the wrong org
+  — happened once (audit 0804), caught by `audit_log.before_state` and by
+  `verify-email-routing` failing loudly on the next run. Read the row you are
+  about to write.

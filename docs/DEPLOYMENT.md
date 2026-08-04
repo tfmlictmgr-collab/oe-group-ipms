@@ -1,5 +1,11 @@
 # Deployment Stability (Day 16)
 
+> **This is a dated POC-phase snapshot** (reviewed 2026-07-22, before the
+> Phase-1 environment split, custom domains, or 360dialog migration). It
+> describes the frozen `poc-demo-v1` demo, not the current `phase-1` dev world.
+> For current deployment facts see `HANDOFF.md`; for the production cutover
+> checklist see `GO_LIVE_CHECKLIST.md`.
+
 **Reviewed:** 2026-07-22 · **Pathway A** (already live on Vercel since Day 1).
 **Gate:** nothing about demo day depends on a laptop's network connection.
 
