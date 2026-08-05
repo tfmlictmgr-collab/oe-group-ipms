@@ -37,11 +37,34 @@ export async function POST(request: NextRequest) {
     return new NextResponse("Forbidden", { status: 403 });
   }
 
-  let payload: { message?: Record<string, unknown>; callback_query?: Record<string, unknown> };
+  let payload: {
+    update_id?: number;
+    message?: Record<string, unknown>;
+    callback_query?: Record<string, unknown>;
+  };
   try {
     payload = await request.json();
   } catch {
     return new NextResponse("Bad Request", { status: 400 });
+  }
+
+  // ⚠️ Idempotency. Telegram's webhook delivery is at-least-once and retries
+  // on any non-200/slow response, exactly like WhatsApp/360dialog — see the
+  // matching comment in the WhatsApp route for what happens without this
+  // (the same reply sent repeatedly for a single inbound message). `update_id`
+  // covers a tapped button the same way it covers a message, from one bot, so
+  // this sits before the branch between the two.
+  if (payload.update_id != null) {
+    const { error: dupErr } = await supabaseAdmin.from("chat_webhook_events").insert({
+      channel: "telegram", event_id: String(payload.update_id), org_id: route.orgId,
+    });
+    if (dupErr) {
+      if (dupErr.message.includes("duplicate key")) {
+        console.log("Duplicate Telegram delivery, already handled:", payload.update_id);
+        return new NextResponse("OK", { status: 200 });
+      }
+      console.error("Could not record chat webhook event:", dupErr.message);
+    }
   }
 
   // ── A tapped button ──────────────────────────────────────────────────────

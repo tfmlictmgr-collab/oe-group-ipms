@@ -32,7 +32,15 @@ const bad = (m) => { failures++; console.log(`  \x1b[31mFAIL\x1b[0m ${m}`); };
 const { data: orgs } = await svc.from("orgs").select("id, name, delivery_brand").is("deleted_at", null);
 const brandOf = (id) => orgs?.find((o) => o.id === id)?.delivery_brand ?? "??";
 
-function waPayload(phoneNumberId, sender, text) {
+// A unique id per call. 0105 added dedup on (channel, event_id) — a fixed
+// "wamid.test"/update_id reused across every call in this suite would be
+// rejected as a redelivery from the second call on, which is the dedup
+// working correctly, not a routing failure. Each call needs its own id, the
+// same way `stamp` already gives each sender its own number.
+let msgCounter = 0;
+const nextMsgId = () => `wamid.test-${stamp}-${++msgCounter}`;
+
+function waPayload(phoneNumberId, sender, text, msgId = nextMsgId()) {
   return {
     object: "whatsapp_business_account",
     entry: [{
@@ -41,7 +49,7 @@ function waPayload(phoneNumberId, sender, text) {
           messaging_product: "whatsapp",
           metadata: { display_phone_number: "0000", phone_number_id: phoneNumberId },
           contacts: [{ profile: { name: "Routing Test" }, wa_id: sender }],
-          messages: [{ from: sender, id: "wamid.test", type: "text", text: { body: text } }],
+          messages: [{ from: sender, id: msgId, type: "text", text: { body: text } }],
         },
       }],
     }],
@@ -145,7 +153,9 @@ console.log("\nD. WhatsApp forged signature is rejected (403), unaffected by rou
 console.log("\nE. Telegram: valid secret token routes; bad token is rejected");
 {
   const chatId = `9${stamp}`.slice(0, 9);
-  const raw = JSON.stringify({ update_id: 1, message: { message_id: 1, chat: { id: Number(chatId) }, from: { first_name: "TgTest" }, text: "Water leak in the lobby" } });
+  // update_id must be unique too, for the same dedup reason as the WhatsApp
+  // message id above — 0105.
+  const raw = JSON.stringify({ update_id: stamp, message: { message_id: stamp, chat: { id: Number(chatId) }, from: { first_name: "TgTest" }, text: "Water leak in the lobby" } });
   const good = await fetch(`${TARGET}/api/webhooks/telegram`, {
     method: "POST",
     headers: { "content-type": "application/json", "x-telegram-bot-api-secret-token": TG_SECRET },
@@ -158,7 +168,7 @@ console.log("\nE. Telegram: valid secret token routes; bad token is rejected");
   const badRes = await fetch(`${TARGET}/api/webhooks/telegram`, {
     method: "POST",
     headers: { "content-type": "application/json", "x-telegram-bot-api-secret-token": "wrong-token-xyz" },
-    body: JSON.stringify({ update_id: 2, message: { message_id: 2, chat: { id: 111 }, text: "forged" } }),
+    body: JSON.stringify({ update_id: stamp + 1, message: { message_id: stamp + 1, chat: { id: 111 }, text: "forged" } }),
   });
   if (badRes.status === 403) ok("wrong token → 403");
   else bad(`wrong token → ${badRes.status}`);

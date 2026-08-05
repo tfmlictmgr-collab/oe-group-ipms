@@ -5,6 +5,7 @@ import { whatsappSenderForOrg, whatsappSenderForNumber } from "@/lib/notify";
 import { verifyWhatsAppInbound } from "@/lib/webhook-security";
 import { checkRateLimit, clientIp, INTAKE_LIMITS } from "@/lib/rate-limit";
 import { resolveOrgForChannel, type ChannelRoute } from "@/lib/channel-routing";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
 // Meta's webhook verification handshake (run once when you register the
 // Callback URL in the Meta App Dashboard).
@@ -86,7 +87,7 @@ export async function POST(request: NextRequest) {
     ?.entry?.[0]?.changes?.[0]?.value as
     | {
         metadata?: { phone_number_id?: string };
-        messages?: { from: string; text?: { body?: string } }[];
+        messages?: { id?: string; from: string; text?: { body?: string } }[];
         contacts?: { profile?: { name?: string } }[];
       }
     | undefined;
@@ -116,6 +117,27 @@ export async function POST(request: NextRequest) {
   const senderWaId = message.from;
   const messageText = message.text?.body ?? "";
   const senderName = value.contacts?.[0]?.profile?.name ?? null;
+
+  // ⚠️ Idempotency. WhatsApp/360dialog redeliver a webhook on any slow or
+  // non-2xx response, on a backoff that can span hours — normal provider
+  // behaviour, exactly like a payment gateway's retry (see gateway_events,
+  // 0032). Without this, a redelivery of the SAME message was reprocessed as
+  // if new and re-sent whatever reply we already sent: observed live, one
+  // "Hi" produced the identical pleasantry reply six times over a day. The
+  // unique index on (channel, event_id) does the actual work; a conflict just
+  // means we have already answered this exact message.
+  if (message.id) {
+    const { error: dupErr } = await supabaseAdmin.from("chat_webhook_events").insert({
+      channel: "whatsapp", event_id: message.id, org_id: route.orgId, sender_ref: senderWaId,
+    });
+    if (dupErr) {
+      if (dupErr.message.includes("duplicate key")) {
+        console.log("Duplicate WhatsApp delivery, already handled:", message.id);
+        return new NextResponse("OK", { status: 200 });
+      }
+      console.error("Could not record chat webhook event:", dupErr.message);
+    }
+  }
 
   console.log("Incoming WhatsApp message:", {
     senderWaId,

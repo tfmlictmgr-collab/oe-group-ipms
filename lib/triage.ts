@@ -62,8 +62,15 @@ function parseClassification(rawText: string): Classification {
 export async function classifyMessage(
   messageText: string
 ): Promise<Classification> {
-  const systemPrompt = loadSystemPrompt();
+  // ⚠️ Loading the prompt is now INSIDE the try, not before it. It used to sit
+  // above this block, so a failure here (missing file, bad fence, whatever the
+  // cause) threw uncaught straight out of classifyMessage — past the very
+  // try/catch built to survive "classification is unavailable" — and crashed
+  // ticket creation entirely rather than falling back to a human-reviewed
+  // ticket. A prompt that cannot load is exactly the same failure mode as a
+  // model that cannot be reached: intake must survive it either way.
   try {
+    const systemPrompt = loadSystemPrompt();
     const response = await anthropic.messages.create({
       model: "claude-sonnet-4-6",
       max_tokens: 300,
