@@ -199,7 +199,12 @@ export default async function PaymentDetailPage({
           {canAct && (
             <>
               <Separator />
-              <PaymentActions paymentId={p.id} status={p.status} />
+              <PaymentActions
+                paymentId={p.id}
+                status={p.status}
+                amount={Number(p.amount)}
+                vendorName={vendor?.name ?? "this vendor"}
+              />
             </>
           )}
 

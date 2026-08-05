@@ -1,9 +1,20 @@
 "use client";
 
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { ShieldCheck, Gauge, BadgeCheck, Send, Ban, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogFooter,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
+import { formatNaira } from "@/lib/currency";
 import { runAction, messageOf, hintOf } from "@/lib/run-action";
 import {
   verifyService,
@@ -21,14 +32,25 @@ const LABELS: Record<Action, string> = {
   remit: "Transfer sent",
 };
 
+// Only these two move (or authorise moving) real money — B4's gate. Verify
+// and the performance check are evidence-gathering steps with nothing to
+// undo if clicked in error; approve and remit are the ones a stray tap must
+// not be able to fire on its own.
+const CONFIRMED_ACTIONS = new Set<Action>(["approve", "remit"]);
+
 export default function PaymentActions({
   paymentId,
   status,
+  amount,
+  vendorName,
 }: {
   paymentId: string;
   status: string;
+  amount: number;
+  vendorName: string;
 }) {
   const [pending, startTransition] = useTransition();
+  const [confirming, setConfirming] = useState<Action | null>(null);
 
   function run(action: Action) {
     startTransition(async () => {
@@ -92,10 +114,61 @@ export default function PaymentActions({
   const step = config[status];
   if (!step) return null;
 
-  return (
-    <Button variant="brand" disabled={pending} onClick={() => run(step.action)}>
+  const CONFIRM_COPY: Record<"approve" | "remit", { title: string; description: string; action: string }> = {
+    approve: {
+      title: "Approve this payment?",
+      description: `You are approving ${formatNaira(amount)} to ${vendorName}. This clears the last gate before the transfer can be sent — it does not itself move money, but it is the decision that authorises it.`,
+      action: "Approve payment",
+    },
+    remit: {
+      title: "Send this payment?",
+      description: `This sends ${formatNaira(amount)} to ${vendorName} now. Once sent it cannot be recalled from here — a mistaken transfer has to be chased with the bank, not undone in the app.`,
+      action: "Send payment",
+    },
+  };
+
+  const button = (
+    <Button
+      variant="brand"
+      disabled={pending}
+      onClick={
+        CONFIRMED_ACTIONS.has(step.action)
+          ? () => setConfirming(step.action)
+          : () => run(step.action)
+      }
+    >
       {step.icon}
       {pending ? "Working…" : step.label}
     </Button>
+  );
+
+  if (!CONFIRMED_ACTIONS.has(step.action)) return button;
+
+  const copy = CONFIRM_COPY[step.action as "approve" | "remit"];
+
+  return (
+    <>
+      {button}
+      <AlertDialog open={confirming === step.action} onOpenChange={(open) => !open && setConfirming(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{copy.title}</AlertDialogTitle>
+            <AlertDialogDescription>{copy.description}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant={step.action === "remit" ? "destructive" : "brand"}
+              onClick={() => {
+                setConfirming(null);
+                run(step.action);
+              }}
+            >
+              {copy.action}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
