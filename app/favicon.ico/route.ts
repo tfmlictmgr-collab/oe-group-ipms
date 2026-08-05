@@ -5,8 +5,11 @@ import { orgForCurrentHost } from "@/lib/org-host";
 //
 // Next.js will not let a static `app/favicon.ico` and a route at that same
 // path coexist — they are the same filesystem name — so this route now owns
-// the URL entirely. The default icon that used to live there is unchanged in
-// substance, just relocated to `public/favicon-default.ico`.
+// the URL entirely. The default icon this falls back to lives at
+// `public/favicon-default.png` — a PNG, not an .ico; the redirect target's
+// extension doesn't need to match the requested URL, only its Content-Type
+// (which static serving from `public/` sets correctly), so there's no
+// converter to run for a plain image swap.
 //
 // Why this needs to be dynamic at all: a bound custom domain (`tfmlportal.com`,
 // `oeaportal.com`) is a brand's own front door, and browsers request
@@ -25,6 +28,6 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   const org = await orgForCurrentHost();
-  const target = org?.logo_url ?? new URL("/favicon-default.ico", request.url).toString();
+  const target = org?.logo_url ?? new URL("/favicon-default.png", request.url).toString();
   return NextResponse.redirect(target, { status: 307 });
 }
