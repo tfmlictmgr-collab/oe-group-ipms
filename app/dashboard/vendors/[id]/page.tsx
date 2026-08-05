@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ArrowLeft, Mail, Phone } from "lucide-react";
+import { ArrowLeft, Mail, Phone, Clock } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
 import PayoutRecipientForm from "./PayoutRecipientForm";
@@ -23,21 +23,27 @@ import {
   TableHead,
   TableCell,
 } from "@/components/ui/table";
-import EvaluationForm from "./EvaluationForm";
 
-type Evaluation = {
-  id: string;
-  period: string | null;
+// A row from either source, normalised to one shape for display:
+//   - legacy: a pre-Day-11 free-typed period entry (`vendor_evaluations`,
+//     ticket_id is null) — kept exactly as submitted, never rewritten.
+//   - job: a ticket-driven, checklist/SLA-derived evaluation
+//     (`vendor_evaluation_tickets`) — composite is null while awaiting the
+//     other source, never estimated.
+type Row = {
+  key: string;
+  when: string;
+  label: string;
   quality_score: number | string | null;
   response_score: number | string | null;
   completion_score: number | string | null;
   satisfaction_score: number | string | null;
   compliance_score: number | string | null;
   composite_score: number | string | null;
-  created_at: string;
+  pending: string | null;
 };
 
-const SCORE_COLUMN: Record<string, keyof Evaluation> = {
+const SCORE_COLUMN: Record<string, keyof Row> = {
   quality: "quality_score",
   response: "response_score",
   completion: "completion_score",
@@ -82,21 +88,85 @@ export default async function VendorDetailPage({
         .maybeSingle()
     : { data: null };
 
-  const { data: evalData } = await supabase
-    .from("vendor_evaluations")
-    .select(
-      "id, period, quality_score, response_score, completion_score, satisfaction_score, compliance_score, composite_score, created_at"
-    )
-    .eq("vendor_id", id)
-    .order("period", { ascending: false });
+  const [legacyRes, jobRes] = await Promise.all([
+    supabase
+      .from("vendor_evaluations")
+      .select(
+        "id, period, quality_score, response_score, completion_score, satisfaction_score, compliance_score, composite_score, created_at"
+      )
+      .eq("vendor_id", id)
+      .is("ticket_id", null)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("vendor_evaluation_tickets")
+      .select(
+        "ticket_id, quality_score, response_score, completion_score, satisfaction_score, compliance_score, composite_score, fm_pm_submitted_at, tenant_submitted_at, awaiting_tenant, awaiting_fm_pm"
+      )
+      .eq("vendor_id", id)
+      .order("fm_pm_submitted_at", { ascending: false, nullsFirst: false }),
+  ]);
 
-  const evaluations = (evalData as Evaluation[]) ?? [];
+  const evaluations: Row[] = [
+    ...((legacyRes.data ?? []) as {
+      id: string; period: string | null; created_at: string;
+      quality_score: number | string | null; response_score: number | string | null;
+      completion_score: number | string | null; satisfaction_score: number | string | null;
+      compliance_score: number | string | null; composite_score: number | string | null;
+    }[]).map((e) => ({
+      key: e.id,
+      when: e.period ?? new Date(e.created_at).toLocaleDateString("en-GB", { timeZone: "Africa/Lagos" }),
+      label: "Period entry",
+      quality_score: e.quality_score, response_score: e.response_score,
+      completion_score: e.completion_score, satisfaction_score: e.satisfaction_score,
+      compliance_score: e.compliance_score, composite_score: e.composite_score,
+      pending: null,
+    })),
+    ...((jobRes.data ?? []) as {
+      ticket_id: string; quality_score: number | string | null; response_score: number | string | null;
+      completion_score: number | string | null; satisfaction_score: number | string | null;
+      compliance_score: number | string | null; composite_score: number | string | null;
+      fm_pm_submitted_at: string | null; tenant_submitted_at: string | null;
+      awaiting_tenant: boolean; awaiting_fm_pm: boolean;
+    }[]).map((e) => ({
+      key: e.ticket_id,
+      when: new Date(e.fm_pm_submitted_at ?? e.tenant_submitted_at ?? "").toLocaleDateString(
+        "en-GB", { timeZone: "Africa/Lagos" }
+      ),
+      label: e.ticket_id.slice(0, 8).toUpperCase(),
+      quality_score: e.quality_score, response_score: e.response_score,
+      completion_score: e.completion_score, satisfaction_score: e.satisfaction_score,
+      compliance_score: e.compliance_score, composite_score: e.composite_score,
+      pending: e.awaiting_tenant ? "Awaiting tenant" : e.awaiting_fm_pm ? "Awaiting FM/PM" : null,
+    })),
+  ];
+
   const avg = averageComposite(evaluations);
   const band = avg != null ? scoreBand(avg) : null;
 
   const canEvaluate =
     session.profile?.role === "admin" ||
     session.profile?.role === "facility_manager";
+
+  // Completed jobs for this vendor with no fm_pm evaluation yet — the
+  // free-typed "submit a new evaluation" form is gone; a checklist can only be
+  // answered against a REAL completed job, so this points straight at it
+  // instead of asking for a period nobody's evaluation was ever really "for".
+  const { data: pendingTickets } = canEvaluate
+    ? await supabase
+        .from("tickets")
+        .select("id, summary, message_text, resolved_at")
+        .eq("assigned_vendor_id", id)
+        .in("status", ["resolved", "closed"])
+        .order("resolved_at", { ascending: false })
+        .limit(20)
+    : { data: null };
+
+  // A ticket can already appear in the view because the TENANT submitted
+  // first — that is not the same as "our team already evaluated it".
+  const fmAlreadySubmitted = new Set(
+    (jobRes.data ?? []).filter((r) => r.fm_pm_submitted_at != null).map((r) => r.ticket_id)
+  );
+  const awaitingFmEvaluation = (pendingTickets ?? []).filter((t) => !fmAlreadySubmitted.has(t.id));
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
@@ -169,14 +239,14 @@ export default async function VendorDetailPage({
             <div className="px-5 pb-5">
               <EmptyState
                 title="No evaluations yet"
-                description="Scores appear here once a facility manager submits an evaluation."
+                description="A vendor is scored automatically as jobs complete — Response and Completion from the job's own timestamps, Quality and Compliance from your team's checklist, Satisfaction from the tenant's review."
               />
             </div>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Period</TableHead>
+                  <TableHead>Job</TableHead>
                   {WEIGHT_LABELS.map((w) => (
                     <TableHead key={w.key} className="text-right">
                       {w.label.split(" ")[0]}
@@ -187,20 +257,29 @@ export default async function VendorDetailPage({
               </TableHeader>
               <TableBody>
                 {evaluations.map((e) => (
-                  <TableRow key={e.id}>
-                    <TableCell className="font-medium">{e.period ?? "—"}</TableCell>
+                  <TableRow key={e.key}>
+                    <TableCell className="font-medium">
+                      {e.label}
+                      <span className="block text-xs font-normal text-muted-foreground">{e.when}</span>
+                    </TableCell>
                     {WEIGHT_LABELS.map((w) => (
                       <TableCell
                         key={w.key}
                         className="text-right tabular-nums text-muted-foreground"
                       >
-                        {String(e[SCORE_COLUMN[w.key]] ?? "—")}
+                        {e[SCORE_COLUMN[w.key]] != null ? Number(e[SCORE_COLUMN[w.key]]).toFixed(0) : "—"}
                       </TableCell>
                     ))}
                     <TableCell className="text-right font-semibold tabular-nums">
-                      {e.composite_score != null
-                        ? Number(e.composite_score).toFixed(1)
-                        : "—"}
+                      {e.composite_score != null ? (
+                        Number(e.composite_score).toFixed(1)
+                      ) : e.pending ? (
+                        <span className="flex items-center justify-end gap-1 text-xs font-normal text-muted-foreground">
+                          <Clock className="size-3" /> {e.pending}
+                        </span>
+                      ) : (
+                        "—"
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -230,13 +309,30 @@ export default async function VendorDetailPage({
         </Card>
       )}
 
-      {canEvaluate && (
+      {canEvaluate && awaitingFmEvaluation.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Submit new evaluation</CardTitle>
+            <CardTitle className="text-base">Jobs awaiting your evaluation</CardTitle>
+            <CardDescription>
+              Response and completion time are already measured automatically —
+              open a job to answer the quality and compliance checklist.
+            </CardDescription>
           </CardHeader>
-          <CardContent>
-            <EvaluationForm vendorId={vendor.id} orgId={session.profile!.org_id} />
+          <CardContent className="space-y-2">
+            {awaitingFmEvaluation.map((t) => (
+              <Link
+                key={t.id}
+                href={`/dashboard/tickets/${t.id}`}
+                className="flex items-center justify-between rounded-md border border-border px-3 py-2.5 text-sm hover:bg-accent"
+              >
+                <span className="min-w-0 truncate">{t.summary ?? t.message_text}</span>
+                <span className="flex-shrink-0 text-xs text-muted-foreground">
+                  {t.resolved_at
+                    ? new Date(t.resolved_at).toLocaleDateString("en-GB", { timeZone: "Africa/Lagos" })
+                    : ""}
+                </span>
+              </Link>
+            ))}
           </CardContent>
         </Card>
       )}

@@ -101,10 +101,14 @@ export default async function MyWorkPage() {
       .from("tickets")
       .select("id", { count: "exact", head: true })
       .not("status", "in", `(${OPEN_STATES.join(",")})`),
+    // The combined view, not the raw table: a row here is only "complete" once
+    // both the FM/PM checklist and the tenant's satisfaction review exist — see
+    // 0104. Legacy pre-Day-11 period entries (ticket_id is null) are excluded
+    // from this view by construction, not lost — they simply predate it.
     supabase
-      .from("vendor_evaluations")
-      .select("id, period, quality_score, response_score, completion_score, satisfaction_score, compliance_score, composite_score, created_at")
-      .order("created_at", { ascending: false }),
+      .from("vendor_evaluation_tickets")
+      .select("ticket_id, quality_score, response_score, completion_score, satisfaction_score, compliance_score, composite_score, fm_pm_submitted_at, tenant_submitted_at, awaiting_tenant, awaiting_fm_pm")
+      .order("fm_pm_submitted_at", { ascending: false, nullsFirst: false }),
     supabase
       .from("payments")
       .select("id, invoice_reference, amount, status, created_at, approved_at, remittance_reference")
@@ -129,15 +133,20 @@ export default async function MyWorkPage() {
   const listTruncated = jobs.length >= 100;
 
   type Evaluation = {
-    id: string; period: string | null; composite_score: number | string | null;
-    created_at: string;
+    ticket_id: string; composite_score: number | string | null;
+    fm_pm_submitted_at: string | null; tenant_submitted_at: string | null;
     quality_score: number | string | null; response_score: number | string | null;
     completion_score: number | string | null; satisfaction_score: number | string | null;
     compliance_score: number | string | null;
+    awaiting_tenant: boolean; awaiting_fm_pm: boolean;
   };
   const evaluations = (evalsRes.data ?? []) as Evaluation[];
-  const average = averageComposite(evaluations);
-  const latest = evaluations[0] ?? null;
+  // Only genuinely complete pairs feed the average — a lone FM/PM checklist
+  // with no tenant review yet is not "half a score", it is not a score.
+  const complete = evaluations.filter((e) => e.composite_score != null);
+  const average = averageComposite(complete);
+  const latest = complete[0] ?? null;
+  const awaitingCount = evaluations.length - complete.length;
 
   type Payment = {
     id: string; invoice_reference: string | null; amount: number | string;
@@ -175,8 +184,11 @@ export default async function MyWorkPage() {
           value={average === null ? "—" : average.toFixed(1)}
           icon={<Star />}
           hint={average === null
-            ? "no evaluation recorded yet"
-            : `${scoreBand(average).label} · ${evaluations.length} evaluation${evaluations.length === 1 ? "" : "s"}`}
+            ? awaitingCount > 0
+              ? `${awaitingCount} awaiting the other side's review`
+              : "no evaluation recorded yet"
+            : `${scoreBand(average).label} · ${complete.length} job${complete.length === 1 ? "" : "s"}`
+              + (awaitingCount > 0 ? ` · ${awaitingCount} pending` : "")}
         />
         <StatCard label="Awaiting payment" value={formatNaira(awaiting)} icon={<Banknote />}
                   hint="submitted, not yet remitted" />
@@ -263,7 +275,9 @@ export default async function MyWorkPage() {
                   {scoreBand(Number(latest.composite_score ?? 0)).label}
                 </Badge>
                 <span className="text-sm text-muted-foreground">
-                  most recent{latest.period ? ` · ${latest.period}` : ""}
+                  most recent{latest.fm_pm_submitted_at
+                    ? ` · ${new Date(latest.fm_pm_submitted_at).toLocaleDateString("en-GB", { timeZone: "Africa/Lagos" })}`
+                    : ""}
                 </span>
               </div>
 
@@ -300,10 +314,16 @@ export default async function MyWorkPage() {
                 </Table>
               </div>
 
-              {evaluations.length > 1 && (
+              {complete.length > 1 && (
                 <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <Clock className="size-3.5" />
-                  Averaged across {evaluations.length} evaluations: {average?.toFixed(1)}.
+                  Averaged across {complete.length} completed job{complete.length === 1 ? "" : "s"}: {average?.toFixed(1)}.
+                </p>
+              )}
+              {awaitingCount > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  {awaitingCount} more job{awaitingCount === 1 ? " is" : "s are"} evaluated on
+                  one side only, waiting on the other — not counted above until both are in.
                 </p>
               )}
             </div>

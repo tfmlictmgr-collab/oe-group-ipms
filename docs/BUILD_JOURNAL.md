@@ -2692,3 +2692,113 @@ key's own prefix correctly.
 the one remaining external dependency, tracked in `GO_LIVE_CHECKLIST.md`. Once
 a key is set, the feature is live with no further code change — an admin adds
 the foreign-currency account under Settings → Banking, exactly as demonstrated.
+
+## Day 11 — a vendor's score comes from a checklist and a clock
+
+The old vendor evaluation was a free-typed form: five numbers 0–100, typed by
+whoever remembered to fill it in, no evidence behind any of them. B2's own
+weighting table (Quality 30 · Response 20 · Completion 20 · Satisfaction 20 ·
+Compliance 10) was decorative — nothing in the schema enforced it, and nothing
+stopped a Quality score of 100 with no ticket, no vendor, and no work behind
+it. That is the gap Day 11 closes.
+
+**Two dimensions are never asked for a human answer.** Response Time and
+Completion Time are computed straight from the ticket's own timestamps against
+an admin-set SLA target (`evaluation_criteria`, `measure = 'sla_timer'`) —
+`100 * (2 - actual_hours / target_hours)`, clamped to 0–100, so hitting the
+target scores 100, missing it by double scores 0, and nobody types a number
+for either. Quality and Compliance stay human judgement (the FM/PM answers a
+short checklist — met/partial/not-met, yes/no, or a rating — against
+admin-authored criteria), and Satisfaction is the tenant's own rating,
+collected separately.
+
+⚠️ **Dual-source, not one form filled in twice.** `vendor_evaluations` gained
+`ticket_id` and `source` (`'fm_pm' | 'tenant'`), unique on the pair — two
+immutable rows per job, written once each, never updated in place, matching
+the table's pre-existing no-UPDATE-policy design rather than fighting it. The
+composite score exists only once both rows do; a ticket with only the FM/PM
+half submitted shows `awaiting_tenant = true` and no score, never an estimate.
+`submit_vendor_evaluation(ticket_id, source, responses)` is the **only** write
+path — a direct insert is refused (`scripts/verify-vendor-evaluation.mjs`
+section F proves it) — and it re-checks standing itself (ticket is done, has a
+vendor, the caller is the sender for `tenant` or holds evaluation rights for
+`fm_pm`, nobody evaluates their own job) rather than trusting the UI to have
+asked correctly.
+
+📌 **Criteria are effective-dated, the same philosophy decision 14 already
+applies to money.** Editing a criterion's wording or weight doesn't rewrite
+past scores — it retires the old row (`superseded_by` points at the new one)
+and inserts a replacement. `submit_vendor_evaluation` resolves the criterion
+in force **at the ticket's `resolved_at`**, so a job scored last month keeps
+last month's rubric even if an admin reweights the checklist today. A fallback
+was needed for the org's very first evaluations ever: a ticket resolved before
+any criterion existed (or before the rubric was seeded at all) fell through
+the date filter and stayed permanently unscored — fixed by falling back to the
+**earliest** version on record when no version satisfies the date check.
+
+The rubric itself lives at Settings → Evaluation Rubric (admin-only, gated the
+same way the fee/notice settings are): grouped by dimension, weight badges,
+a misweighting warning if a dimension's points don't sum to 100, inline edit
+and retire, and a "set up the recommended rubric" one-click seed
+(`ensure_default_evaluation_criteria`) matching B2's weights exactly.
+
+The old free-typed "Submit new evaluation" card on the vendor page is gone.
+In its place: a tenant sees "Rate this job" on `/dashboard/my-requests` the
+moment their ticket resolves (`my_requests()` gained `awaiting_review`,
+resolved via a `tickets_prompt_review()` trigger that fires **after** the
+existing lifecycle trigger, in its own `AFTER UPDATE` trigger — so a
+notification fault can never block the status transition it's reacting to);
+an FM/PM sees "Evaluate the vendor" on the ticket's own page once it's
+resolved and unscored. The vendor's page merges legacy free-typed rows (kept,
+dated, clearly historical) with the new dual-source rows into one table, and
+now lists outstanding jobs — completed but not yet evaluated — instead of
+inviting a free-form re-score of something already scored.
+
+⚠️ **The one deliberate spec deviation.** `docs/PHASE1_VENDOR_EVALUATION.md`
+proposes a new `completed` ticket status as the trigger for "now evaluable."
+Built against the already-shipped and already-verified `resolved`/`closed`
+terminal states instead — a new status would have touched the analytics
+console, `my-work`, and `my-requests` simultaneously for no behavioural gain,
+the same reasoning Day 10 used to justify its own materialized-view deviation
+in `GO_LIVE_CHECKLIST.md`.
+
+⚠️ **A property-less test ticket exposed the triage-visibility boundary
+working exactly as designed, not a bug.** Browser-verifying the FM/PM half
+against a hand-inserted ticket with `property_id = null` returned a genuine
+404 for the facility-manager login — not a stale-cache artefact this time.
+`role_permissions` showed `tickets.triage_unassigned` correctly `granted =
+false` for `facility_manager` in this org: per the 29 Jul board decision
+(`0064`, section F of `verify-chat-request-visibility.mjs`), only
+admin/executive/regional_manager may see an unfiled request — a
+property-scoped FM's access starts at a property, and an unfiled ticket has
+none yet. The fix was the test fixture, not the product: giving the ticket a
+real `property_id` the FM was actually scoped to made it visible immediately.
+Worth naming as a real-world implication: a ticket a tenant raises through a
+channel that never resolves a property (or a portal request left unfiled)
+cannot reach an FM/PM's "Evaluate the vendor" prompt until someone with triage
+rights files it against a property first — evaluation inherits the same
+scoping the ticket itself already had.
+
+Verified live in the browser end to end, both roles, not just at the RPC
+layer: tenant submits a star rating + yes/no → live point preview → "Submitted.
+Thank you." FM/PM opens the same ticket → checklist → live preview (200/200
+on a perfect job) → "Submitted." → the vendor's scorecard immediately showed
+the composite (96.5, matching the AURA weights against the actual response
+values) in its evaluation history. Fixture ticket and its evaluation rows
+deleted afterward, in FK order, so no test artefact was left in the shared
+demo data.
+
+New: `scripts/verify-vendor-evaluation.mjs` (26 checks, sections A–J) — no
+free-typed scores are possible; composite appears only once both sources
+exist; no duplicate submission per source; a not-done or vendor-less ticket
+refuses; standing is enforced server-side (wrong tenant, vendor self-eval);
+the direct-insert path is gone; effective-dating leaves a past response
+untouched by a later criterion edit; the earliest-criterion fallback scores a
+ticket older than the rubric itself; and a tenant's `awaiting_review` flag
+works without any read access to `vendor_evaluations` directly.
+
+**Deferred out of Day 11, scope size:** work-order photo/video evidence
+uploads, and the full production UX pass (mobile drawer navigation, WCAG AA
+audit, loading skeletons, confirmation dialogs on money-moving actions) named
+alongside vendor evaluation in `PHASE1_WORKPLAN.md`'s Day 11 scope. Tracked
+there as still open.

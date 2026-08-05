@@ -829,6 +829,20 @@ checklist**, and a visibly **polished mobile UI**.
 
 **Done when:** no free-typed scores remain; UI passes mobile + accessibility checks.
 
+**Status (2026-08-04): the KPI/SLA evaluation half is complete and verified live in
+the browser as both roles** — full detail in `BUILD_JOURNAL.md`'s Day 11 entry.
+Response/Completion are auto-measured from ticket timestamps against an
+admin-set SLA target, never typed; Quality/Compliance come from an FM/PM
+checklist against an admin-editable, effective-dated rubric
+(Settings → Evaluation Rubric); Satisfaction is the tenant's own rating,
+prompted the moment their ticket resolves; the composite appears only once
+both sources exist, matching the AURA weights exactly. No free-typed score is
+possible anywhere in the write path (`scripts/verify-vendor-evaluation.mjs`,
+26 checks). **Still open from this day's original scope:** work-order
+photo/video evidence uploads, and the full production UX pass (mobile drawer
+nav, WCAG AA audit, loading skeletons, confirmation dialogs on money-moving
+actions) — deferred, not started, tracked here until picked up.
+
 ---
 
 # TRACK E — Harden & launch (Day 12)

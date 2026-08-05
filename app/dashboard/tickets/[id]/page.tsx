@@ -13,6 +13,7 @@ import { Separator } from "@/components/ui/separator";
 import TicketStatusControl from "./TicketStatusControl";
 import AssignControl from "./AssignControl";
 import AcknowledgeControl from "./AcknowledgeControl";
+import EvaluationChecklist, { type ChecklistCriterion } from "./EvaluationChecklist";
 import { shortRef } from "@/lib/acknowledgement";
 
 type AssignableTicket = Ticket & {
@@ -20,7 +21,10 @@ type AssignableTicket = Ticket & {
   assigned_to_user_id: string | null;
   assigned_at: string | null;
   acknowledged_at: string | null;
+  sender_id: string | null;
 };
+
+const DONE_STATES = ["resolved", "closed"];
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -50,7 +54,7 @@ export default async function TicketDetailPage({
   const { data: ticket } = await supabase
     .from("tickets")
     .select(
-      "id, channel, message_text, category, urgency, summary, property_or_unit, requires_human_review, status, created_at, assigned_vendor_id, assigned_to_user_id, assigned_at, acknowledged_at"
+      "id, channel, message_text, category, urgency, summary, property_or_unit, requires_human_review, status, created_at, assigned_vendor_id, assigned_to_user_id, assigned_at, acknowledged_at, sender_id"
     )
     .eq("id", id)
     .single();
@@ -92,6 +96,33 @@ export default async function TicketDetailPage({
     vendors.find((v) => v.id === t.assigned_vendor_id)?.label ??
     myVendors.find((v) => v.id === t.assigned_vendor_id)?.name ??
     null;
+
+  // ── Evaluation: only meaningful once the job is actually done, and only
+  // fetched for someone who could conceivably submit one — the same person
+  // this page would show a checklist to below. Everyone else pays no query for
+  // a section they will never see.
+  const isTenant = Boolean(t.sender_id) && t.sender_id === session.user.id;
+  const isDone = DONE_STATES.includes(t.status);
+  const canEvaluate = t.assigned_vendor_id != null && isDone && (isTenant || canManage);
+
+  const [criteriaRes, evalsRes] = canEvaluate
+    ? await Promise.all([
+        supabase
+          .from("evaluation_criteria")
+          .select("id, dimension, label, response_type, max_points")
+          .eq("active", true).eq("measure", "manual")
+          .in("dimension", isTenant ? ["satisfaction"] : ["quality", "compliance"])
+          .order("sort_order"),
+        supabase
+          .from("vendor_evaluations")
+          .select("source")
+          .eq("ticket_id", t.id),
+      ])
+    : [{ data: [] as ChecklistCriterion[] }, { data: [] as { source: string }[] }];
+
+  const alreadySubmitted = new Set((evalsRes.data ?? []).map((e) => e.source));
+  const tenantDone = alreadySubmitted.has("tenant");
+  const fmDone = alreadySubmitted.has("fm_pm");
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -184,6 +215,55 @@ export default async function TicketDetailPage({
             />
             <Separator />
             <TicketStatusControl ticketId={t.id} currentStatus={t.status} />
+          </CardContent>
+        </Card>
+      )}
+
+      {canEvaluate && isTenant && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Rate this job</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {tenantDone ? (
+              <p className="text-sm text-muted-foreground">
+                You already rated this job — thank you.
+              </p>
+            ) : (
+              <EvaluationChecklist
+                ticketId={t.id}
+                source="tenant"
+                criteria={(criteriaRes.data as ChecklistCriterion[]) ?? []}
+                title="Review"
+                description="Your honest answer helps keep the standard of vendors working on your property."
+              />
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {canEvaluate && !isTenant && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Evaluate the vendor</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {fmDone ? (
+              <p className="text-sm text-muted-foreground">
+                You already evaluated this job. Response and completion time
+                were scored automatically against the SLA target; the tenant&apos;s
+                satisfaction review completes the vendor&apos;s score for this job
+                once they submit it.
+              </p>
+            ) : (
+              <EvaluationChecklist
+                ticketId={t.id}
+                source="fm_pm"
+                criteria={(criteriaRes.data as ChecklistCriterion[]) ?? []}
+                title="Evaluation"
+                description="Response and completion time are measured automatically from this job's own timestamps — only quality and compliance need your answer."
+              />
+            )}
           </CardContent>
         </Card>
       )}

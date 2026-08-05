@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
-  Plus, Inbox, Clock, MessageSquareReply, CheckCircle2, Wrench,
+  Plus, Inbox, Clock, MessageSquareReply, CheckCircle2, Wrench, Star,
 } from "lucide-react";
 import { getSessionProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
@@ -37,6 +37,7 @@ type RequestRow = {
   resolved_at: string | null;
   hours_open: number | string;
   assigned_to: string | null;
+  awaiting_review: boolean;
 };
 
 const DONE = new Set(["resolved", "closed"]);
@@ -193,6 +194,14 @@ export default async function MyRequestsPage() {
                         ? `Closed in ${elapsed(hrs)}.`
                         : `Open for ${elapsed(hrs)}.`}
                   </p>
+
+                  {r.awaiting_review && (
+                    <Button asChild variant="outline" size="sm" className="w-full">
+                      <Link href={`/dashboard/tickets/${r.ticket_id}`}>
+                        <Star className="size-4" /> Rate this job
+                      </Link>
+                    </Button>
+                  )}
                 </CardContent>
               </Card>
             );
