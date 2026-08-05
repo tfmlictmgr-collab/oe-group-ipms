@@ -68,6 +68,15 @@ everything around them but cannot execute them.
       `+234 703 689 1329`, OEA `+234 708 471 4148`) — direct-client tier has no
       request signature at all (see `WHATSAPP_360DIALOG_MIGRATION.md`); if that
       changes, the webhook auth path changes with it.
+- [ ] **Create the two Telegram bots** (TFML, OEA) in @BotFather — a personal
+      Telegram-account action, same category as the Meta/360dialog business
+      accounts above. **Not done yet** as of 2026-08-05. Full field-by-field
+      guide (display name, username + fallbacks, `/setdescription`,
+      `/setabouttext`, `/setuserpic`, `/setcommands`, `/setjoingroups`,
+      `/setprivacy`) is in `docs/TELEGRAM_BOT_SETUP.md` — don't duplicate it
+      here, follow it exactly, then hand the two tokens to whoever runs
+      `scripts/register-telegram-bot.mjs` (§1 below, "Actions I execute" —
+      registration itself is mechanical once the tokens exist).
 - [ ] **Provision a production Supabase project and a production Vercel
       project** — separate from `oe-group-dev` and separate from the frozen POC
       demo. Billing/account-owner action; I can configure everything inside them
