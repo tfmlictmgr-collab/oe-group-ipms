@@ -22,7 +22,11 @@
     --secondary: 220 16% 95%;
     --secondary-foreground: 222 22% 18%;
     --muted: 220 16% 95%;
-    --muted-foreground: 220 9% 46%;
+    /* Was 46% lightness, which measured 3.63:1 against a card — under the
+       4.5:1 AA floor for the small secondary text this token exists to paint
+       ("Portal · 4 Aug, 16:07" under every request). Darkened just far enough
+       to clear it; still clearly secondary to --foreground. */
+    --muted-foreground: 220 10% 40%;
     --accent: 220 16% 95%;
     --accent-foreground: 222 22% 18%;
 
@@ -34,6 +38,23 @@
     --warning-foreground: 40 90% 12%;
     --info: 212 80% 48%;
     --info-foreground: 0 0% 100%;
+
+    /* ── Text ON a tinted surface ───────────────────────────────────────────
+       The tokens above are FILL colours: they pair with `-foreground` (white)
+       on a solid chip. The tint badges do the opposite — they paint the hue at
+       12–15% and use the hue ITSELF as the text — and at that job these fills
+       are far too light. Measured against the composited tint on a real
+       rendered page: "Resolved" 3.71:1, "Closed"/"Low" 4.31:1, and
+       "High"/"In Progress" 2.06:1, against the 4.5:1 that WCAG AA requires of
+       12px text. Amber on cream was effectively decorative rather than legible.
+
+       So the tint variants get their own, darker foreground. The solid
+       variants keep the fills unchanged — nothing that was already passing
+       moves. */
+    --success-on-tint: 152 62% 24%;
+    --warning-on-tint: 36 96% 25%;
+    --info-on-tint: 212 88% 33%;
+    --destructive-on-tint: 0 74% 38%;
 
     --border: 220 16% 90%;
     --input: 220 16% 88%;
@@ -72,7 +93,9 @@
     --secondary: 222 18% 17%;
     --secondary-foreground: 220 16% 92%;
     --muted: 222 18% 16%;
-    --muted-foreground: 220 10% 60%;
+    /* Same correction as light mode, opposite direction: 60% measured 2.97:1
+       on a dark card. */
+    --muted-foreground: 220 12% 72%;
     --accent: 222 18% 18%;
     --accent-foreground: 220 16% 92%;
 
@@ -84,6 +107,13 @@
     --warning-foreground: 40 90% 12%;
     --info: 212 74% 58%;
     --info-foreground: 224 24% 10%;
+
+    /* On a DARK tint the correction runs the other way — the same hues, but
+       lifted well clear of the surface rather than pushed into it. */
+    --success-on-tint: 152 60% 66%;
+    --warning-on-tint: 38 96% 64%;
+    --info-on-tint: 212 90% 72%;
+    --destructive-on-tint: 0 86% 74%;
 
     --border: 222 16% 20%;
     --input: 222 16% 22%;

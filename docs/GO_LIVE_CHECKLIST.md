@@ -93,6 +93,16 @@ Everything mechanical once the accounts above exist.
 
 - [ ] Point a fresh checkout at the new production Supabase project; run
       `npm run migrate` only.
+- [ ] Confirm the three **storage buckets** the migrations create actually
+      exist on the new project, and that the two private ones really are
+      private: `org-logos` (public by design — it paints the sign-in page),
+      `application-documents` (private, identity documents, `0062`) and
+      `work-order-media` (private, 25 MB cap, image/video only, `0106`).
+      They are created by migration rather than by hand, so this is a
+      verification step, not a setup one — but a bucket silently missing means
+      evidence uploads fail at the moment a technician is standing in front of
+      the work, and a bucket silently *public* means photographs of the inside
+      of client homes are reachable by URL.
 - [ ] Set every required environment variable on the production Vercel project
       (list in §2 below) — live keys, not the dev/test ones currently in
       `.env.local`.

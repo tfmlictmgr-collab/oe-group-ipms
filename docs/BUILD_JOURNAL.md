@@ -2908,3 +2908,111 @@ incident doc's other suggestion — scoping the frozen POC project
 so it stops building every `phase-1` push as Preview noise. That's a
 dashboard/account setting on a project this session has no API token for;
 recommended to whoever holds Vercel dashboard access, not attempted here.
+
+## Day 11, the rest: evidence on the job, and text you can actually read
+
+### Work-order photos and video
+
+A vendor says the job is done; an FM/PM scores the quality of it; a payment
+gate turns on that score (B4). Until now none of that could be accompanied by
+the one thing that actually shows the work. Tenants had the mirror-image gap:
+"the leak is under the sink" is a sentence where a photograph is unambiguous.
+
+📌 **The whole design rests on one decision: visibility FOLLOWS the ticket, it
+is not re-derived.** The obvious implementation copies `tickets_select`'s
+clauses — sender, assignee, vendor, `has_permission`, property scoping, the
+unfiled-triage clause — onto the new table. That is exactly what the locked
+scope decisions forbid ("a second scoping mechanism alongside the first is
+forbidden"), and the reason is concrete: `tickets_select` has been amended in
+0006, 0008, 0051, 0052 and 0064, and a copy would have needed all five
+applied twice, correctly, forever. Instead the policy asks the only question
+that matters — *can you see the ticket this belongs to?* — as an `exists`
+over `tickets`. Postgres evaluates that subquery as the caller, so
+`tickets_select` applies to it in full: every clause, every future amendment,
+automatically. That assumption was **verified before any UI was written**, not
+assumed: a throwaway probe confirmed the owning tenant sees the attachment and
+an unrelated tenant sees neither ticket nor attachment.
+
+⚠️ **A test that passes for the wrong reason is worth nothing, and this suite
+caught itself doing it.** Section A originally asserted "the FM/PM sees as
+much evidence as ticket" against an *unfiled* ticket — and passed at 0 : 0,
+because a property-scoped FM cannot see a ticket with no property at all (the
+0064 boundary this session had already run into once). Both numbers being zero
+proves nothing about inheritance. Rewritten to file the ticket against a
+property the FM genuinely holds — resolved from *their own* read rather than
+hardcoded — and to require 1 : 1 positively, plus 0 : 0 negatively for the
+same person on the same run. That pair is the actual claim.
+
+Evidence is **append-only** (no UPDATE policy at all, same reasoning as the
+ledger and the audit log), attributable (`uploaded_by` not null, and a row
+cannot claim someone else uploaded it), and **fixed once the job is judged**:
+the uploader may remove their own mistake while the ticket is open, but after
+it resolves the file may already have been weighed in a vendor evaluation or a
+payment verification, so it belongs to the record rather than to whoever
+happened to upload it.
+
+📌 **The index row is the real gate; storage RLS only proves the org prefix.**
+So when the index insert is refused, the already-uploaded object is deleted —
+otherwise a refused attachment leaves a file in the bucket with nothing
+pointing at it and nothing to ever clean it up. Deletion runs the other way
+round (row first, then object): the row's policy is the narrower of the two, so
+a refusal there stops everything with the file intact, whereas removing the
+object first would destroy evidence on a refused row-delete and leave a row
+still claiming it exists.
+
+Bucket is **private** (a work-order photo routinely shows the inside of
+somebody's home) and capped at **25 MB** by the bucket itself, not merely by
+the browser — enough for a phone photo or a short clip, and a deliberate
+refusal of the 4K minute-long video that would never finish uploading on the
+mobile connections A2.5 targets. Uploads run **sequentially** for the same
+reason. The mobile button carries `capture="environment"`, so a technician
+standing in front of the work photographs it directly instead of going via the
+gallery app.
+
+Verified in the browser end to end, not only at the RPC layer: a real PNG
+generated in-page, handed to the file input exactly as a picker would, uploaded
+→ indexed → thumbnail rendered from a signed URL at the right dimensions →
+removed, with **both** the row and the stored object confirmed gone
+afterwards. New: `scripts/verify-work-order-media.mjs` (20 checks).
+
+### WCAG AA — measured, not asserted
+
+The previous entry's UX pass deliberately said accessibility had only been
+*spot-checked* and that a real audit was its own deliverable. This is that
+audit, and it found genuine failures.
+
+⚠️ **The badges were failing, some of them badly.** Contrast measured on
+computed styles as actually rendered — not on the token values in the
+stylesheet — put "Resolved" at **3.71:1**, "Closed"/"Low" at **4.31:1**, and
+"High"/"In Progress" at **2.06:1**, against the **4.5:1** WCAG AA requires of
+12px text. Amber on cream was effectively decorative rather than legible. The
+cause was a category error in the design system: `--success`, `--warning`,
+`--info`, `--destructive` are *fill* colours, meant to pair with a white
+`-foreground` on a solid chip, but the tint badges paint the hue at 12–15% and
+then use **the same hue as the text**. Fixed by giving the tinted variants
+their own darker (in dark mode, lighter) `-on-tint` foreground; every solid
+variant keeps its existing fill, so nothing that already passed moved.
+`--muted-foreground` failed too, in both themes, and was corrected in both.
+
+⚠️ **Two measurement bugs of my own, caught before either could be reported as
+a finding.** First, the contrast script read `rgba(235,152,10,0.15)` — a
+*translucent* background — as though it were opaque, so foreground and
+background computed identical and it reported a ratio of **1.00**, a critical
+finding that did not exist. Fixed by compositing every translucent layer up
+the ancestor chain before comparing. Second, and worse: the first post-fix
+"0 failures, both themes" result was measured **on the login page**, because
+the session had silently expired — 0 failures over 0 badges. Re-measured
+signed in, on a page carrying 54 badges, in each theme via a genuine reload
+(toggling the `.dark` class mid-script did not recompute reliably and produced
+a nonsense number in the other direction). *A clean result is only as good as
+the evidence that the thing being measured was actually on screen.*
+
+Structural criteria checked alongside contrast — image alternatives, accessible
+names on every control, programmatic labels on every input, heading order,
+page title, `html lang` — across the dashboard, the ledger and a form page:
+clean, with one exception found **in the code written minutes earlier**. The
+new media component's file inputs are `sr-only`, which hides them visually
+while leaving them in the tab order, and neither carried a name: a screen
+reader would announce "file upload button" and nothing else. Both given
+`aria-label`s, and the identical pre-existing gap in `LogoUpload` fixed with
+them.

@@ -10,11 +10,13 @@ const badgeVariants = cva(
         default: "border-transparent bg-secondary text-secondary-foreground",
         brand: "border-transparent bg-[var(--brand)] text-[var(--brand-fg)]",
         outline: "border-border text-foreground",
-        success: "border-transparent bg-success/12 text-success",
-        warning: "border-transparent bg-warning/15 text-warning",
-        info: "border-transparent bg-info/12 text-info",
-        destructive: "border-transparent bg-destructive/12 text-destructive",
-        muted: "border-transparent bg-muted text-muted-foreground",
+        // Tinted chips read their text from `-onTint`, not from the fill hue —
+        // the fill is far too light to be legible on its own 12% wash.
+        success: "border-transparent bg-success/12 text-success-onTint",
+        warning: "border-transparent bg-warning/15 text-warning-onTint",
+        info: "border-transparent bg-info/12 text-info-onTint",
+        destructive: "border-transparent bg-destructive/12 text-destructive-onTint",
+        muted: "border-transparent bg-muted text-foreground/75",
       },
     },
     defaultVariants: { variant: "default" },

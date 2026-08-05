@@ -843,8 +843,28 @@ checklist**, and a visibly **polished mobile UI**.
 
 **Done when:** no free-typed scores remain; UI passes mobile + accessibility checks.
 
-**Status (2026-08-04): the KPI/SLA evaluation half is complete and verified live in
-the browser as both roles** — full detail in `BUILD_JOURNAL.md`'s Day 11 entry.
+**Status (2026-08-05): Day 11 is complete.** Vendor evaluation, work-order
+media and the production UX pass have all landed and been verified live;
+detail for each is in `BUILD_JOURNAL.md`. In summary:
+- **Work-order photo/video evidence** — private bucket, 25 MB cap enforced by
+  the bucket, camera capture on mobile, append-only and attributable, and
+  visibility that *follows the ticket* rather than re-deriving its scoping
+  (`0106`, `verify-work-order-media` — 20 checks).
+- **Confirmation dialogs on money actions** — a dedicated AlertDialog (no
+  dismiss-on-outside-click) on "Approve payment" and "Send payment".
+- **Loading states** — one `app/dashboard/loading.tsx` covering all 44 routes
+  beneath it; there were previously none anywhere in the app router.
+- **Mobile drawer nav** — already existed from the Day 1 design-system work;
+  checked rather than rebuilt.
+- **WCAG AA** — a real measured audit, not a spot-check. Found and fixed
+  genuine contrast failures in every tinted badge variant (worst: 2.06:1
+  against a required 4.5:1) and in `--muted-foreground`, in both themes, plus
+  missing accessible names on file inputs. Re-measured clean across 96
+  elements / 54 badges in light and dark.
+
+**Original status note (2026-08-04): the KPI/SLA evaluation half is complete and
+verified live in the browser as both roles** — full detail in `BUILD_JOURNAL.md`'s
+Day 11 entry.
 Response/Completion are auto-measured from ticket timestamps against an
 admin-set SLA target, never typed; Quality/Compliance come from an FM/PM
 checklist against an admin-editable, effective-dated rubric
@@ -852,10 +872,8 @@ checklist against an admin-editable, effective-dated rubric
 prompted the moment their ticket resolves; the composite appears only once
 both sources exist, matching the AURA weights exactly. No free-typed score is
 possible anywhere in the write path (`scripts/verify-vendor-evaluation.mjs`,
-26 checks). **Still open from this day's original scope:** work-order
-photo/video evidence uploads, and the full production UX pass (mobile drawer
-nav, WCAG AA audit, loading skeletons, confirmation dialogs on money-moving
-actions) — deferred, not started, tracked here until picked up.
+26 checks). *(What this note listed as still open — work-order media and the
+production UX pass — was completed the following day; see the status above.)*
 
 ---
 

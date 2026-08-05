@@ -40,21 +40,28 @@ const config: Config = {
           DEFAULT: "hsl(var(--accent))",
           foreground: "hsl(var(--accent-foreground))",
         },
+        // `foreground` = text on the SOLID fill. `onTint` = text on the 12–15%
+        // tint the badges use, which needs to be much darker (or, in dark mode,
+        // much lighter) to clear WCAG AA at 12px. See globals.css.
         destructive: {
           DEFAULT: "hsl(var(--destructive))",
           foreground: "hsl(var(--destructive-foreground))",
+          onTint: "hsl(var(--destructive-on-tint))",
         },
         success: {
           DEFAULT: "hsl(var(--success))",
           foreground: "hsl(var(--success-foreground))",
+          onTint: "hsl(var(--success-on-tint))",
         },
         warning: {
           DEFAULT: "hsl(var(--warning))",
           foreground: "hsl(var(--warning-foreground))",
+          onTint: "hsl(var(--warning-on-tint))",
         },
         info: {
           DEFAULT: "hsl(var(--info))",
           foreground: "hsl(var(--info-foreground))",
+          onTint: "hsl(var(--info-on-tint))",
         },
         sidebar: {
           DEFAULT: "hsl(var(--sidebar))",

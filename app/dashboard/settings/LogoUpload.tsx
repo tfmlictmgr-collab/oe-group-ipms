@@ -99,12 +99,16 @@ export default function LogoUpload({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {/* `sr-only` hides it visually but leaves it focusable, so it needs
+              its own accessible name — the visible <Label> above titles the
+              field, not this input. */}
           <input
             ref={inputRef}
             type="file"
             accept={ACCEPTED.join(",")}
             className="sr-only"
             id="logo-file"
+            aria-label="Choose a logo image to upload"
             onChange={(e) => {
               const f = e.target.files?.[0];
               if (f) handleFile(f);

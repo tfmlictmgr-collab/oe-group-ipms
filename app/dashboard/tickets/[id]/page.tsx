@@ -14,6 +14,7 @@ import TicketStatusControl from "./TicketStatusControl";
 import AssignControl from "./AssignControl";
 import AcknowledgeControl from "./AcknowledgeControl";
 import EvaluationChecklist, { type ChecklistCriterion } from "./EvaluationChecklist";
+import TicketMedia, { type TicketAttachment } from "./TicketMedia";
 import { shortRef } from "@/lib/acknowledgement";
 
 type AssignableTicket = Ticket & {
@@ -124,6 +125,49 @@ export default async function TicketDetailPage({
   const tenantDone = alreadySubmitted.has("tenant");
   const fmDone = alreadySubmitted.has("fm_pm");
 
+  // ── Evidence (0106). The rows are gated by the attachment policy, which
+  // defers to this ticket's own visibility — so anyone reading this page is
+  // by definition entitled to what comes back, and no extra check is needed
+  // here. Uploading additionally requires the job to still be open.
+  const { data: attachmentRows } = await supabase
+    .from("ticket_attachments")
+    .select("id, storage_path, file_name, content_type, size_bytes, uploaded_by, uploaded_at")
+    .eq("ticket_id", t.id)
+    .order("uploaded_at", { ascending: false });
+
+  const rows = attachmentRows ?? [];
+
+  // The bucket is private, so a thumbnail needs a signed URL. Signed in one
+  // batch rather than one call per file, and for an hour rather than the
+  // five minutes an open-in-new-tab link gets — a page left open while
+  // someone works through the evidence should not quietly go blank.
+  const signed = rows.length
+    ? (
+        await supabase.storage
+          .from("work-order-media")
+          .createSignedUrls(rows.map((r) => r.storage_path), 3600)
+      ).data ?? []
+    : [];
+  const urlFor = new Map(signed.map((s) => [s.path, s.signedUrl] as const));
+
+  // Uploader names, best-effort: a tenant has no read on the staff register,
+  // and an unattributed thumbnail is a smaller loss than a failed page.
+  const uploaderIds = Array.from(new Set(rows.map((r) => r.uploaded_by)));
+  const { data: uploaders } = uploaderIds.length
+    ? await supabase.from("users").select("id, full_name, email").in("id", uploaderIds)
+    : { data: [] as { id: string; full_name: string | null; email: string | null }[] };
+  const nameFor = new Map(
+    (uploaders ?? []).map((u) => [u.id, u.full_name ?? u.email ?? null] as const)
+  );
+
+  const attachments: TicketAttachment[] = rows.map((r) => ({
+    ...r,
+    url: urlFor.get(r.storage_path) ?? null,
+    uploader_name: nameFor.get(r.uploaded_by) ?? null,
+  }));
+
+  const canAttach = !isDone;
+
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <PageHeader
@@ -188,6 +232,25 @@ export default async function TicketDetailPage({
           </div>
         </CardContent>
       </Card>
+
+      {/* A closed request with no evidence has nothing to show and nothing to
+          add — the card would be an empty box on every historical ticket. */}
+      {(attachments.length > 0 || canAttach) && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Photos &amp; video</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <TicketMedia
+              ticketId={t.id}
+              orgId={session.profile!.org_id}
+              currentUserId={session.user.id}
+              attachments={attachments}
+              canUpload={canAttach}
+            />
+          </CardContent>
+        </Card>
+      )}
 
       {needsAck && (
         <Card>
