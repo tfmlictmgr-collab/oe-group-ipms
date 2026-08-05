@@ -55,6 +55,12 @@ export async function generateMetadata({
       description: `Sign in to ${name}.`,
       siteName: name,
     },
+    // The browser tab, not just the page — a TFML admin with both brands open
+    // should be able to tell the tabs apart at a glance, the same reason the
+    // sidebar shows the org's own logo instead of a generic mark. Falls back to
+    // the app's default icon when the org has none (LogoUpload's own fallback,
+    // mirrored here rather than left to point at nothing).
+    icons: org.logo_url ? { icon: org.logo_url } : undefined,
   };
 }
 
