@@ -2802,3 +2802,109 @@ uploads, and the full production UX pass (mobile drawer navigation, WCAG AA
 audit, loading skeletons, confirmation dialogs on money-moving actions) named
 alongside vendor evaluation in `PHASE1_WORKPLAN.md`'s Day 11 scope. Tracked
 there as still open.
+
+## The PC2 production-alias incident, and what it changed here
+
+Shared by PC2, recorded in full in `docs/INCIDENT_2026-08-05_PROD_ALIAS.md`: a
+stale `.vercel/project.json` link plus `vercel deploy --prod=false --force`
+not behaving as documented briefly aliased Phase-1 code onto the frozen POC's
+production URL (~5–8 min, caught and rolled back). This machine's own link was
+checked against it and was already correct
+(`prj_apZGqo3YPBnMyDZBRXifrl6eC2e4` = `oe-group-ipms-dev`) — no relink needed
+— but the standing lesson travels regardless: **confirm the linked project
+before any raw `vercel deploy`/`rollback`, every time, on every machine.** It's
+why the deploy later in this entry used the explicit `--prod` flag rather than
+`--prod=false`.
+
+## WhatsApp/Telegram intake: the prompt file that never shipped, and the reply that never stopped
+
+Two customer-facing screenshots — a real WhatsApp user complaining "How can
+you classify a simple Hi as a request?" and the same "Hello, you have X
+open…" reply timestamped six times across a single day — turned out to be one
+symptom of two separate, real, live defects. Neither was found by guessing;
+both were confirmed against the deployed function's own behaviour before
+anything was changed.
+
+⚠️ **Every genuinely new WhatsApp/Telegram ticket was silently failing to be
+created.** `lib/triage.ts` loads its classification prompt from
+`docs/AURA_Triage_Classification_Prompt.md` via `readFileSync(process.cwd() +
+...)` at request time — a pattern Next's serverless file tracer (`@vercel/nft`)
+does not reliably catch, because the path is assembled at runtime rather than
+statically imported, so nothing tells the bundler "this file is needed here."
+Confirmed two ways rather than one: a probe run locally against the exact same
+shared DB created a ticket cleanly (ruling out the classification/insert logic
+itself), then the SAME probe against the deployed URL returned 200 OK with
+zero ticket created. Pulling the deployed function's own logs (`vercel logs`,
+CLI already authenticated) settled it outright:
+`Error: Could not find a fenced system prompt block in
+/var/task/docs/AURA_Triage_Classification_Prompt.md` — the file simply never
+shipped in the function bundle. Worse than a clean failure: that call sat
+**outside** `classifyMessage`'s own try/catch, so instead of the designed
+degrade-to-human-review fallback (the one the model-unreachable case already
+had), it threw straight out through `classifyAndCreateTicket` and
+`handleInboundMessage` to the webhook route's outer catch, which logs and
+swallows everything, returning 200 regardless. A dropped request looked
+identical to a successfully handled one from the outside.
+
+Two fixes, not one, deliberately: `next.config.mjs` gained
+`experimental.outputFileTracingIncludes` naming the file explicitly for both
+webhook routes — the root-cause fix — and `loadSystemPrompt()` moved **inside**
+`classifyMessage`'s try block, so any future failure to produce a
+classification, for any reason, degrades to `FALLBACK_CLASSIFICATION` with
+`requires_human_review: true` instead of crashing intake. The second is worth
+its own line: a root-cause fix closes the one bug found; a resilience fix
+closes the whole class it belongs to.
+
+📌 **The classifier model id was re-checked and is fine.** `claude-sonnet-4-6`
+returns 200 on a live call — a model released after this build's own knowledge
+cutoff, not a typo. `PHASE1_WORKPLAN.md`'s S8 line ("classifier model id:
+VERIFIED") was correct as far as it went and is now updated to say what was
+actually wrong.
+
+⚠️ **No idempotency on inbound chat webhooks — the second, independent bug.**
+The payments webhook has deduplicated on the gateway's own event id since day
+one (`gateway_events`, 0032 — "a retry after a timeout is normal traffic").
+Nothing equivalent existed for WhatsApp or Telegram, and both providers
+redeliver a webhook on any slow or non-2xx response, on a backoff that can run
+to hours. Every redelivery of the same message was reprocessed as if new and
+re-sent whatever reply had already gone out — exactly what the screenshot
+showed, six identical pleasantry replies to one "Hi" across a single day, at
+gaps (00:00 → 06:14 → 18:38 → 19:06 → 19:32) that match a provider retry
+schedule far better than any bug in the reply logic itself. Fixed the same way
+0032 fixed it for money: new migration `0105` adds `chat_webhook_events`, a
+unique index on `(channel, event_id)` — WhatsApp's `wamid`, Telegram's
+`update_id`, which covers a tapped inline button the same way it covers a
+message — insert-first, and a duplicate-key conflict means "already handled,"
+short-circuited before any of the expensive classify+write+reply path runs.
+
+Verified locally first, then confirmed **in production, against the real
+symptom**: the same message delivered three times to the live deployed
+webhook produced exactly one ticket. `verify-triage-conversation-e2e` (new
+request / priority correction / follow-up status question / genuinely
+different problem opening its own ticket) passes fully against
+`oe-group-ipms-dev.vercel.app` — the same suite that, run before the fix,
+failed with "expected 1 ticket, found 0" against that exact URL. The
+classifier's own routing logic needed no change at all; every symptom traced
+back to the crash and the missing dedup around it, not to the model
+misunderstanding anything.
+
+⚠️ **`verify-channel-routing`'s own fixture broke, correctly.** It posted every
+WhatsApp message in the suite under one hardcoded `id: "wamid.test"`, and every
+Telegram update under `update_id: 1` / `2` — fine when nothing deduplicated,
+wrong the moment something did. The new dedup rejected every call after the
+first as an "already handled" redelivery, which is the fix working exactly as
+designed, not a regression. Fixed to mint a unique id per call, the same way
+the suite already minted a unique phone number per call via its own `stamp`.
+
+**Deployed via an explicit `vercel deploy --prod`** rather than waiting on
+Git-integration behaviour that, on inspection, wasn't reliably mapping this
+push to a Production build — aliases (`oe-group-ipms-dev.vercel.app`,
+`tfmlportal.com`, `oeaportal.com`) confirmed repointed, and the live page
+content checked, not just its status code, per the incident lesson above.
+
+**Still open, flagged, not actioned without explicit account access:** the
+incident doc's other suggestion — scoping the frozen POC project
+(`oe-group-ipms`)'s Git integration to `main` only, via an Ignored Build Step,
+so it stops building every `phase-1` push as Preview noise. That's a
+dashboard/account setting on a project this session has no API token for;
+recommended to whoever holds Vercel dashboard access, not attempted here.

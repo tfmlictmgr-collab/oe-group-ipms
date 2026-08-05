@@ -114,6 +114,20 @@ older copy is not misled):
       call with `claude-sonnet-4-6` returned HTTP 200, so triage is genuinely
       classifying, not silently degrading. *(The missing Gemini failover is still
       open — Day 12.)*
+      **⚠️ Update (2026-08-05): the model id was never the problem — the prompt
+      file was.** `lib/triage.ts` read `docs/AURA_Triage_Classification_Prompt.md`
+      via `readFileSync` at request time, a pattern Next's serverless file
+      tracer does not reliably bundle. In production this threw on every
+      genuinely new WhatsApp/Telegram ticket, uncaught (outside the classifier's
+      own fallback try/catch), silently dropping the message — 200 OK, zero
+      ticket, invisible without pulling function logs. Found from a live
+      customer screenshot (a duplicate-reply complaint led to this), confirmed
+      against the deployed function's own logs, fixed in both directions
+      (`next.config.mjs` now traces the file in explicitly; the file-load call
+      moved inside the try so any future failure degrades to a human-reviewed
+      ticket instead of crashing intake). Full account in `BUILD_JOURNAL.md`.
+      The missing Gemini failover (Day 12) is still the one remaining gap in
+      the same failure class.
 
 **Neither precondition blocks Day 1 any longer.** The remaining Day 0 work is
 purely the accounts/keys checklist above.
