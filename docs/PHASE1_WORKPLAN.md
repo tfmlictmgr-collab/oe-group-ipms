@@ -720,12 +720,30 @@ Suite: `verify-rent-demands` (16).
 
 **Day 9 is complete.**
 
-**⚠ Gap found 6 Aug, not yet closed:** everything above is the accounting
-side, reachable only from admin/FM/finance routes. There is still **no
-tenant-facing screen to view or pay a rent charge** — `my_tenancies()` is
-defined but never called from any tenant-reachable page. Full detail and a
-suggested fix: `docs/GAP_2026-08-06_TENANT_RENT_PAYMENT.md`. Do not treat
-"pay rent online" as delivered until this closes.
+**Gap found 6 Aug — now CLOSED (`0110`, same day).** Everything above was the
+accounting side, reachable only from admin/FM/finance routes; there was no
+tenant-facing screen to view or pay a rent charge, and `my_tenancies()` — the
+function written for exactly that view — was called nowhere in the app.
+
+`/dashboard/my-rent` now shows a tenant their own demands (period, flat,
+owed, paid) with a **Pay now** button into the same checkout the
+service-charge flow uses; a live link surfaces as **Continue payment** rather
+than attempting a second. New `my_rent_charges()` companions
+`my_tenancies()`, both `SECURITY DEFINER` on `auth.uid()`. No amount is ever
+passed from the client — the RPC computes the outstanding balance from the
+demand itself.
+
+**⚠ And a real defect it uncovered:** `create_rent_payment_intent` checked
+only the caller's *organisation*, never that they were the tenant on the
+lease — so any account in the org could open a payment link on someone
+else's rent and, via the function's own one-live-intent guard, **lock the
+real tenant out of paying**. Fixed in `0110`; reproduced against the pre-fix
+function and re-verified after, in `verify-tenant-rent-payment` section G.
+
+Suite: `verify-tenant-rent-payment` (13), plus an end-to-end browser run:
+tenant pays → ledger balances to zero, landlord's share and OE Group's fee
+each posted correctly. **"Pay rent online" is now genuinely deliverable.**
+Detail: `docs/GAP_2026-08-06_TENANT_RENT_PAYMENT.md`.
 
 ---
 

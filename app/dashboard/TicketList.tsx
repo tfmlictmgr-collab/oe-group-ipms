@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/patterns/status-badge";
 import { EmptyState } from "@/components/patterns/empty-state";
 import { type Ticket, CHANNEL_LABELS, formatDateTime } from "@/lib/ticket-format";
+import { shortRef } from "@/lib/acknowledgement";
 
 const FILTERS = [
   { key: "all", label: "All" },
@@ -65,10 +66,16 @@ export default function TicketList({
   // Client-side narrowing only — RLS already scoped what arrived here, so a
   // filter can never widen visibility beyond the viewer's B7 row.
   const visible = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const raw = query.trim();
+    const q = raw.toLowerCase();
+    // A reference as people actually quote it: "#C1AF0AF7", "c1af0af7", or a
+    // pasted full UUID with its dashes. Reduced to bare hex on both sides so
+    // all three are one query.
+    const hex = raw.replace(/[^0-9a-fA-F]/g, "").toLowerCase();
     return tickets.filter((t) => {
       if (filter !== "all" && t.status !== filter) return false;
       if (!q) return true;
+      if (hex.length >= 4 && t.id.replace(/-/g, "").startsWith(hex)) return true;
       return (
         (t.summary ?? "").toLowerCase().includes(q) ||
         t.message_text.toLowerCase().includes(q) ||
@@ -77,6 +84,47 @@ export default function TicketList({
       );
     });
   }, [tickets, query, filter]);
+
+  // ⚠️ The page holds only the most recent slice. A reference older than that
+  // matches nothing locally, and "No matching requests" would then read as
+  // "no such request" — a confident wrong answer to someone holding a real
+  // reference from a months-old WhatsApp thread. So when the query LOOKS like
+  // a reference and found nothing here, ask the database, which searches the
+  // whole table under the same RLS.
+  const [remote, setRemote] = useState<Ticket[]>([]);
+  const [searching, setSearching] = useState(false);
+
+  useEffect(() => {
+    const hex = query.replace(/[^0-9a-fA-F]/g, "").toLowerCase();
+    const looksLikeRef = hex.length >= 4 && query.trim().length <= 40;
+    if (!looksLikeRef || visible.length > 0) {
+      setRemote([]);
+      setSearching(false);
+      return;
+    }
+    let cancelled = false;
+    setSearching(true);
+    // Debounced: this runs per keystroke otherwise, and a reference is typed
+    // one character at a time.
+    const timer = setTimeout(async () => {
+      const supabase = createClient();
+      const { data } = await supabase.rpc("find_tickets_by_reference", { p_ref: hex });
+      if (!cancelled) {
+        setRemote((data as Ticket[]) ?? []);
+        setSearching(false);
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      setSearching(false);
+    };
+  }, [query, visible.length]);
+
+  // Only ever shown when the loaded page had nothing — never merged into it,
+  // so the count chips keep describing exactly what they describe.
+  const found = visible.length > 0 ? visible : remote;
+  const showingOlder = visible.length === 0 && remote.length > 0;
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: tickets.length };
@@ -93,8 +141,8 @@ export default function TicketList({
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search requests…"
-            aria-label="Search requests"
+            placeholder="Search by reference or text…"
+            aria-label="Search requests by reference, summary, property or category"
             className="pl-9"
           />
         </div>
@@ -136,19 +184,33 @@ export default function TicketList({
         })}
       </div>
 
-      {visible.length === 0 ? (
+      {showingOlder && (
+        <p className="text-xs text-muted-foreground">
+          Found outside the most recent {tickets.length} — matched on reference.
+        </p>
+      )}
+
+      {found.length === 0 ? (
         <EmptyState
           icon={<Inbox />}
-          title={tickets.length === 0 ? "No requests yet" : "No matching requests"}
+          title={
+            tickets.length === 0
+              ? "No requests yet"
+              : searching
+                ? "Searching…"
+                : "No matching requests"
+          }
           description={
             tickets.length === 0
               ? "New requests from WhatsApp, Telegram, or the portal form appear here instantly."
-              : "Try a different search term or status filter."
+              : searching
+                ? "Checking older requests for that reference."
+                : "Try a different search term or status filter. A reference like C1AF0AF7 finds a request however old it is."
           }
         />
       ) : (
         <ul className="space-y-2.5">
-          {visible.map((ticket) => (
+          {found.map((ticket) => (
             <li key={ticket.id}>
               <Link
                 href={`/dashboard/tickets/${ticket.id}`}
@@ -164,6 +226,14 @@ export default function TicketList({
                     )}
                   </div>
                   <p className="mt-1 truncate text-xs text-muted-foreground">
+                    {/* The reference the reporter was given. Shown because it
+                        is what they quote back — a list that cannot be matched
+                        by eye against a WhatsApp message is a list you have to
+                        search blind. */}
+                    <span className="font-mono font-medium text-foreground/70">
+                      {shortRef(ticket.id)}
+                    </span>
+                    {" · "}
                     {CHANNEL_LABELS[ticket.channel] ?? ticket.channel}
                     {ticket.property_or_unit ? ` · ${ticket.property_or_unit}` : ""} ·{" "}
                     {formatDateTime(ticket.created_at)}

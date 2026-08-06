@@ -53,10 +53,68 @@ posting are already built — this is a UI-and-routing task, not a new payment
 path.
 
 ## Not yet done
-- [ ] Confirm with PC1 whether this was silently descoped, or genuinely
-      missed.
-- [ ] If in scope for Phase 1, schedule it — likely fits as a fast-follow
-      inside Day 9 rather than reopening Day 11's UX pass.
-- [ ] Until built, do **not** mark the Tenant/Resident lane's "Pay rent /
-      lease online" as delivered on the board deck (it currently correctly
-      shows as upcoming).
+- [x] Confirm with PC1 whether this was silently descoped, or genuinely
+      missed. → **Genuinely missed**, not descoped. Built 2026-08-06.
+- [x] If in scope for Phase 1, schedule it. → Built as a Day 9 fast-follow,
+      exactly as suggested.
+- [x] Until built, do **not** mark "Pay rent / lease online" as delivered.
+      → **Now deliverable**, see below.
+
+---
+
+## PC1 response — built 2026-08-06 (`0110`)
+
+**The finding was accurate in every particular**, including that
+`my_tenancies()` existed and was called nowhere. Built along the suggested
+lines — reusing the proven collection path rather than adding a second one.
+
+**What shipped**
+- `/dashboard/my-rent` — a tenant's own rent, per demand: the period, the
+  flat, what is owed, what has been paid, and a **Pay now** button that opens
+  the same checkout the service-charge flow already uses. A live link is
+  surfaced as **Continue payment** rather than silently attempting a second.
+- `my_rent_charges()` (`0110`) — the per-charge companion to `my_tenancies()`.
+  Both are `SECURITY DEFINER` on `auth.uid()` for the same stated reason: a
+  tenant has no read on `properties`/`units`, so the flat's name is
+  denormalised rather than granting access to the register it lives in.
+- `payMyRent()` — a thin server action. It passes **no amount**; the RPC
+  computes the outstanding balance from the demand itself, so a tampered
+  request cannot change what is charged.
+- Nav entry, tenant-only.
+
+**⚠️ A real defect found while building on it — worth reading**
+
+`create_rent_payment_intent` (0092) is `SECURITY DEFINER`, granted to
+`authenticated`, and checked only that the demand belonged to the caller's
+**organisation**. It never checked that the caller was the tenant on the
+lease. Any authenticated member of the org — another tenant, a vendor, ops
+staff — could open a payment link against somebody else's rent.
+
+The sharp end is not the payment (paying a stranger's rent is a strange
+attack). It is the function's **own one-live-intent guard** three lines
+below: *"a payment link is already open for this rent demand"*. Opening an
+intent on another tenant's demand **locks that tenant out of paying their own
+rent**, with nothing in the app to explain why — a denial of service on
+someone else's obligation, from any account in the org.
+
+Fixed in `0110`: the demand's own tenant, an oversight role, or an FM/PM
+scoped to the property. The org check remains as the outer boundary; this is
+the inner one it never had. Service-role callers (the scheduled demand job,
+which has no session) are unaffected.
+
+**Proven, not asserted.** `scripts/verify-tenant-rent-payment.mjs` section G
+reinstalls the pre-fix function via a direct `pg` connection, confirms an
+unrelated tenant **did** open a link on another tenant's rent, then restores
+the fix and confirms the refusal returns. 13 checks; the full loop was also
+exercised in the browser end to end — tenant pays → ledger balances to zero,
+₦2,160,000 held for the landlord and ₦240,000 recognised as fee income on a
+₦2,400,000 demand at 10%.
+
+**A second, smaller trap recorded for whoever touches this next:** migration
+`0092`'s file still reads `status in ('pending','processing')`, but
+`processing` is not a value of `payment_intent_status` — `0092c` replaced the
+function to say `status = 'pending'` and the file was never corrected.
+Rewriting the function from the file (as this work nearly did) reintroduces a
+guard that throws `invalid input value for enum` instead of guarding
+anything. `0110` was written from the **live** `pg_proc.prosrc`, not the
+migration file, and says so in a comment.

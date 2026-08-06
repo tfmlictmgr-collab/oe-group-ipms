@@ -4,6 +4,7 @@ import {
   LayoutDashboard,
   Building2,
   Building,
+  Receipt,
   ReceiptText,
   Banknote,
   Scale,
@@ -91,6 +92,12 @@ export const NAV_GROUPS: NavGroup[] = [
         label: "My Requests",
         href: "/dashboard/my-requests",
         icon: Inbox,
+        show: (c) => c.isTenant,
+      },
+      {
+        label: "My Rent",
+        href: "/dashboard/my-rent",
+        icon: Receipt,
         show: (c) => c.isTenant,
       },
       {

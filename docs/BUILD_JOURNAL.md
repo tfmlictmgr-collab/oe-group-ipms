@@ -3225,3 +3225,126 @@ applied when it is not.
 📌 Found while fixing audit 0805-C1 — the `sc_budgets` duplicate-period race.
 That fix (`0109` + the action's own 23505 path + a 13-check suite) is written and
 correct; it is simply not applied to dev yet.
+
+## The tenant could not pay their own rent — and anyone could stop them
+
+PC2's `GAP_2026-08-06` was accurate in every particular, including the detail
+that gives it away: `my_tenancies()` — a function written specifically for
+"the tenant's own view" — was referenced exactly once in the whole `app/`
+tree, **in a comment**. Day 9 built the entire accounting side of rent
+(demands on schedule, the fee split, the landlord's share reaching the
+segregated ledger, all verified) and no way for the person who owes the money
+to see it or pay it. The ledger was fully wired to receive a payment nobody
+could make.
+
+Built along PC2's own suggested lines — reuse the proven collection path
+rather than add a second one. `/dashboard/my-rent`, a `my_rent_charges()`
+companion to `my_tenancies()`, and a server action that passes **no amount**:
+the RPC computes the outstanding balance from the demand itself, the same
+rule `raisePaymentRequest` already follows for service charges.
+
+⚠️ **The defect underneath it.** `create_rent_payment_intent` (0092) is
+`SECURITY DEFINER`, granted to `authenticated`, and checked only that the
+demand belonged to the caller's **organisation** — never that the caller was
+the tenant on the lease. So any account in the org could open a payment link
+against anyone else's rent.
+
+The interesting part is not the payment. Paying a stranger's rent is a
+strange attack; the money would land correctly. It is the function's **own
+one-live-intent guard**, three lines further down — *"a payment link is
+already open for this rent demand"* — which exists to stop a tenant paying
+twice. Opening an intent on somebody else's demand turns that protection into
+a weapon: **the real tenant is locked out of paying their own rent**, from
+any account in the org, with nothing in the app to explain why. A guard
+against double payment, repurposed as a denial of the obligation itself.
+
+Worth stating as a general shape, because it will recur: **a uniqueness
+guard is also a claim, and whoever can create the claim can deny it to
+everyone else.** The guard was right; who was allowed to trip it was not.
+
+Fixed in `0110` — the demand's own tenant, an oversight role, or an FM/PM
+scoped to the property; service-role callers (the scheduled job, no session)
+unaffected. Reproduced against the pre-fix function via a direct `pg`
+connection and re-verified after restoring it (`verify-tenant-rent-payment`
+section G), the same discipline the remittance-race and storage-RLS fixes
+used: a test is worth trusting once it has been watched to fail.
+
+⚠️ **A migration file that lies, and nearly propagated.** `0092`'s file still
+reads `status in ('pending','processing')`. `processing` is not a value of
+`payment_intent_status`; `0092c` replaced the function to say `status =
+'pending'` and **the original file was never corrected**. Rewriting the
+function from the migration file — which is the obvious way to write `0110` —
+reintroduces a guard that throws `invalid input value for enum` instead of
+guarding anything. It failed on the first migrate, which is the good outcome;
+the bad one was available, because my own new `my_rent_charges()` had copied
+the same stale predicate and would have silently matched nothing. `0110` was
+written from the **live** `pg_proc.prosrc` and says so. **When a function has
+been replaced by a later migration, the file that first created it is no
+longer a description of anything.**
+
+📌 **FK cleanup, one link longer than expected.** Clearing a browser fixture
+that had actually been *paid* took: `gateway_events` → `payment_intents` →
+`ledger_postings` → `ledger_entries` → `rent_charges` → `leases` → `units` →
+`properties`. Two traps. `payment_intents.rent_charge_id` is `ON DELETE SET
+NULL`, so deleting the charge first does not block — it silently orphans the
+intent, which then blocks the ledger entry with no visible connection back to
+what caused it. And `payment_intents` also references `unit_id`, so that same
+orphan blocks the unit and the property several steps later. The suite's own
+cleanup now walks the full chain, with the reasoning written down rather than
+the order alone.
+
+Verified end to end in the browser, not only at the RPC layer: a tenant
+signed in, saw ₦2,400,000 outstanding on their own flat, paid it, and the
+ledger balanced to zero — ₦2,160,000 held for the landlord, ₦240,000
+recognised as fee income at the 10% snapshotted on the demand.
+
+New: `scripts/verify-tenant-rent-payment.mjs` (13 checks).
+
+## A reference nobody could search by
+
+Every acknowledgement a reporter receives names their request by `shortRef()`
+— the first eight hex characters of the id, uppercased ("C1AF0AF7"). It is
+the string a tenant quotes when they ring up. The requests list filtered on
+summary, message text, property and category, and **not** on that, and did
+not display it on the row either: the one identifier both sides of a
+conversation actually share was the one thing the dashboard could neither
+find nor show.
+
+Two halves to the fix, and the second matters more than it looks.
+
+📌 **Show it.** A list that cannot be matched by eye against a WhatsApp
+message is a list you have to search blind. The reference now sits at the
+front of each row's metadata line.
+
+⚠️ **Search the table, not the page.** The requests list loads the 200 most
+recent tickets and narrows them in the browser. A reference older than that
+window matches nothing locally — and the screen would then say *"No matching
+requests"*, which does not read as "not in this page", it reads as **"no such
+request"**. To someone holding a real reference from a months-old thread that
+is a confident wrong answer, and the kind that ends with a person being told
+their request was never logged. So when the query looks like a reference and
+the loaded page has nothing, `find_tickets_by_reference()` (`0111`) asks the
+database, which searches everything. The result is shown separately, labelled
+"found outside the most recent N", so the status counts keep describing
+exactly what they describe.
+
+⚠️ **A reference is a prefix, and a short one — so the lookup had to be
+proved, not assumed.** Four hex characters is 65,536 possibilities: trivially
+enumerable by anyone who wants to. A lookup taking a prefix is therefore only
+safe if RLS scopes its answer exactly as the list does. `find_tickets_by_
+reference` is deliberately **SECURITY INVOKER** (the default, and the whole
+point) rather than definer, so `tickets_select` applies in full — it makes an
+existing row *findable*, never a new one *visible*. The suite leads with that
+rather than with correctness: an unrelated tenant quoting a valid reference
+gets nothing, **and** cannot see the ticket by the ordinary route either, so
+the two answers agree and the lookup is provably not a second, looser door.
+Below four characters it returns nothing at all, ordinary words return
+nothing, and it is bounded at 20 rows — a stray keystroke is not a query for
+the whole table.
+
+Verified in the browser across every spelling a person actually uses:
+lowercase, `#`-prefixed, padded with spaces, a four-character prefix, and a
+pasted full UUID with its dashes — all find the same request, and ordinary
+text search still behaves as before.
+
+New: `scripts/verify-ticket-reference-search.mjs` (15 checks).
