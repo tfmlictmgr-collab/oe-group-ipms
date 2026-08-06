@@ -23,6 +23,7 @@ export type HostOrg = {
   theme_accent: string | null;
   theme_logo_text: string | null;
   delivery_brand: string;
+  is_platform_operator: boolean;
 };
 
 /** Cache tag for every host lookup, busted whenever a domain is bound or freed. */
