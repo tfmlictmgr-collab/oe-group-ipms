@@ -193,3 +193,32 @@ This is a real gap traced through the code, not demonstrated by an actual write 
 ## Not independently re-verified (time budget)
 
 `scripts/verify-fx-collections.mjs` and `scripts/verify-vendor-evaluation.mjs` were read for what they assert (both informed the findings above) but not executed (read-only brief; local env may hit the dev DB). The full accessibility-audit portion of `ed042b4` ("an accessibility audit that found real failures") was not re-derived from scratch — it is UI/a11y, not an auth or money-path surface, and out of this pass's priority order. `AnalyticsCharts.tsx`/`Charts.tsx` visual/data-viz correctness (chart type choice, axis scaling, color contrast) was taken on the commit message's own validator numbers rather than independently recomputed — those are presentation-correctness claims, not access-control ones.
+
+---
+
+## PC1 response — actioned 2026-08-05
+
+Both HIGHs fixed (`0107_media_and_scoring_fixes.sql` + the touched app files), each proven closed by a regression test that fails against the pre-fix state and passes against the fix — not asserted from reading the SQL.
+
+| # | Status | What was done |
+|---|--------|---------------|
+| **H1** | **Fixed** (`0107`) | The storage `SELECT` policy on `work-order-media` no longer checks org membership alone — it now asks `exists (select 1 from ticket_attachments ta where ta.storage_path = storage.objects.name)`, the same "ask the one question, let the existing policy answer it" principle 0106 already used for the table itself: `ticket_attachments_select` inherits `tickets_select` in full, and this inherits `ticket_attachments_select` in turn. Proven with a real regression test, not just a read of the new SQL: the OLD policy was reapplied via a direct `pg` connection, `verify-work-order-media.mjs` section I was run against it and **failed all three read assertions** (an unrelated tenant signed the object, listed the folder, and an orphaned object with no index row was signable) — the exact leak the audit demonstrated, reproduced. The fix was then restored and the same section passes clean. The storage `DELETE` policy had the identical shape of gap, found while fixing H1 rather than in the audit itself — `owner = auth.uid()` alone let an uploader delete the raw object after their ticket resolved, even though the row's own delete policy already refuses by then, leaving a `ticket_attachments` row that is real, undeletable, and points at nothing. Factored into one `ticket_attachment_deletable()` function called from both the table policy and the storage policy, rather than duplicating "uploaded_by = caller AND ticket still open" inline in two places — proven the same way (section J). |
+| **C2** | **Fixed**, same commit as H1 | `getMediaUrl()` now takes the attachment's **id**, never a caller-supplied storage path — it looks the row up under `ticket_attachments_select` first and signs only the path that row itself carries. A caller who cannot see the row gets a clean refusal before Storage is ever asked. Belt-and-suspenders with the H1 storage-policy fix rather than a substitute for it: even without the storage-layer fix, this action alone could no longer be asked to sign an arbitrary path. |
+| **C3** | **Fixed**, same commit | `removeAttachment()`'s storage-removal error is now logged (`console.error`) instead of discarded — the row is still the authority on success (it is gone either way), but a stranded object no longer fails silently. |
+| **H2** | **Fixed** (`0107` + `payments/[id]/actions.ts`) | `runPerformanceCheck` and `bi_vendor_scores` both now read `vendor_evaluation_tickets`, never the raw `vendor_evaluations.composite_score` generated column. Proven with the audit's own worked numbers, not a different example: new suite `verify-vendor-score-consumers.mjs` writes a genuinely perfect job's two real rows, confirms they generate the exact **20 and 80** the audit predicted, confirms the OLD query's own math (`averageComposite()`, the real function, not a reimplementation) produces **50** from those rows, then confirms the NEW query produces **100** — the correct figure. A half-submitted pair contributes nothing to the average (not a corrupted partial number, confirmed via `averageComposite([100, null]) === 100`), `bi_vendor_scores` reports the same correct figure and is unpolluted by an unpaired row on the same vendor, and a vendor with only unpaired evaluations produces no row at all rather than a misleading zero. |
+
+### One thing the fix surfaced, not asked for
+
+Writing the H1/H2 regression tests needed real objects in `work-order-media`
+and a start-of-run sweep that only checked `tickets`/`ticket_attachments` — the
+same class of gap named elsewhere in this window (a run that dies before its
+own cleanup leaves debris a later run can't see). `verify-work-order-media.mjs`'s
+sweep now also lists and removes stray `PROBEMEDIA-`-prefixed objects, not just
+rows.
+
+### Not yet actioned in this pass
+
+M1 (Telegram `update_id` dedup key not scoped per org), M2 (favicon route /
+`logo_url` open-redirect surface), and L1 (`retire_evaluation_criterion` has no
+audit trail) were not in scope for this pass — the brief was the two HIGHs.
+Recorded here so they are not mistaken for closed.

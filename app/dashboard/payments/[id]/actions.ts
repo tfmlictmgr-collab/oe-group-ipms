@@ -59,8 +59,21 @@ export async function runPerformanceCheck(paymentId: string): Promise<ActionResu
     .single();
   const threshold = Number(settings?.min_performance_score ?? 70);
 
+  // ⚠️ vendor_evaluation_tickets, never the raw vendor_evaluations table
+  // (audit 0805-H2). Since 0104, a completed job writes TWO half-populated
+  // rows (fm_pm: quality/response/completion/compliance; tenant:
+  // satisfaction only) — vendor_evaluations.composite_score is a generated
+  // column written for the old one-row-with-everything model, and COALESCEs
+  // whichever half a given row doesn't carry to zero. Averaging that raw
+  // column here would gate real money on a number that structurally
+  // undercounts every dual-source pair: a vendor scored perfectly on both
+  // halves would still average out to well under most thresholds. The view
+  // populates composite_score ONLY once both halves of a pair exist, at the
+  // real AURA weights — averageComposite() already discards the nulls for
+  // any job still awaiting its other half, which is exactly right: a pending
+  // half must contribute nothing to this gate, not a corrupted number.
   const { data: evals } = await supabase
-    .from("vendor_evaluations")
+    .from("vendor_evaluation_tickets")
     .select("composite_score")
     .eq("vendor_id", payment.vendor_id);
   const avg = averageComposite(evals ?? []);

@@ -3016,3 +3016,103 @@ while leaving them in the tab order, and neither carried a name: a screen
 reader would announce "file upload button" and nothing else. Both given
 `aria-label`s, and the identical pre-existing gap in `LogoUpload` fixed with
 them.
+
+## Audit 0805 — the leak the design's own header warned about, one layer down
+
+PC2's `build-auditor` + `/code-review` pass on the 0805 window (Flutterwave,
+work-order media, dual-source evaluation, chat dedup, Day 11 UX) came back
+with two HIGHs. Both real, both fixed the same day, both proven closed with a
+test that fails against the pre-fix state and passes against the fix — not
+asserted from reading the diff.
+
+⚠️ **H1 — the exact leak 0106's own header comment warns about, but one layer
+down.** The migration states the design principle in its first twenty lines:
+"Visibility FOLLOWS THE TICKET. It is not re-derived," and the TABLE policy
+(`ticket_attachments_select`) implements that correctly, via an `exists` over
+`tickets` that Postgres evaluates as the caller — so `tickets_select` applies
+in full, automatically, forever. The STORAGE policy for the same bucket never
+got the same treatment. It re-derived a materially broader rule — org
+membership alone — which meant any authenticated member of the org could sign
+a URL for, or list, any OTHER ticket's photos directly through Supabase
+Storage, entirely outside the table policy that was built to prevent exactly
+that. `getMediaUrl()` compounded it: it took a caller-supplied storage path
+with no DB check at all, reasoning that "the row they got the path from was
+itself gated by the ticket" — true only if a path could never be obtained any
+other way, which the org-only storage policy did not guarantee.
+
+Both fixed by asking the storage layer the same one question the table layer
+already asks: does an `ticket_attachments` row exist at this exact path? That
+single `exists` inherits `ticket_attachments_select`, which inherits
+`tickets_select` — the same "one resolver, extended" principle 0106 used for
+the table, applied one layer down rather than reinvented. `getMediaUrl()` now
+resolves by attachment **id**, looks the row up under RLS first, and signs
+only the path that row itself carries — belt-and-suspenders with the storage
+fix, not a substitute for it.
+
+**Proven, not asserted.** The pre-fix policy was reapplied via a direct `pg`
+connection (the `verify-remittance-race` pattern), the new suite section run
+against it, and it failed all three assertions exactly as the audit
+described: an unrelated tenant signed the object, listed the folder, and an
+orphaned object with no index row was signable by anyone including its own
+uploader. The fix was restored and the same section passes clean. This is the
+same discipline S1's remittance-lock fix used in the previous audit — a test
+is only worth trusting once it has been watched to fail.
+
+📌 **A second, related gap found while fixing the first, not in the audit
+itself.** The storage DELETE policy used Storage's own automatic
+`owner = auth.uid()` attribution, with no check that the job was still open —
+so the underlying object could be deleted by its uploader even after the
+ticket resolved, even though the table's own delete policy already refuses by
+then (the evidence may already have been weighed in a vendor evaluation or a
+payment). A row that cannot be deleted but whose file CAN be is a worse
+failure than a stray file: it is a stale reference that claims evidence
+exists when it does not. Fixed by factoring "uploaded_by = caller AND ticket
+still open" into one `ticket_attachment_deletable()` function, called from
+both the table's delete policy and the storage delete policy — a nested
+`SELECT` inside an RLS policy always applies the referenced table's SELECT
+policy, never its DELETE policy, so the storage policy could not simply
+borrow the table's own rule by querying through it; one function, called from
+both, is the only way to avoid the same predicate drifting apart in two
+places.
+
+⚠️ **H2 — a generated column written for a model 0104 replaced, still being
+read by the two things it was supposed to feed.** `vendor_evaluations.
+composite_score` is `generated always as (...) stored`, unchanged since 0001,
+written for one row with all five dimensions filled in at once. 0104's
+dual-source design instead writes two half-populated rows per ticket, and the
+generated column COALESCEs whichever half a given row doesn't carry to zero —
+so an FM/PM row with a perfect 100 on all four of its own dimensions
+generates `composite_score = 80`, and a tenant row with perfect satisfaction
+generates 20. `vendor_evaluation_tickets` (0104) already computes the correct
+combined figure, populated only once both halves exist, and the vendor's own
+scorecard page already reads it correctly. The payment gate itself
+(`runPerformanceCheck`) and the executive BI figure (`bi_vendor_scores`) did
+not — both averaged the raw column directly, meaning a vendor with only
+new-style evaluations could have genuinely excellent work auto-rejected by a
+KPI gate reading data the new schema never intended it to read.
+
+Fixed by repointing both at `vendor_evaluation_tickets`. Proven with the
+audit's own worked numbers, not a different example: a new suite writes a
+genuinely perfect job's two real rows, confirms they generate exactly the 20
+and 80 the audit predicted, confirms the OLD query's real function
+(`averageComposite()`, imported, not reimplemented) produces 50 from those
+rows, and confirms the NEW query produces 100. A still-pending half of a pair
+contributes nothing to the average — `averageComposite([100, null]) === 100`,
+not a number dragged toward the missing half's implicit zero.
+
+New: `scripts/verify-vendor-score-consumers.mjs` (10 checks) — the H2 fix,
+proven with the audit's exact numbers. `scripts/verify-work-order-media.mjs`
+gained sections I and J (H1's storage-layer fix, proven both ways) and now
+also sweeps stray storage objects at start-of-run, not just stray rows — the
+same "a run that dies before its own cleanup leaves debris a later run can't
+see" lesson, found again because writing a storage-layer test needed real
+objects in the bucket for the first time.
+
+**Not yet actioned:** M1 (Telegram's `update_id` dedup key isn't scoped per
+org — two different orgs' bots can collide on the same small sequential
+integer, silently dropping a real message as a false "already handled"), M2
+(the new favicon route turns `orgs.logo_url` — writable by any admin with no
+DB-level format check — into a public, unauthenticated redirect surface), and
+L1 (`retire_evaluation_criterion` fires no audit trigger). Recorded in
+`BUILD_AUDIT_0805.md`'s PC1-response table so they are not mistaken for
+closed; out of scope for this pass, which was scoped to the two HIGHs.

@@ -61,14 +61,32 @@ export async function recordAttachment(input: {
 }
 
 /**
- * A short-lived link to a private attachment. The storage policy already
- * gates this to the caller's own org, and the row they got the path from was
- * itself gated by the ticket — a signed URL is a convenience for the browser,
- * not the security boundary. Five minutes is enough to open or play it.
+ * A short-lived link to a private attachment.
+ *
+ * ⚠️ Takes the ATTACHMENT'S ID, never a caller-supplied storage path (audit
+ * 0805-H1/C2). A path string is not something the server can trust just
+ * because it looks right — nothing stopped a caller from constructing any
+ * `{orgId}/{ticketId}/{file}` path for an org they belong to and asking to
+ * sign it, which is a real, low-effort cross-ticket leak: this action used to
+ * be the ONLY thing between "authenticated in the org" and "can read any
+ * other ticket's photos," because the storage policy of the time didn't check
+ * the ticket either. The storage policy is now ticket-scoped too (0107), but
+ * this lookup stands on its own regardless — the row is fetched by id under
+ * `ticket_attachments_select`, which already answers "can this caller see
+ * it," and only ITS OWN storage_path is ever signed. A caller who cannot see
+ * the row gets a clean refusal, never a chance to guess a path.
  */
-export async function getMediaUrl(storagePath: string): Promise<ActionResult<{ url: string }>> {
+export async function getMediaUrl(attachmentId: string): Promise<ActionResult<{ url: string }>> {
   const supabase = await createClient();
-  const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(storagePath, 300);
+
+  const { data: row } = await supabase
+    .from("ticket_attachments")
+    .select("storage_path")
+    .eq("id", attachmentId)
+    .maybeSingle();
+  if (!row) return fail("That file could not be found.");
+
+  const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(row.storage_path, 300);
   if (error) return failFromDb(error, "open that file");
   if (!data) return fail("Could not open that file.");
   return ok({ url: data.signedUrl });
@@ -109,7 +127,15 @@ export async function removeAttachment(
     );
   }
 
-  await supabase.storage.from(BUCKET).remove([row.storage_path]);
+  // The index row is gone either way by this point — that's the state that
+  // matters for RLS and for the evidence record. But silently swallowing a
+  // failure here (audit 0805-C3) reports success while the file may still be
+  // sitting in the bucket, the exact "stranded object" outcome
+  // `recordAttachment()`'s own cleanup exists to prevent on the write side.
+  const { error: rmErr } = await supabase.storage.from(BUCKET).remove([row.storage_path]);
+  if (rmErr) {
+    console.error("Attachment row deleted but storage object remains:", row.storage_path, rmErr.message);
+  }
   revalidatePath(`/dashboard/tickets/${ticketId}`);
   return ok();
 }

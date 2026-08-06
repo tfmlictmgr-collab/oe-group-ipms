@@ -112,9 +112,12 @@ export default function TicketMedia({
     for (const file of Array.from(list)) await uploadOne(file);
   }
 
-  async function open(path: string) {
+  // By attachment id, not its storage path (audit 0805-H1/C2) — the server
+  // action resolves the path itself, through the row's own RLS, rather than
+  // being asked to sign whatever path the browser hands it.
+  async function open(attachmentId: string) {
     try {
-      const { url } = await runAction(getMediaUrl(path));
+      const { url } = await runAction(getMediaUrl(attachmentId));
       window.open(url, "_blank", "noopener,noreferrer");
     } catch (e) {
       toast.error(messageOf(e, "Could not open that file."));
@@ -157,7 +160,7 @@ export default function TicketMedia({
               <li key={a.id} className="group relative">
                 <button
                   type="button"
-                  onClick={() => open(a.storage_path)}
+                  onClick={() => open(a.id)}
                   className="block w-full overflow-hidden rounded-lg border border-border bg-muted/40 focus-visible:outline-none"
                   aria-label={`Open ${a.file_name}`}
                 >

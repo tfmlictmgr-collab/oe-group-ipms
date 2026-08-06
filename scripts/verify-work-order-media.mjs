@@ -41,13 +41,27 @@ const MARK = "PROBEMEDIA";
 const stamp = Date.now().toString(36).toUpperCase().slice(-5);
 
 // Start-of-run sweep. End-of-run cleanup cannot fix a run that died before
-// reaching it — the standing lesson from probe-cleanup.mjs.
+// reaching it — the standing lesson from probe-cleanup.mjs. Storage objects
+// too, since sections I/J (added for audit 0805-H1) upload real bytes that a
+// crashed prior run would leave behind — a stray file in a private evidence
+// bucket outlives the ticket row that would otherwise have hinted at it.
 {
   const { data: strays } = await svc.from("tickets").select("id").like("message_text", `${MARK}%`);
   if (strays?.length) {
     await svc.from("ticket_attachments").delete().in("ticket_id", strays.map((s) => s.id));
     await svc.from("tickets").delete().in("id", strays.map((s) => s.id));
     console.log(`(swept ${strays.length} ticket(s) left by an earlier run)`);
+  }
+  const { data: pocForSweep } = await svc.from("orgs").select("id").eq("slug", "oe-group-foundation-poc").single();
+  const { data: strayFolders } = await svc.storage.from("work-order-media").list(pocForSweep.id);
+  const strayTicketDirs = (strayFolders ?? []).filter((f) => !f.id).map((f) => f.name);
+  for (const dir of strayTicketDirs) {
+    const { data: files } = await svc.storage.from("work-order-media").list(`${pocForSweep.id}/${dir}`);
+    const strayFiles = (files ?? []).filter((f) => f.name.startsWith(`${MARK}-`)).map((f) => `${pocForSweep.id}/${dir}/${f.name}`);
+    if (strayFiles.length) {
+      await svc.storage.from("work-order-media").remove(strayFiles);
+      console.log(`(swept ${strayFiles.length} stray object(s) under ${dir})`);
+    }
   }
 }
 
@@ -61,6 +75,9 @@ const { data: others } = await svc.from("users").select("id, email")
 const otherTenant = others?.[0] ?? null;
 
 const made = [];
+// Real storage objects uploaded in sections I/J — not FK-linked to `tickets`,
+// so deleting the ticket rows below does not remove these on its own.
+const madeObjects = [];
 async function makeTicket(status = "open", extra = {}) {
   const { data, error } = await svc.from("tickets").insert({
     org_id: poc.id, channel: "portal", sender_id: tenant.id,
@@ -305,7 +322,105 @@ console.log("\nH. Every attachment is on the audit trail");
     : bad("AN ATTACHMENT WAS ADDED WITH NO AUDIT RECORD");
 }
 
+// A tiny real JPEG-shaped buffer — small enough to upload instantly, real
+// enough for storage.objects to hold and serve. Content correctness is not
+// the point; existence at a real path is, since sections I/J exercise the
+// BYTES layer, not the index row.
+const TINY_FILE = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
+
+console.log("\nI. Audit 0805-H1 — the storage OBJECT is scoped to the ticket, not just the org");
+console.log("   (the fix, and the exact leak it closes: before it, any authenticated org");
+console.log("   member could sign or list ANY other ticket's evidence directly via Storage)");
+{
+  const ticketId = await makeTicket();
+  const objectPath = `${poc.id}/${ticketId}/${MARK}-${stamp}-storage.jpg`;
+
+  const { error: upErr } = await svc.storage.from("work-order-media")
+    .upload(objectPath, TINY_FILE, { contentType: "image/jpeg" });
+  if (upErr) throw new Error(`fixture upload: ${upErr.message}`);
+  madeObjects.push(objectPath);
+
+  const attId = await attach(ticketId, tenant.id, "-storage");
+  // Re-point the fixture's index row at the REAL object path (attach() mints
+  // its own path by convention; this test needs the row and the object to
+  // agree, since the whole point is that the policy joins on storage_path).
+  await svc.from("ticket_attachments").update({ storage_path: objectPath }).eq("id", attId);
+
+  const c = await login(tenant.email);
+  const { data: signedForOwner, error: ownerErr } = await c.storage
+    .from("work-order-media").createSignedUrl(objectPath, 60);
+  signedForOwner && !ownerErr
+    ? ok("the ticket's own sender can sign the object directly")
+    : bad(`the sender could not sign their own evidence: ${ownerErr?.message}`);
+  await c.auth.signOut();
+
+  if (otherTenant) {
+    const o = await login(otherTenant.email);
+
+    const { data: signedForOther, error: otherSignErr } = await o.storage
+      .from("work-order-media").createSignedUrl(objectPath, 60);
+    (!signedForOther && otherSignErr) || (signedForOther && !signedForOther.signedUrl)
+      ? ok("an unrelated same-org tenant CANNOT sign the object — the H1 leak is closed")
+      : bad("!!! H1 REGRESSION — an unrelated tenant signed another ticket's evidence directly");
+
+    const { data: listing } = await o.storage.from("work-order-media").list(`${poc.id}/${ticketId}`);
+    (listing ?? []).length === 0
+      ? ok("and cannot list the ticket's evidence folder either")
+      : bad(`!!! an unrelated tenant listed ${listing.length} file(s) in another ticket's folder`);
+
+    await o.auth.signOut();
+  } else {
+    console.log("  (skipped — no second tenant on this org to test the leak with)");
+  }
+
+  // The row is the authority; an object with no row pointing at it (upload
+  // succeeded, recordAttachment() never ran or was refused) must be unreadable
+  // to EVERYONE, including the person who uploaded it under their own session
+  // — the whole reason recordAttachment() removes an orphaned object on
+  // refusal rather than leaving it recoverable.
+  const orphanPath = `${poc.id}/${ticketId}/${MARK}-${stamp}-orphan.jpg`;
+  await svc.storage.from("work-order-media").upload(orphanPath, TINY_FILE, { contentType: "image/jpeg" });
+  const c2 = await login(tenant.email);
+  const { data: orphanSigned } = await c2.storage.from("work-order-media").createSignedUrl(orphanPath, 60);
+  !orphanSigned?.signedUrl
+    ? ok("an object with no ticket_attachments row is unreadable, even to its own uploader")
+    : bad("!!! AN ORPHANED OBJECT (no index row) WAS SIGNED — the policy is keying off the wrong thing");
+  await c2.auth.signOut();
+  await svc.storage.from("work-order-media").remove([orphanPath]);
+}
+
+console.log("\nJ. The storage DELETE policy matches the row's own rule, not Storage's default ownership");
+{
+  const ticketId = await makeTicket("open");
+  const objectPath = `${poc.id}/${ticketId}/${MARK}-${stamp}-delete.jpg`;
+  await svc.storage.from("work-order-media").upload(objectPath, TINY_FILE, { contentType: "image/jpeg" });
+  // Deliberately not removed by the tenant in this section — that failing IS
+  // the assertion. Service role cleans it up at the end, same as any other
+  // fixture object.
+  madeObjects.push(objectPath);
+  const attId = await attach(ticketId, tenant.id, "-delete");
+  await svc.from("ticket_attachments").update({ storage_path: objectPath }).eq("id", attId);
+
+  await svc.from("tickets").update({
+    status: "resolved", resolved_at: new Date().toISOString(),
+  }).eq("id", ticketId);
+
+  const c = await login(tenant.email);
+  const { error: delErr } = await c.storage.from("work-order-media").remove([objectPath]);
+  const { data: stillThere } = await svc.storage.from("work-order-media")
+    .list(`${poc.id}/${ticketId}`, { search: objectPath.split("/").pop() });
+
+  (stillThere ?? []).length === 1
+    ? ok("the object survives — its owner cannot delete it once the job is resolved (0107)")
+    : bad("!!! THE STORAGE OBJECT WAS DELETED from a resolved job by its own uploader — the row/object rule now disagree");
+}
+
 // ── Cleanup ────────────────────────────────────────────────────────────────
+// Storage objects first — they are not FK-linked to `tickets`, so deleting
+// the ticket rows below would otherwise leave them stranded, the exact
+// "a run that died before reaching cleanup leaves debris behind" class this
+// suite's own start-of-run sweep exists to catch on the NEXT run.
+if (madeObjects.length) await svc.storage.from("work-order-media").remove(madeObjects);
 await svc.from("ticket_attachments").delete().in("ticket_id", made);
 await svc.from("tickets").delete().in("id", made);
 console.log("\n(cleaned up)");
