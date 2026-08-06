@@ -54,14 +54,22 @@ export async function createBudget(input: BudgetInput): Promise<ActionResult<{ i
   }
 
   // One budget per property per period. Caught here for a readable message; the
-  // real guard is that a second one would silently double-invoice every unit.
-  const { data: clash } = await supabase
+  // real guard is `sc_budgets_one_per_property_period_uidx` (0109), because a
+  // second budget silently double-invoices every unit of the property.
+  //
+  // Compared the same way the index keys it — normalised, not raw — so this
+  // check and the database agree on what "already exists" means. A property
+  // carries a handful of budgets (one per period), so reading them to compare
+  // in-process costs nothing and avoids escaping the caller's text into a
+  // pattern match.
+  const samePeriod = (a: string, b: string) =>
+    a.trim().toLowerCase() === b.trim().toLowerCase();
+
+  const { data: existing } = await supabase
     .from("sc_budgets")
-    .select("id")
-    .eq("property_id", input.propertyId)
-    .eq("period", period)
-    .maybeSingle();
-  if (clash) {
+    .select("id, period")
+    .eq("property_id", input.propertyId);
+  if ((existing ?? []).some((b) => samePeriod(b.period as string, period))) {
     return fail(
       `That property already has a ${period} budget.`,
       "Open the existing one to amend it, or use a different period."
@@ -81,6 +89,19 @@ export async function createBudget(input: BudgetInput): Promise<ActionResult<{ i
     .select("id")
     .single();
 
+  // The race the check above cannot close: two submissions that both read
+  // "no clash" and both insert. One of them now loses at the index (0109).
+  // `failFromDb`'s generic duplicate-key wording ("that create this budget
+  // already exists") would be the one place a user meets this, so it is
+  // answered here with the same sentence the pre-check gives — losing the
+  // race and being second should read identically, because they are the same
+  // fact.
+  if (error?.code === "23505") {
+    return fail(
+      `That property already has a ${period} budget.`,
+      "Open the existing one to amend it, or use a different period."
+    );
+  }
   if (error) return failFromDb(error, "create this budget");
 
   revalidatePath("/dashboard/sc");

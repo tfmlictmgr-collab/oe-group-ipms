@@ -3197,3 +3197,31 @@ inbound records from real numbers — `open`, unassigned, no work against them.
 Deliberately not deleted. They are meaningless but they are also real
 people's messages, and clearing a production queue is the queue owner's call,
 not a cleanup script's.
+
+---
+
+## 2026-08-06 · ⚠️ The demo database was migrated 117 versions forward by accident
+
+Shared by PC2, recorded in full in `docs/INCIDENT_2026-08-06_DEMO_DB_MIGRATED.md`:
+`.env.local` on PC2 had `SUPABASE_DB_*` and `NEXT_PUBLIC_SUPABASE_URL` pointing
+at **two different Supabase projects**, and nothing had ever compared them. A
+routine `npm run migrate` therefore applied `0011`–`0109` to the **frozen POC
+demo** database — which had sat at `0010` since 24 July — while the dev database
+the app actually serves received nothing.
+
+Demo data is intact and the demo still serves its login page; dev was untouched
+and remains at `0108`. **Not hand-reversed, deliberately:** migrations here are
+forward-only and additive, so unwinding 117 of them produces a third state
+nobody has tested. The clean reversal is a point-in-time restore — an owner
+action, flagged in §4 of the incident doc along with applying `0109` to dev
+(PC2 has no working DB credentials for it, which is the bug itself).
+
+⚖️ **The runner now refuses to migrate when the two halves of the environment
+name different projects** (`scripts/migrate.mjs`), before it opens a connection.
+Both failure directions were previously silent: migrating the wrong database
+looks exactly like a successful catch-up, and a fix you just wrote appears
+applied when it is not.
+
+📌 Found while fixing audit 0805-C1 — the `sc_budgets` duplicate-period race.
+That fix (`0109` + the action's own 23505 path + a 13-check suite) is written and
+correct; it is simply not applied to dev yet.

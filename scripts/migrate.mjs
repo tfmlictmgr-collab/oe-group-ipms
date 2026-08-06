@@ -51,6 +51,56 @@ const files = readdirSync(migrationsDir)
   }
 }
 
+// ── The two halves of .env.local must describe the SAME Supabase project ────
+//
+// This runner connects with SUPABASE_DB_*. Everything else in the codebase —
+// the app itself, every verify-*.mjs suite — connects with
+// NEXT_PUBLIC_SUPABASE_URL. Nothing ever compared them, and on 6 Aug 2026 they
+// silently disagreed on PC2: the REST half pointed at the Phase-1 dev project,
+// the SUPABASE_DB_* half at the frozen POC demo project. A routine
+// `npm run migrate` therefore applied 117 migrations (0011–0109) to the demo
+// database, which had deliberately sat at 0010 since 24 July, while the
+// database the app actually uses received nothing.
+//
+// Both failure directions are silent and neither is obvious from the output:
+// migrating the wrong database looks exactly like a successful catch-up, and
+// the fix you just wrote appears to have been applied when it has not.
+//
+// So: derive the project ref from each half and refuse to run when they
+// disagree. A direct connection carries it as `db.<ref>.supabase.co`; a pooled
+// one carries it in the username as `postgres.<ref>`. If either ref cannot be
+// derived (a local Postgres, a self-hosted instance) this says nothing and
+// proceeds — the check exists to catch a mismatch it can actually prove, not
+// to insist on one topology.
+{
+  const restRef = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "")
+    .match(/^https:\/\/([a-z0-9]{20})\.supabase\.co/i)?.[1];
+
+  const dbHost = process.env.SUPABASE_DB_HOST ?? "";
+  const dbUser = process.env.SUPABASE_DB_USER ?? "";
+  const dbRef =
+    dbHost.match(/^db\.([a-z0-9]{20})\.supabase\.co$/i)?.[1] ??
+    dbUser.match(/^postgres\.([a-z0-9]{20})$/i)?.[1];
+
+  if (restRef && dbRef && restRef !== dbRef) {
+    const escape = "ALLOW_MIGRATE_TARGET_MISMATCH";
+    if (process.env[escape] !== "1") {
+      throw new Error(
+        `Refusing to migrate: .env.local points at two different Supabase projects.\n\n` +
+        `  SUPABASE_DB_*            -> ${dbRef}   (this runner would write HERE)\n` +
+        `  NEXT_PUBLIC_SUPABASE_URL -> ${restRef}   (the app and every verify script read HERE)\n\n` +
+        `Migrating ${dbRef} would change a database nothing else in this checkout talks to,\n` +
+        `and would leave ${restRef} — the one the app serves — without these migrations.\n\n` +
+        `Fix .env.local so both halves name the same project, then re-run.\n` +
+        `If the split is genuinely intended, set ${escape}=1 to proceed.`
+      );
+    }
+    console.warn(
+      `WARNING: migrating ${dbRef} while the app reads ${restRef} (${escape}=1 was set).`
+    );
+  }
+}
+
 await client.connect();
 try {
   await client.query(
