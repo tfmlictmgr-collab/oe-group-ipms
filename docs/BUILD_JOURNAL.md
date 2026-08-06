@@ -3348,3 +3348,36 @@ pasted full UUID with its dashes — all find the same request, and ordinary
 text search still behaves as before.
 
 New: `scripts/verify-ticket-reference-search.mjs` (15 checks).
+
+## Record correction — `0112` landed inside an unrelated commit
+
+`0112_operator_org_host_routing.sql`, with `app/page.tsx` and `lib/org-host.ts`,
+was committed in `d32b4b9` — whose message is entirely about the demo-database
+decision and does not mention it. The cause was mine: `git add -A` without
+re-reading `git status` first, sweeping in work that was in the tree but not
+part of what I was committing.
+
+Recorded here rather than fixed by rewriting history, because `phase-1` is
+shared with PC2 and a force-push to relabel one commit costs more than the
+mislabelling does.
+
+**What the change actually is**, since the commit message will not tell anyone:
+`app/page.tsx` redirects a resolved host straight to `/o/<slug>`, which is right
+for every client org and wrong for the platform operator. `/login` is
+deliberately anonymous and names no organisation (B1 — it "reveals nothing about
+who is on the platform"); `/o/<slug>` is a client org's own front door and locks
+sign-in to that org. Routing the operator's own domain through `/o/oe-group`
+would silently trade the anonymous door for the client-facing one. `0112` adds
+`is_platform_operator` to `org_branding_by_host` — one column, no new function,
+no change to how a hostname is bound or resolved — and root checks it first.
+
+⚠️ **The more useful lesson is what the mislabelling hid.** The commit contained
+real code, but the last production deploy had been cut from the commit *before*
+it. So the dev database was serving a function returning a column the deployed
+app did not consume. Additive, so nothing broke — and that is exactly why it
+could have sat there indefinitely. It surfaced only because the labelling was
+questioned and the state got checked properly. **A schema change and the code
+that reads it are one unit; deploying is part of landing it, not a separate
+errand.** Deployed and verified after this was noticed: both brand portals still
+resolve to their own `/o/<slug>` doors, which is the behaviour the operator
+exception must not disturb.
