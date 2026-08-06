@@ -216,9 +216,62 @@ own cleanup leaves debris a later run can't see). `verify-work-order-media.mjs`'
 sweep now also lists and removes stray `PROBEMEDIA-`-prefixed objects, not just
 rows.
 
-### Not yet actioned in this pass
+### M1 / M2 / L1 — actioned 2026-08-06 (`0108`)
 
-M1 (Telegram `update_id` dedup key not scoped per org), M2 (favicon route /
-`logo_url` open-redirect surface), and L1 (`retire_evaluation_criterion` has no
-audit trail) were not in scope for this pass — the brief was the two HIGHs.
-Recorded here so they are not mistaken for closed.
+All three closed, plus a **live production defect found while investigating
+them** that none of the audit's findings had covered.
+
+| # | Status | What was done |
+|---|--------|---------------|
+| **M1** | **Fixed** (`0108`) | `chat_webhook_events_dedupe_uidx` is now `(channel, org_id, event_id)`. `org_id` was already on the table and already populated by both webhook routes before the insert runs — it simply wasn't part of the key. WhatsApp is unaffected (a `wamid` is globally unique on its own); Telegram's small per-bot `update_id` can no longer collide across orgs and silently drop a real message as a false "already handled". Proven both ways: two orgs recording the same `update_id` both succeed, and a true redelivery to the *same* org is still refused. |
+| **M2** | **Fixed** (`0108`) | `orgs.logo_url` now carries a `CHECK` constraint requiring a Supabase Storage `org-logos` URL. The app's own `saveLogoUrl()` already enforced the tighter per-org prefix, but `logo_url` is on the `authenticated` UPDATE allowlist, so a session writing directly against the table bypassed it entirely — and the new favicon route turned that into a public, unauthenticated redirect on a domain the visitor already trusts. Both existing production values were checked against the constraint shape *before* it was added, so this is not a guess at what "valid" looks like. External URLs and `javascript:` are both refused; genuine logos and `NULL` still save. |
+| **L1** | **Fixed** (`0108`) | `audit_evaluation_criteria` now fires on `insert or update`, not insert alone. This is slightly wider than the finding: `edit_evaluation_criterion()` was under-audited in the same way (it inserts the new row — audited — then UPDATEs the old row's `superseded_by`/`active`, which fired nothing). `log_audit()` already handled UPDATE generically since 0014; the trigger just wasn't listening for it. |
+
+### The defect the M1/M2/L1 investigation actually turned up
+
+⚠️ **Any WhatsApp message with no text — a sticker, a voice note, a bare
+photo, a location pin — silently created a blank ticket.** Found live in
+production: three content-less `open` tickets across TFML and OEA. Reproduced
+deterministically before changing anything (a sticker payload → a ticket with
+`message_text: ""`, `category: "general"`, `requires_human_review: true`).
+
+`classifyMessage("")` doesn't fail — it guesses. So a message carrying no
+words at all became a ticket that says nothing about what is wrong or where:
+unactionable for staff, and the sender is never told why nothing happened.
+
+**This was NOT a cross-org leak, and that was checked specifically rather
+than assumed.** The two same-sender tickets in different orgs came from two
+genuinely different `wamid`s, five minutes apart, each correctly routed to
+its own org — one real person messaging both brands' numbers, hitting the
+same bug twice. B1 isolation held throughout. Worth stating plainly because
+the surface symptom ("the same blank message appeared in both orgs") looks
+exactly like the far more serious thing it wasn't.
+
+Fixed at the shared layer (`handle-inbound.ts`), so both channels answer the
+same way: an empty message now gets a gentle, specific reply asking what
+needs attention — media-aware ("I can see you've attached something, but I'll
+need a few words…") — and creates no ticket. WhatsApp captions on
+image/video/document are extracted properly and still raise real tickets;
+reactions (a tapped 👍 on a past message) are dropped entirely rather than
+answered.
+
+**And the classifier now actually classifies a first contact.** Only exact
+matches in a six-item hardcoded list (`hi`, `hello`, `hey`, `/start`,
+`/help`, `/menu`) were treated as greetings; everything else fell straight
+through to "new request" with no model call at all. "Good afternoon", "you
+there?", "test" — all became tickets. A first message with no open thread now
+gets a real classification pass asking the one question that applies: is this
+describing something, or is it noise. Deliberately biased toward *request* on
+any doubt — brushing off a real problem as small talk is far worse than a
+slightly premature ticket, and section E of the new suite asserts both
+directions.
+
+New: `scripts/verify-intake-intelligence.mjs` (13 checks) covering all of the
+above.
+
+**Left for OE Group to action:** the three blank tickets already in
+production (`5f1b7184`, `8f1cf290` in TFML; `0e27e31b` in OEA) are real
+inbound records from real numbers. All three are `open`, unassigned, with no
+work against them. They are harmless but meaningless, and deliberately **not**
+deleted here — they are production records from real people, and that is a
+call for whoever owns the queue, not a cleanup script.

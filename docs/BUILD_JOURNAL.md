@@ -3116,3 +3116,84 @@ DB-level format check — into a public, unauthenticated redirect surface), and
 L1 (`retire_evaluation_criterion` fires no audit trigger). Recorded in
 `BUILD_AUDIT_0805.md`'s PC1-response table so they are not mistaken for
 closed; out of scope for this pass, which was scoped to the two HIGHs.
+*(All three closed the next day — see below.)*
+
+## Silence is not a request: what fixing M1/M2/L1 actually turned up
+
+The brief was the three remaining audit findings. What the investigation
+found first was a live production defect none of them described — reported by
+the user as "a blank message duplicating to the other org", which is a
+description of something far more serious than what was actually happening,
+and worth writing down for exactly that reason.
+
+⚠️ **Check the frightening interpretation before fixing the mundane one.**
+The symptom — the same blank message appearing in both TFML and OEA — reads
+as a cross-org leak, which would be a B1 violation and the most serious class
+of defect this system can have. It wasn't. The two tickets came from two
+genuinely different `wamid`s five minutes apart, each correctly routed to its
+own org: one real person messaging both brands' numbers and hitting the same
+bug twice. **B1 held.** That was established by pulling the actual
+`chat_webhook_events` rows and comparing message ids, before touching any
+code — because "probably not a leak" is not something to assume about the one
+invariant the whole multi-tenant design rests on.
+
+⚠️ **The real defect: `classifyMessage("")` doesn't fail, it guesses.** Any
+WhatsApp message carrying no text — a sticker, a voice note, a bare photo, a
+location pin — arrived with `messageText: ""` and was classified and inserted
+exactly like prose. The classifier duly returned `category: "general"`,
+`requires_human_review: true`, and a ticket was created that says nothing
+about what is wrong or where. Unactionable for staff; and the sender is never
+told why nothing happened. Three such tickets were sitting in production.
+Reproduced deterministically (a sticker payload → a content-less row) before
+changing anything, so the fix was aimed at a confirmed cause rather than a
+plausible one.
+
+Fixed at the shared layer (`handle-inbound.ts`) rather than in either
+webhook, so both channels answer identically: an empty message now gets a
+specific, media-aware reply — "I can see you've attached something, but I'll
+need a few words describing what it's about" — and creates no ticket. The
+two channels had *different* wrong behaviours here (WhatsApp created the
+blank ticket; Telegram silently dropped the message and said nothing at all),
+which is exactly the drift the file's own header warns about: two copies of a
+routing rule is two chances for one to go wrong. Now there is one answer.
+
+📌 **The classifier wasn't classifying first contacts at all.** A greeting was
+recognised only by exact match against a six-item list (`hi`, `hello`, `hey`,
+`/start`, `/help`, `/menu`). Everything else with no open thread fell straight
+through to "new request" — **with no model call whatsoever**. "Good
+afternoon", "you there?", "test", a stray "?" all became tickets. The
+five-way router prompt that already existed assumes an open thread and asks
+which of five things a reply is doing; none of that applies to a first
+message, which is why it was never called for one.
+
+So a first contact now gets its own narrow classification pass asking the one
+question that does apply: is this describing something, or is it noise.
+Deliberately biased toward *request* on any ambiguity — the asymmetry matters
+and is stated in the prompt itself: a slightly premature ticket is cheap and
+closeable, whereas telling someone with a real problem that they've sent
+small talk is not. The new suite asserts both directions, because a
+"greeting detector" that also suppresses real requests would be a worse bug
+than the one it replaced.
+
+The three audit findings themselves were straightforward by comparison:
+M1 folded `org_id` into the dedup key (it was already on the table, already
+populated — just not part of the uniqueness constraint); M2 added the
+`CHECK` constraint `logo_url` never had, after verifying both live production
+values already matched the shape; L1 let the existing audit trigger fire on
+`update` as well as `insert`, which also closed a slightly wider gap than the
+finding described — `edit_evaluation_criterion()`'s supersede-the-old-row
+UPDATE was equally unaudited.
+
+New: `scripts/verify-intake-intelligence.mjs` (13 checks) — a sticker and a
+voice note create no ticket while a captioned photo still does; two orgs can
+share a Telegram `update_id` while a true redelivery is still caught; an
+external URL and a `javascript:` scheme are both refused for `logo_url` while
+a real one still saves; retiring a criterion is audited; and a
+non-hardcoded greeting raises nothing while a real problem still raises
+exactly one ticket.
+
+**Left for OE Group:** the three blank tickets already in production are real
+inbound records from real numbers — `open`, unassigned, no work against them.
+Deliberately not deleted. They are meaningless but they are also real
+people's messages, and clearing a production queue is the queue owner's call,
+not a cleanup script's.

@@ -76,18 +76,47 @@ export async function POST(request: NextRequest) {
   const message = payload?.message as
     | {
         text?: string;
+        // A caption IS the sender's own words, exactly like typed text.
+        caption?: string;
         chat?: { id?: number };
         from?: { first_name?: string; username?: string };
+        // Chat-management service events — a member joined/left, a message
+        // was pinned. Nothing here is content from the sender to reply to.
+        new_chat_members?: unknown;
+        left_chat_member?: unknown;
+        pinned_message?: unknown;
+        // Real, sender-originated non-text content. No `.text`, but still
+        // worth a gentle "tell me what this is about" rather than silence —
+        // WhatsApp's equivalent used to silently create a blank ticket for
+        // these; this webhook used to silently drop them instead. Neither
+        // was right; handle-inbound.ts's empty-content guard now answers
+        // both channels the same honest way.
+        photo?: unknown;
+        video?: unknown;
+        voice?: unknown;
+        audio?: unknown;
+        document?: unknown;
+        sticker?: unknown;
+        location?: unknown;
+        contact?: unknown;
       }
     | undefined;
-  if (!message?.text) {
+
+  if (!message) {
+    return new NextResponse("OK", { status: 200 });
+  }
+  if (message.new_chat_members || message.left_chat_member || message.pinned_message) {
     return new NextResponse("OK", { status: 200 });
   }
 
   const chatId = message.chat?.id;
   const firstName = message.from?.first_name;
   const username = message.from?.username;
-  const messageText = message.text;
+  const messageText = message.text ?? message.caption ?? "";
+  const hasMedia = Boolean(
+    message.photo || message.video || message.voice || message.audio ||
+    message.document || message.sticker || message.location || message.contact
+  );
 
   console.log("Incoming Telegram message:", {
     chatId,
@@ -118,6 +147,7 @@ export async function POST(request: NextRequest) {
       senderRef: String(chatId),
       senderName: firstName ?? username ?? null,
       messageText,
+      hasMedia,
     });
     console.log("Handled:", outcome.intent, outcome.ticketId ?? "(no ticket)");
 

@@ -83,11 +83,23 @@ export async function POST(request: NextRequest) {
     return new NextResponse("Bad Request", { status: 400 });
   }
 
+  type WhatsAppMessage = {
+    id?: string;
+    from: string;
+    type?: string;
+    text?: { body?: string };
+    // Each media type carries its OWN optional caption — WhatsApp does not
+    // put it on a shared field. A voice note/sticker never has one.
+    image?: { caption?: string };
+    video?: { caption?: string };
+    document?: { caption?: string };
+  };
+
   const value = (payload as { entry?: { changes?: { value?: Record<string, unknown> }[] }[] })
     ?.entry?.[0]?.changes?.[0]?.value as
     | {
         metadata?: { phone_number_id?: string };
-        messages?: { id?: string; from: string; text?: { body?: string } }[];
+        messages?: WhatsAppMessage[];
         contacts?: { profile?: { name?: string } }[];
       }
     | undefined;
@@ -95,6 +107,14 @@ export async function POST(request: NextRequest) {
   // Status-update payloads (sent/delivered/read receipts) carry `statuses`,
   // not `messages` — ignore them, there's nothing to triage.
   if (!value?.messages) {
+    return new NextResponse("OK", { status: 200 });
+  }
+
+  // A reaction (a tapped emoji on a PAST message, e.g. "👍") is not the
+  // sender saying anything of their own — replying to it with "please
+  // describe your issue" would be answering a message that was never asked.
+  // Dropped before routing, signature/route already verified above.
+  if (value.messages[0]?.type === "reaction") {
     return new NextResponse("OK", { status: 200 });
   }
 
@@ -115,7 +135,17 @@ export async function POST(request: NextRequest) {
 
   const message = value.messages[0];
   const senderWaId = message.from;
-  const messageText = message.text?.body ?? "";
+  // A caption on an image/video/document IS the sender's own words and is
+  // used exactly like typed text. A sticker, a bare photo, a voice note, a
+  // location pin — none of those carry one, and messageText stays "": the
+  // empty-content guard in handle-inbound.ts is what turns that into a
+  // gentle "tell me what's wrong" reply instead of a blank ticket (the
+  // defect this same window found live in production — a sticker/voice-note
+  // class message silently creating a content-less row).
+  const messageText =
+    message.text?.body ?? message.image?.caption ?? message.video?.caption ??
+    message.document?.caption ?? "";
+  const hasMedia = message.type != null && message.type !== "text";
   const senderName = value.contacts?.[0]?.profile?.name ?? null;
 
   // ⚠️ Idempotency. WhatsApp/360dialog redeliver a webhook on any slow or
@@ -169,6 +199,7 @@ export async function POST(request: NextRequest) {
       senderRef: senderWaId,
       senderName,
       messageText,
+      hasMedia,
     });
     console.log("Handled:", outcome.intent, outcome.ticketId ?? "(no ticket)");
 

@@ -76,8 +76,39 @@ export async function handleInboundMessage(opts: {
   senderRef: string;
   senderName: string | null;
   messageText: string;
+  /** True for a sticker, photo, voice note, location pin etc. with no
+   * caption — informs the reply's wording only; nothing here can attach the
+   * media itself, since there is no inbound-media storage pipeline. */
+  hasMedia?: boolean;
 }): Promise<InboundResult> {
-  const { orgId, channel, senderRef, senderName, messageText } = opts;
+  const { orgId, channel, senderRef, senderName, messageText, hasMedia } = opts;
+
+  // ── Nothing to route on at all ────────────────────────────────────────────
+  //
+  // A sticker, a bare photo, a voice note, a location pin, a thumbs-up
+  // reaction that slipped through routing — any of these arrives as an empty
+  // `messageText`, and used to be classified and inserted exactly like real
+  // prose: `classifyMessage("")` guesses "general", `requires_human_review:
+  // true`, and a ticket is created that says nothing about what is wrong or
+  // where. Staff cannot act on it, and the reporter never finds out why
+  // nothing happened — this is what created the blank tickets found live in
+  // both TFML and OEA (two different real senders, two genuinely separate
+  // sends, each correctly routed to its own org — not a cross-org leak, but
+  // the same silent-blank-ticket defect happening twice).
+  //
+  // Checked BEFORE opening a thread or calling the router at all: an empty
+  // message has nothing for either of those to work with, and guessing
+  // "follow-up" or "new request" from nothing is how the blank row got in.
+  if (!messageText.trim()) {
+    const thread = await openThread(orgId, channel, senderRef);
+    return {
+      intent: "empty_content",
+      ticketId: thread?.ticketId ?? null,
+      reply: hasMedia
+        ? "Thanks for sending that — I can see you've attached something, but I'll need a few words describing what it's about so I can log it properly. What's the issue, and where?"
+        : "I didn't catch any details in that. Could you tell me briefly what needs attention, and where?",
+    };
+  }
 
   const thread = await openThread(orgId, channel, senderRef);
   const routed = await routeInboundMessage(messageText, thread);
