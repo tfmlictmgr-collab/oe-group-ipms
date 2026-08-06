@@ -720,6 +720,13 @@ Suite: `verify-rent-demands` (16).
 
 **Day 9 is complete.**
 
+**⚠ Gap found 6 Aug, not yet closed:** everything above is the accounting
+side, reachable only from admin/FM/finance routes. There is still **no
+tenant-facing screen to view or pay a rent charge** — `my_tenancies()` is
+defined but never called from any tenant-reachable page. Full detail and a
+suggested fix: `docs/GAP_2026-08-06_TENANT_RENT_PAYMENT.md`. Do not treat
+"pay rent online" as delivered until this closes.
+
 ---
 
 # TRACK D — Intelligence & experience (Days 10–11)
