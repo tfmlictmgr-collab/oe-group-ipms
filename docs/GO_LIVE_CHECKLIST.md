@@ -22,6 +22,13 @@ deleting it silently.
 
 ---
 
+> **Looking for "what do I do first?" — see `GO_LIVE_RUNWAY.md`.** This
+> document is the reference: every variable, every step, every rollback,
+> organised by who performs it. The runway sequences the same work by lead
+> time, because several items here depend on external parties (bank KYC,
+> legal signatures, Meta/360dialog review) and need starting well before
+> cutover rather than on the day.
+
 ## 1. Who does what — the split
 
 ### Actions only OE Group / the board can take
