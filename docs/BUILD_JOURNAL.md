@@ -4044,3 +4044,94 @@ remittance, remittance-race, ledger, access-matrix, oversight-roles,
 function-grants. Clean production build. `verify-reconciliation` fails on this
 tree **and on HEAD** — Node cannot resolve a `.ts` import from a `.mjs` script,
 the same harness limit as `verify-checkout-e2e`.
+
+---
+
+## All ten roles — the menu stops keeping its own copy of the rules
+
+**Migration 0132 · 7 Aug 2026**
+
+Read `docs/OE_Group_Phase1_Progress.UPDATED.pptx` for the remaining journeys.
+The deck draws **seven** lanes; `user_role` has **ten** values. The three with
+no lane — `executive`, `regional_manager`, `fm_ops_staff` — turned out to be
+exactly the three that had drifted.
+
+### The fourth instance of one defect
+
+📌 Four times in two days an **application array of role names** has been found
+disagreeing with the database it was supposed to describe:
+
+1. the executive locked out of the ledger `oversight_roles()` grants them;
+2. the executive refused an above-threshold approval decision 9 gives them;
+3. the **regional manager** holding *fifteen* capabilities — `properties.write`,
+   `assets.write`, `tickets.assign`, `people.invite`, `vendors.write`,
+   `leases.write`, `units.assign_occupant` among them — and named in **none** of
+   the navigation's arrays, so the product offered them no Properties, no
+   Assets, no Vendors, no Leases and no People;
+4. `fm_ops_staff`, who can be dispatched a job and *can* read it (verified live
+   across every org), with no page to see it on.
+
+Fixing a fourth instance one array at a time would have guaranteed a fifth. So
+**the menu now asks the matrix** (`my_capabilities()`, 0132). Decision 7 made
+privileges an operator-toggled matrix precisely so role names would stop being
+hardcoded — and the menu had kept its own copy anyway. A capability the operator
+grants now appears in that user's navigation without a deployment.
+
+⚠️ What deliberately does **not** come from the matrix: the non-delegable
+controls decision 7 names — payment approval, remittance, ledger, bank
+configuration, audit visibility, admin invitation, permission editing. They have
+no capability row, so they *cannot* be returned, and the app still checks them by
+role. `non_delegable_controls` lists them so that distinction is legible rather
+than remembered, and the suite asserts none of them has become a toggle.
+
+### One correction caught before it shipped
+
+Deriving purely from capabilities would have **removed** Properties and Assets
+from the property owner, who holds neither capability and reaches both tables by
+being a *stakeholder* on the property. A regression introduced by a cleanup is
+the worst kind, so `role === "property_owner"` stays as an explicit clause with
+the reason written next to it.
+
+### Two roles given somewhere to be
+
+- **`/dashboard/my-jobs`** — ops staff. `assignTicket` offers them, RLS lets them
+  read what they are given, `notify_user` tells them it arrived — and the
+  notification link was the only route to it. Same gap the vendor had before
+  `/dashboard/my-work`.
+- **`/dashboard/portfolio`** — the landlord. `landlord_statement()` was written
+  in 0130 and wired to nothing: a report about the owner's money that the owner
+  could not open, committed in the same turn that was closing exactly this kind
+  of gap elsewhere. Worse, Statements branches on staff-vs-not, so an owner was
+  shown the **tenant** view — service charges billed *to* them. An owner is not
+  billed; they are paid.
+
+### The test that had to be rewritten
+
+`verify-role-surface` first held one expected menu per role and failed on
+`finance_approver` reaching Lettings. **The test was wrong, not the product** —
+finance is tier two of the OEA application review, so `applications.review_all`
+puts them there legitimately.
+
+The deeper flaw that exposed: a fixed grid *cannot* be right. The matrix is
+operator-governed and per-org — the POC finance approver holds 8 capabilities,
+OEA's holds 10, deliberately. A test asserting one exact menu would either fail
+on legitimate configuration or force every org to be identical, which is the
+opposite of what decision 7 built. It now asserts **REQUIRED** and **FORBIDDEN**
+per role and leaves everything between them to the operator.
+
+### The deck
+
+`docs/OE_Group_Phase1_Progress.UPDATED.v2.pptx` — four new lanes (H Executive,
+I Regional Manager, J FM Ops Staff, K Viewer), so all ten roles are drawn.
+Written to a **new file**: the original was open in PowerPoint, and an in-place
+write would have left a corrupt deck where a working one was.
+
+Three existing lanes corrected, and one of them **downwards**: Lane E claims
+*"Approve major spend"* as built. No owner can approve a payment —
+`enforce_payment_transition` admits finance, admin and executive only, and B7's
+owner row has no approval cell. Marked *"future · needs a board decision"*,
+because a deck overstating what a board can check is the one error that matters.
+
+New: `scripts/verify-role-surface.mjs`. Access suites green: access-matrix,
+permissions, role-hierarchy, oversight-roles, viewer-access, role-workflows,
+finance-journey. Clean production build.

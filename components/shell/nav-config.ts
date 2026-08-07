@@ -17,6 +17,8 @@ import {
   FileSignature,
   SlidersHorizontal,
   HardHat,
+  Wrench,
+  Landmark,
   type LucideIcon,
 } from "lucide-react";
 
@@ -24,6 +26,10 @@ import {
 // to the client shell, which filters the nav so each role sees only its own
 // destinations.
 export type NavContext = {
+  /**
+   * Operational staff who get the shared requests list as their home screen —
+   * everyone not given a personal one (tenant, vendor, viewer, ops staff).
+   */
   isStaff: boolean;
   isAdmin: boolean;
   /**
@@ -47,13 +53,47 @@ export type NavContext = {
   isTenant: boolean;
   /** A contractor. Gets their own jobs, score and pay status — B7's vendor row. */
   isVendor: boolean;
+  /**
+   * Dispatched internal staff.
+   *
+   * B7 gives them "assigned (RT)" and "own dispatched job cards (RT)" and
+   * nothing else — so they hold no capability in the matrix at all, and this
+   * flag cannot be derived from it. They were the one role with somewhere to be
+   * SENT and nowhere to LOOK: `assignTicket` offers them, RLS lets them read
+   * what they are given, and the navigation had no entry for it.
+   */
+  isOpsStaff: boolean;
+  /**
+   * A landlord.
+   *
+   * Given a portfolio home rather than the shared requests list, because the
+   * Statements screen branches on staff-vs-not and an owner is not staff — so
+   * they were shown the TENANT statement, service charges billed TO them. An
+   * owner is not billed; they are paid.
+   */
+  isOwner: boolean;
   seesBi: boolean;
   /** The `requests` capability of the B7 BI matrix — the analytics console. */
   seesRequestAnalytics: boolean;
   seesAudit: boolean;
-  /** Asset register readers: admin, FM/PM, finance, owners. */
+  /**
+   * ⚠️ The flags below are derived from the OPERATOR-GOVERNED MATRIX
+   * (`my_capabilities()`), not from arrays of role names.
+   *
+   * They used to be arrays here, and the arrays drifted: the regional manager
+   * holds fifteen capabilities — properties.write, assets.write,
+   * tickets.assign, people.invite, vendors.write, leases.write among them — and
+   * was named in none of them, so the product offered them no destination for
+   * any of it. Decision 7 made privileges a matrix so role names would stop
+   * being hardcoded; this is the menu finally honouring that.
+   */
+  seesProperties: boolean;
   seesAssets: boolean;
-  /** Enrolment is an admin / FM-PM responsibility. */
+  seesVendors: boolean;
+  seesLettings: boolean;
+  seesServiceCharges: boolean;
+  /** Vendor payments. Not capability-derived: approval is non-delegable. */
+  seesPayments: boolean;
   canEnroll: boolean;
   /** The client-funds ledger is finance + admin only. */
   seesLedger: boolean;
@@ -108,10 +148,22 @@ export const NAV_GROUPS: NavGroup[] = [
         show: (c) => c.isVendor,
       },
       {
+        label: "My Jobs",
+        href: "/dashboard/my-jobs",
+        icon: Wrench,
+        show: (c) => c.isOpsStaff,
+      },
+      {
+        label: "My Portfolio",
+        href: "/dashboard/portfolio",
+        icon: Landmark,
+        show: (c) => c.isOwner,
+      },
+      {
         label: "Requests",
         href: "/dashboard",
         icon: Inbox,
-        show: (c) => !c.isViewer && !c.isTenant && !c.isVendor,
+        show: (c) => !c.isViewer && !c.isTenant && !c.isVendor && !c.isOpsStaff,
       },
       {
         label: "Analytics",
@@ -136,9 +188,9 @@ export const NAV_GROUPS: NavGroup[] = [
         label: "Properties",
         href: "/dashboard/properties",
         icon: Building,
-        // Everyone operational: RLS decides WHICH properties come back, so an
-        // FM/PM sees the ones they are attached to and nothing else.
-        show: (c) => c.isStaff || c.seesAssets,
+        // RLS decides WHICH properties come back, so an FM/PM and a regional
+        // manager reach the same screen and each sees their own scope.
+        show: (c) => c.seesProperties || c.seesAssets,
       },
       {
         label: "Assets",
@@ -150,21 +202,25 @@ export const NAV_GROUPS: NavGroup[] = [
         label: "Vendors",
         href: "/dashboard/vendors",
         icon: Building2,
-        show: (c) => c.isStaff,
+        show: (c) => c.seesVendors,
       },
       {
         label: "Leases & Rent",
         href: "/dashboard/leases",
         icon: FileSignature,
         // Lettings is OEA-only (B9), and the page itself says so for an org
-        // without the module — shown to operational staff, scoped by RLS.
-        show: (c) => c.isStaff,
+        // without the module — scoped by RLS beyond that.
+        show: (c) => c.seesLettings,
       },
       {
         label: "Service Charges",
         href: "/dashboard/sc",
         icon: ReceiptText,
-        show: (c) => c.isStaff,
+        // ⚠️ Not shown to a regional manager, and that is the point of deriving
+        // this from the matrix: decision 9 gives them everything operational a
+        // FM/PM holds and "nothing financial". They hold no `sc.*` capability,
+        // so this stays hidden without anyone maintaining an exclusion list.
+        show: (c) => c.seesServiceCharges,
       },
       {
         label: "Client Funds",
@@ -176,7 +232,7 @@ export const NAV_GROUPS: NavGroup[] = [
         label: "Payments",
         href: "/dashboard/payments",
         icon: Banknote,
-        show: (c) => c.isStaff,
+        show: (c) => c.seesPayments,
       },
     ],
   },

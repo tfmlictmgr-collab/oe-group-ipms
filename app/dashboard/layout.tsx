@@ -81,20 +81,77 @@ export default async function DashboardLayout({
   // `canEnroll` is enrolment (a write), `isOperator` is governance of OTHER
   // organisations, and remittance is refused in the database itself — an
   // executive may authorise money and may never move it (board, 29 Jul 2026).
+  // ⚠️ What the caller may DO comes from the matrix, not from an array here.
+  //
+  // Three times this session an application array of role names was found
+  // disagreeing with the database: the executive locked out of the ledger they
+  // are granted, the executive refused an approval decision 9 gives them, and
+  // the **regional manager** — holding properties.write, assets.write,
+  // tickets.assign, people.invite, vendors.write, leases.write and nine more —
+  // appearing in none of these lists, so the product offered them no Properties,
+  // Assets, Vendors, Leases or People at all.
+  //
+  // Decision 7 made privileges an operator-toggled matrix so role names would
+  // stop being hardcoded. The menu kept its own copy anyway. It now asks
+  // (`my_capabilities()`, 0132), so a capability the operator grants shows up
+  // without a deployment.
+  const { data: capsRow } = await supabase.rpc("my_capabilities");
+  const caps: string[] = capsRow ?? [];
+  const can = (c: string) => caps.includes(c);
+
   const ctx: NavContext = {
-    isStaff: ["admin", "facility_manager", "finance_approver", "executive"].includes(role),
+    // ⚠️ The NON-DELEGABLE controls stay role checks, and that is deliberate
+    // (decision 7): payment approval, remittance, ledger, bank configuration,
+    // audit visibility, admin invitation and permission editing "stay hardwired
+    // and never appear as toggles" — they are what an auditor checks, not
+    // preferences. `non_delegable_controls` lists them, so this is legible
+    // rather than remembered.
+    seesAudit: ["admin", "finance_approver", "executive"].includes(role),
+    seesLedger: ["admin", "finance_approver", "executive"].includes(role),
     isAdmin: role === "admin",
+
+    // Identity, not privilege — which home screen a person gets.
     isViewer: role === "viewer",
     isTenant: role === "tenant",
     isVendor: role === "vendor",
-    seesAudit: ["admin", "finance_approver", "executive"].includes(role),
+    // Dispatched internal staff. They hold no capability at all by design (B7
+    // gives them "assigned work" and nothing else), so this cannot come from
+    // the matrix — and they were the one role with somewhere to be sent and
+    // nowhere to look.
+    isOpsStaff: role === "fm_ops_staff",
+    isOwner: role === "property_owner",
+
+    // Capability-derived. `properties`/`vendors`/`leases` read as "can act on
+    // them at all"; RLS then decides WHICH — an FM/PM and a regional manager
+    // both reach the same screen and see their own scope.
+    // ⚠️ `|| isOwner` is not an exception being smuggled back in — it is the
+    // one access route the matrix genuinely cannot express. A landlord holds no
+    // property or asset CAPABILITY (they hold `bi.read` and nothing else), and
+    // reaches both tables by being a stakeholder on the property:
+    // `properties_select` admits them, and the asset policy admits
+    // `property_id in current_user_property_ids()`, which for an owner is their
+    // own building. Deriving purely from capabilities would have taken away two
+    // pages that work — a regression introduced by a cleanup, which is the
+    // worst kind.
+    seesProperties: can("properties.write") || can("properties.read_all") || role === "property_owner",
+    seesAssets:
+      can("assets.read") || can("assets.write") || can("assets.import") || role === "property_owner",
+    seesVendors: can("vendors.read") || can("vendors.write"),
+    seesLettings: can("leases.write") || can("applications.review_all") || can("applications.recommend"),
+    seesServiceCharges: can("sc.read_all") || can("sc.manage"),
+    // Vendor payments: FM/PM verifies delivery, finance and oversight decide.
+    // Not capability-derived because approval is non-delegable, and a screen
+    // whose only action is refused is worse than no screen.
+    seesPayments: ["admin", "facility_manager", "finance_approver", "executive"].includes(role),
+    canEnroll: can("people.invite"),
+
     // B7 "Exec / BI dashboard" column — one definition, shared with the pages
     // themselves so the link and the page can never disagree about who may look.
     seesBi: seesBi(role),
     seesRequestAnalytics: biScope(role).requests,
-    seesAssets: ["admin", "facility_manager", "finance_approver", "property_owner", "executive"].includes(role),
-    canEnroll: ["admin", "facility_manager"].includes(role),
-    seesLedger: ["admin", "finance_approver", "executive"].includes(role),
+
+    // Everyone operational who is not given a personal home screen above.
+    isStaff: ["admin", "facility_manager", "finance_approver", "executive", "regional_manager"].includes(role),
     // Administrator of the platform operator org. Asked of the org record
     // rather than inferred from the role, because "admin" means admin of YOUR
     // org — every brand has one, and only one org is the operator.
