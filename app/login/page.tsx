@@ -12,7 +12,13 @@ import SignInPanel from "@/components/auth/sign-in-panel";
 // no operational data of its own to show (0088). A tenant user who arrives here
 // anyway is forwarded to their own dashboard by /orgs, which reveals nothing —
 // they learn only that they are not an operator, which they already knew.
-export default function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ wrong_org?: string }>;
+}) {
+  const { wrong_org } = await searchParams;
+
   return (
     <SignInPanel
       redirectTo="/orgs"
@@ -28,6 +34,11 @@ export default function LoginPage() {
           "One auditable workspace for requests, service charges, vendor performance and payments.",
         owner: "OE Group",
       }}
+      // Mirrors /o/[slug]'s own wrong_org notice (dashboard's cross-org guard
+      // sends the operator's own hostname here instead, 0112). Says only that a
+      // sign-in is needed — the same reason /o/[slug] keeps this generic rather
+      // than naming the org the stale session belonged to.
+      notice={wrong_org ? "Please sign in to continue." : undefined}
     />
   );
 }

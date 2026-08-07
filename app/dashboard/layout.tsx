@@ -45,7 +45,11 @@ export default async function DashboardLayout({
     // Back to the door they knocked on, which will refuse them by name. Not to
     // their OWN portal: this deployment should not tell one client's browser
     // where another client's portal lives.
-    redirect(`/o/${hostOrg.slug}?wrong_org=1`);
+    //
+    // The operator's own hostname is the one exception: its door is /login, not
+    // /o/oe-group (0112) — that generic template is built for a client org's
+    // front door, not the anonymous operator one.
+    redirect(hostOrg.is_platform_operator ? "/login?wrong_org=1" : `/o/${hostOrg.slug}?wrong_org=1`);
   }
   const role = profile?.role ?? "member";
   // Brand-aware: OEA renders facility_manager as "Properties Manager".
