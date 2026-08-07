@@ -18,7 +18,7 @@ export default async function NewAssetPage() {
 
   const supabase = await createClient();
   // All RLS-scoped: the pickers can only offer what the caller may actually use.
-  const [props, units, vendors, users, defs] = await Promise.all([
+  const [props, units, vendors, users, defs, existing] = await Promise.all([
     // Only properties this user may actually create assets on.
     writableProperties(),
     supabase.from("units").select("id, label, property_id").order("label"),
@@ -29,6 +29,14 @@ export default async function NewAssetPage() {
       .select("field_key, label, field_type, options, help_text, required")
       .eq("active", true)
       .order("sort_order"),
+    // Existing assets, for the "Part of" assembly picker (0121). RLS-scoped
+    // like everything else here, and filtered to the chosen property in the
+    // form itself — the trigger refuses a cross-property parent anyway.
+    supabase
+      .from("assets")
+      .select("id, name, asset_tag, property_id")
+      .is("deleted_at", null)
+      .order("name"),
   ]);
 
   return (
@@ -54,6 +62,11 @@ export default async function NewAssetPage() {
           id: u.id, label: u.full_name ?? u.email ?? "User",
         }))}
         customDefs={defs.data ?? []}
+        assets={(existing.data ?? []).map((a) => ({
+          id: a.id,
+          label: a.asset_tag ? `${a.name} (${a.asset_tag})` : a.name,
+          propertyId: a.property_id as string,
+        }))}
       />
     </div>
   );

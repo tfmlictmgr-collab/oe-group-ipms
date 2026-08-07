@@ -46,6 +46,21 @@ export default async function AssetDetailPage({
 
   if (!asset) notFound();
 
+  // The assembly this belongs to, and the components that belong to it (0121).
+  // Both RLS-scoped: a component on a property the caller cannot see simply
+  // does not come back, which is the same answer the register itself gives.
+  const [parentRes, componentsRes] = await Promise.all([
+    asset.parent_asset_id
+      ? supabase.from("assets").select("id, name, asset_tag")
+          .eq("id", asset.parent_asset_id).maybeSingle()
+      : Promise.resolve({ data: null }),
+    supabase.from("assets").select("id, name, asset_tag, status")
+      .eq("parent_asset_id", id).is("deleted_at", null).order("name"),
+  ]);
+  const parentAsset = parentRes.data as { id: string; name: string; asset_tag: string | null } | null;
+  const components = (componentsRes.data ?? []) as
+    { id: string; name: string; asset_tag: string | null; status: string }[];
+
   const [certsRes, ticketsRes] = await Promise.all([
     supabase
       .from("asset_certificates")
@@ -89,6 +104,50 @@ export default async function AssetDetailPage({
           </Button>
         }
       />
+
+      {/* Where this sits in its assembly. Shown above the detail because
+          "this is one of four AHUs on the chiller plant" changes how you read
+          everything below it. */}
+      {(parentAsset || components.length > 0) && (
+        <Card>
+          <CardContent className="space-y-3 pt-5">
+            {parentAsset && (
+              <p className="text-sm">
+                <span className="text-muted-foreground">Part of </span>
+                <Link
+                  href={`/dashboard/assets/${parentAsset.id}`}
+                  className="font-medium underline underline-offset-4"
+                >
+                  {parentAsset.name}
+                  {parentAsset.asset_tag ? ` (${parentAsset.asset_tag})` : ""}
+                </Link>
+              </p>
+            )}
+            {components.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Components ({components.length})
+                </p>
+                <ul className="space-y-1">
+                  {components.map((c) => (
+                    <li key={c.id} className="text-sm">
+                      <Link
+                        href={`/dashboard/assets/${c.id}`}
+                        className="underline underline-offset-4"
+                      >
+                        {c.name}{c.asset_tag ? ` (${c.asset_tag})` : ""}
+                      </Link>
+                      <span className="ml-2 text-xs text-muted-foreground">
+                        {String(c.status).replace(/_/g, " ")}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardContent className="space-y-5 pt-5">

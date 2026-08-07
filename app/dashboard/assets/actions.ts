@@ -215,6 +215,10 @@ export async function createAsset(
       row[f.key] = v;
     }
   }
+  // The assembly this is a component of (0121). A relation, so it is not in
+  // ASSET_FIELDS — the trigger enforces same-org/same-property and refuses
+  // cycles, so this only needs to pass it through.
+  if (form.parent_asset_id) row.parent_asset_id = form.parent_asset_id;
   if (form.assigned_vendor_id) row.assigned_vendor_id = form.assigned_vendor_id;
   if (form.custodian_user_id) row.custodian_user_id = form.custodian_user_id;
 

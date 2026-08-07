@@ -24,13 +24,15 @@ type CustomDef = {
 const SKIP = new Set(["property_name", "unit_label", "vendor_name", "custodian_email"]);
 
 export default function AssetForm({
-  properties, units, vendors, users, customDefs,
+  properties, units, vendors, users, customDefs, assets = [],
 }: {
   properties: Option[];
   units: Option[];
   vendors: Option[];
   users: Option[];
   customDefs: CustomDef[];
+  /** Existing assets, for the "Part of" assembly picker (0121). */
+  assets?: Option[];
 }) {
   const router = useRouter();
   const [form, setForm] = React.useState<Record<string, string>>({
@@ -147,6 +149,29 @@ export default function AssetForm({
               {fields.map(field)}
               {g === "responsibility" && (
                 <>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="parent_asset_id">
+                      Part of <span className="font-normal text-muted-foreground">(optional)</span>
+                    </Label>
+                    {/* Same property only — the trigger refuses anything else,
+                        and a picker offering cross-property parents would be a
+                        control built to be rejected. */}
+                    <Select
+                      id="parent_asset_id"
+                      value={form.parent_asset_id ?? ""}
+                      onChange={set("parent_asset_id")}
+                    >
+                      <option value="">— a standalone asset —</option>
+                      {assets
+                        .filter((a) => a.propertyId === form.property_id)
+                        .map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Choose the assembly this is a component of, so spend and servicing
+                      can be rolled up to the whole system.
+                    </p>
+                  </div>
+
                   <div className="space-y-1.5">
                     <Label htmlFor="assigned_vendor_id">
                       Maintaining vendor <span className="font-normal text-muted-foreground">(optional)</span>

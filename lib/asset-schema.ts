@@ -36,6 +36,12 @@ export function humanize(value: string): string {
 
 type FieldType = "text" | "enum" | "date" | "number" | "boolean";
 
+/** 0121. `usage` is a Phase-2 seam: valid in the database so the column never
+ *  needs widening when meters/sensor_readings land, and deliberately NOT
+ *  offered here, because nothing can compute it yet. */
+export const MAINTENANCE_STRATEGIES = ["reactive", "calendar"] as const;
+export const ASSET_MOBILITIES = ["fixed", "movable"] as const;
+
 export type AssetField = {
   /** CSV column header — also the DB column name. */
   key: string;
@@ -76,6 +82,10 @@ export const ASSET_FIELDS: AssetField[] = [
     hint: "Optional. Leave blank for building-wide plant.", example: "" },
   { key: "location_detail", label: "Location detail", type: "text", group: "location",
     hint: "Where to physically find it.", example: "Roof plant room, Level 3" },
+  { key: "mobility", label: "Fixed or movable", type: "enum",
+    enumValues: ASSET_MOBILITIES, group: "location",
+    hint: "fixed: structurally part of this property. movable: may transfer between properties.",
+    example: "fixed" },
 
   // Lifecycle
   { key: "status", label: "Status", type: "enum", enumValues: ASSET_STATUSES, group: "lifecycle",
@@ -96,6 +106,14 @@ export const ASSET_FIELDS: AssetField[] = [
     hint: "YYYY-MM-DD.", example: "2026-02-03" },
   { key: "next_service_due", label: "Next service due", type: "date", group: "lifecycle",
     hint: "YYYY-MM-DD.", example: "2026-08-03" },
+  { key: "maintenance_strategy", label: "Maintenance strategy", type: "enum",
+    enumValues: MAINTENANCE_STRATEGIES, group: "lifecycle",
+    hint: "How servicing is triggered. Defaults to reactive (on failure).",
+    example: "calendar" },
+  { key: "service_interval_days", label: "Service interval (days)", type: "number",
+    group: "lifecycle",
+    hint: "Required when the strategy is calendar; leave blank otherwise.",
+    example: "90" },
 
   // Commercial
   { key: "purchase_cost", label: "Purchase cost (NGN)", type: "number", group: "commercial",

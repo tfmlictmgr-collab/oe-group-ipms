@@ -3735,3 +3735,66 @@ stop a nullable `unit_id` being used to mean "shared". The table carries
 forbids. Implementing it is a schema change over every existing asset row, and
 the decision says how a NEW asset states scope but not how to classify ones
 already recorded. That classification is the owner's call, not a guess.
+
+## Asset assemblies, mobility, and what "maintained" actually means
+
+`docs/ASSET_CLASSIFICATION_AND_SCOPE.md` (PC2) separates two things this
+codebase had already got right and which are easy to conflate: **taxonomy**
+(what an asset is) and **access scope** (who may touch it). Part 1 of that doc
+is confirmation, not instruction — the existing enums and the two-tier RLS are
+correct and are untouched here. Part 2 is the work.
+
+Its three load-bearing claims were re-checked rather than taken on trust,
+because two of them decide the design:
+
+* `meters` / `sensor_readings` / `ml_features` genuinely do not exist — so the
+  usage-metered strategy really is a Phase-2 seam (B9), not a regression.
+* `audit_asset_write` genuinely exists as `AFTER INSERT OR UPDATE` — which is
+  precisely why 2b needs no new machinery: relocating a movable asset is
+  already audited as an ordinary `property_id` change.
+
+**2a — assemblies.** Every asset was a flat row, so a chiller plant made of a
+chiller, its AHUs and ducting could not say those belong together, and "total
+spend on the HVAC plant" could only ever mean "on one unit of it".
+`parent_asset_id` with a trigger enforcing same-org **and same-property**: a
+component on another property is not a component, it is a different asset that
+happens to be the same model, and letting the two merge would make a
+property's register lie about what is on site.
+
+📌 **The cycle guard is where this kind of change goes wrong, so the suite
+tests three depths, not one.** Direct self-parenting is the obvious case.
+A→B→A is the one people remember. The one that actually bites is re-parenting
+an ANCESTOR under its own descendant — it looks like an ordinary edit and
+leaves a register that cannot be walked. All three refused, and a fourth check
+confirms the refusals left the existing chain byte-for-byte intact, because a
+guard that rejects *and* corrupts is worse than no guard.
+
+**2b — fixed vs movable.** Deliberately **advisory**, not enforced: it states
+intent and gates the UI, and the database still permits relocating a `fixed`
+asset. A hard constraint would mean a lift miscategorised on import could
+never be corrected — and the suite asserts the permissiveness explicitly,
+because the obvious test ("a fixed asset cannot move") would have encoded
+exactly the wrong rule.
+
+**2c — maintenance strategy.** `last_serviced_at`/`next_service_due` were bare
+dates: a quarterly-serviced chiller and a fix-on-failure door closer were
+indistinguishable until someone read the dates and inferred it. Now
+`reactive` (default) / `calendar` (with a required interval — a strategy with
+no period is a label, and the constraint says so) / `usage`. **`usage` stays
+valid in the check constraint and absent from the UI**: the column never needs
+widening when the meter tables land, and nothing can compute it until they do.
+The suite asserts both halves — that the database accepts it, and that Phase 2
+is still genuinely Phase 2.
+
+📌 **The UI came almost free, and that is the payoff of an earlier decision.**
+The asset form renders from `ASSET_FIELDS` in `lib/asset-schema.ts` — one list
+shared with the CSV import template, so the two cannot drift. Adding mobility
+and maintenance there put them on the form *and* in the bulk-import template
+in one edit, and `verify-asset-import` passed untouched. Only
+`parent_asset_id` needed hand-wiring, because it is a relation rather than a
+scalar. The detail page gained a "Part of" breadcrumb and a Components list —
+where an asset sits in its assembly changes how you read everything else about
+it, so it sits above the detail rather than below.
+
+New: `scripts/verify-asset-classification.mjs` (17 checks). All four asset
+suites pass, including the importer.
