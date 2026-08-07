@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Palette, Landmark, ShieldCheck, Bell, KeyRound, FileSignature, ClipboardCheck } from "lucide-react";
+import { Palette, Landmark, ShieldCheck, Bell, KeyRound, FileSignature, ClipboardCheck, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // Tabs are filtered by role rather than the whole section being gated: personal
@@ -27,6 +27,7 @@ const TABS: Tab[] = [
   { href: "/dashboard/settings/evaluation", label: "Evaluation Rubric", icon: ClipboardCheck, adminOnly: true },
   // Visible to every administrator: a brand admin reads their own matrix,
   // only the operator can change it.
+  { href: "/dashboard/settings/ai", label: "AI & Classification", icon: Sparkles, adminOnly: true },
   { href: "/dashboard/settings/permissions", label: "Permissions", icon: KeyRound, adminOnly: true },
   { href: "/dashboard/settings/notifications", label: "My Notifications", icon: Bell, adminOnly: false },
 ];

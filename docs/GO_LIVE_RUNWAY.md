@@ -44,9 +44,20 @@ answer and expensive to answer late.
   `gemini-2.0-flash`) on the production Vercel project. Until it is set the
   fallback is skipped cleanly and behaviour is exactly what it was before —
   so this is safe to leave until cutover, but it is the difference between
-  having a failover and having failover *code*. Free tier is sufficient for
-  the volumes here; obtain from Google AI Studio. **Add to Stage 1 if you
-  want the failover live before go-live rather than at it.**
+  having a failover and having failover *code*.
+
+  ⚠️ **The key is now set, and the failover still does not work — decide
+  this before go-live.** The first real call returned
+  `429 GenerateRequestsPerDayPerProjectPerModel-FreeTier`: the free tier's
+  **daily** quota, exhausted on a key minutes old. The key is valid (a model
+  listing with it returns 200 and all 42 models) and `gemini-2.0-flash` is
+  available — the free allowance is simply not a production failover.
+  **Either enable billing on the Google Cloud project so the quota is real,
+  or accept that the fallback is best-effort** and the failover shortens an
+  outage rather than preventing one. Both are defensible; believing it works
+  because a key is present is not. That is exactly why
+  **Settings → AI & Classification** tests reachability rather than
+  configuration — it reported this correctly on its first run.
 - **Rate-limit posture.** Limiting currently fails **open** — if Redis is
   unreachable, requests pass rather than being refused. Correct for
   availability on ordinary routes; worth deciding deliberately for payment

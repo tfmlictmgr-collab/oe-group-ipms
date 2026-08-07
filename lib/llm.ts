@@ -184,3 +184,68 @@ export function llmProviderStatus(): { primary: boolean; fallback: boolean } {
     fallback: geminiProvider.configured(),
   };
 }
+
+export type ProviderHealth = {
+  name: ProviderName;
+  role: "primary" | "fallback";
+  configured: boolean;
+  reachable: boolean | null; // null = not probed, because not configured
+  detail: string;
+};
+
+/**
+ * Does each provider actually ANSWER right now?
+ *
+ * ⚠️ Deliberately not "is the key set". A key can be present and the provider
+ * still unusable, and that is not hypothetical: the first real call made with
+ * this build's own Gemini key came back
+ * `429 GenerateRequestsPerDayPerProjectPerModel-FreeTier` — a free-tier daily
+ * quota already exhausted. `configured()` was true throughout. A health screen
+ * reporting "fallback: configured ✓" would have been accurate and useless: the
+ * failover was not going to work, and nobody would learn that until the
+ * outage it exists for.
+ *
+ * So this sends a real (tiny) prompt and reports what came back. It costs one
+ * request per provider, which is why it is a button rather than something that
+ * runs on every page render.
+ */
+export async function probeProviders(): Promise<ProviderHealth[]> {
+  const probe: LlmRequest = {
+    system: 'Reply with ONLY this JSON and nothing else: {"ok":true}',
+    user: "ping",
+    maxTokens: 20,
+  };
+
+  const check = async (p: Provider, role: "primary" | "fallback"): Promise<ProviderHealth> => {
+    if (!p.configured()) {
+      return {
+        name: p.name,
+        role,
+        configured: false,
+        reachable: null,
+        detail:
+          role === "fallback"
+            ? "No API key set. Failover is skipped — an outage on the primary degrades to human review."
+            : "No API key set.",
+      };
+    }
+    const r = await p.complete(probe);
+    if (r.ok) {
+      return { name: p.name, role, configured: true, reachable: true, detail: "Answered normally." };
+    }
+    // A quota refusal is the one worth naming specifically, because it looks
+    // like success from every other angle.
+    const quota = /\b429\b|quota|rate.?limit/i.test(r.error);
+    return {
+      name: p.name,
+      role,
+      configured: true,
+      reachable: false,
+      detail: quota
+        ? `Key accepted but the provider refused: quota or rate limit reached. ${r.error.slice(0, 140)}`
+        : r.error.slice(0, 180),
+    };
+  };
+
+  return Promise.all([check(anthropicProvider, "primary"), check(geminiProvider, "fallback")]);
+}

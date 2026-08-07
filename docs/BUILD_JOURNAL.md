@@ -3482,3 +3482,54 @@ themselves, so the two can never silently disagree again.
 Full suite after the lockdown: **65 of 65** — nothing legitimate was revoked.
 
 New: `scripts/verify-classifier-failover.mjs` (17), `verify-function-grants.mjs` (22).
+
+## The key was set, and the failover still would not have worked
+
+`GEMINI_API_KEY` went onto Vercel and was redeployed — the right sequence, and
+the step people usually miss. So the failover was live. Except the adapter had
+never made a real call: every test to that point used injected stubs, which
+proved the failover *logic* thoroughly and the Gemini *integration* not at all.
+The REST shape, the model name and the response parsing were all still
+guesses.
+
+⚠️ **The first real call came back `429`.**
+
+    GenerateRequestsPerDayPerProjectPerModel-FreeTier
+
+Not a bad key — a `models` listing with the same key returned 200 and all 42
+models, `gemini-2.0-flash` among them. The free tier's **daily** quota was
+already exhausted, on a key minutes old. So: key present, key valid, model
+correct, failover code correct — and no failover. It would have been
+discovered during the outage it exists for, and the symptom would have been
+indistinguishable from never having built it.
+
+📌 **This is why the health surface checks REACHABILITY, not configuration.**
+The obvious version of `/dashboard/settings/ai` reports "fallback: configured
+✓" off the presence of an env var. That would have been accurate, reassuring
+and worthless. It now sends a real one-word prompt to each provider and
+reports what came back — and the very first run said, correctly:
+
+    Claude (Anthropic) — primary — Answered normally.
+    Gemini (Google) — fallback — Key accepted but the provider refused:
+    quota or rate limit reached.
+
+A quota refusal is singled out from other errors deliberately, because it is
+the one failure that looks like success from every other angle.
+
+📌 **And a live probe still cannot answer the other half.** A provider can be
+reachable *now* and have been failing all day. So the page also reads
+`tickets.classified_by` (0113) for the last seven days and shows what actually
+carried the load — with a warning when any request fell to the fallback, or to
+neither. The probe is the present tense; the column is the past one, and
+neither substitutes for the other.
+
+Costed deliberately: the probe is a **button**, not something every page render
+pays for. Admin-only, and gated in the server action rather than only the
+page, because a server action is a public endpoint that here spends money and
+reports infrastructure state.
+
+**Left with the user, not resolved here:** the free tier is not a production
+failover. Either enable billing on the Google Cloud project so the quota is
+real, or accept that the fallback is best-effort and the failover is a
+degradation-reducer rather than a guarantee. Both are defensible; the one
+thing that is not is believing it works because a key is set.
