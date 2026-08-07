@@ -8,19 +8,27 @@ import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
+import { shortRef } from "@/lib/acknowledgement";
 
 export default function SubmitInvoiceForm({
   orgId,
   vendors,
+  jobs,
 }: {
   orgId: string;
   vendors: { id: string; name: string }[];
+  jobs: { id: string; summary: string | null; assigned_vendor_id: string }[];
 }) {
   const router = useRouter();
   const [vendorId, setVendorId] = useState(vendors[0]?.id ?? "");
+  const [ticketId, setTicketId] = useState("");
   const [amount, setAmount] = useState("");
   const [invoiceRef, setInvoiceRef] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Only this vendor's finished jobs. `payments_work_order_valid` refuses a
+  // mismatch anyway; narrowing here means the user never composes one.
+  const theirJobs = jobs.filter((j) => j.assigned_vendor_id === vendorId);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -31,6 +39,10 @@ export default function SubmitInvoiceForm({
       org_id: orgId,
       vendor_id: vendorId,
       invoice_reference: invoiceRef || null,
+      // The work this invoice is for. Optional, because paper invoices for
+      // work predating the link are real — but the payments screen lists what
+      // is missing rather than letting it go unnoticed.
+      ticket_id: ticketId || null,
       amount: Number(amount),
       status: "pending_verification",
       performance_validated: false,
@@ -58,7 +70,13 @@ export default function SubmitInvoiceForm({
             <Select
               id="vendor"
               value={vendorId}
-              onChange={(e) => setVendorId(e.target.value)}
+              onChange={(e) => {
+                setVendorId(e.target.value);
+                // The selected job belonged to the previous vendor. Clearing it
+                // is the only correct move -- carrying it over would compose
+                // exactly the mismatch the trigger exists to refuse.
+                setTicketId("");
+              }}
               required
             >
               {vendors.map((v) => (
@@ -67,6 +85,32 @@ export default function SubmitInvoiceForm({
                 </option>
               ))}
             </Select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="job">
+              Work order{" "}
+              <span className="font-normal text-muted-foreground">
+                (optional, but recommended)
+              </span>
+            </Label>
+            <Select
+              id="job"
+              value={ticketId}
+              onChange={(e) => setTicketId(e.target.value)}
+            >
+              <option value="">Not linked to a job</option>
+              {theirJobs.map((j) => (
+                <option key={j.id} value={j.id}>
+                  {shortRef(j.id)} — {j.summary ?? "no summary"}
+                </option>
+              ))}
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {theirJobs.length === 0
+                ? "This vendor has no completed jobs on record yet."
+                : "Naming the job is what lets service verification check against something."}
+            </p>
           </div>
 
           <div className="space-y-1.5">

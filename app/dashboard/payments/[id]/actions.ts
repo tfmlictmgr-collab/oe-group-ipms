@@ -123,22 +123,36 @@ export async function approvePayment(paymentId: string): Promise<ActionResult> {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Threshold gate: above the configured limit, only an admin may approve.
-  const { data: approver } = await supabase
-    .from("users")
-    .select("role")
-    .eq("id", user?.id ?? "")
-    .single();
-  const { data: settings } = await supabase
-    .from("payment_settings")
-    .select("approval_threshold_amount")
-    .eq("org_id", payment.org_id)
-    .single();
-  const threshold = Number(settings?.approval_threshold_amount ?? 1_000_000);
-  if (Number(payment.amount) > threshold && approver?.role !== "admin") {
+  // Threshold gate — ASKED FOR, not re-derived.
+  //
+  // ⚠️ This block used to compute the rule itself: `threshold` from
+  // payment_settings, and `approver?.role !== "admin"`. That is a second copy
+  // of what `enforce_payment_transition` already enforces, and the two had
+  // drifted. The board added the executive on 29 July 2026 — the MD of TFML
+  // and the Managing Partner of OEA co-hold approval "including above the
+  // threshold" (decision 9) — 0073 put that in the trigger, and this line was
+  // never updated. So an MD was told to "ask an administrator" for a payment
+  // the database would have accepted from them; verified against the live
+  // trigger before changing it.
+  //
+  // `my_approval_limit()` (0127) now answers instead, from the same role list
+  // the trigger uses. The check stays here rather than being deleted entirely
+  // because the trigger's refusal reaches the user as an opaque database
+  // error, and "this needs an administrator or an executive" is worth saying
+  // in the user's own words before that happens. The trigger remains the
+  // enforcement; this is only the courtesy.
+  const { data: limitRows } = await supabase.rpc("my_approval_limit");
+  const limit = (limitRows ?? [])[0] as
+    | { threshold: number | string; unlimited: boolean; may_approve: boolean }
+    | undefined;
+
+  if (limit && !limit.may_approve) {
+    return fail("Only finance, an administrator or an executive may approve payments.");
+  }
+  if (limit && !limit.unlimited && Number(payment.amount) > Number(limit.threshold)) {
     return fail(
-      `Approvals above ${formatNaira(threshold)} require an administrator — this payment is ${formatNaira(payment.amount)}.`,
-      "Ask an administrator to approve it, or have the threshold reviewed in Settings."
+      `Approvals above ${formatNaira(limit.threshold)} require an administrator or an executive — this payment is ${formatNaira(payment.amount)}.`,
+      "Ask an administrator or the MD to approve it, or have the threshold reviewed in Settings."
     );
   }
 
@@ -251,7 +265,7 @@ export async function executeRemittance(paymentId: string): Promise<RemittanceRe
   if (!payment) return fail("That payment could not be found.");
 
   const { supabaseAdmin } = await import("@/lib/supabase/admin");
-  const { getGateway, newPaymentReference } = await import("@/lib/gateway");
+  const { newPaymentReference } = await import("@/lib/gateway");
 
   const reference = newPaymentReference("remittance");
 
@@ -268,112 +282,23 @@ export async function executeRemittance(paymentId: string): Promise<RemittanceRe
     );
   }
 
-  // 3 — claim it. Losing this race is not an error worth alarming anyone about:
-  // it means the transfer is already on its way.
-  const { data: claimed, error: claimErr } = await supabaseAdmin.rpc(
-    "claim_remittance_for_sending",
-    { p_id: remittanceId }
-  );
-  if (claimErr) {
-    return fail(
-      "This remittance is already being sent.",
-      "Refresh in a moment to see the outcome."
-    );
-  }
-
-  const row = (Array.isArray(claimed) ? claimed[0] : claimed) as {
-    recipient_id: string;
-    net_amount: number | string;
-    currency: string;
-    reference: string;
-  };
-
-  // The payee comes from the remittance's own recipient, not from anything
-  // passed in. Money can only go to a code the gateway already holds.
-  const { data: recipient } = await supabaseAdmin
-    .from("payout_recipients")
-    .select("recipient_code, display_name")
-    .eq("id", row.recipient_id)
-    .single();
-
-  if (!recipient?.recipient_code) {
-    await supabaseAdmin.rpc("record_remittance_outcome", {
-      p_id: remittanceId, p_status: "failed",
-      p_message: "the payee has no verified gateway recipient",
-    });
-    return fail(
-      "This vendor has no verified bank recipient on file.",
-      "Add their bank details on the vendor's page first. Nothing has been sent."
-    );
-  }
-
-  // 4 — the amount comes from the remittance record, never from the request.
-  const gateway = getGateway(row.currency);
-  const result = await gateway.transfer({
-    reference: row.reference,
-    recipientCode: recipient.recipient_code,
-    amount: Number(row.net_amount),
-    currency: row.currency,
-    reason: `Vendor payment ${row.reference} — ${recipient.display_name}`,
+  // 3–5 — claim, send, post. Shared with the landlord payout run
+  // (`lib/remittance-run.ts`): nothing in those three steps is
+  // vendor-specific, and two copies of a transfer path is how one of them
+  // ends up without the `unknown` branch that stops a double send.
+  const { sendCreatedRemittance } = await import("@/lib/remittance-run");
+  return sendCreatedRemittance({
+    remittanceId: remittanceId as string,
+    reasonFor: (name, ref) => `Vendor payment ${ref} — ${name}`,
+    revalidate: [`/dashboard/payments/${paymentId}`, "/dashboard/ledger"],
+    // Only after the ledger has the posting. The payment is what this
+    // remittance settles, so it is marked here rather than inside the shared
+    // helper, which knows nothing about payments.
+    onPosted: async (reference) => {
+      await supabaseAdmin
+        .from("payments")
+        .update({ status: "remitted", remittance_reference: reference })
+        .eq("id", paymentId);
+    },
   });
-
-  // A transport failure is the dangerous case: the instruction may or may not
-  // have arrived. Recorded as `unknown` so a person reconciles it, rather than
-  // being guessed either way.
-  if (!result.ok && !result.status) {
-    await supabaseAdmin.rpc("record_remittance_outcome", {
-      p_id: remittanceId, p_status: "unknown", p_message: result.error ?? "gateway unreachable",
-    });
-    revalidatePath(`/dashboard/payments/${paymentId}`);
-    return fail(
-      "The gateway could not be reached, and it is not known whether the transfer was accepted.",
-      "This has been flagged for reconciliation. Do NOT retry — check the gateway before sending again."
-    );
-  }
-
-  if (result.status === "failed" || result.status === "otp") {
-    await supabaseAdmin.rpc("record_remittance_outcome", {
-      p_id: remittanceId,
-      p_status: "failed",
-      p_message: result.error ?? (result.status === "otp" ? "the account requires an OTP per transfer" : null),
-    });
-    revalidatePath(`/dashboard/payments/${paymentId}`);
-    return fail(
-      result.status === "otp"
-        ? "This gateway account requires a one-time code for every transfer, which the system cannot supply."
-        : `The transfer was refused: ${result.error ?? "no reason given"}`,
-      result.status === "otp"
-        ? "Disable OTP for transfers in the Paystack dashboard, or send this one manually."
-        : "No money has left the account."
-    );
-  }
-
-  // 5 — only a confirmed success posts to the ledger.
-  if (result.status !== "success") {
-    revalidatePath(`/dashboard/payments/${paymentId}`);
-    return ok({ status: "pending", reference: row.reference });
-  }
-
-  const { error: postErr } = await supabaseAdmin.rpc("record_remittance_sent", {
-    p_id: remittanceId,
-    p_transfer_code: result.transferCode ?? row.reference,
-  });
-  if (postErr) {
-    // The money HAS left. Never report this as a failure — that would invite a
-    // retry, and a second transfer is unrecoverable.
-    console.error("remittance posted at the gateway but not in the ledger:", postErr.message);
-    return fail(
-      "The transfer was sent, but it could not be recorded in the ledger.",
-      "Do NOT retry. Give this reference to whoever maintains the books: " + row.reference
-    );
-  }
-
-  await supabaseAdmin
-    .from("payments")
-    .update({ status: "remitted", remittance_reference: row.reference })
-    .eq("id", paymentId);
-
-  revalidatePath(`/dashboard/payments/${paymentId}`);
-  revalidatePath("/dashboard/ledger");
-  return ok({ status: "sent", reference: row.reference });
 }

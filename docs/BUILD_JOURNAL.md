@@ -3923,3 +3923,124 @@ rent-money, tenant-rent-payment, notifications, function-grants,
 conversational-triage. `verify-checkout-e2e` fails at section H on both this
 tree and the pre-change tree — Node cannot import `lib/pdf/receipt.tsx` from a
 plain `.mjs`; a harness limitation, not a regression, and A–G pass.
+
+---
+
+## The finance lead — approving in bulk, paying owners, and reporting
+
+**Migrations 0127–0131 · 7 Aug 2026**
+
+Seventh role walked end to end: *reconcile the ledger (match payments to
+tickets) → batch-approve payouts → remit to owners → generate reports (P&L and
+statements) → tax & compliance (future) → multi-entity consolidation.*
+
+Tax & compliance filing is explicitly a later build and is **not** started here.
+
+### A batch must not become a shortcut
+
+Two things a bulk approval must not turn into, and they pull in opposite
+directions.
+
+It must not skip the gate. `enforce_payment_transition` (0073) is a
+`FOR EACH ROW` trigger, so it fires per row even on a multi-row UPDATE — which
+is exactly why `approve_payments` is **SECURITY INVOKER**. It runs as the
+caller, RLS applies, the trigger applies, and the batch is N single approvals
+rather than a privileged path that happens to do N things.
+
+And it must not be all-or-nothing. A single `update ... where id = any($1)` is
+one statement: if the seventeenth invoice sits above the caller's threshold,
+the statement raises and none of the twenty are approved. So each row gets its
+own exception block and its own answer. **A week's invoices will routinely
+contain one that needs the MD, and the honest result is "eighteen approved, two
+left as they were" — not a failed action with nothing done.**
+
+### Three places the application was stricter than the board
+
+A pattern, not three coincidences. Each time, the database implemented a board
+decision and an application layer that had copied the rule never caught up.
+
+📌 **`approvePayment` refused executives above the threshold.** Decision 9 gave
+the MD of TFML and the Managing Partner of OEA approval "including above the
+threshold"; 0073 put `('admin','executive')` in the trigger; the TypeScript
+still read `approver?.role !== "admin"`. Proven against the live trigger before
+changing anything — an executive approving ₦5,000,000 against a ₦1,000,000
+threshold is **allowed** by the database. So an MD was told to "ask an
+administrator" for a payment the system would have accepted from them. The
+check now *asks* (`my_approval_limit()`) instead of re-deriving.
+
+📌 **The ledger layout refused executives entirely.** `oversight_roles()` grants
+them ledger, bank-account and balance reads — a live check reads 135 entries as
+the POC executive — and the nav lists Client Funds for them. Only the page said
+"Finance access required". The policy said oversight, the menu said oversight,
+one line said no.
+
+📌 **The payment/ticket link existed and nothing used it.** `payments.ticket_id`
+(0118) is populated on **0 of 18 rows**, because the vendor's own invoice route
+checks it properly and the finance route — a direct insert from a form — had no
+job field at all. Almost every real invoice arrives on paper, so almost every
+payment was untraceable to the work it bought. That is not a display gap: B4
+verifies delivery *against something*, and if nothing names what, the
+verification is a checkbox. The rule now lives in a trigger below both routes,
+and the payments screen names what is missing rather than leaving it unnoticed.
+
+### The owner could not be paid
+
+`create_rent_remittance` has existed since 0092b, was hardened against a
+double-payout race in 0102, and is exercised by two suites — and was **called by
+nothing outside `scripts/`**. Rent was demanded, collected, split and credited
+to the segregated ledger, with no way for anyone to pay the landlord. The same
+shape as the tenant's rent screen before 0110.
+
+⚠️ Steps 3–5 of the transfer (claim → send → post) were **extracted** to
+`lib/remittance-run.ts` rather than written a second time. Two copies of a
+transfer path is how one of them ends up without the `unknown` branch — the one
+that stops a double send after a gateway timeout. Both remittance suites pass
+unchanged against the extraction.
+
+The payout run is deliberately **one property at a time**, which is the opposite
+of the choice made for approvals one screen away. An approval can be
+reconsidered; a transfer cannot. Bulk belongs where a mistake is recoverable.
+
+### Consolidation is the operator's, and nobody else's
+
+A consolidated position is one figure built from several orgs' books — precisely
+what B1 keeps apart. So it sits behind `caller_is_operator_admin()`, on the
+operator portal beside the org directory, never as a tab on a brand's finance
+page.
+
+The gate is **inside the query**, so a brand administrator gets an empty set
+rather than a refusal — decision 12's reasoning, because a refusal confirms
+there is something worth refusing, and here that something is the existence of
+the other organisations. Confirmed in the browser as well as the suite: the POC
+finance approver loads `/orgs/consolidated` and reads "Nothing to consolidate".
+
+Deliberately **not** written to `operator_actions`: that table records
+interventions with a stated reason, and its own comment says it exists so
+crossings can be listed "without filtering a million rows". An audit row per
+page load would drown the signal it was built to preserve.
+
+⚠️ And a limit stated rather than papered over: **no org has a `parent_org_id`.**
+All five are flat. So consolidation today groups by delivery brand, which is
+OE Group's actual shape, and does not pretend to a hierarchy nobody configured.
+
+### Two suite flaws worth more than the features
+
+Both found by running it, not by reading it:
+
+- The first version **skipped a whole org when it had no vendor**. OEA has no
+  vendor and OEA holds the only lease — so the single most important rule in
+  the payout path ("a landlord is paid what was received, never what was
+  billed") was never once exercised, on any org, while the suite printed ALL
+  CHECKS PASSED. It now builds its own lease, unit and rent charge. **A check
+  that quietly opts out when the data is thin is not a check.**
+- A refusal assertion matched only its happy-path regex, so an unrelated
+  failure (a missing temp-table grant) printed "!!! AN EXECUTIVE REMITTED A
+  PAYMENT" — a screaming false alarm about a plumbing fault. Now tri-state:
+  allowed, refused for *this* reason, or failed for another reason and
+  therefore proving nothing.
+
+New: `scripts/verify-finance-journey.mjs`. Adjacent suites green: payment-gate,
+remittance, remittance-race, ledger, access-matrix, oversight-roles,
+function-grants. Clean production build. `verify-reconciliation` fails on this
+tree **and on HEAD** — Node cannot resolve a `.ts` import from a `.mjs` script,
+the same harness limit as `verify-checkout-e2e`.

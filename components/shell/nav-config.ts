@@ -13,6 +13,7 @@ import {
   Settings,
   UserPlus,
   LayoutGrid,
+  Layers,
   FileSignature,
   SlidersHorizontal,
   HardHat,
@@ -189,6 +190,17 @@ export const NAV_GROUPS: NavGroup[] = [
         label: "Organisations",
         href: "/orgs",
         icon: LayoutGrid,
+        show: (c) => c.isOperator,
+      },
+      {
+        // The consolidated position across every client org. Operator-only for
+        // the same reason the directory above is: it is one figure built from
+        // several organisations' books, which is precisely what B1 keeps apart.
+        // The link is a courtesy; `operator_consolidated_position()` gates
+        // inside its own query and returns an empty set to anyone else.
+        label: "Consolidated",
+        href: "/orgs/consolidated",
+        icon: Layers,
         show: (c) => c.isOperator,
       },
     ],

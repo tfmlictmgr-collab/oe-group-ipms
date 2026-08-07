@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Scale, BookOpen, Landmark, CreditCard } from "lucide-react";
+import { Scale, BookOpen, Landmark, CreditCard, Send, FileBarChart } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const TABS = [
@@ -10,6 +10,8 @@ const TABS = [
   { href: "/dashboard/ledger/collections", label: "Collections", icon: CreditCard },
   { href: "/dashboard/ledger/journal", label: "Journal", icon: BookOpen },
   { href: "/dashboard/ledger/reconciliation", label: "Reconciliation", icon: Landmark },
+  { href: "/dashboard/ledger/payouts", label: "Payouts", icon: Send },
+  { href: "/dashboard/ledger/reports", label: "Reports", icon: FileBarChart },
 ];
 
 export default function LedgerNav({ variance }: { variance?: number }) {
