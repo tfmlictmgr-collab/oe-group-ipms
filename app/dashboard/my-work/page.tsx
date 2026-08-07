@@ -10,6 +10,7 @@ import {
 } from "@/lib/vendor-score";
 import { PageHeader } from "@/components/patterns/page-header";
 import { StatCard } from "@/components/patterns/stat-card";
+import SubmitInvoice, { type InvoiceableJob } from "./SubmitInvoice";
 import { EmptyState } from "@/components/patterns/empty-state";
 import { StatusBadge } from "@/components/patterns/status-badge";
 import { Badge } from "@/components/ui/badge";
@@ -111,7 +112,7 @@ export default async function MyWorkPage() {
       .order("fm_pm_submitted_at", { ascending: false, nullsFirst: false }),
     supabase
       .from("payments")
-      .select("id, invoice_reference, amount, status, created_at, approved_at, remittance_reference")
+      .select("id, invoice_reference, amount, status, created_at, approved_at, remittance_reference, ticket_id")
       .order("created_at", { ascending: false })
       .limit(50),
   ]);
@@ -154,6 +155,19 @@ export default async function MyWorkPage() {
     remittance_reference: string | null;
   };
   const payments = (paymentsRes.data ?? []) as Payment[];
+
+  // Completed jobs that have not been invoiced yet. `submit_vendor_invoice`
+  // refuses an unfinished job and refuses a second invoice for the same one,
+  // so offering either here would be a form built to be rejected.
+  const alreadyInvoiced = new Set(
+    payments.map((p) => (p as unknown as { ticket_id: string | null }).ticket_id).filter(Boolean)
+  );
+  const invoiceable: InvoiceableJob[] = jobs
+    .filter((j) => ["resolved", "closed"].includes(j.status) && !alreadyInvoiced.has(j.id))
+    .map((j) => ({
+      id: j.id,
+      label: `${j.id.slice(0, 8).toUpperCase()} — ${(j.summary ?? j.message_text ?? "Job").slice(0, 48)}`,
+    }));
   const awaiting = payments
     .filter((p) => p.status !== "remitted" && p.status !== "rejected")
     .reduce((a, p) => a + Number(p.amount), 0);
@@ -339,6 +353,9 @@ export default async function MyWorkPage() {
             Where each of your invoices has reached. Payment is released only after the work
             is verified and your performance is validated.
           </CardDescription>
+          <div className="pt-3">
+            <SubmitInvoice jobs={invoiceable} />
+          </div>
         </CardHeader>
         <CardContent className="pt-2">
           {payments.length === 0 ? (

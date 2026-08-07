@@ -3649,3 +3649,89 @@ organisation and checks the joins between features: that a working status
 implies a holder, that being assigned actually tells someone, that a tenant
 reads no ledger and a vendor reads no other vendor's jobs. The reported bug
 lived precisely in that gap.
+
+## Two journeys, audited against the documented sequence
+
+The user journey deck is not in this repo, so the sequences came from the
+user directly. That distinction matters more than it sounds: **B7 is an
+ACCESS matrix, not a journey.** It says what a role may read and write. It
+would never have told me a vendor needs to *decline* work, or that an FM's
+day starts with managing properties. Inferring a journey from permissions
+would have produced something plausible and wrong in exactly the places that
+matter.
+
+### Vendor — three of five steps had nothing behind them (0118)
+
+Accept existed. Decline did not exist **at all** — a contractor given a job
+they could not take had no way to say so, and it sat assigned to someone who
+was never coming. Mark-complete was *permitted by RLS* and never offered by
+the UI, so the capability existed and was unreachable. Submitting an invoice
+was refused outright: `payments_insert` admits only
+admin/facility_manager/regional_manager, so a vendor could **see** their
+payments and never raise one.
+
+📌 Built as SECURITY DEFINER functions rather than by widening
+`payments_insert` to vendors. Widening it would also hand them
+`service_verified_at`, `performance_validated` and `approved_by` — **which
+are the B4 gate itself.** A vendor states a claim; verification and the
+performance check turn it into money, and both belong to somebody else. The
+suite asserts the negative directly: a vendor attempting to self-approve gets
+zero rows.
+
+### FM/PM — a failure only this role could hit (0119)
+
+Adding a property failed in **every organisation**. The insert was never the
+problem: evaluated as the FM, both halves of `properties_insert` are true,
+and an insert with no `RETURNING` succeeds. It is the `RETURNING` that was
+refused — **Postgres applies SELECT policies to a RETURNING clause**, an FM
+holds no `properties.read_all` (B7 scopes them to assigned properties), and a
+property created a microsecond ago has no stakeholder row. They could not
+read back what they had just made, so the statement failed. The app does
+exactly `.insert(row).select("id").single()`.
+
+⚠️ **An admin would never have found this.** `read_all` makes their read
+independent of the assignment, so the whole failure is invisible from the
+seat most testing is done from. The general lesson: *a permission that is
+broader for the tester than for the user hides the user's bug entirely.*
+
+The fix is not to widen the read policy or drop the `RETURNING` — it is that
+**the person who files a property manages it**. Attaching the creator is the
+missing half of the create, not a workaround for it.
+
+### And the latitude asked for: raising work proactively (0120)
+
+Every route into `tickets` assumed a REPORTER — the chat webhooks carry a
+sender, and `/dashboard/new` files the signed-in person's own unit under their
+own name. Planned maintenance, an inspection finding, anything spotted on a
+walk-round had nowhere to go. Two consequences follow from "there is no
+tenant here", and both are deliberate:
+
+* `sender_id` stays **NULL**, not the FM's own id. They are not the person
+  the work is for, and putting them there would make every planned job look
+  like a complaint they raised about themselves — and would wrongly arm the
+  tenant satisfaction prompt (0104) on resolve, asking a nonexistent tenant to
+  rate the work.
+* `property_id` is **required**. Inbound chat may arrive unfiled and be
+  triaged later; staff-raised work with no place is work nobody can pick up.
+
+📌 **Two test-methodology bugs of my own, caught before either was reported
+as a product bug.** The round-trip check used a CTE — and a row created inside
+a CTE is not visible to a SELECT in the *same* statement, because both read
+the snapshot taken at statement start. It reported "created but unreadable to
+its creator" on every org: an artefact that read *exactly* like the bug it was
+written to catch. And an FM's payment write is scoped to vendors they manage,
+so zero rows on an out-of-scope vendor is **correct** — the first version read
+that right refusal as a failure. Both fixed by establishing the precondition
+before asserting on it, the same lesson as the 0:0 inheritance test and the
+deactivated-vendor notification test.
+
+New: `verify-vendor-journey.mjs` (21), `verify-fm-journey.mjs` (13 per org,
+every org).
+
+**Still open, flagged not fixed:** `assets.scope` does not exist, though
+locked decision 8 specifies `unit | property | site` explicitly — precisely to
+stop a nullable `unit_id` being used to mean "shared". The table carries
+`property_id` and a nullable `unit_id`: the exact pattern the decision
+forbids. Implementing it is a schema change over every existing asset row, and
+the decision says how a NEW asset states scope but not how to classify ones
+already recorded. That classification is the owner's call, not a guess.

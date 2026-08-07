@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Plus } from "lucide-react";
+import { Plus, ClipboardPlus } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
 import { type Ticket } from "@/lib/ticket-format";
@@ -22,6 +22,10 @@ export default async function DashboardPage() {
   // dispatched, which is what My Work shows — with their score and pay status
   // beside it.
   if (session?.profile?.role === "vendor") redirect("/dashboard/my-work");
+
+  const canRaiseWork = ["admin", "facility_manager", "regional_manager"].includes(
+    session?.profile?.role ?? ""
+  );
 
   const supabase = await createClient();
   // Bounded deliberately. Unbounded, this hit PostgREST's 1000-row cap and older
@@ -47,11 +51,24 @@ export default async function DashboardPage() {
         title="Service Requests"
         description="Requests you have access to, updating in real time."
         actions={
-          <Button asChild variant="brand">
-            <Link href="/dashboard/new">
-              <Plus /> New Request
-            </Link>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            {/* Work an FM/PM initiates. Distinct from "New Request", which
+                files a report on somebody's behalf — planned work has no
+                reporter, and conflating the two is why there was nowhere to
+                record it. */}
+            {canRaiseWork && (
+              <Button asChild variant="brand">
+                <Link href="/dashboard/work">
+                  <ClipboardPlus /> Raise Work
+                </Link>
+              </Button>
+            )}
+            <Button asChild variant={canRaiseWork ? "outline" : "brand"}>
+              <Link href="/dashboard/new">
+                <Plus /> New Request
+              </Link>
+            </Button>
+          </div>
         }
       />
       <TicketList initialTickets={(tickets as Ticket[]) ?? []} />

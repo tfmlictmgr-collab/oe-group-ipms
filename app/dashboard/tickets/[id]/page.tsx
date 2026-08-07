@@ -13,6 +13,7 @@ import { Separator } from "@/components/ui/separator";
 import TicketStatusControl from "./TicketStatusControl";
 import AssignControl from "./AssignControl";
 import AcknowledgeControl from "./AcknowledgeControl";
+import VendorJobActions from "./VendorJobActions";
 import EvaluationChecklist, { type ChecklistCriterion } from "./EvaluationChecklist";
 import TicketMedia, { type TicketAttachment } from "./TicketMedia";
 import { shortRef } from "@/lib/acknowledgement";
@@ -90,6 +91,12 @@ export default async function TicketDetailPage({
     t.assigned_to_user_id === session.user.id ||
     (t.assigned_vendor_id != null && myVendorIds.includes(t.assigned_vendor_id));
   const needsAck = t.status === "assigned" && isAssignee;
+  // A contractor's own controls: accept, decline, mark complete. Shown when
+  // the job is assigned to THEIR vendor company — an ops-staff assignee keeps
+  // the simpler acknowledge card, since decline/complete are the contractor's
+  // relationship with the work order, not an internal staff transition.
+  const isVendorAssignee =
+    t.assigned_vendor_id != null && myVendorIds.includes(t.assigned_vendor_id);
 
   // Resolve the assigned vendor's name from whichever source the viewer can see:
   // the full vendor list (admin/FM) or the viewer's own vendor record (the vendor).
@@ -252,7 +259,22 @@ export default async function TicketDetailPage({
         </Card>
       )}
 
-      {needsAck && (
+      {isVendorAssignee && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Your job</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <VendorJobActions
+              ticketId={t.id}
+              status={t.status}
+              acknowledged={Boolean(t.acknowledged_at)}
+            />
+          </CardContent>
+        </Card>
+      )}
+
+      {needsAck && !isVendorAssignee && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Acknowledge this job</CardTitle>

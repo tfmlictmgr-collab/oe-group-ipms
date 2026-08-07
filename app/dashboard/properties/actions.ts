@@ -44,9 +44,29 @@ export async function saveProperty(
     site_node_id: input.siteNodeId || null,
   };
 
+  // ⚠️ CREATE goes through `create_property` (0119), not a direct insert.
+  // A direct `insert(...).select()` is refused for an FM/PM: they hold no
+  // `properties.read_all`, a brand-new property has no stakeholder rows, and
+  // Postgres applies SELECT policies to a RETURNING clause — so they could not
+  // read back the row they had just created and the whole statement failed.
+  // The function attaches the creator as manager, which is both the fix and
+  // the correct behaviour: the person who files a property manages it.
+  // An admin never saw this, because `read_all` makes their read independent
+  // of the assignment.
+  //
+  // UPDATE is left as a direct write: the row already exists and is already
+  // in their scope, so the RETURNING reads fine.
   const { data, error } = input.id
     ? await supabase.from("properties").update(row).eq("id", input.id).select("id").single()
-    : await supabase.from("properties").insert(row).select("id").single();
+    : await (async () => {
+        const r = await supabase.rpc("create_property", {
+          p_name: row.name,
+          p_address: row.address,
+          p_reference: row.reference,
+          p_site_node_id: row.site_node_id,
+        });
+        return { data: r.data ? { id: r.data as string } : null, error: r.error };
+      })();
 
   if (error) {
     if (error.message.includes("properties_org_reference_uidx")) {
@@ -59,6 +79,15 @@ export async function saveProperty(
       return fail("A property can only be filed under a Site, not a region, project or location.");
     }
     return failFromDb(error, input.id ? "save this property" : "create this property");
+  }
+
+  // Belt and braces: the RPC path returns null only if the function returned
+  // nothing, which would mean no row was created despite no error. Reporting
+  // success on that is the silent-no-op pattern this build keeps meeting.
+  if (!data?.id) {
+    return fail(
+      input.id ? "That property could not be saved." : "That property could not be created."
+    );
   }
 
   revalidatePath("/dashboard/properties");
