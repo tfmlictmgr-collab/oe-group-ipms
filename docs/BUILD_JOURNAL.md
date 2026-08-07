@@ -3381,3 +3381,104 @@ that reads it are one unit; deploying is part of landing it, not a separate
 errand.** Deployed and verified after this was noticed: both brand portals still
 resolve to their own `/o/<slug>` doors, which is the behaviour the operator
 exception must not disturb.
+
+## The failover, the memory, and the hole they found
+
+Asked for a Gemini failover with better intelligence and memory. All three
+landed. The third thing was not asked for and matters more than the other two.
+
+**Failover** — `lib/llm.ts`, provider adapters shaped like the payment
+gateways already in this codebase. Gemini rather than GPT because B3 locks it,
+and A7.3 forbids substituting a vendor silently; swapping is one adapter and
+one env var, but that is a decision to take, not to assume. Built on `fetch`,
+no second AI SDK in a bundle that runs on every inbound webhook.
+
+📌 **The design point worth keeping.** Failover triggers on *did we get a
+USABLE answer*, not *did the HTTP call succeed*. `parseClassification` used to
+return `FALLBACK_CLASSIFICATION` when the text would not parse — which is
+indistinguishable from a real classification of a vague message, so an
+overloaded model answering with prose was accepted as an answer and the
+fallback was never consulted. It now returns null, and null means "ask the
+next provider".
+
+**Memory** — `0113`. `conversation_context` handed the router
+`tickets.message_text`: the line that OPENED the ticket. Meanwhile
+`ticket_messages` had held the actual exchange since 0075. So the model was
+asked "is this a follow-up?" while shown only the first thing the person ever
+said, with every turn since invisible. `conversation_transcript` supplies the
+recent turns, labelled by speaker — without labels our own automated
+acknowledgement reads as something the tenant said.
+
+📌 Both are tested with **injected failing providers**, so the shipped
+failover logic itself is exercised with no outage and no Gemini key. Section F
+is a control: it removes the fallback and asserts the result changes. A green
+failover test that stays green when failover is deleted is worth nothing.
+
+---
+
+⚠️ **And then the suite found that almost nothing was actually protected.**
+
+A section asserting `conversation_transcript` was unreachable from a client
+session failed. It was reachable. So were **101 of 103 SECURITY DEFINER
+functions**.
+
+Every migration in this build uses:
+
+    revoke all on function f(...) from public;
+    grant execute on function f(...) to service_role;
+
+`PUBLIC` is the pseudo-role meaning "everyone by default". Supabase ships
+`ALTER DEFAULT PRIVILEGES ... GRANT EXECUTE ON FUNCTIONS TO anon,
+authenticated, service_role`, which writes **explicit** grants to those named
+roles at creation. Revoking from PUBLIC does not touch an explicit grant to
+`anon`. **The revoke ran, succeeded, and removed nothing that mattered** — for
+the whole build, in a codebase whose own comments repeatedly assert these
+functions are service-role-only.
+
+Proven, not inferred, with the anon key that ships in every page bundle:
+
+- `append_reporter_message` — an anonymous caller **wrote a message into a
+  ticket**, attributed to the reporter. Confirmed by doing it and reading the
+  row back.
+- `record_collection` — reached its body. It contains **no auth check of any
+  kind**, correctly: it was service-role-only, so it never needed one. An
+  anonymous caller could post a collection to the client-funds ledger,
+  marking an invoice paid with no money received.
+- `retire_org` — reached its body. Its guard is `if v_caller is not null and
+  not caller_is_operator_admin()`, and an anonymous caller has no
+  `auth.uid()`, so the check is skipped entirely.
+
+Not everything was open: `set_role_permission` tests `current_user_role() is
+distinct from 'admin'`, true for anon, so it refuses. **The blast radius is
+exactly "functions whose only gate was the grant"** — which is most of the
+money path, because a function that is genuinely service-role-only has no
+reason to check a caller it can never have.
+
+⚠️ **Two distinct causes, and the guard found the second.** `0114` revoked the
+explicit `anon`/`authenticated` grants — 81 statements, each derived from the
+grantees its own migration declared, so the public application and invitation
+flows stay anonymous by design rather than by luck. The new guard then
+immediately failed on two functions still reachable, for the opposite reason:
+`has_permission` and `accept_invitation` carried `=X/postgres` in their ACL —
+an empty grantee is PUBLIC. Their migrations never revoked from public at all;
+`accept_invitation`'s revoke in 0020 names the **two-argument** signature that
+0026 replaced with a seven-argument one. **A revoke naming a signature that no
+longer exists protects nothing, and nothing warns you.** Fixed in `0115`.
+
+📌 Checked before revoking `has_permission`, because RLS policies call it: if
+anon could not execute it, every anon query on a table whose policy calls it
+would ERROR instead of returning nothing — breaking the public tenancy and
+vendor application flows in a way that surfaces only when a real applicant
+tries. No anon-facing policy calls it; those gate on `org_accepts_*`, granted
+to anon deliberately and untouched.
+
+**The standing lesson.** Intent expressed in SQL is not the same as effect in
+the database, and only the database can be asked which is true. Every comment
+in every migration said "service_role only"; the code said it; the reviews
+believed it; it was false everywhere. `scripts/verify-function-grants.mjs` now
+compares live grants against the intent parsed out of the migrations
+themselves, so the two can never silently disagree again.
+
+Full suite after the lockdown: **65 of 65** — nothing legitimate was revoked.
+
+New: `scripts/verify-classifier-failover.mjs` (17), `verify-function-grants.mjs` (22).

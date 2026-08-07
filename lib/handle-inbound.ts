@@ -58,6 +58,26 @@ async function openThread(
   }
   if (!data) return null;
 
+  // The exchange so far, so the router reads a reply in context rather than
+  // against the opening line alone (0113). Best-effort on purpose: if this
+  // fails the router still gets everything it had before, which is a slightly
+  // worse read of a follow-up — not a dropped message. Memory is an
+  // improvement to lean on, never a dependency to fall over.
+  let transcript: { author: string; body: string; createdAt: string }[] = [];
+  const { data: messages, error: transcriptError } = await supabaseAdmin
+    .rpc("conversation_transcript", { p_ticket_id: data.ticket_id, p_limit: 8 });
+  if (transcriptError) {
+    console.error("conversation_transcript failed for", data.ticket_id, "-", transcriptError.message);
+  } else {
+    transcript = (messages ?? []).map(
+      (m: { author: string; body: string; created_at: string }) => ({
+        author: m.author,
+        body: m.body,
+        createdAt: m.created_at,
+      })
+    );
+  }
+
   return {
     ticketId: data.ticket_id,
     reference: data.reference,
@@ -67,6 +87,7 @@ async function openThread(
     awaiting: data.awaiting,
     messageText: data.message_text,
     createdAt: data.created_at,
+    transcript,
   };
 }
 

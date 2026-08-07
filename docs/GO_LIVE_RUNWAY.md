@@ -36,11 +36,17 @@ anything from me first. **Start all six on the same day.**
 These are open questions from `GO_LIVE_CHECKLIST.md` §5. They are cheap to
 answer and expensive to answer late.
 
-- **Gemini failover.** Today an Anthropic outage degrades triage to "needs
-  human review" rather than failing over to a second model. Ship the failover
-  before go-live, or accept it as a known gap with a monitoring alert? *(This
-  is a real availability decision, not a formality — an outage means every
-  inbound message lands unclassified until it passes.)*
+- ~~**Gemini failover.**~~ → **BUILT (2026-08-06).** No longer a decision.
+  `lib/llm.ts` fails over to Gemini and records which model answered on
+  `tickets.classified_by`, so "are we quietly running on the fallback?" is a
+  query rather than a hunch. **What remains is one credential:** set
+  `GEMINI_API_KEY` (and optionally `GEMINI_MODEL`, default
+  `gemini-2.0-flash`) on the production Vercel project. Until it is set the
+  fallback is skipped cleanly and behaviour is exactly what it was before —
+  so this is safe to leave until cutover, but it is the difference between
+  having a failover and having failover *code*. Free tier is sufficient for
+  the volumes here; obtain from Google AI Studio. **Add to Stage 1 if you
+  want the failover live before go-live rather than at it.**
 - **Rate-limit posture.** Limiting currently fails **open** — if Redis is
   unreachable, requests pass rather than being refused. Correct for
   availability on ordinary routes; worth deciding deliberately for payment

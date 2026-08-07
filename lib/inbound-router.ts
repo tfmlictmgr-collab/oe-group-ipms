@@ -13,10 +13,8 @@
 // — the existing classifier still does that — and it cannot act: every intent is
 // carried out by a guarded RPC that re-checks the sender owns the ticket.
 
-import Anthropic from "@anthropic-ai/sdk";
 import { QUICK_REPLY_OPTIONS } from "./acknowledgement";
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+import { completeWithFailover } from "./llm";
 
 export type InboundIntent =
   | "new_request"
@@ -44,6 +42,16 @@ export type OpenThread = {
   awaiting: string | null;
   messageText: string | null;
   createdAt: string;
+  /**
+   * The recent back-and-forth on this ticket, oldest first (0113).
+   *
+   * Before this existed the router was shown only `messageText` — the line
+   * that OPENED the ticket — and asked whether a new message continues it.
+   * So "it's worse now" was judged against something said three days and two
+   * exchanges ago, with everything in between invisible. That is the single
+   * biggest reason a reply got misread.
+   */
+  transcript?: { author: string; body: string; createdAt: string }[];
 };
 
 /**
@@ -106,22 +114,15 @@ function parseFirstContact(raw: string): RoutedMessage | null {
  * This asks the one question that actually applies here: request, or not.
  */
 async function classifyFirstContact(text: string): Promise<RoutedMessage> {
-  try {
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 120,
-      system: FIRST_CONTACT_SYSTEM_PROMPT,
-      messages: [{ role: "user", content: text.slice(0, 1000) }],
-    });
-    const block = response.content.find((b) => b.type === "text");
-    // Same safe direction as the main router: on any doubt, a request. A
-    // duplicate/premature ticket is visible and closeable; a real problem
-    // brushed off as small talk is not.
-    return (block && parseFirstContact(block.text)) ?? NEW;
-  } catch (error) {
-    console.error("First-contact classification failed, treating as a new request:", error);
-    return NEW;
-  }
+  const { value } = await completeWithFailover(
+    { system: FIRST_CONTACT_SYSTEM_PROMPT, user: text.slice(0, 1000), maxTokens: 120 },
+    parseFirstContact
+  );
+  // Same safe direction as the main router: on any doubt, a request. A
+  // duplicate or premature ticket is visible and closeable; a real problem
+  // brushed off as small talk is not. That holds whether the doubt came from
+  // an ambiguous message or from both providers being unreachable.
+  return value ?? NEW;
 }
 
 /**
@@ -222,33 +223,39 @@ export async function routeInboundMessage(
     return { intent: "pleasantry", urgency: null, reasoning: "greeting or command" };
   }
 
+  // The conversation so far, when there is one (0113). Labelled by speaker so
+  // the model can tell the reporter's own words from what we told them —
+  // without that, our own acknowledgement reads as something the tenant said.
+  const transcript = (thread.transcript ?? [])
+    .map((m) => {
+      const who =
+        m.author === "reporter" ? "Them" : m.author === "staff" ? "Our team" : "Us (automated)";
+      return `  ${who}: ${m.body.slice(0, 300)}`;
+    })
+    .join("\n");
+
   const context = [
     `Their open request (ref ${thread.reference}, opened ${thread.createdAt}):`,
     `  category: ${thread.category ?? "unclassified"}`,
     `  priority: ${thread.urgency ?? "normal"}`,
     `  status:   ${thread.status ?? "open"}`,
-    `  what they said: ${(thread.messageText ?? "").slice(0, 400)}`,
+    `  what they first said: ${(thread.messageText ?? "").slice(0, 400)}`,
+    transcript ? `\nThe conversation since, oldest first:\n${transcript}` : "",
     thread.awaiting === "urgency_confirmation"
-      ? `We just asked them whether that priority is right.`
+      ? `\nWe just asked them whether that priority is right.`
       : "",
     ``,
     `Their new message: ${text.slice(0, 1000)}`,
-  ].join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 
-  try {
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 200,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: "user", content: context }],
-    });
-    const block = response.content.find((b) => b.type === "text");
-    // Falling back to a NEW REQUEST is the safe direction. A duplicate ticket is
-    // visible and closeable; a message merged into the wrong thread, or dropped,
-    // is neither.
-    return (block && parse(block.text)) ?? NEW;
-  } catch (error) {
-    console.error("Inbound routing failed, treating as a new request:", error);
-    return NEW;
-  }
+  const { value } = await completeWithFailover(
+    { system: SYSTEM_PROMPT, user: context, maxTokens: 200 },
+    parse
+  );
+  // Falling back to a NEW REQUEST is the safe direction. A duplicate ticket is
+  // visible and closeable; a message merged into the wrong thread, or dropped,
+  // is neither.
+  return value ?? NEW;
 }
