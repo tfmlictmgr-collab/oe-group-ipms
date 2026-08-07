@@ -208,7 +208,60 @@ console.log("\nF. Maintenance strategy");
     : bad(`the Phase-2 value was rejected, so the column WILL need widening later: ${usageErr.message}`);
 }
 
-console.log("\nG. Phase 2 really is still Phase 2");
+console.log("\nG. An asset states what it serves (decision 8)");
+{
+  // ⚠️ The clause decision 8 spelled out and nothing had built: "'Shared' is a
+  // stated fact, never an absent `unit_id` — a nullable FK used as a meaning
+  // produced three live defects in one week, because NULL never matches an
+  // `IN` list."
+  const a = await mk("Scope");
+  const { data: def } = await svc.from("assets").select("scope").eq("id", a).single();
+  def.scope === "property"
+    ? ok("defaults to PROPERTY — shared unless someone says otherwise")
+    : bad(`default scope is ${def.scope}`);
+
+  const { error: badVal } = await svc.from("assets").update({ scope: "block" }).eq("id", a);
+  badVal ? ok("and an invented scope is refused") : bad("an arbitrary scope was accepted");
+
+  // The consistency rule, both ways round. Without it the column is decoration:
+  // a row could claim unit scope with no unit, or shared scope while pinned to
+  // one, and the "stated fact" would be a lie.
+  const { error: unitNoUnit } = await svc.from("assets")
+    .update({ scope: "unit" }).eq("id", a);
+  unitNoUnit
+    ? ok("a unit-scoped asset with no unit is refused — the stated fact must be true")
+    : bad("!!! an asset claims unit scope while naming no unit");
+
+  const { data: someUnit } = await svc.from("units")
+    .select("id").eq("property_id", ctx.props[0].id).limit(1).maybeSingle();
+  if (!someUnit) {
+    note("no unit on this property — the pinned-shared-asset check needs one");
+  } else {
+    const { error: sharedPinned } = await svc.from("assets")
+      .update({ scope: "property", unit_id: someUnit.id }).eq("id", a);
+    sharedPinned
+      ? ok("and a property-scoped asset cannot be pinned to a single unit")
+      : bad("!!! a shared asset was pinned to one unit");
+
+    // The query the column exists for: a unit's own assets PLUS the shared
+    // plant above it. `unit_id IN (...)` structurally cannot answer this, which
+    // is how shared plant disappeared from per-unit reports.
+    const shared = await mk("SharedPlant");
+    const pinned = await mk("InUnit", { unit_id: someUnit.id, scope: "unit" });
+    const { data: serving, error: servErr } = await svc
+      .rpc("assets_serving_unit", { p_unit_id: someUnit.id });
+    if (servErr) {
+      bad(`assets_serving_unit failed: ${servErr.message}`);
+    } else {
+      const ids = (serving ?? []).map((r) => r.id);
+      ids.includes(pinned) && ids.includes(shared)
+        ? ok("assets_serving_unit returns the unit's OWN asset and the shared plant above it")
+        : bad(`a per-unit view missed one: own=${ids.includes(pinned)} shared=${ids.includes(shared)}`);
+    }
+  }
+}
+
+console.log("\nH. Phase 2 really is still Phase 2");
 {
   // The doc's claim, re-checked here rather than trusted: if these tables ever
   // appear, 'usage' stops being a seam and this suite should say so.

@@ -40,6 +40,13 @@ type FieldType = "text" | "enum" | "date" | "number" | "boolean";
  *  needs widening when meters/sensor_readings land, and deliberately NOT
  *  offered here, because nothing can compute it yet. */
 export const MAINTENANCE_STRATEGIES = ["reactive", "calendar"] as const;
+/**
+ * What an asset serves (decision 8). `site` is offered but never guessed on
+ * import: nothing in a spreadsheet distinguishes "serves this building" from
+ * "serves the whole site", so it has to be said.
+ */
+export const ASSET_SCOPES = ["unit", "property", "site"] as const;
+
 export const ASSET_MOBILITIES = ["fixed", "movable"] as const;
 
 export type AssetField = {
@@ -79,7 +86,16 @@ export const ASSET_FIELDS: AssetField[] = [
   { key: "property_name", label: "Property", type: "text", required: true, group: "location",
     hint: "Must match a property you manage, exactly.", example: "Ikoyi Court" },
   { key: "unit_label", label: "Unit", type: "text", group: "location",
-    hint: "Optional. Leave blank for building-wide plant.", example: "" },
+    hint: "Required when scope is 'unit'. Leave blank for shared plant.", example: "" },
+  // ⚠️ Placed BEFORE the unit field would have been read, and worded as a
+  // statement rather than an absence. Decision 8: "shared" is a stated fact,
+  // never an empty Unit column — a blank unit used to mean three different
+  // things at once (building-wide plant, site-wide plant, and a row someone
+  // had not finished filling in), and no query could tell them apart.
+  { key: "scope", label: "Serves", type: "enum",
+    enumValues: ASSET_SCOPES, group: "location",
+    hint: "unit: this unit only (name the Unit). property: shared across the building. site: shared across the site.",
+    example: "property" },
   { key: "location_detail", label: "Location detail", type: "text", group: "location",
     hint: "Where to physically find it.", example: "Roof plant room, Level 3" },
   { key: "mobility", label: "Fixed or movable", type: "enum",

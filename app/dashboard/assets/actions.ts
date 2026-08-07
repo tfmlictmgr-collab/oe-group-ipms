@@ -200,6 +200,12 @@ export async function createAsset(
   if (!form.property_id) return fail("Choose the property this asset belongs to.");
   row.property_id = form.property_id;
   if (form.unit_id) row.unit_id = form.unit_id;
+  // ⚠️ Derived when not stated, never left to the column default. The database
+  // default is `property`, so a form that named a unit and said nothing about
+  // scope would be refused by `assets_scope_valid` (0134) — the user would see
+  // a raw constraint error for a field they were never asked about. Stating it
+  // explicitly wins; this only covers the silence.
+  row.scope = form.scope || (form.unit_id ? "unit" : "property");
 
   for (const f of ASSET_FIELDS) {
     if (["property_name", "unit_label", "vendor_name", "custodian_email"].includes(f.key)) continue;

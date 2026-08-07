@@ -11,6 +11,8 @@ import {
 import { PageHeader } from "@/components/patterns/page-header";
 import { StatCard } from "@/components/patterns/stat-card";
 import SubmitInvoice, { type InvoiceableJob } from "./SubmitInvoice";
+import JobCard from "./JobCard";
+import { shortRef } from "@/lib/acknowledgement";
 import { EmptyState } from "@/components/patterns/empty-state";
 import { StatusBadge } from "@/components/patterns/status-badge";
 import { Badge } from "@/components/ui/badge";
@@ -91,7 +93,7 @@ export default async function MyWorkPage() {
     // runs the same policy, it just returns no rows.
     supabase
       .from("tickets")
-      .select("id, summary, message_text, category, urgency, status, created_at, resolved_at, property_or_unit")
+      .select("id, summary, message_text, category, urgency, status, created_at, resolved_at, property_or_unit, acknowledged_at")
       .order("created_at", { ascending: false })
       .limit(100),
     supabase
@@ -121,6 +123,7 @@ export default async function MyWorkPage() {
     id: string; summary: string | null; message_text: string | null;
     category: string | null; urgency: string | null; status: string;
     created_at: string; resolved_at: string | null; property_or_unit: string | null;
+    acknowledged_at: string | null;
   };
   const jobs = (jobsRes.data ?? []) as Job[];
   const open = jobs.filter((j) => OPEN_STATES.includes(j.status));
@@ -225,40 +228,31 @@ export default async function MyWorkPage() {
               Nothing outstanding. New jobs appear here as soon as they are dispatched to you.
             </p>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Job</TableHead>
-                    <TableHead>Where</TableHead>
-                    <TableHead>Urgency</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Raised</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {open.map((j) => (
-                    <TableRow key={j.id}>
-                      <TableCell className="max-w-[22rem]">
-                        <span className="font-medium">
-                          {j.summary ?? (j.message_text ?? "").slice(0, 80) ?? "Job"}
-                        </span>
-                        <span className="block text-xs text-muted-foreground">
-                          {j.id.slice(0, 8).toUpperCase()} · {j.category ?? "unclassified"}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {j.property_or_unit ?? "—"}
-                      </TableCell>
-                      <TableCell><StatusBadge status={j.urgency} /></TableCell>
-                      <TableCell><StatusBadge status={j.status} /></TableCell>
-                      <TableCell className="text-right text-sm tabular-nums">
-                        {fmtDate(j.created_at)}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+            /* ⚠️ Cards with controls, not a read-only table.
+             *
+             * This was five columns of plain text — no link, no buttons — while
+             * `VendorJobActions` (accept / decline / mark complete) sat on
+             * `/dashboard/tickets/[id]`, a page a vendor has no navigation entry
+             * for. So the contractor's own home screen listed work it gave them
+             * no way to act on, and the only route to the controls was a URL
+             * they had to already know. Reported from the live TFML portal. */
+            <div className="space-y-3">
+              {open.map((j) => (
+                <JobCard
+                  key={j.id}
+                  job={{
+                    id: j.id,
+                    reference: shortRef(j.id),
+                    title: j.summary ?? (j.message_text ?? "Job").slice(0, 80),
+                    category: j.category,
+                    urgency: j.urgency,
+                    status: j.status,
+                    where: j.property_or_unit,
+                    raised: fmtDate(j.created_at),
+                    acknowledged: Boolean(j.acknowledged_at),
+                  }}
+                />
+              ))}
             </div>
           )}
         </CardContent>

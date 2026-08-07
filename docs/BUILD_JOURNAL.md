@@ -4135,3 +4135,112 @@ because a deck overstating what a board can check is the one error that matters.
 New: `scripts/verify-role-surface.mjs`. Access suites green: access-matrix,
 permissions, role-hierarchy, oversight-roles, viewer-access, role-workflows,
 finance-journey. Clean production build.
+
+> **Correction (same day).** Two entries above — and the commit messages that
+> carried them — state that `verify-reconciliation` and `verify-checkout-e2e`
+> fail because "Node cannot resolve a `.ts` import from a `.mjs` script". That
+> is wrong. Both scripts say `Usage: npx tsx …` in their own header; they were
+> being run with bare `node`. Under `tsx` all four affected suites pass
+> (`asset-import`, `asset-import-e2e`, `reconciliation`, `checkout-e2e` — the
+> last needs the dev server up, which is what its "fetch failed" actually
+> meant). **No harness limitation exists.** Recorded here rather than edited
+> away, because "those two always fail" is exactly the belief that stops someone
+> running them.
+
+---
+
+## The vendor could see the work and not touch it — and four open items closed
+
+**Migrations 0133–0134 · 7 Aug 2026**
+
+### The reported defect
+
+A live screenshot from `tfmlportal.com/dashboard/my-work`: a contractor with one
+assigned job, and no way to accept, decline or complete it.
+
+📌 The controls existed. `VendorJobActions` — accept, decline, mark complete —
+has sat on `/dashboard/tickets/[id]` since 0118, wired to gated server actions
+that check the job is actually theirs. But a vendor has **no Requests entry in
+the navigation**, and "Current jobs" on their own page rendered each job as
+plain text in a five-column table: no link, no buttons. So the contractor's home
+screen listed work it gave them no way to act on, and the only route to the
+controls was a URL they had to already know.
+
+Fixed by putting the actions where the vendor already is. Cards rather than
+table rows, deliberately: a contractor reads this on a phone between jobs, and a
+five-column table with a button in it is a desktop shape. The actions are the
+**same server actions, imported** — one write path, a second surface on it.
+
+Verified live: Accept moved the job `Assigned → Acknowledged`, the button left,
+and the follow-on line appeared.
+
+### 84 leaked fixture accounts, 11 of them operator admins
+
+Flagged last turn as "11 stray accounts"; the dry run found **84** — including
+eleven live administrators on the platform operator org, the most privileged
+account type in the system. The guarded sweep in `seed-org-logins.mjs` already
+covered every one and had simply never been run. All 84 gone; the operator org
+now holds exactly one admin.
+
+### A regression of my own, caught by a standing suite
+
+`verify-operator-governance` failed with **"NOBODY AT THE ORG WAS TOLD"**.
+
+0122 stopped a signed-in caller writing notifications into another organisation —
+a real B1 breach, proven live. That fix was right and stays. What it *also*
+stopped was the one crossing the board sanctions: `operator_break_glass_invite`
+ends by telling the target org's administrators that OE Group has just issued an
+emergency admin invitation into their organisation. The caller there is a
+signed-in operator admin, so `auth.uid()` is set and the org check silently
+returned 0.
+
+⚠️ The consequence is precisely backwards. `operator_actions`' own comment says
+the crossing must be "visible to the organisation it was done TO — silent
+operator access is the thing auditors object to". A boundary that silences that
+announcement **made operator access silent**, which is the one outcome decision 7
+exists to prevent. Fixed by naming the exception (`caller_is_operator_admin()`)
+rather than widening the rule.
+
+### Decision 8's last unbuilt clause
+
+> "Assets state their scope. `assets.scope` ∈ `unit | property | site`. 'Shared'
+> is a stated fact, never an absent `unit_id`."
+
+The hierarchy half shipped in 0121; this column never did. So `unit_id is null`
+still meant three different things at once — building-wide plant, site-wide
+plant, and *a row nobody finished filling in* — and no query could separate
+shared plant from incomplete data.
+
+Built with the consistency trigger that makes the column mean something (a
+unit-scoped asset must name its unit; a shared one cannot be pinned to one), and
+`assets_serving_unit()`, which is the query the column exists for: a unit's own
+assets **plus** the shared plant above it. `unit_id IN (...)` structurally cannot
+answer that, which is how shared plant disappears from per-unit reports.
+
+⚠️ Scope is **derived, not defaulted**, in both the form action and the import
+validator. The database default is `property`, so a row naming a unit and saying
+nothing about scope would have been refused by the new trigger — the user
+meeting a raw constraint error for a field they were never asked about. Existing
+spreadsheets, which have a Unit column and have never heard of scope, import
+unchanged. `site` is the one value never inferred: nothing in a spreadsheet
+distinguishes it from `property`, and inferring it would put an asset outside
+the property it is on.
+
+### Two suites that were never broken
+
+Recorded above — twice — as failing on "a Node ESM harness limit". They were
+being run with bare `node`; both headers say `Usage: npx tsx`. Under `tsx`,
+`asset-import`, `asset-import-e2e`, `reconciliation` and `checkout-e2e` all pass.
+Corrected in place above rather than quietly edited, because "those two always
+fail" is exactly the belief that stops someone running them.
+
+### Left open, deliberately
+
+**Owner sign-off on major spend** (deck lane E4). Standard property-management
+practice is that the *management agreement* sets a repair threshold above which
+the landlord consents **before work is commissioned** — not consent to release a
+payment. Building it as payment approval would contradict decision 9's
+separation and B7's owner row, which is why the deck now reads "future · needs a
+board decision" rather than being quietly implemented. Building it as work-order
+consent needs a cost estimate on the ticket, which is new product surface and
+new board scope. **That shape is the board's to approve, not mine to assume.**

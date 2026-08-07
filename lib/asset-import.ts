@@ -232,6 +232,29 @@ export function validateAssetCsv(text: string, ctx: ImportContext): {
     if (Object.keys(custom).length > 0) values.custom_fields = custom;
 
     // ── Cross-field sanity ─────────────────────────────────────────────────
+    //
+    // ⚠️ Scope and unit must agree, because `assets_scope_valid` (0134) will
+    // refuse the row if they do not — and the preview has to say exactly what
+    // the write will do. A preview that approves rows the database then rejects
+    // is worse than no preview: the user has already been told it was fine.
+    //
+    // When scope is NOT stated it is DERIVED, not defaulted: a row with a unit
+    // is unit-scoped, everything else is property-scoped. Existing spreadsheets
+    // — which have a Unit column and have never heard of scope — therefore keep
+    // importing unchanged, while anyone who states `site` gets what they stated.
+    // `site` is the one value never inferred: decision 8's point is that shared
+    // is a stated fact, and no spreadsheet distinguishes site from property.
+    if (!values.scope) {
+      values.scope = values.unit_id ? "unit" : "property";
+    } else if (values.scope === "unit" && !values.unit_id) {
+      issues.push({ column: "scope", message: "A unit-scoped asset must name its Unit." });
+    } else if (values.scope !== "unit" && values.unit_id) {
+      issues.push({
+        column: "scope",
+        message: `A ${values.scope}-scoped asset is shared, so it cannot name a single Unit.`,
+      });
+    }
+
     const pd = raw["purchase_date"], cd = raw["commissioned_date"];
     if (pd && cd && DATE_RE.test(pd) && DATE_RE.test(cd) && cd < pd) {
       issues.push({
