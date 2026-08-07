@@ -3533,3 +3533,58 @@ failover. Either enable billing on the Google Cloud project so the quota is
 real, or accept that the fallback is best-effort and the failover is a
 degradation-reducer rather than a guarantee. Both are defensible; the one
 thing that is not is believing it works because a key is set.
+
+## A vendor you could invite but never create
+
+Reported: a vendor onboarded under TFML never appeared in the vendor list, and
+could not be picked when dispatching a request. Both true, plus a third the
+report could not see — their own My Work page was empty too.
+
+⚠️ **The invitation machinery was not the bug**, which is worth recording
+because it is the obvious suspect and an hour could be lost there.
+`invitations.vendor_id` exists, `InviteDialog` renders a vendor picker for the
+vendor role, and `accept_invitation` already links the accepted user to the
+chosen company. I initially concluded otherwise off a grep for
+`insert into vendors` — the function does an **UPDATE**, so the grep said
+"never touches vendors" and it was wrong. Reading the function caught it.
+**A negative grep is not evidence; it is one phrasing failing to match.**
+
+The actual cause was upstream and simpler: **nothing in the application could
+create a vendor company.** `app/dashboard/vendors/` had a list and a detail
+page and no `new/`. Rows only ever arrived through the public self-service
+application flow (`approve_vendor_application`, 0021) or a seed script. TFML
+and OEA had **zero** vendors between them — so the invite dialog's picker was
+empty, the invitation went out with `vendor_id = null`, and the accepted user
+landed with a role scoped to a company that did not exist.
+
+📌 **One missing row, three symptoms, because three surfaces read the same
+table**: the vendor list, the dispatch dropdown, and My Work (by `user_id`).
+That is why it presented as "invisible AND unassignable AND blank" rather than
+one clean failure — and why the new suite asserts all three from one fixture
+instead of trusting that they agree.
+
+**Built:** `/dashboard/vendors/new`, gated to admin/FM with RLS
+(`vendors_insert`, capability `vendors.write`) as the real boundary.
+
+📌 Created as `approval_status = 'pending'`, deliberately **not** approved. The
+public path sets 'approved' because a human has just reviewed the application
+in front of them; an administrator typing a company name has done no such
+review, and starting it approved would launder an unreviewed vendor into a
+payable one — the exact thing `verify-vendor-applications` exists to prevent
+from the other direction.
+
+📌 The form offers to attach an **existing unattached vendor login**, and only
+renders that when there is one. This is the rescue path for anyone already
+stranded — otherwise fixing them is a separate errand nobody knows to run. It
+found both TFML orphans on first load, including the reported person.
+
+**Guarded:** `0116` adds a CHECK that a vendor invitation must name a company.
+`NOT VALID`, deliberately — two such invitations already exist, and rewriting
+live invitation history to satisfy a rule written afterwards edits the record
+of what happened. New rows are checked; the two are grandfathered and left
+exactly as they occurred.
+
+New: `scripts/verify-vendor-onboarding.mjs` (11 checks), including one that
+asserts an administrator holds `vendors.write` in **every** org — the original
+failure was org-shaped, and a suite that only ever tests the seeded demo org
+would not have seen it.

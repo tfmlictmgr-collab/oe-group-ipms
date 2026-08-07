@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Building2, ChevronRight } from "lucide-react";
+import { Building2, ChevronRight, Plus } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
 import { averageComposite, scoreBand } from "@/lib/vendor-score";
 import { PageHeader } from "@/components/patterns/page-header";
 import { EmptyState } from "@/components/patterns/empty-state";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import RoleGate, { roleAllowed } from "../RoleGate";
 
 type VendorRow = {
@@ -38,6 +39,12 @@ export default async function VendorsPage() {
     return <RoleGate title="Vendors" />;
   }
 
+  // Reading the register is wider than adding to it: finance and an executive
+  // see vendors, but creating a company is the same audience `vendors.write`
+  // covers. RLS refuses the insert regardless — this only decides whether to
+  // offer a button that would be refused.
+  const canAddVendor = roleAllowed(session.profile?.role, ["admin", "facility_manager"]);
+
   const supabase = await createClient();
   const { data } = await supabase
     .from("vendors")
@@ -57,6 +64,13 @@ export default async function VendorsPage() {
       <PageHeader
         title="Vendors"
         description="Ranked by composite performance score (weighted per AURA)."
+        actions={
+          canAddVendor ? (
+            <Button asChild variant="brand">
+              <Link href="/dashboard/vendors/new"><Plus /> Add Vendor</Link>
+            </Button>
+          ) : undefined
+        }
       />
 
       {vendors.length === 0 ? (
