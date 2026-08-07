@@ -23,7 +23,12 @@ export async function assignTicket(
     return fail("Pick a vendor or an ops person to assign this to.");
   }
 
-  const { error } = await supabase
+  // ⚠️ `.select()` so a refused update is not reported as a dispatch. Without
+  // it PostgREST returns no error and zero rows when RLS declines, the action
+  // returns ok(), and the dispatcher is told "Request dispatched" while
+  // nothing happened — the same silent-no-op class this build has hit before
+  // in cleanup code and in removeAttachment.
+  const { data: updated, error } = await supabase
     .from("tickets")
     .update({
       assigned_vendor_id: vendorId,
@@ -33,13 +38,38 @@ export async function assignTicket(
       acknowledged_at: null,
       status: "assigned",
     })
-    .eq("id", ticketId);
+    .eq("id", ticketId)
+    .select("id");
   if (error) return failFromDb(error, "assign this job");
+  if (!updated?.length) {
+    return fail(
+      "That request could not be dispatched.",
+      "You may not have permission to dispatch this one, or it has moved since the page was loaded."
+    );
+  }
 
-  // Let the assignee know in-app, not only through the outbound cascade.
-  if (opsUserId) {
+  // ── Tell the assignee ────────────────────────────────────────────────────
+  //
+  // ⚠️ This used to be `if (opsUserId)` alone, so dispatching to a VENDOR
+  // notified nobody — while the toast said "The assignee has been notified."
+  // That is the reported symptom: a vendor given a job, told nothing. A vendor
+  // is a company; the person to notify is the login attached to it, which is
+  // also why a vendor with no `user_id` gets no in-app notice and must be
+  // reached another way.
+  const recipients: string[] = [];
+  if (opsUserId) recipients.push(opsUserId);
+  if (vendorId) {
+    const { data: vendor } = await supabase
+      .from("vendors")
+      .select("user_id")
+      .eq("id", vendorId)
+      .maybeSingle();
+    if (vendor?.user_id) recipients.push(vendor.user_id as string);
+  }
+
+  for (const recipient of recipients) {
     await supabase.rpc("notify_user", {
-      p_user_id: opsUserId,
+      p_user_id: recipient,
       p_kind: "assignment",
       p_title: "A job has been assigned to you",
       p_body: "Open it to acknowledge and get started.",

@@ -7,9 +7,18 @@ import { createClient } from "@/lib/supabase/client";
 import { Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
+// ⚠️ 'assigned' is deliberately NOT offered here. Dispatching is what assigns
+// a job — it sets the vendor or ops person, the timestamp and who did it.
+// Choosing 'assigned' from a dropdown set the word and nobody behind it, which
+// is exactly how a job reached a vendor's name in conversation but never
+// reached their portal: every downstream surface keys off assigned_vendor_id.
+// The database now refuses that state outright (0117); this stops the UI
+// offering it in the first place.
+//
+// 'acknowledged' and 'in_progress' stay: both are legitimate manual moves once
+// somebody IS assigned, and the trigger refuses them if nobody is.
 const STATUSES = [
   "open",
-  "assigned",
   "acknowledged",
   "in_progress",
   "resolved",

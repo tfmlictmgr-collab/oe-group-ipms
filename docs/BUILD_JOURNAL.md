@@ -3588,3 +3588,64 @@ New: `scripts/verify-vendor-onboarding.mjs` (11 checks), including one that
 asserts an administrator holds `vendors.write` in **every** org — the original
 failure was org-shaped, and a suite that only ever tests the seeded demo org
 would not have seen it.
+
+## A job assigned to nobody
+
+Reported: a job dispatched to Philip's vendor (eDOWM, TFML) did not appear in
+his portal and produced no notification.
+
+📌 **The read path was never at fault**, and establishing that first saved
+chasing RLS. Impersonating him through `set local request.jwt.claims`, he
+resolves his vendor and sees the ticket correctly — the instant
+`assigned_vendor_id` is actually set. Every symptom came from that one field
+never being written.
+
+⚠️ **The ticket said `status = 'assigned'` with both assignee columns null,
+and `assigned_at` null too.** `assignTicket` always stamps `assigned_at`, so
+it had never run. The status had been moved by the **Status dropdown**, which
+offered 'assigned' as a free choice — setting the word and nobody behind it.
+Not a one-off mis-click either: two more tickets on the POC org were sitting
+in the same state.
+
+**Three defects, one report.**
+
+1. **A meaningless state was reachable.** `assigned` / `acknowledged` /
+   `in_progress` with nobody assigned. `0117` refuses it with a BEFORE trigger
+   — separate from `tickets_stamp_lifecycle` on purpose, so the trigger that
+   stamps never gains a reason to reject and the trigger that rejects never
+   gains a reason to rewrite. The manual status list no longer offers
+   'assigned' at all: dispatching is what assigns, and a dropdown that can
+   silently un-hold a job is a trap.
+2. **A vendor was never notified.** `assignTicket` read
+   `if (opsUserId) notify_user(...)` — dispatching to a vendor told nobody,
+   while the toast said "The assignee has been notified." A vendor is a
+   *company*; the person to tell is the login attached to it, so the fix
+   resolves `vendors.user_id` and notifies that. A vendor with no attached
+   login still gets nothing, which is now a visible consequence of an
+   unattached company rather than a silent hole.
+3. **The dispatch could fail silently.** `.update().eq()` with no `.select()`
+   returns no error and zero rows when RLS declines, so a refused dispatch
+   reported success. Same class as the FK-cleanup no-ops earlier in this build.
+
+⚠️ **Existing rows deliberately not rewritten.** Three tickets are in the bad
+state. Guessing an assignee would put a name against work that person may
+never have been told about — worse than an honest gap. The trigger fires on
+UPDATE, so each refuses its next status change until dispatched properly,
+surfacing it to a human exactly when one is already looking.
+`verify-role-workflows` reports the count so they can be found deliberately.
+
+📌 **And a fixture bug in my own new suite, caught before it was reported as a
+product bug.** Section B first picked *any* vendor with a login — and got one
+whose login is **deactivated**. `notify_user` correctly declines those, so the
+section failed for a right reason and read as "vendors are never notified."
+The suite now requires an ACTIVE login. Same shape as the 0:0 inheritance test
+in `verify-work-order-media`: **a fixture that does not satisfy the
+precondition tests nothing, and will happily tell you something alarming.**
+
+New: `scripts/verify-role-workflows.mjs` (24 checks) — deliberately a
+*seam* suite rather than another per-feature one. The per-feature suites test
+their own feature deeply on the seeded demo org; this walks every live
+organisation and checks the joins between features: that a working status
+implies a holder, that being assigned actually tells someone, that a tenant
+reads no ledger and a vendor reads no other vendor's jobs. The reported bug
+lived precisely in that gap.
