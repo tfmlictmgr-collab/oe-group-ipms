@@ -3798,3 +3798,128 @@ it, so it sits above the detail rather than below.
 
 New: `scripts/verify-asset-classification.mjs` (17 checks). All four asset
 suites pass, including the importer.
+
+---
+
+## The tenant/resident journey — reporting, being answered, and paying
+
+**Migrations 0122–0126 · 7 Aug 2026**
+
+Sixth role walked end to end, from the user-journey deck: *report an issue → AI
+triage (category + priority + interaction) → ticket + acknowledgement → track
+requests → pay the service charge → view statements and payment history → track
+the timeline → appraise the vendor.* Four of those steps already worked. Three
+did not, and one of them was quietly wrong about money.
+
+### The portal was the least intelligent channel
+
+WhatsApp and Telegram classify every inbound message — model, failover,
+recorded provider, conversational follow-up (0075, 0113). The **portal**, which
+A2 calls the system of record, did none of it. `NewRequestForm` was a
+client-side `supabase.from("tickets").insert()` with **category and severity
+taken from two dropdowns the reporter filled in themselves**. It showed no
+reference back, and told nobody.
+
+So a gas leak reported on the web carried whatever urgency the reporter picked
+from a select box, and then sat in the table waiting to be noticed.
+
+Moved to a server action: the classifier runs where the API key is, the row
+records `classified_by`, and staff are notified. The category *can* still be
+set by the reporter — they know whether this is a billing question better than
+a model reading one sentence. **The urgency deliberately cannot.** "How bad is
+this" is the judgement the classifier exists to make consistently across
+reporters, and a self-assessed severity is the field people lean on to jump the
+queue. They correct it *afterwards*, against a stated baseline, recorded as the
+reporter's own — which is what 0124's `set_my_ticket_urgency` is for.
+
+### A tenant could not pay a service charge at all
+
+Module 3 built budgets, apportionment, invoicing, the ledger posting and daily
+reconciliation. `payment_intents_insert` admits admin/finance/FM and nobody
+else, so the person being billed had a number and no button — exactly the gap
+0110 closed for rent, closed the same way and for the same reason.
+
+📌 **And underneath it, a live regression.** `record_collection` used to end
+with `update service_charges set status = 'paid'` — present in 0032, 0033, 0035
+and 0049. The 0092 rewrite (adding the rent fee split) dropped that line, and
+0103 rewrote from 0092. Confirmed against `pg_proc.prosrc` rather than the
+files: **the deployed function contained no reference to `service_charges` at
+all.** A service-charge payment posted to the ledger correctly, marked the
+*intent* paid, and left the *invoice* reading `invoiced` for ever. The money was
+right; the record of what it settled was not, and arrears over-reported by
+exactly the amount collected.
+
+Restored — and no longer a flat `'paid'`. The original was already wrong for a
+short payment: ₦300k received against a ₦482k invoice, and the invoice read
+settled. Derived from `amount_paid` now, as rent has been since 0090.
+
+### Two locks on the same door
+
+Section E of the new suite then caught a defect in the fix. `0123` removed
+0045's index blocking a second intent on a `part_paid` invoice — a spent
+checkout is not a live link, and blocking on it made the balance uncollectable.
+That fixed nothing on its own: both intent functions built the gateway
+reference deterministically **from the charge**, so the second attempt
+collided on `payment_intents_org_ref_uidx` instead.
+
+⚠️ **Not confined to the new path.** `create_rent_payment_intent` has carried
+the same shape since 0092, and there it is worse — no unique index covers
+`rent_charge_id`, so the function's own guard passes and the tenant is shown a
+raw duplicate-key error for "pay the rest of your rent". Both fixed in 0125:
+the reference is unique per **attempt**, and the charge stays recoverable from
+the intent's own FK column, which is where that link belongs.
+
+### A notification could cross an organisation
+
+Found before leaning on `notify_role` to tell the FM a request had arrived —
+worth asking what it actually permits.
+
+⚠️ Both notification functions are `SECURITY DEFINER`, granted to
+`authenticated`, and **neither checked the caller against the organisation it
+wrote into**. `notify_role` took the target org as an *argument*.
+`notify_user` derived it from the *recipient* — which reads like a safety
+check and is the opposite of one: it made the function work for any recipient
+in the database.
+
+Proven live, then rolled back: a **TFML tenant wrote a notification titled
+"Urgent: verify your bank details" into an OEA administrator's inbox**, and a
+second directly at a named OEA user.
+
+The smaller problem is the data. B1 says a user on one portal must never see
+the other brand's data *or existence* — a notification arriving from outside
+proves the other org exists, names a reachable person inside it, and does so in
+the one surface a user is trained to trust. `p_link` was already constrained to
+a relative path, which is precisely why the gap mattered: **the address was
+guarded, the sender never was.**
+
+Fixed with 0110's shape — derive the boundary from the session, skip it when
+there is none, so the scheduled jobs (which legitimately write across orgs) are
+untouched. Returns a no-op rather than raising, matching the
+deactivated-recipient case: a refusal would confirm the recipient exists.
+
+### Two regressions the guards caught, not review
+
+Both mine, both from this session's own work:
+
+- **The reporter's correction lost its audit entry.** 0124 factored the shared
+  rule down into `apply_reporter_urgency` so the portal and chat could use one
+  copy — and the move dropped the `audit_log` insert. `verify-conversational-triage`
+  said so. A priority is how work is ordered and how an SLA is measured; the
+  trail has to say who moved it and from what. **A refactor that keeps the
+  behaviour and loses the record has not kept the behaviour.**
+- **Four new functions were anonymous-callable.** The trap 0114/0115 were
+  written for, arriving on schedule: the project's `ALTER DEFAULT PRIVILEGES`
+  grants EXECUTE to `anon` on every new function, and `revoke all ... from
+  public` — which 0123 and 0124 both dutifully wrote — does not touch an
+  explicit per-role grant. The sharp one was
+  `create_service_charge_payment_intent`, whose standing check is skipped when
+  `auth.uid()` is null (that is how the jobs are trusted), so an anonymous
+  caller who learned an invoice id could have opened a checkout and locked the
+  real payer out.
+
+New: `scripts/verify-tenant-journey.mjs` — every step, every org, plus the
+cross-org notification matrix. Adjacent suites re-run green: collections,
+rent-money, tenant-rent-payment, notifications, function-grants,
+conversational-triage. `verify-checkout-e2e` fails at section H on both this
+tree and the pre-change tree — Node cannot import `lib/pdf/receipt.tsx` from a
+plain `.mjs`; a harness limitation, not a regression, and A–G pass.
