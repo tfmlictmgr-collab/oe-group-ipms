@@ -6,6 +6,7 @@ import { averageComposite } from "@/lib/vendor-score";
 import { sendCascade } from "@/lib/cascade";
 import { formatNaira } from "@/lib/currency";
 import { ok, fail, failFromDb, type ActionResult } from "@/lib/action-result";
+import { checkRateLimit, REMITTANCE_LIMIT } from "@/lib/rate-limit";
 
 async function loadPayment(supabase: Awaited<ReturnType<typeof createClient>>, id: string) {
   const { data, error } = await supabase
@@ -224,6 +225,26 @@ export async function executeRemittance(paymentId: string): Promise<RemittanceRe
     .from("users").select("role").eq("id", user.id).single();
   if (!me || !["admin", "finance_approver"].includes(me.role)) {
     return fail("Only finance or an administrator can send a remittance.");
+  }
+
+  // Per-caller cap on real transfers. lib/rate-limit.ts fails open by design
+  // everywhere else, but this route moves money, so a genuine Redis outage
+  // (`degraded`) refuses rather than going unguarded — never configuring
+  // Upstash at all (dev, the POC demo) is unaffected and behaves as before.
+  const remitGate = await checkRateLimit(
+    "remittance-execute", user.id, REMITTANCE_LIMIT.limit, REMITTANCE_LIMIT.window
+  );
+  if (remitGate.degraded) {
+    return fail(
+      "The abuse-protection check for remittances is currently unavailable.",
+      "Nothing has been sent. Try again shortly, or contact support if this persists."
+    );
+  }
+  if (!remitGate.allowed) {
+    return fail(
+      "Too many remittances sent in a short window.",
+      "Wait a few minutes and try again — this protects against a runaway or compromised session."
+    );
   }
 
   const payment = await loadPayment(supabase, paymentId);

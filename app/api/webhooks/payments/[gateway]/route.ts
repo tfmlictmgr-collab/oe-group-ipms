@@ -6,7 +6,15 @@ import { getAdapterByName, type GatewayName } from "@/lib/gateway";
 // Inbound payment webhooks. The order of operations here is the security
 // design, so it is worth stating plainly:
 //
-//   1. rate limit          — a public endpoint
+//   1. rate limit          — a public endpoint. Money moves here, so this is
+//                            the one exception to lib/rate-limit.ts's
+//                            documented fail-OPEN default: if Redis was
+//                            configured and is now unreachable (`degraded`),
+//                            this route refuses rather than going unguarded.
+//                            An environment that never configured Upstash at
+//                            all (`skipped` without `degraded` — local dev,
+//                            the POC demo) is unaffected and behaves exactly
+//                            as before.
 //   2. raw body            — the signature covers exact bytes; parsing first
 //                            and re-serialising would break verification
 //   3. verify signature    — proves WHO sent it. Fails CLOSED, always: unlike
@@ -35,6 +43,10 @@ export async function POST(
   const name = gateway as GatewayName;
 
   const ipGate = await checkRateLimit("pay-webhook-ip", clientIp(request.headers), 120, "1 m");
+  if (ipGate.degraded) {
+    console.error(`pay-webhook rate limiter unavailable (Redis errored) — refusing ${name} webhook until it recovers`);
+    return new NextResponse("Service Unavailable", { status: 503 });
+  }
   if (!ipGate.allowed) return new NextResponse("OK", { status: 200 });
 
   const rawBody = await request.text();

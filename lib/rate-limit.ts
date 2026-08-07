@@ -52,7 +52,17 @@ export type RateResult = {
   allowed: boolean;
   remaining?: number;
   reset?: number;
-  skipped?: boolean; // true when limiting was not applied (unconfigured/error)
+  // true when limiting was not applied at all — either reason below.
+  skipped?: boolean;
+  // Which reason, because callers on money-moving routes need to tell them
+  // apart: "never configured" is the expected, harmless state for local dev
+  // and the POC demo (no Upstash keys) and must keep failing open exactly as
+  // documented above. "Redis errored at call time" means limiting WAS
+  // supposed to be active and is not, right now — a real degradation, not an
+  // absence. A route that wants to fail closed checks THIS, never `skipped`
+  // alone, or it would also refuse every request in an environment that was
+  // never meant to have a limiter running.
+  degraded?: boolean;
 };
 
 export async function checkRateLimit(
@@ -68,7 +78,7 @@ export async function checkRateLimit(
     return { allowed: res.success, remaining: res.remaining, reset: res.reset };
   } catch (err) {
     console.error(`rate-limit "${name}" error (failing open):`, err);
-    return { allowed: true, skipped: true };
+    return { allowed: true, skipped: true, degraded: true };
   }
 }
 
@@ -91,4 +101,13 @@ export const INTAKE_LIMITS = {
     limit: Number(process.env.INTAKE_SENDER_LIMIT ?? 5),
     window: (process.env.INTAKE_SENDER_WINDOW ?? "10 s") as Duration,
   },
+};
+
+// Per-caller, on `executeRemittance` — real transfers, not a public endpoint,
+// so this is generous enough for a legitimate remittance day (many vendors in
+// a row) while still capping a runaway loop or a compromised session. There
+// was no limiter on this route at all before; see the fail-closed note there.
+export const REMITTANCE_LIMIT = {
+  limit: Number(process.env.REMITTANCE_LIMIT ?? 30),
+  window: (process.env.REMITTANCE_WINDOW ?? "5 m") as Duration,
 };
