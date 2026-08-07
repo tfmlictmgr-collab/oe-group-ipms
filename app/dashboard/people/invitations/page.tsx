@@ -20,7 +20,7 @@ export default async function InvitationsPage() {
       .eq("status", "pending")
       .order("created_at", { ascending: false }),
     supabase.from("vendors").select("id, name").order("name"),
-    supabase.from("units").select("id, label, property_id, properties(name)").order("label"),
+    supabase.from("units").select("id, label, property_id, properties!units_property_id_fkey(name)").order("label"),
     writableProperties(),
     // What actually became of each invitation email. `accepted` means the
     // provider took it, not that it arrived — a bounce lands here minutes later.

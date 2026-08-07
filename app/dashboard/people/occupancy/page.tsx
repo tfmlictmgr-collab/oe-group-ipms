@@ -14,7 +14,7 @@ export default async function OccupancyPage() {
     supabase.from("users").select("id, full_name, email, role, deactivated_at").order("full_name"),
     supabase
       .from("units")
-      .select("id, label, property_id, occupant_user_id, properties(name)")
+      .select("id, label, property_id, occupant_user_id, properties!units_property_id_fkey(name)")
       .order("label"),
     writableProperties(),
   ]);

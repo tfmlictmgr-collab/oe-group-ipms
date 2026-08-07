@@ -4244,3 +4244,56 @@ separation and B7's owner row, which is why the deck now reads "future · needs 
 board decision" rather than being quietly implemented. Building it as work-order
 consent needs a cost estimate on the ticket, which is new product surface and
 new board scope. **That shape is the board's to approve, not mine to assume.**
+
+---
+
+## A 404 that was never a missing page
+
+**7 Aug 2026 · no migration**
+
+Reported from production: filling in the asset register and being redirected to
+the new asset gave **"This page could not be found"** — for a row that existed,
+that the user could read, and that RLS was perfectly happy to return.
+
+### The cause
+
+`PGRST201`. `assets` carries **two** foreign keys to `properties` —
+`assets_property_id_fkey` and the composite `assets_property_same_org_fk`
+(0057) — so the unqualified embed `properties(name, address)` is ambiguous and
+PostgREST refuses to guess. Naming the constraint resolves it.
+
+The asset **list** was broken identically, as were **People → Invitations** and
+**People → Occupancy**, which embed `properties(name)` through `units` — the
+same double-FK shape. Four pages, one cause, and the register had been
+unreachable for as long as that constraint has existed.
+
+### Why it survived so long, which matters more
+
+📌 **The page threw the error away.** `const { data: asset } = await …` keeps the
+data half and discards the `error` half, so a malformed query arrived as `null`
+and became `notFound()`. **The product said "this page does not exist" when it
+meant "this query is wrong"** — sending anyone investigating to hunt for a
+missing route. The page now throws on a query error and reserves 404 for a
+genuinely absent asset.
+
+📌 **No suite touched it.** Every asset suite queries the table directly, because
+that is what testing RLS requires. None asked for the *shape the page asks for*,
+so the join could break without a single check going red.
+
+### The guard, and the flaw in the guard
+
+`scripts/verify-embeds.mjs` extracts every `.from(…).select(…)` embed from
+`app/` and `lib/` and runs it against the real schema — 14 distinct embeds
+today.
+
+⚠️ Its first version used `{ head: true, count: "exact" }`, reasoning that a HEAD
+request resolves the join without returning rows. It does — but **a HEAD
+response carries no body**, so PostgREST's error document never arrives and
+supabase-js returns an error with an empty `message` and no `code`. All four
+genuinely broken embeds fell through to the "unclassified" branch, printed as
+harmless NOTEs, and **the suite reported ALL CHECKS PASSED while looking
+straight at them.** A `limit(1)` keeps the response cheap and the error document
+intact. Caught only because I already knew the answer and the suite disagreed —
+which is the whole argument for confirming a new check can actually fail.
+
+A schema-level break is now a red suite rather than a customer's 404.

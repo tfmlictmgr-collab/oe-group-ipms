@@ -36,7 +36,7 @@ export default async function AssetsPage() {
   const { data } = await supabase
     .from("assets")
     .select(
-      "id, asset_tag, name, category, status, condition, criticality, manufacturer, model, serial_number, location_detail, next_service_due, certificate_expiry, insurance_expiry, compliance_required, properties(name)"
+      "id, asset_tag, name, category, status, condition, criticality, manufacturer, model, serial_number, location_detail, next_service_due, certificate_expiry, insurance_expiry, compliance_required, properties!assets_property_id_fkey(name)"
     )
     .order("asset_tag");
 

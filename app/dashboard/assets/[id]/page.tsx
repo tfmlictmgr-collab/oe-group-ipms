@@ -36,14 +36,32 @@ export default async function AssetDetailPage({
   if (!session) redirect("/login");
 
   const supabase = await createClient();
-  const { data: asset } = await supabase
+  // ⚠️ The FK is NAMED, and the error is NOT discarded. Both halves of a live
+  // 404 (7 Aug): a user filled in the asset register, was redirected here, and
+  // was told the page did not exist — for a row that existed and that they
+  // could read.
+  //
+  // `assets` has two foreign keys to `properties` — `assets_property_id_fkey`
+  // and the composite `assets_property_same_org_fk` (0057) — so an unqualified
+  // `properties(...)` is ambiguous and PostgREST refuses it (PGRST201). This
+  // page then threw the `error` half away, so a malformed query arrived as
+  // `null` and became `notFound()`. **The product said "this page does not
+  // exist" when it meant "this query is wrong"**, which sends whoever
+  // investigates looking for a missing route.
+  //
+  // A genuinely absent asset still gives 404, which is right. A broken query
+  // now throws, so it reaches the error boundary and Sentry as the fault it is.
+  const { data: asset, error } = await supabase
     .from("assets")
     .select(
-      "*, properties(name, address), units(label), vendors(name), users:custodian_user_id(full_name, email)"
+      "*, properties!assets_property_id_fkey(name, address), units(label), vendors(name), users:custodian_user_id(full_name, email)"
     )
     .eq("id", id)
-    .single();
+    .maybeSingle();
 
+  if (error) {
+    throw new Error(`Could not load asset ${id}: ${error.message}`);
+  }
   if (!asset) notFound();
 
   // The assembly this belongs to, and the components that belong to it (0121).
