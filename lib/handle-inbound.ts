@@ -10,6 +10,7 @@
 import { supabaseAdmin } from "./supabase/admin";
 import { classifyAndCreateTicket } from "./triage";
 import { routeInboundMessage, type OpenThread } from "./inbound-router";
+import { notifyRoleWithCascade } from "./role-notify";
 import {
   buildAcknowledgement,
   buildFollowUpAck,
@@ -222,6 +223,29 @@ export async function handleInboundMessage(opts: {
     channel,
     orgId
   );
+
+  // Parity with the portal form (`app/dashboard/new/actions.ts`), which has
+  // notified admin/FM on a new request since 0122 — the chat channels never
+  // gained the equivalent, so a request arriving on WhatsApp/Telegram/SMS was
+  // visible only to whoever happened to open the dashboard, never pushed to
+  // anyone. Same audience, same in-app write, now also the B8 external
+  // cascade per each recipient's own registered channels. Best-effort: a
+  // notification failure must never undo the ticket or the reply already
+  // promised to the reporter.
+  try {
+    await notifyRoleWithCascade({
+      orgId,
+      roles: ["admin", "facility_manager"],
+      kind: "request",
+      title: `New ${ticket.urgency} request — ${shortRef(ticket.id)}`,
+      body: ticket.summary ?? messageText.slice(0, 140),
+      link: `/dashboard/tickets/${ticket.id}`,
+      entityType: "ticket",
+      entityId: ticket.id,
+    });
+  } catch (e) {
+    console.error("Could not notify admin/FM of new chat request:", e);
+  }
 
   // Remember it, and note that we have just asked about the priority — so a bare
   // "1" in the next message is understood without a model call.

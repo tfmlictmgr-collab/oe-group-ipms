@@ -3,12 +3,15 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { ok, fail, failFromDb, type ActionResult } from "@/lib/action-result";
+import { cascadeToUserIds } from "@/lib/role-notify";
 
 // Dispatch a ticket to a vendor and/or an FM ops person. Runs under the caller's
 // session, so RLS restricts this to admin/FM. Sets status to 'assigned' and
 // stamps who assigned it; the audit trigger records the assignment. The assignee
 // is notified in-app in real time (the portal ticket list subscribes to
-// postgres_changes); multi-channel delivery is layered on in the Day 13 cascade.
+// postgres_changes) AND on their own registered external channels (B8 cascade)
+// — the "Day 13 cascade" this comment used to defer landed here, since a vendor
+// or ops person not watching the portal was otherwise told nothing.
 export async function assignTicket(
   ticketId: string,
   vendorId: string | null,
@@ -39,7 +42,7 @@ export async function assignTicket(
       status: "assigned",
     })
     .eq("id", ticketId)
-    .select("id");
+    .select("id, org_id");
   if (error) return failFromDb(error, "assign this job");
   if (!updated?.length) {
     return fail(
@@ -47,6 +50,7 @@ export async function assignTicket(
       "You may not have permission to dispatch this one, or it has moved since the page was loaded."
     );
   }
+  const orgId = updated[0].org_id as string;
 
   // ── Tell the assignee ────────────────────────────────────────────────────
   //
@@ -77,6 +81,20 @@ export async function assignTicket(
       p_entity_type: "ticket",
       p_entity_id: ticketId,
     });
+  }
+
+  // Same recipients, their own registered external channels (B8) — best-effort,
+  // alongside rather than instead of the in-app notice above.
+  try {
+    await cascadeToUserIds(
+      orgId,
+      recipients,
+      "A job has been assigned to you. Open the portal to acknowledge and get started.",
+      "ticket",
+      ticketId
+    );
+  } catch (e) {
+    console.error("Could not send external dispatch notification:", e);
   }
 
   revalidatePath(`/dashboard/tickets/${ticketId}`);
