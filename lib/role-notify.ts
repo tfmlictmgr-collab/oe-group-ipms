@@ -104,9 +104,17 @@ export async function cascadeToUserIds(
   entityId: string | null
 ): Promise<void> {
   if (userIds.length === 0) return;
+  // Runs on the service role, so nothing else here stops a foreign-org id
+  // from resolving — this is the same org boundary `notifyRoleWithCascade`
+  // above already applies (and that `notify_user`/`notify_role`, 0122,
+  // enforce for the in-app half of this same feature). Without it, a caller
+  // who can supply or already knows another org's user id reaches a real
+  // external send — WhatsApp/SMS/Telegram/email, on this org's own paid
+  // credentials — to someone outside it. (Build audit 0806-M2.)
   const { data: recipients } = await supabaseAdmin
     .from("users")
     .select(RECIPIENT_COLUMNS)
+    .eq("org_id", orgId)
     .in("id", userIds)
     .is("deactivated_at", null);
   await cascadeToRecipients(orgId, (recipients ?? []) as Recipient[], message, entityType, entityId);
