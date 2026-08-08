@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { Eye, EyeOff, ShieldCheck, Building2, Banknote, AlertCircle } from "lucide-react";
+import { verifyBackupCodeAndDisableMfa } from "@/lib/mfa";
+import { Eye, EyeOff, ShieldCheck, ShieldQuestion, Building2, Banknote, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -128,6 +129,55 @@ export default function SignInPanel({
   const [error, setError] = useState<string | null>(notice ?? null);
   const [loading, setLoading] = useState(false);
 
+  // ── The second step, for an account enrolled in two-factor auth ──────────
+  //
+  // Password auth alone leaves the session at AAL1; a verified TOTP factor
+  // means the platform requires AAL2 before the sign-in is complete. This is
+  // checked AFTER signInWithPassword succeeds — Supabase issues the AAL1
+  // session first regardless — and nothing below (the org check, the
+  // redirect) runs until the code step also succeeds.
+  const [step, setStep] = useState<"password" | "mfa">("password");
+  const [mfaCode, setMfaCode] = useState("");
+  const [useBackupCode, setUseBackupCode] = useState(false);
+  const [backupNotice, setBackupNotice] = useState<string | null>(null);
+
+  /** The org-scoping check and redirect — the tail end of a successful sign-in,
+   * whether or not an MFA step was needed along the way. */
+  async function completeSignIn(userId: string) {
+    const supabase = createClient();
+
+    // ── The door checks who you are, not just that you are someone ──────────
+    //
+    // One extra read, on the sign-in submit only — never on a page load. The
+    // caller's own `users` row is readable by `users_select` (`id = auth.uid()`),
+    // so this needs no elevated access and no new policy.
+    //
+    // On a mismatch the session is ended immediately. Leaving it alive and only
+    // redirecting would mean a valid cross-org session existed, however briefly,
+    // and "briefly" is not a security property anyone can verify later.
+    if (expectedOrgId) {
+      const { data: profile } = await supabase
+        .from("users")
+        .select("org_id")
+        .eq("id", userId)
+        .maybeSingle();
+
+      if (!profile || profile.org_id !== expectedOrgId) {
+        await supabase.auth.signOut();
+        // The SAME string a wrong password returns. Anything more specific —
+        // even something as mild as "not set up for this portal" — confirms the
+        // account exists and belongs to another organisation on this platform.
+        setError(REFUSED);
+        setLoading(false);
+        setStep("password");
+        return;
+      }
+    }
+
+    router.push(redirectTo);
+    router.refresh();
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
@@ -141,36 +191,71 @@ export default function SignInPanel({
       setLoading(false);
       return;
     }
+    if (!data.user) {
+      setError("Something went wrong signing you in. Try again.");
+      setLoading(false);
+      return;
+    }
 
-    // ── The door checks who you are, not just that you are someone ──────────
-    //
-    // One extra read, on the sign-in submit only — never on a page load. The
-    // caller's own `users` row is readable by `users_select` (`id = auth.uid()`),
-    // so this needs no elevated access and no new policy.
-    //
-    // On a mismatch the session is ended immediately. Leaving it alive and only
-    // redirecting would mean a valid cross-org session existed, however briefly,
-    // and "briefly" is not a security property anyone can verify later.
-    if (expectedOrgId && data.user) {
-      const { data: profile } = await supabase
-        .from("users")
-        .select("org_id")
-        .eq("id", data.user.id)
-        .maybeSingle();
+    const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+    if (aal && aal.currentLevel === "aal1" && aal.nextLevel === "aal2") {
+      // Enrolled in two-factor auth: the session exists but is not yet
+      // elevated. Stop here for the code, rather than completing sign-in.
+      setLoading(false);
+      setStep("mfa");
+      return;
+    }
 
-      if (!profile || profile.org_id !== expectedOrgId) {
-        await supabase.auth.signOut();
-        // The SAME string a wrong password returns. Anything more specific —
-        // even something as mild as "not set up for this portal" — confirms the
-        // account exists and belongs to another organisation on this platform.
-        setError(REFUSED);
+    await completeSignIn(data.user.id);
+  }
+
+  async function handleMfaSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+
+    const supabase = createClient();
+
+    if (useBackupCode) {
+      const result = await verifyBackupCodeAndDisableMfa(mfaCode);
+      if (!result.ok) {
+        setError(result.message);
         setLoading(false);
         return;
       }
+      const { data } = await supabase.auth.getUser();
+      if (!data.user) {
+        setError("Something went wrong. Try signing in again.");
+        setLoading(false);
+        setStep("password");
+        return;
+      }
+      setBackupNotice(
+        "Two-factor authentication has been turned off on this account using a backup code. Re-enable it from Settings → Security when you can."
+      );
+      await completeSignIn(data.user.id);
+      return;
     }
 
-    router.push(redirectTo);
-    router.refresh();
+    const { data: factors } = await supabase.auth.mfa.listFactors();
+    const factor = (factors?.totp ?? []).find((f) => f.status === "verified");
+    if (!factor) {
+      setError("No authenticator is set up on this account. Contact your administrator.");
+      setLoading(false);
+      return;
+    }
+
+    const { data: verified, error: verifyErr } = await supabase.auth.mfa.challengeAndVerify({
+      factorId: factor.id,
+      code: mfaCode.trim(),
+    });
+    if (verifyErr || !verified) {
+      setError("That code didn't match. Check your authenticator app and try again.");
+      setLoading(false);
+      return;
+    }
+
+    await completeSignIn(verified.user.id);
   }
 
   const mark = brand.logoUrl ? (
@@ -239,77 +324,163 @@ export default function SignInPanel({
             <span className="font-semibold tracking-tight">{brand.portalName}</span>
           </div>
 
-          <div className="mb-6 space-y-1.5">
-            <h1 className="display-md">Welcome back</h1>
-            <p className="text-muted-foreground">
-              Sign in to continue to {brand.portalName}.
-            </p>
-          </div>
-
-          <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-            <div className="space-y-1.5">
-              <Label htmlFor="email">Email address</Label>
-              <Input
-                id="email"
-                type="email"
-                required
-                autoComplete="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="password">Password</Label>
-              <div className="relative">
-                <Input
-                  id="password"
-                  type={showPassword ? "text" : "password"}
-                  required
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="pr-11"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((v) => !v)}
-                  aria-label={showPassword ? "Hide password" : "Show password"}
-                  aria-pressed={showPassword}
-                  className="absolute inset-y-0 right-0 flex w-11 items-center justify-center rounded-r-md text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                </button>
+          {step === "password" ? (
+            <>
+              <div className="mb-6 space-y-1.5">
+                <h1 className="display-md">Welcome back</h1>
+                <p className="text-muted-foreground">
+                  Sign in to continue to {brand.portalName}.
+                </p>
               </div>
-            </div>
 
-            {error && (
-              <p
-                role="alert"
-                className="flex items-start gap-2 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
-              >
-                <AlertCircle className="mt-0.5 size-4 flex-shrink-0" />
-                {error}
+              <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+                <div className="space-y-1.5">
+                  <Label htmlFor="email">Email address</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    required
+                    autoComplete="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@example.com"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="password">Password</Label>
+                    <a
+                      href="/reset-password"
+                      className="text-xs text-muted-foreground underline hover:text-foreground"
+                    >
+                      Forgot password?
+                    </a>
+                  </div>
+                  <div className="relative">
+                    <Input
+                      id="password"
+                      type={showPassword ? "text" : "password"}
+                      required
+                      autoComplete="current-password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className="pr-11"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((v) => !v)}
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                      aria-pressed={showPassword}
+                      className="absolute inset-y-0 right-0 flex w-11 items-center justify-center rounded-r-md text-muted-foreground transition-colors hover:text-foreground"
+                    >
+                      {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                {error && (
+                  <p
+                    role="alert"
+                    className="flex items-start gap-2 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
+                  >
+                    <AlertCircle className="mt-0.5 size-4 flex-shrink-0" />
+                    {error}
+                  </p>
+                )}
+
+                <Button type="submit" variant="brand" size="lg" className="w-full" disabled={loading}>
+                  {loading ? "Signing in…" : "Sign in"}
+                </Button>
+              </form>
+
+              <p className="mt-6 text-center text-xs text-muted-foreground">
+                Access is provisioned by your administrator. Contact them if you need an account.
               </p>
-            )}
 
-            <Button type="submit" variant="brand" size="lg" className="w-full" disabled={loading}>
-              {loading ? "Signing in…" : "Sign in"}
-            </Button>
-          </form>
+              {backHref && (
+                <p className="mt-3 text-center text-xs">
+                  <a href={backHref} className="text-muted-foreground underline hover:text-foreground">
+                    Not your organisation?
+                  </a>
+                </p>
+              )}
+            </>
+          ) : (
+            <>
+              <div className="mb-6 space-y-1.5">
+                <h1 className="display-md">Enter your code</h1>
+                <p className="text-muted-foreground">
+                  {useBackupCode
+                    ? "Enter one of your backup codes. Using one turns off two-factor authentication on this account so you can get back in."
+                    : "Open your authenticator app and enter the 6-digit code."}
+                </p>
+              </div>
 
-          <p className="mt-6 text-center text-xs text-muted-foreground">
-            Access is provisioned by your administrator. Contact them if you need an account.
-          </p>
+              <form onSubmit={handleMfaSubmit} className="space-y-4" noValidate>
+                <div className="space-y-1.5">
+                  <Label htmlFor="mfa-code">{useBackupCode ? "Backup code" : "6-digit code"}</Label>
+                  <Input
+                    id="mfa-code"
+                    autoFocus
+                    inputMode={useBackupCode ? "text" : "numeric"}
+                    autoComplete="one-time-code"
+                    maxLength={useBackupCode ? 9 : 6}
+                    value={mfaCode}
+                    onChange={(e) =>
+                      setMfaCode(useBackupCode ? e.target.value.toUpperCase() : e.target.value.replace(/\D/g, ""))
+                    }
+                    placeholder={useBackupCode ? "XXXX-XXXX" : "123456"}
+                  />
+                </div>
 
-          {backHref && (
-            <p className="mt-3 text-center text-xs">
-              <a href={backHref} className="text-muted-foreground underline hover:text-foreground">
-                Not your organisation?
-              </a>
-            </p>
+                {error && (
+                  <p
+                    role="alert"
+                    className="flex items-start gap-2 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
+                  >
+                    <AlertCircle className="mt-0.5 size-4 flex-shrink-0" />
+                    {error}
+                  </p>
+                )}
+
+                {backupNotice && (
+                  <p className="flex items-start gap-2 rounded-md bg-warning/10 px-3 py-2 text-sm">
+                    <ShieldQuestion className="mt-0.5 size-4 flex-shrink-0 text-warning" />
+                    {backupNotice}
+                  </p>
+                )}
+
+                <Button type="submit" variant="brand" size="lg" className="w-full" disabled={loading || !mfaCode}>
+                  {loading ? "Verifying…" : "Verify"}
+                </Button>
+              </form>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setUseBackupCode((v) => !v);
+                  setMfaCode("");
+                  setError(null);
+                }}
+                className="mt-4 block w-full text-center text-xs text-muted-foreground underline hover:text-foreground"
+              >
+                {useBackupCode ? "Use my authenticator app instead" : "Use a backup code instead"}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setStep("password");
+                  setMfaCode("");
+                  setError(null);
+                }}
+                className="mt-3 block w-full text-center text-xs text-muted-foreground underline hover:text-foreground"
+              >
+                Back to sign in
+              </button>
+            </>
           )}
         </div>
       </section>

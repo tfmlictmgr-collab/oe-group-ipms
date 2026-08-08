@@ -4544,3 +4544,65 @@ The approved-application **6-year** clock has no job (years away, not a
 blocker). No subject-access export. No documented bias audit of document
 extraction. No external penetration test or load test — both need production
 plus, for the pen test, a third party and written authorisation.
+
+---
+
+## Account recovery — and a repo that disagreed with its database
+
+**Migration 0139 · 8 Aug 2026**
+
+Pulled PC2's notification work (`d33aac6` — chat-channel notification parity,
+the dispatch cascade, and a notification that cannot outlive its ticket), then
+found something else on this machine.
+
+### An applied migration that was never committed
+
+`0139_forgot_password_and_mfa_backup_codes.sql` was **applied to the shared dev
+database and untracked in git**, along with `app/reset-password/`,
+`app/dashboard/settings/security/`, `lib/mfa.ts` and edits to the sign-in panel
+and settings nav.
+
+📌 That state is worse than either half alone: the database has tables the repo
+does not know about, so the next clone builds an app that does not match the
+schema it will connect to, and nobody finds out until something reads a column
+that "does not exist" in code that never mentions it.
+
+### Reviewed before shipping, because it is authentication
+
+Password reset touches the one thing this system cannot get wrong, so it was
+read rather than trusted. It holds up:
+
+- 32-byte token, **SHA-256 at rest** — a database read cannot be replayed as a
+  working link (same shape as invitations, 0020);
+- one-hour expiry, single-use, **and every sibling token for that account
+  invalidated** on use, so three requested links do not leave two live;
+- marked used **only after** the password change succeeds — a failed update
+  leaves the link usable rather than burning it silently;
+- anti-enumeration throughout, **including on the rate-limit path**: a
+  refusal that said "too many attempts" would itself confirm the address had
+  been tried;
+- rate limited per-IP *and* per-email, because mail-bombing one address from
+  many sources is what a per-IP limit alone misses;
+- built on this app's own branded Resend path, not Supabase's built-in mailer,
+  which is unconfigured here and would silently not deliver.
+
+⚠️ **One real gap, fixed:** it did not revoke existing sessions. Supabase's
+`updateUserById` changes the credential and leaves live refresh tokens alone —
+so an attacker who already had a session kept it, and "I think someone got into
+my account, I've changed my password" is exactly the case this flow exists to
+answer. **Changing the lock while the intruder still holds a key is not a
+reset.** Now `admin.signOut(user, "global")`, best-effort and deliberately
+non-fatal: the password has already changed by that point, and failing the
+action would tell the user their reset did not work when it did.
+
+### A process note on myself
+
+Three separate reads during this investigation were wrong — "lib/mfa.ts
+MISSING", "no security settings page", "the MFA half is not wired" — all taken
+while a `git stash pop` was still restoring files. I reported two of them to the
+user before catching it. **A file listing taken mid-restore is not evidence**,
+and the fix was to stop inferring and run `git ls-files --others` once, cleanly.
+
+`_tmp-verify-reset-mfa.mjs` was promoted to `verify-account-recovery.mjs`: it
+proved the feature end to end (including signing in with the new password and
+restoring the seeded one) but as a scratch file it would not have survived.

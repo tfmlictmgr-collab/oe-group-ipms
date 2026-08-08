@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Palette, Landmark, ShieldCheck, Bell, KeyRound, FileSignature, ClipboardCheck, Sparkles, UserRound } from "lucide-react";
+import { Palette, Landmark, ShieldCheck, Bell, KeyRound, FileSignature, ClipboardCheck, Sparkles, UserRound, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // Tabs are filtered by role rather than the whole section being gated: personal
@@ -24,6 +24,7 @@ const TABS: Tab[] = [
   // name and their own notification channels.
   { href: "/dashboard/settings/profile", label: "My Profile", icon: UserRound, adminOnly: false },
   { href: "/dashboard/settings/notifications", label: "My Notifications", icon: Bell, adminOnly: false },
+  { href: "/dashboard/settings/security", label: "Security", icon: Lock, adminOnly: false },
   { href: "/dashboard/settings", label: "Branding", icon: Palette, adminOnly: true, exact: true },
   { href: "/dashboard/settings/banking", label: "Client Funds", icon: Landmark, adminOnly: true },
   { href: "/dashboard/settings/payments", label: "Payment Gate", icon: ShieldCheck, adminOnly: true },
