@@ -382,7 +382,38 @@ for (const org of orgs.filter((o) => !o.is_platform_operator)) {
 
   const { data: candidates } = await svc
     .from("vendors").select("id, name").eq("org_id", org.id).is("user_id", null);
-  if (!candidates?.length) continue;
+
+  // ⚠️ No unattached contractor to adopt used to `continue` — silently leaving
+  // the login with no vendor record at all, which is the very fault the block
+  // comment above says this loop exists to prevent. It is not hypothetical:
+  // TFML and OEA both reached production-shaped dev data this way, and
+  // `tfml.vendor@oegroup.test` could not submit an invoice at all —
+  // `submit_vendor_invoice` opens with "only a vendor can submit an invoice",
+  // which reads as a permissions bug rather than a missing fixture.
+  //
+  // Adopting an existing contractor is still preferred (it inherits real
+  // dispatched work, so the portal has something in it). Creating one is the
+  // fallback, never the first choice.
+  if (!candidates?.length) {
+    const { data: made, error: mkErr } = await svc
+      .from("vendors")
+      .insert({
+        org_id: org.id,
+        user_id: person.id,
+        name: `${org.slug.toUpperCase()} Contractor`,
+        service_category: "maintenance",
+        contact_email: `${org.slug}.vendor@oegroup.test`,
+        status: "active",
+      })
+      .select("id, name")
+      .single();
+    if (mkErr) failures.push(`${org.slug}.vendor → ${mkErr.message.slice(0, 50)}`);
+    else {
+      linked++;
+      console.log(`  ${org.slug}.vendor@ → ${made.name} (created — no unattached contractor to adopt)`);
+    }
+    continue;
+  }
 
   // Prefer the vendor with the most work dispatched to it, so the pipeline the
   // login lands on has something in it. A contractor portal proving itself on an

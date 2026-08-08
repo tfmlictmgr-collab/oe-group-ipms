@@ -27,11 +27,44 @@ const { data: vendorRow, error: vendorErr } = await svc.from("vendors").insert({
 if (vendorErr) console.error("could not create probe vendors row:", vendorErr.message);
 console.log("probe vendor ready:", probeEmail, "-> vendors.id", vendorRow?.id);
 
+/**
+ * ⚠️ This used to `delete()` all three and print "fully removed" without
+ * checking a single error — and it was wrong. Submitting an invoice writes
+ * `payment.created` to `audit_log` with this user as `actor_id`, and
+ * `audit_log_actor_id_fkey` then refuses to let the `users` row go. That is
+ * the audit trail working exactly as designed (0026: "anyone who has
+ * performed an audited action ... must remain, or the audit trail develops
+ * holes") — so the delete silently failed, the script claimed success, and a
+ * stranded vendor-role profile sat in TFML until a later sweep found it.
+ *
+ * The right disposition for a fixture that has acted is the one the product
+ * itself uses for a real person who has acted: DEACTIVATE. Errors are checked
+ * now, and the script says what actually happened rather than what it hoped.
+ */
 async function cleanup() {
-  if (vendorRow) await svc.from("vendors").delete().eq("id", vendorRow.id);
-  await svc.from("users").delete().eq("id", probeUserId);
-  await svc.auth.admin.deleteUser(probeUserId);
-  console.log("\nprobe vendor + login fully removed.");
+  if (vendorRow) {
+    const { error } = await svc.from("vendors").delete().eq("id", vendorRow.id);
+    if (error) console.error("  ! vendors row not removed:", error.message);
+  }
+  const { error: delErr } = await svc.from("users").delete().eq("id", probeUserId);
+  if (delErr) {
+    // Expected whenever the run reached section A — it audited something.
+    const { error: deactErr } = await svc.from("users")
+      .update({ deactivated_at: new Date().toISOString(), full_name: "RETIRED test fixture (completion-evidence)" })
+      .eq("id", probeUserId);
+    console.log(
+      deactErr
+        ? `\n⚠️ probe profile could NOT be removed or deactivated: ${deactErr.message}`
+        : "\nprobe vendor removed; its profile is retained but DEACTIVATED (it has audit rows, which must not be orphaned)."
+    );
+  } else {
+    const { error: authErr } = await svc.auth.admin.deleteUser(probeUserId);
+    console.log(
+      authErr
+        ? `\nprobe profile removed; auth login remains: ${authErr.message}`
+        : "\nprobe vendor + login fully removed."
+    );
+  }
 }
 
 const vendor = createClient(url, anon);
