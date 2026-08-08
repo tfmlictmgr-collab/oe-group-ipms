@@ -33,6 +33,16 @@ const made = { remittances: [], entries: [], recipients: [], payments: [], inten
 const { data: fin } = await svc.from("users").select("id, org_id")
   .eq("email", "oe-group-foundation-poc.financeapprover@oegroup.test").single();
 const orgId = fin.org_id;
+
+// ⚠️ TWO people, deliberately. Since 0142 the approver of a payment may not
+// also release it, and only a finance approver may release anything — so a
+// fixture where one account did both no longer models a payment that can
+// legally be sent. The administrator approves; finance disburses. That is the
+// real workflow, and the suite now has to walk it to get a single naira out.
+const { data: adminUser } = await svc.from("users").select("id")
+  .eq("org_id", orgId).eq("role", "admin").is("deactivated_at", null).limit(1).single();
+const { data: execUser } = await svc.from("users").select("id")
+  .eq("org_id", orgId).eq("role", "executive").is("deactivated_at", null).limit(1).maybeSingle();
 await svc.rpc("ensure_default_ledger_accounts", { p_org_id: orgId });
 
 const { data: bankAcctId } = await svc.rpc("collection_bank_account", { p_org_id: orgId });
@@ -119,7 +129,9 @@ async function newPayment(status, opts = {}) {
     service_verified_by: opts.verified ? fin.id : null,
     performance_validated: opts.scored ?? false,
     approved_at: opts.approved ? new Date().toISOString() : null,
-    approved_by: opts.approved ? fin.id : null,
+    // The ADMINISTRATOR approves (0142) — approving and releasing are now two
+    // pairs of hands, so a payment approved by `fin` is one `fin` can never send.
+    approved_by: opts.approved ? adminUser.id : null,
   }).select("id").single();
   made.payments.push(data.id);
   return data.id;
@@ -134,7 +146,7 @@ console.log("A. The B4 gate refuses everything that has not passed it");
   ];
   for (const [label, id] of cases) {
     const { error } = await svc.rpc("create_vendor_remittance", {
-      p_payment_id: id, p_reference: `REM-${stamp}-X`,
+      p_payment_id: id, p_reference: `REM-${stamp}-X`, p_executed_by: fin.id,
     });
     error ? ok(`${label}: refused (${error.message.slice(0, 46)})`)
           : bad(`${label}: A REMITTANCE WAS CREATED`);
@@ -147,26 +159,80 @@ let vendorRemId;
 {
   const payId = await newPayment("approved", { verified: true, scored: true, approved: true });
   const { data, error } = await svc.rpc("create_vendor_remittance", {
-    p_payment_id: payId, p_reference: `REM-${stamp}-V`,
+    p_payment_id: payId, p_reference: `REM-${stamp}-V`, p_executed_by: fin.id,
   });
   if (error) { bad(`gated payment refused — ${error.message}`); }
   else {
     vendorRemId = data;
     made.remittances.push(data);
     const { data: r } = await svc.from("remittances")
-      .select("status, gross_amount, net_amount, management_fee").eq("id", data).single();
+      .select("status, gross_amount, net_amount, management_fee, created_by, approved_by").eq("id", data).single();
     r.status === "queued" ? ok("created as queued — nothing sent yet") : bad(`status ${r.status}`);
     Number(r.net_amount) === 180000 && Number(r.management_fee) === 0
       ? ok("vendor receives the full ₦180,000 — no fee taken from an invoice")
       : bad(`net ${r.net_amount}, fee ${r.management_fee}`);
+    // Was NULL on every row in production before 0142 — the one action that
+    // moves real money was the one with no attributable actor.
+    r.created_by === fin.id
+      ? ok("the person who released the money is recorded (created_by)")
+      : bad(`created_by is ${r.created_by ?? "NULL"} — the executor was not recorded`);
+    r.approved_by !== r.created_by
+      ? ok("and is a different person from the approver")
+      : bad("approver and executor are the same person");
   }
+}
+
+console.log("\nB2. Disbursement is finance's, and never the approver's (0142)");
+{
+  // An administrator may approve beneath their threshold and configure it.
+  // Releasing the funds is not theirs — that is the whole of decision 9's
+  // "oversight authorises; finance disburses".
+  const payId = await newPayment("approved", { verified: true, scored: true, approved: true });
+  const { error: adminErr } = await svc.rpc("create_vendor_remittance", {
+    p_payment_id: payId, p_reference: `REM-${stamp}-ADM`, p_executed_by: adminUser.id,
+  });
+  adminErr
+    ? ok(`an administrator cannot send a payment (${adminErr.message.slice(0, 52)})`)
+    : bad("AN ADMINISTRATOR RELEASED MONEY");
+
+  if (execUser) {
+    const { error: execErr } = await svc.rpc("create_vendor_remittance", {
+      p_payment_id: payId, p_reference: `REM-${stamp}-EXE`, p_executed_by: execUser.id,
+    });
+    execErr
+      ? ok("nor an executive — oversight authorises, it does not disburse")
+      : bad("AN EXECUTIVE RELEASED MONEY");
+  }
+
+  // The control that actually stops one person paying themselves out: even a
+  // finance approver is refused on a payment they approved.
+  const selfPayId = await newPayment("approved", { verified: true, scored: true });
+  await svc.from("payments")
+    .update({ approved_at: new Date().toISOString(), approved_by: fin.id, status: "approved" })
+    .eq("id", selfPayId);
+  const { error: selfErr } = await svc.rpc("create_vendor_remittance", {
+    p_payment_id: selfPayId, p_reference: `REM-${stamp}-SELF`, p_executed_by: fin.id,
+  });
+  selfErr && /cannot also send it/.test(selfErr.message)
+    ? ok("the approver cannot also release it, even holding finance — maker-checker")
+    : bad(`SELF-APPROVED PAYMENT WAS RELEASABLE BY ITS OWN APPROVER (${selfErr?.message ?? "no error"})`);
+
+  // A deactivated finance approver is not a disburser either.
+  await svc.from("users").update({ deactivated_at: new Date().toISOString() }).eq("id", fin.id);
+  const { error: deadErr } = await svc.rpc("create_vendor_remittance", {
+    p_payment_id: payId, p_reference: `REM-${stamp}-DEAD`, p_executed_by: fin.id,
+  });
+  await svc.from("users").update({ deactivated_at: null }).eq("id", fin.id);
+  deadErr
+    ? ok("a deactivated finance approver cannot send a payment")
+    : bad("A DEACTIVATED ACCOUNT RELEASED MONEY");
 }
 
 console.log("\nC. One live remittance per payment");
 {
   const { data: r } = await svc.from("remittances").select("payment_id").eq("id", vendorRemId).single();
   const { error } = await svc.rpc("create_vendor_remittance", {
-    p_payment_id: r.payment_id, p_reference: `REM-${stamp}-V2`,
+    p_payment_id: r.payment_id, p_reference: `REM-${stamp}-V2`, p_executed_by: fin.id,
   });
   error ? ok("a second remittance for the same invoice is refused")
         : bad("A SECOND REMITTANCE WAS CREATED FOR THE SAME INVOICE");
@@ -325,7 +391,7 @@ console.log("\nJ. An unknown outcome stays unknown");
 {
   const payId = await newPayment("approved", { verified: true, scored: true, approved: true });
   const { data: remId } = await svc.rpc("create_vendor_remittance", {
-    p_payment_id: payId, p_reference: `REM-${stamp}-U`,
+    p_payment_id: payId, p_reference: `REM-${stamp}-U`, p_executed_by: fin.id,
   });
   made.remittances.push(remId);
   await svc.rpc("claim_remittance_for_sending", { p_id: remId });

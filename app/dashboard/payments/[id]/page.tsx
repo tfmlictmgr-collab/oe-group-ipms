@@ -234,6 +234,9 @@ export default async function PaymentDetailPage({
                 amount={Number(p.amount)}
                 vendorName={vendor?.name ?? "this vendor"}
                 rejectedReason={p.rejected_reason ?? null}
+                // Finance disburses, and only finance (0142). The database
+                // refuses everyone else; this keeps the screen honest about it.
+                canRemit={session.profile?.role === "finance_approver"}
                 // Reopening corrects someone else's refusal, so it sits with
                 // the people who answer for the money. The trigger enforces
                 // this regardless of what the page renders.

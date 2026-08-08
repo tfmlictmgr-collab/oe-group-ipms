@@ -223,9 +223,14 @@ console.log("\nD. The fee is taken once — remittance deducts nothing further")
     if (error) bad(`could not create a payout recipient — ${error.message.slice(0, 80)}`);
   }
 
+  // 0142: a payout records who released it, and only finance may.
+  const { data: rentFinanceUser } = await svc.from("users").select("id")
+    .eq("org_id", oea.id).eq("role", "finance_approver").is("deactivated_at", null)
+    .limit(1).single();
+
   const { data: remId, error } = await svc.rpc("create_rent_remittance", {
     p_org_id: oea.id, p_landlord_user_id: landlord.id,
-    p_property_id: prop.id, p_period: "2026/27",
+    p_property_id: prop.id, p_period: "2026/27", p_executed_by: rentFinanceUser.id,
   });
   if (error) { bad(`remittance failed — ${error.message.slice(0, 80)}`); }
   else {
@@ -250,7 +255,7 @@ console.log("\nD. The fee is taken once — remittance deducts nothing further")
     // And nothing can be paid twice.
     const { error: again } = await svc.rpc("create_rent_remittance", {
       p_org_id: oea.id, p_landlord_user_id: landlord.id,
-      p_property_id: prop.id, p_period: "2026/27",
+      p_property_id: prop.id, p_period: "2026/27", p_executed_by: rentFinanceUser.id,
     });
     again ? ok("and the same rent cannot be remitted twice") : bad("RENT WAS REMITTED TWICE");
 

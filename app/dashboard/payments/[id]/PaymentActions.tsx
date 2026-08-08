@@ -49,6 +49,7 @@ export default function PaymentActions({
   vendorName,
   rejectedReason,
   canReopen,
+  canRemit,
 }: {
   paymentId: string;
   status: string;
@@ -58,6 +59,13 @@ export default function PaymentActions({
   rejectedReason?: string | null;
   /** Finance or an administrator — the trigger enforces it regardless. */
   canReopen?: boolean;
+  /**
+   * Whether this viewer may RELEASE funds — finance_approver only, since 0142.
+   * The database refuses everyone else regardless; this exists so an
+   * administrator is not shown a "Send payment" button that is certain to be
+   * refused, which reads as a broken system rather than a deliberate boundary.
+   */
+  canRemit?: boolean;
 }) {
   const [pending, startTransition] = useTransition();
   const [confirming, setConfirming] = useState<Action | null>(null);
@@ -268,6 +276,25 @@ export default function PaymentActions({
       action: "Send payment",
     },
   };
+
+  // Approved, and not this viewer's to release. An administrator who approved
+  // it is meant to stop here, so they are told why rather than shown a button
+  // the database is certain to refuse — which reads as a broken system rather
+  // than a deliberate boundary. Rejecting is still theirs.
+  if (step.action === "remit" && !canRemit) {
+    return (
+      <div className="space-y-3">
+        <p className="flex items-start gap-2 rounded-md bg-info/10 px-3 py-2 text-sm">
+          <CheckCircle2 className="mt-0.5 size-4 flex-shrink-0 text-info" />
+          <span>
+            Approved, and waiting on finance to release it. Oversight authorises; finance
+            disburses — and whoever approved a payment is never the one who sends it.
+          </span>
+        </p>
+        <div className="flex flex-wrap items-center gap-2">{rejectControl}</div>
+      </div>
+    );
+  }
 
   const button = (
     <Button

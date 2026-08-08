@@ -106,8 +106,14 @@ if (!existing?.length) {
   });
 }
 
-const CALL = `select create_rent_remittance($1::uuid, $2::uuid, $3::uuid, $4::text) as id`;
-const ARGS = [oea.id, landlord.id, prop.id, "2026/27"];
+// 0142 added the executor as a required argument: the function now records WHO
+// released the money and insists they hold finance_approver.
+const { data: financeUser } = await svc.from("users").select("id")
+  .eq("org_id", oea.id).eq("role", "finance_approver").is("deactivated_at", null)
+  .limit(1).single();
+
+const CALL = `select create_rent_remittance($1::uuid, $2::uuid, $3::uuid, $4::text, $5::uuid) as id`;
+const ARGS = [oea.id, landlord.id, prop.id, "2026/27", financeUser.id];
 
 // ── A. The lock exists at all ──────────────────────────────────────────────
 console.log("A. A second caller BLOCKS rather than reading a stale set");
@@ -210,9 +216,13 @@ console.log("\nC. A browser session cannot reach the function at all");
   else {
     const { error } = await c.rpc("create_rent_remittance", {
       p_org_id: oea.id, p_landlord_user_id: landlord.id,
-      p_property_id: prop.id, p_period: "2026/27",
+      p_property_id: prop.id, p_period: "2026/27", p_executed_by: financeUser.id,
     });
-    error
+    // ⚠️ Must be refused BY THE GRANT (service_role only), not by "function not
+    // found". When 0142 changed the signature this assertion went on passing
+    // for the wrong reason — green, while proving nothing about the grant it
+    // exists to test. A refusal is only evidence if it is the refusal you meant.
+    error && !/Could not find the function/i.test(error.message)
       ? ok(`an administrator's own session is refused at the grant (${error.message.slice(0, 44)})`)
       : bad("AN ADMIN SESSION EXECUTED A REMITTANCE DIRECTLY — the grant is open");
     await c.auth.signOut();

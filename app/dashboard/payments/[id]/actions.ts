@@ -247,10 +247,17 @@ export async function executeRemittance(paymentId: string): Promise<RemittanceRe
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return fail("Your session expired. Please sign in again.");
 
+  // Finance disburses — an administrator approves within their threshold and
+  // an executive above it, and neither releases the funds (0142). Said in
+  // plain words here; the database refuses it regardless, and the maker-checker
+  // rule below is enforced only there because it must hold for every call site.
   const { data: me } = await supabase
     .from("users").select("role").eq("id", user.id).single();
-  if (!me || !["admin", "finance_approver"].includes(me.role)) {
-    return fail("Only finance or an administrator can send a remittance.");
+  if (!me || me.role !== "finance_approver") {
+    return fail(
+      "Only a finance approver can send a payment.",
+      "Oversight authorises; finance disburses — approving against a limit you can lift yourself is not an approval."
+    );
   }
 
   // Per-caller cap on real transfers. lib/rate-limit.ts fails open by design
@@ -283,9 +290,16 @@ export async function executeRemittance(paymentId: string): Promise<RemittanceRe
 
   // 2 — the database re-checks the whole gate. Its refusals are written for a
   // person, so they are surfaced as-is.
+  // ⚠️ The executor is PASSED, not inferred. This call goes through the
+  // service-role client (the functions below need rights the caller has not
+  // got), which means `auth.uid()` inside the function is null — so the
+  // function used to stamp `created_by` NULL and no row anywhere recorded who
+  // released the money. The id comes from `getUser()` above, which verified
+  // the session; the function re-checks that this person may disburse and is
+  // not the approver.
   const { data: remittanceId, error: createErr } = await supabaseAdmin.rpc(
     "create_vendor_remittance",
-    { p_payment_id: paymentId, p_reference: reference }
+    { p_payment_id: paymentId, p_reference: reference, p_executed_by: user.id }
   );
   if (createErr) {
     return fail(

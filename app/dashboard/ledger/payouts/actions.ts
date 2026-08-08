@@ -89,14 +89,16 @@ export async function runLandlordPayout(input: {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return fail("Your session expired. Please sign in again.");
 
-  // 1 — authorise. `executive` is absent BY DECISION: the MD co-holds approval
-  // and may never execute a disbursement (board, 29 July 2026). The database
-  // refuses them too; this says so in plain words first.
+  // 1 — authorise. Finance disburses, and nobody else: an executive co-holds
+  // approval and may never execute (board, 29 July 2026), and as of 0142 an
+  // administrator may not either — they set the threshold and approve beneath
+  // it, which is the very thing that disqualifies them from releasing funds.
+  // The database refuses both; this says so in plain words first.
   const { data: me } = await supabase
     .from("users").select("role, org_id").eq("id", user.id).single();
-  if (!me || !["admin", "finance_approver"].includes(me.role)) {
+  if (!me || me.role !== "finance_approver") {
     return fail(
-      "Only finance or an administrator can send a payout.",
+      "Only a finance approver can send a payout.",
       "Oversight authorises; finance disburses — approving against a limit you can lift yourself is not an approval."
     );
   }
@@ -131,6 +133,10 @@ export async function runLandlordPayout(input: {
       p_landlord_user_id: input.landlordUserId,
       p_property_id: input.propertyId,
       p_period: input.period,
+      // Passed, not inferred — this is a service-role call, so `auth.uid()`
+      // inside the function is null and `created_by` was being stamped NULL
+      // on every landlord payout (0142).
+      p_executed_by: user.id,
     }
   );
   if (createErr) {
