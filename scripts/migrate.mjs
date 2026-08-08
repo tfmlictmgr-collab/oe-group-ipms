@@ -82,6 +82,33 @@ const files = readdirSync(migrationsDir)
     dbHost.match(/^db\.([a-z0-9]{20})\.supabase\.co$/i)?.[1] ??
     dbUser.match(/^postgres\.([a-z0-9]{20})$/i)?.[1];
 
+  // ── The frozen POC demo project is never a migration target ──────────────
+  //
+  // The check below is RELATIONAL: it refuses when the two halves disagree. It
+  // says nothing when they AGREE on the wrong project — and a `.env.local` with
+  // both halves pointing at the demo database would sail straight through it,
+  // re-violating Standing Rule #1 by a different route than the one that
+  // actually happened on 6 Aug. Raised as a residual gap in build audit 0806
+  // and closed here.
+  //
+  // Deliberately absolute and deliberately without an escape hatch: there is no
+  // legitimate reason for this checkout to migrate the frozen demo. If that
+  // ever genuinely changes, it should be a considered edit to this list with a
+  // reason attached, not an environment variable somebody exports at 5am.
+  const FROZEN_DEMO_REF = "egqzjrmzxqqxrrqpdwbt";
+  if (restRef === FROZEN_DEMO_REF || dbRef === FROZEN_DEMO_REF) {
+    throw new Error(
+      `Refusing to migrate: ${FROZEN_DEMO_REF} is the FROZEN POC DEMO project.\n\n` +
+      `  SUPABASE_DB_*            -> ${dbRef ?? "(underivable)"}\n` +
+      `  NEXT_PUBLIC_SUPABASE_URL -> ${restRef ?? "(underivable)"}\n\n` +
+      `That database backs the live demo at oe-group-ipms.vercel.app and is deliberately\n` +
+      `held at an old schema. It was migrated by accident once already (see\n` +
+      `docs/INCIDENT_2026-08-06_DEMO_DB_MIGRATED.md); this check exists so that cannot\n` +
+      `recur through a .env.local whose two halves AGREE on the wrong project.\n\n` +
+      `Point .env.local at the Phase-1 project and re-run. There is no override.`
+    );
+  }
+
   if (restRef && dbRef && restRef !== dbRef) {
     const escape = "ALLOW_MIGRATE_TARGET_MISMATCH";
     if (process.env[escape] !== "1") {

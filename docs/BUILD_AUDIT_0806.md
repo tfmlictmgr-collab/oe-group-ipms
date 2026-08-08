@@ -21,6 +21,29 @@ Both new findings closed, at different layers on purpose — see below for why t
 
 **Why the two were handled differently:** M2 is pure TypeScript — no database write, fully reversible by `git revert`, verified by a clean typecheck without touching any database, so PC2 applied it directly. M1 is a schema/trigger change, and this project's standing rule (reinforced by `docs/INCIDENT_2026-08-06_DEMO_DB_MIGRATED.md`) is that DB-mutating commands are run by a human who has just confirmed which project `.env.local` actually points at, never automatically by an assistant. So it was written as a migration file plus a regression test and handed over to be run — which is what happened.
 
+### M2's other half — the write, not just the send (`0144`)
+
+The M2 fix above stopped the *leak*. It deliberately did not touch the *write*, and reviewing what that left behind turned up a second, quieter problem worth closing in the same pass.
+
+Nothing validates the value written to `tickets.assigned_to_user_id`. `tickets_update` (`0052`) has a `USING` clause constraining which ticket **rows** a caller may touch and **no `WITH CHECK` at all**, so the assignee id itself has never been checked against the ticket's org. Grepped the migrations: no trigger anywhere covers it.
+
+**Checked rather than assumed: this is not a data leak.** `tickets_select` gates its assignee clause *inside* `org_id = current_user_org_id()`, so a foreign-org assignee genuinely cannot read the ticket. B1 isolation holds. What it produces instead is a **silently dead assignment** — the ticket records an assignee who structurally can never see it, the dispatcher is told "Request dispatched", and now that both notification paths correctly no-op for a foreign-org id (0122 for in-app, the M2 fix for external), *nobody is told anything at all*. The job just sits there. Arguably the M2 fix made this quieter, which is the right trade but is why the write needed closing too.
+
+`0144` adds a trigger validating both `assigned_to_user_id` and `assigned_vendor_id` against the ticket's own org. The vendor column is included even though `assignTicket()`'s vendor branch is safe today — that safety comes from the application resolving the vendor through an RLS-scoped lookup, not from the database being correct, and the next caller to write that column inherits no such protection. Same reasoning as `0107` generalising its media-RLS fix to `invoice-attachments`.
+
+Two deliberate choices worth flagging for review:
+
+- **The fix is at the database only — no app-layer pre-check.** The obvious app fix (resolve `opsUserId` through an RLS-scoped `users` lookup, mirroring the vendor branch) was considered and **rejected**: `tickets.assign` is an *unlocked* capability (`0050`), so the platform operator can grant it to a role outside `oversight_roles_with_fm()` — `fm_ops_staff`, say — who cannot read a colleague's `users` row. That check would then be **stricter than the permission model** and would refuse a legitimate dispatch. The existing `failFromDb(error, "assign this job")` already surfaces the trigger's message, so no app change is needed.
+- **The trigger is `SECURITY DEFINER`, and that is load-bearing rather than habitual** — for the same reason. An invoker-rights trigger would answer its `exists` through the caller's RLS-filtered view of `users`, making the failure mode a *false refusal* of a valid assignment. It reads two columns to answer one yes/no and returns nothing to the caller, so this widens no one's visibility. Per the 0806-L1 lesson, it carries an explicit `revoke ... from public, anon`.
+
+The migration also **refuses to install over pre-existing violations**, listing the offending ticket ids rather than silently enforcing an invariant the table already contradicts — the same care `0108` took with `logo_url`. It is transactional, so that refusal rolls back cleanly.
+
+Proven by `scripts/verify-cross-org-dispatch.mjs` (new): a cross-org user assignment is refused, a cross-org vendor dispatch is refused, an ordinary same-org dispatch of both kinds still succeeds (so this is not a blanket freeze — and that assertion is what would catch the invoker-rights false-refusal mode), unassigning still works, and the cascade's org filter demonstrably drops the foreign recipient while keeping the home one. It sends nothing: `verify-cascade.mjs` owns real delivery, and a test for "we must not message strangers" that messages strangers to prove it would be its own bug.
+
+### Also closed — the demo-project denylist (`scripts/migrate.mjs`)
+
+The audit's own residual gap under "Verified — item 2, remainder": the mismatch guard is *relational*, refusing only when the two halves of `.env.local` disagree. It says nothing when they agree on the **wrong** project, so a config with both halves naming the frozen POC demo would pass silently and re-violate Standing Rule #1 by a different route than the 6 Aug incident took. `migrate.mjs` now refuses outright if either half resolves to `egqzjrmzxqqxrrqpdwbt`, deliberately with **no escape hatch** — there is no legitimate reason for this checkout to migrate the frozen demo, and a guard whose bypass is an environment variable is one someone exports at 5am.
+
 ### M1 — how it was proven
 
 New section **I** in `scripts/verify-asset-classification.mjs`, run against the Phase-1 dev database after `0143` applied. It asserts both directions, because a trigger that refuses everything would also "pass" a one-sided test:
