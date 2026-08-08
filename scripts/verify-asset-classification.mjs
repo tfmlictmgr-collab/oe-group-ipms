@@ -275,6 +275,48 @@ console.log("\nH. Phase 2 really is still Phase 2");
     : note(`${present.join(", ")} now exist — usage-based maintenance can be built`);
 }
 
+console.log("\nI. A parent cannot leave its components behind on relocation (0806-M1, 0143)");
+{
+  // Section D proved a component cannot be ATTACHED across properties. This is
+  // the direction that gap actually was: an existing, validly-attached
+  // assembly whose PARENT moves afterward, with parent_asset_id never touched
+  // at all. Section E's "StillFixed" case (a childless asset) already proves
+  // relocation must stay possible — this proves it must stay possible WITHOUT
+  // silently stranding components on the property just left.
+  if (ctx.props.length < 2) { note("only one property on this org — relocation-with-components not testable"); }
+  else {
+    const plant = await mk("RelocatingPlant");
+    const c1 = await mk("Comp1", { parent_asset_id: plant });
+    const c2 = await mk("Comp2", { parent_asset_id: plant });
+
+    const { error: moveErr } = await svc.from("assets")
+      .update({ property_id: ctx.props[1].id }).eq("id", plant);
+    moveErr
+      ? ok("relocating a parent away from its components is refused")
+      : bad("!!! A PARENT WAS RELOCATED WHILE ITS COMPONENTS STAYED BEHIND — the old property's register now lies");
+
+    const { data: after } = await svc.from("assets")
+      .select("id, property_id").in("id", [plant, c1, c2]);
+    const byId = new Map((after ?? []).map((r) => [r.id, r.property_id]));
+    const stillTogether = byId.get(plant) === ctx.props[0].id
+      && byId.get(c1) === ctx.props[0].id
+      && byId.get(c2) === ctx.props[0].id;
+    stillTogether
+      ? ok("and the refusal left the whole assembly exactly where it was")
+      : bad(`assembly split across properties after a refused move: ${JSON.stringify([...byId])}`);
+
+    // The other direction: a component with no assembly relationship must
+    // still be relocatable on its own — this must not become a blanket freeze
+    // on property_id.
+    const lone = await mk("LoneComponent");
+    const { error: loneErr } = await svc.from("assets")
+      .update({ property_id: ctx.props[1].id }).eq("id", lone);
+    !loneErr
+      ? ok("an asset with no parent and no children still relocates freely")
+      : bad(`an unrelated asset was blocked from relocating: ${loneErr.message}`);
+  }
+}
+
 // ── Cleanup ───────────────────────────────────────────────────────────────
 // Parent links first: the FK has no cascade.
 await svc.from("assets").update({ parent_asset_id: null }).in("id", made);
