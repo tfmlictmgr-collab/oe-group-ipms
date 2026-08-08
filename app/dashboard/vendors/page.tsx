@@ -15,7 +15,6 @@ type VendorRow = {
   name: string;
   service_category: string | null;
   status: string;
-  vendor_evaluations: { composite_score: number | string | null }[];
 };
 
 // Semantic badge variant from the score, so bands read correctly in dark mode
@@ -46,17 +45,36 @@ export default async function VendorsPage() {
   const canAddVendor = roleAllowed(session.profile?.role, ["admin", "facility_manager"]);
 
   const supabase = await createClient();
-  const { data } = await supabase
-    .from("vendors")
-    .select("id, name, service_category, status, vendor_evaluations(composite_score)")
-    .order("name");
+  // ⚠️ Scores come from `vendor_evaluation_tickets`, NOT an embedded
+  // `vendor_evaluations(...)` join — the raw table's generated
+  // `composite_score` zeroes whichever half of a dual-source pair a row does
+  // not carry (0104), so the embedded version ranked every vendor on a number
+  // that structurally undercounts them. Two queries rather than one embed,
+  // because the corrected figure lives in a view PostgREST cannot embed
+  // without a foreign key; grouped here instead.
+  const [{ data }, { data: scored }] = await Promise.all([
+    supabase.from("vendors").select("id, name, service_category, status").order("name"),
+    supabase.from("vendor_evaluation_tickets").select("vendor_id, composite_score"),
+  ]);
+
+  const byVendor = new Map<string, { composite_score: number | string | null }[]>();
+  for (const row of (scored as { vendor_id: string; composite_score: number | null }[]) ?? []) {
+    const list = byVendor.get(row.vendor_id) ?? [];
+    list.push({ composite_score: row.composite_score });
+    byVendor.set(row.vendor_id, list);
+  }
 
   const vendors = ((data as VendorRow[]) ?? [])
-    .map((v) => ({
-      ...v,
-      avg: averageComposite(v.vendor_evaluations),
-      count: v.vendor_evaluations.length,
-    }))
+    .map((v) => {
+      const evals = byVendor.get(v.id) ?? [];
+      return {
+        ...v,
+        // Discards the nulls a still-half-evaluated job contributes, exactly
+        // as the gate does — a pending half must count for nothing, not zero.
+        avg: averageComposite(evals),
+        count: evals.length,
+      };
+    })
     .sort((a, b) => (b.avg ?? -1) - (a.avg ?? -1));
 
   return (

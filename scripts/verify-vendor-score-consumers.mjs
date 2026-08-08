@@ -192,6 +192,52 @@ console.log("\nD. A vendor with only unpaired evaluations does not appear at all
     : bad(`expected no bi_vendor_scores row, got ${JSON.stringify(bi)}`);
 }
 
+console.log("\nE. No SCREEN reads the raw table to average a score — the check this suite was missing");
+{
+  // ⚠️ Why a source scan sits in a database suite.
+  //
+  // A–D proved the GATE and BI read the paired view. They passed for weeks
+  // while three screens — the payment detail page, the vendors list and the
+  // overview — still averaged the raw table, because nothing enumerated the
+  // *consumers* this file is named after. The visible result: a vendor the
+  // gate scored 94 was rendered "47.0 · Needs improvement" in red directly
+  // beneath a green "Performance validation ✓", on the page where someone
+  // decides whether to release money.
+  //
+  // A behavioural test cannot catch that — the wrong number is a perfectly
+  // valid query. So the invariant is asserted about the SOURCE: no app file
+  // may select composite_score from `vendor_evaluations` unless it is scoped
+  // to the legacy pre-0104 rows (`ticket_id is null`), which genuinely carry
+  // a complete composite of their own.
+  const { readFileSync, readdirSync, statSync } = await import("node:fs");
+  const { join } = await import("node:path");
+
+  const walk = (dir) =>
+    readdirSync(dir).flatMap((entry) => {
+      const full = join(dir, entry);
+      if (statSync(full).isDirectory()) return walk(full);
+      return /\.(ts|tsx)$/.test(entry) ? [full] : [];
+    });
+
+  const offenders = [];
+  for (const file of [...walk("app"), ...walk("lib")]) {
+    const src = readFileSync(file, "utf8");
+    if (!src.includes('from("vendor_evaluations")')) continue;
+    // Take the statement following each raw-table read and ask whether it
+    // pulls composite_score without confining itself to legacy rows.
+    for (const chunk of src.split('from("vendor_evaluations")').slice(1)) {
+      const stmt = chunk.slice(0, 400);
+      const readsComposite = stmt.includes("composite_score");
+      const legacyScoped = stmt.includes('.is("ticket_id", null)');
+      if (readsComposite && !legacyScoped) offenders.push(file);
+    }
+  }
+
+  offenders.length === 0
+    ? ok("no screen averages the raw half-rows — every score consumer reads the paired view (or is legacy-scoped)")
+    : bad(`these read composite_score from the raw table unscoped: ${[...new Set(offenders)].join(", ")}`);
+}
+
 // ── Cleanup ────────────────────────────────────────────────────────────────
 await svc.from("vendor_evaluations").delete().in("vendor_id", made.vendors);
 await svc.from("tickets").delete().in("id", made.tickets);

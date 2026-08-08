@@ -81,8 +81,17 @@ export default async function PaymentDetailPage({
     .single();
   const threshold = Number(settings?.min_performance_score ?? 70);
 
+  // ⚠️ `vendor_evaluation_tickets`, never the raw `vendor_evaluations` table —
+  // the same rule `actions.ts` follows for the gate itself (audit 0805-H2),
+  // which this screen was left out of. Since 0104 a completed job writes TWO
+  // half-populated rows (fm_pm: quality/response/completion/compliance;
+  // tenant: satisfaction only), and the raw generated `composite_score`
+  // COALESCEs the missing half to zero. Averaging the raw column here showed
+  // a vendor scored 94 by the gate as **47.0 "Needs improvement"** in red,
+  // under a green "Performance validation ✓" — the screen calling the gate a
+  // liar, on the one page where someone decides whether to release money.
   const { data: evals } = await supabase
-    .from("vendor_evaluations")
+    .from("vendor_evaluation_tickets")
     .select("composite_score")
     .eq("vendor_id", p.vendor_id);
   const avg = averageComposite(evals ?? []);

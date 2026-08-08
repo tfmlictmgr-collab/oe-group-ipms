@@ -53,7 +53,11 @@ export default async function OverviewPage() {
     supabase.from("assets").select("id, category, status, criticality, property_id"),
     supabase.from("vendor_overview").select("id, name, service_category, approval_status"),
     supabase.from("ticket_overview").select("id, status, category, urgency, is_assigned_to_vendor, is_assigned_to_staff, acknowledged_at"),
-    supabase.from("vendor_evaluations").select("vendor_id, composite_score"),
+    // The dual-source view, not the raw table — see the note on the payment
+    // detail page: the raw generated column zeroes whichever half of a pair a
+    // row does not carry, so averaging it undercounts every vendor scored
+    // since 0104.
+    supabase.from("vendor_evaluation_tickets").select("vendor_id, composite_score"),
   ]);
 
   const props = properties ?? [];
