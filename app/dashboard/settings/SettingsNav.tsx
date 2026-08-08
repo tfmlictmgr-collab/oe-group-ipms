@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Palette, Landmark, ShieldCheck, Bell, KeyRound, FileSignature, ClipboardCheck, Sparkles } from "lucide-react";
+import { Palette, Landmark, ShieldCheck, Bell, KeyRound, FileSignature, ClipboardCheck, Sparkles, UserRound } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // Tabs are filtered by role rather than the whole section being gated: personal
@@ -18,6 +18,12 @@ type Tab = {
 };
 
 const TABS: Tab[] = [
+  // First, and open to everyone: this is where /dashboard/settings sends a
+  // non-administrator, so it has to be the tab they see selected rather than
+  // one they must notice. An administrator gets it too — an admin also has a
+  // name and their own notification channels.
+  { href: "/dashboard/settings/profile", label: "My Profile", icon: UserRound, adminOnly: false },
+  { href: "/dashboard/settings/notifications", label: "My Notifications", icon: Bell, adminOnly: false },
   { href: "/dashboard/settings", label: "Branding", icon: Palette, adminOnly: true, exact: true },
   { href: "/dashboard/settings/banking", label: "Client Funds", icon: Landmark, adminOnly: true },
   { href: "/dashboard/settings/payments", label: "Payment Gate", icon: ShieldCheck, adminOnly: true },
@@ -29,7 +35,6 @@ const TABS: Tab[] = [
   // only the operator can change it.
   { href: "/dashboard/settings/ai", label: "AI & Classification", icon: Sparkles, adminOnly: true },
   { href: "/dashboard/settings/permissions", label: "Permissions", icon: KeyRound, adminOnly: true },
-  { href: "/dashboard/settings/notifications", label: "My Notifications", icon: Bell, adminOnly: false },
 ];
 
 export default function SettingsNav({ isAdmin }: { isAdmin: boolean }) {

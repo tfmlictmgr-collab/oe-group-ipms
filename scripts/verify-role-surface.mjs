@@ -246,7 +246,69 @@ console.log("\nC. The non-delegable controls are absent from the matrix, on purp
     : bad(`!!! ${leaked.join(", ")} became a toggle — decision 7 forbids it`);
 }
 
-console.log("\nD. Every role has somewhere to land");
+console.log("\nD. Every role can change what is theirs, and nothing more");
+{
+  // ⚠️ Reported from production: the welcome notification says "You can change
+  // how we reach you in Settings", and a tenant opening Settings was told
+  // "Administrator access required" — because /dashboard/settings IS the
+  // branding page. The preferences worked perfectly; the landing page refused.
+  //
+  // `users` has a SELECT policy and NO UPDATE policy, deliberately: the row
+  // carries `role` and `org_id`, the two columns every RLS policy reads. So
+  // self-service is exactly two narrow definer functions, and this proves both
+  // work for every role and that neither is a way round the first.
+  for (const org of tenantOrgs) {
+    for (const role of ROLES) {
+      const { data: u } = await svc.from("users").select("id, email, full_name, role, org_id")
+        .eq("org_id", org.id).eq("role", role).is("deactivated_at", null)
+        .limit(1).maybeSingle();
+      if (!u) continue;
+
+      // Rolled back, so no demo account is actually renamed.
+      await db.query("begin");
+      let outcome = null;
+      try {
+        await db.query("set local role authenticated");
+        await db.query(`set local request.jwt.claims = '${JSON.stringify({ sub: u.id, role: "authenticated" })}'`);
+        await db.query(`select update_my_profile('Probe Renamed')`);
+        const after = await db.query(
+          `select full_name, role::text role, org_id from users where id = $1`, [u.id]
+        );
+        outcome = after.rows[0];
+      } catch (e) {
+        outcome = { err: e.message.slice(0, 90) };
+      }
+      await db.query("rollback");
+
+      if (outcome?.err) {
+        bad(`${org.slug} ${role}: cannot set their own name — ${outcome.err}`);
+      } else if (outcome.full_name !== "Probe Renamed") {
+        bad(`${org.slug} ${role}: update_my_profile did not take`);
+      } else if (outcome.role !== u.role || outcome.org_id !== u.org_id) {
+        // The reason the function is narrow. If this ever fires, self-service
+        // has become a privilege-escalation path.
+        bad(`!!! ${org.slug} ${role}: update_my_profile CHANGED role/org`);
+      } else {
+        ok(`${org.slug.padEnd(24)} ${role.padEnd(17)} renames themselves; role and org untouched`);
+      }
+    }
+  }
+
+  // And the boundary the report was really about: a non-admin must not be able
+  // to change the ORGANISATION, however welcoming the settings page looks.
+  for (const org of tenantOrgs) {
+    const { data: t } = await svc.from("users").select("id")
+      .eq("org_id", org.id).eq("role", "tenant").is("deactivated_at", null)
+      .limit(1).maybeSingle();
+    if (!t) continue;
+    const r = await asUser(t.id, `update orgs set name = 'Renamed By A Tenant' where id = '${org.id}' returning id`);
+    (r.ok && r.rows.length === 0) || !r.ok
+      ? ok(`${org.slug}: a tenant cannot rebrand the organisation`)
+      : bad(`!!! ${org.slug}: A TENANT RENAMED THE ORGANISATION`);
+  }
+}
+
+console.log("\nE. Every role has somewhere to land");
 {
   // A role whose home screen resolves to nothing is a person who signs in and
   // sees an empty shell. Checked as a property of the nav rules, not of any one

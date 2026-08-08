@@ -4297,3 +4297,66 @@ intact. Caught only because I already knew the answer and the suite disagreed �
 which is the whole argument for confirming a new check can actually fail.
 
 A schema-level break is now a red suite rather than a customer's 404.
+
+---
+
+## The notification told the truth; the page it pointed at did not
+
+**Migration 0135 · 8 Aug 2026**
+
+Reported from production: the welcome notification says *"Your account is ready.
+You can change how we reach you in Settings"* — and a tenant opening Settings
+was told **"Administrator access required"**.
+
+### The preferences were never missing
+
+`update_my_notification_prefs`, the channel picker, phone and Telegram fields,
+the WhatsApp/SMS/email/Telegram toggles — all built, all working, all reachable
+by every role. What was wrong is that **`/dashboard/settings` IS the branding
+page**, which is administrator-only. So every non-admin followed a sentence the
+product had just written them, arrived at a refusal, and reasonably concluded
+Settings held nothing for them. Their preferences were one unlabelled tab away.
+
+📌 **A refusal is right when the user chose the page; it is wrong when the
+product chose it for them.** The section index now redirects a non-admin to
+their own settings. `AdminOnly` stays on every admin sub-route, for anyone who
+types one directly.
+
+### The gap the report uncovered on the way
+
+**A person could not correct their own name.** `users` carries a SELECT policy
+and *no UPDATE policy at all* — deliberately, because the row holds `role` and
+`org_id`, the two columns every RLS policy in the system reads, and a
+self-service UPDATE on it is one careless `with check` away from letting someone
+promote themselves. So self-writes go through narrow definer functions, and
+exactly one existed.
+
+`update_my_profile` (0135) is the second, and touches `full_name` and nothing
+else:
+
+- **not `role` or `org_id`** — a function that could reach them would be a
+  privilege-escalation path wearing a friendly name;
+- **not `email`** — that is an authentication identity, not a display field.
+  Changing it without re-verification would let someone redirect their own
+  password reset.
+
+Both are shown read-only on the page with the reason stated, because "why can't
+I edit this?" is the next question and a greyed-out box does not answer it.
+
+### What each role now has
+
+Everyone: **My Profile** (name, plus their email/role/organisation for
+reference) and **My Notifications** (channels, phone, Telegram). Administrators
+keep the seven organisation tabs behind them. Nothing else moved — the
+organisation-configuration tabs are org config, and decision 7 keeps bank
+configuration and the payment gate non-delegable regardless of how welcoming a
+settings page looks.
+
+The profile page also states what the notification screen implies: *"Currently
+by email — no phone number on file, so WhatsApp and SMS cannot be used."* A
+channel that silently cannot fire is worse than one that says why.
+
+`verify-role-surface` gained section D: every role in every org renames itself,
+**and its role and org are unchanged afterwards** — 36 combinations, plus a
+check that a tenant cannot rebrand the organisation. Verified live as a TFML
+tenant: Settings lands on My Profile, and the channel picker is fully editable.

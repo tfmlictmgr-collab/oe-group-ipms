@@ -5,12 +5,26 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import BrandingForm from "./BrandingForm";
 import ContentForm from "./ContentForm";
 import LogoUpload from "./LogoUpload";
-import AdminOnly from "./AdminOnly";
 
 export default async function BrandingSettingsPage() {
   const session = await getSessionProfile();
   if (!session) redirect("/login");
-  if (session.profile?.role !== "admin") return <AdminOnly what="branding and portal text" />;
+
+  // ⚠️ A non-admin is SENT to their own settings, not refused on this one.
+  //
+  // Reported from production: the welcome notification tells every new user
+  // "You can change how we reach you in Settings", and a tenant following that
+  // sentence landed here — on the branding page, which is administrator-only —
+  // and was told "Administrator access required". Their preferences were one
+  // unlabelled tab away and working perfectly, but the page they were sent to
+  // said no, so the reasonable conclusion was that Settings held nothing for
+  // them.
+  //
+  // The section index has to be something the visitor can USE. `AdminOnly`
+  // stays for anyone who types an admin sub-route directly — a refusal is right
+  // when the user chose that page; it is wrong when the product chose it for
+  // them.
+  if (session.profile?.role !== "admin") redirect("/dashboard/settings/profile");
 
   const { org, theme } = session;
   const defaults = getBaseTheme(org?.delivery_brand);

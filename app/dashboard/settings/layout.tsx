@@ -23,7 +23,7 @@ export default async function SettingsLayout({
         description={
           isAdmin
             ? "Organisation configuration and your own preferences."
-            : "Your personal preferences."
+            : "Your account and how we reach you."
         }
       />
       <SettingsNav isAdmin={isAdmin} />
