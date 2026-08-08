@@ -53,7 +53,7 @@ export default async function PaymentDetailPage({
   const { data: payment } = await supabase
     .from("payments")
     .select(
-      "id, vendor_id, invoice_reference, amount, status, service_verified_at, performance_validated, approved_at, remittance_reference, created_at, vendors(name)"
+      "id, vendor_id, invoice_reference, amount, status, service_verified_at, performance_validated, approved_at, remittance_reference, created_at, rejected_reason, rejected_at, vendors(name)"
     )
     .eq("id", id)
     .single();
@@ -204,6 +204,11 @@ export default async function PaymentDetailPage({
                 status={p.status}
                 amount={Number(p.amount)}
                 vendorName={vendor?.name ?? "this vendor"}
+                rejectedReason={p.rejected_reason ?? null}
+                // Reopening corrects someone else's refusal, so it sits with
+                // the people who answer for the money. The trigger enforces
+                // this regardless of what the page renders.
+                canReopen={["admin", "finance_approver"].includes(session.profile?.role ?? "")}
               />
             </>
           )}

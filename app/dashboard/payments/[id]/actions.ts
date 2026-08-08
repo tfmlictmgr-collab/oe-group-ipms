@@ -46,6 +46,7 @@ export async function verifyService(paymentId: string): Promise<ActionResult> {
 // rejected (blocked). This is the KPI gate.
 export async function runPerformanceCheck(paymentId: string): Promise<ActionResult> {
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
   const payment = await loadPayment(supabase, paymentId);
   if (!payment) return fail("That payment could not be found.");
 
@@ -81,11 +82,22 @@ export async function runPerformanceCheck(paymentId: string): Promise<ActionResu
 
   const passed = avg != null && avg >= threshold;
 
+  // ⚠️ A failing check now states WHY, in the vendor's terms and with the two
+  // numbers in it. `enforce_payment_transition` refuses a rejection without a
+  // reason since 0136, and this is the only automated rejection in the system —
+  // it used to produce the silent dead end the whole of 0136 exists to close.
+  const reason = passed
+    ? null
+    : avg == null
+      ? `No completed evaluation is on record for this vendor yet, so the performance gate (minimum ${threshold}) cannot be cleared. It will pass once a job of theirs has been scored by both the FM/PM and the tenant.`
+      : `Performance score ${avg.toFixed(1)} is below this organisation's minimum of ${threshold}.`;
+
   const { error } = await supabase
     .from("payments")
     .update({
       performance_validated: passed,
       status: passed ? "recommended" : "rejected",
+      ...(passed ? {} : { rejected_reason: reason, rejected_by: user?.id ?? null, rejected_at: new Date().toISOString() }),
     })
     .eq("id", paymentId);
   if (error) return failFromDb(error, "record the performance check");
@@ -301,4 +313,49 @@ export async function executeRemittance(paymentId: string): Promise<RemittanceRe
         .eq("id", paymentId);
     },
   });
+}
+
+// ── Refusing an invoice, and undoing a refusal ────────────────────────────
+//
+// Both go through database functions rather than a direct UPDATE, because both
+// carry a REASON that must exist and a notification the vendor depends on.
+// `enforce_payment_transition` refuses a reasonless rejection since 0136, so
+// there is no way to produce the silent dead end these replace.
+
+export async function rejectPayment(
+  paymentId: string,
+  reason: string
+): Promise<ActionResult> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("reject_payment", {
+    p_id: paymentId,
+    p_reason: reason,
+  });
+  if (error) return fail(error.message.replace(/^.*?:\s*/, ""));
+  revalidatePath(`/dashboard/payments/${paymentId}`);
+  revalidatePath("/dashboard/payments");
+  return ok();
+}
+
+/**
+ * The appeal outcome: a rejection that should not have happened.
+ *
+ * Finance or an administrator only — enforced in the trigger, not here,
+ * because reopening corrects a refusal the FM's own performance gate may have
+ * produced. The invoice returns to the START of the gate with verification and
+ * performance cleared, so nothing is inherited from before the refusal.
+ */
+export async function reopenPayment(
+  paymentId: string,
+  reason: string
+): Promise<ActionResult> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("reopen_payment", {
+    p_id: paymentId,
+    p_reason: reason,
+  });
+  if (error) return fail(error.message.replace(/^.*?:\s*/, ""));
+  revalidatePath(`/dashboard/payments/${paymentId}`);
+  revalidatePath("/dashboard/payments");
+  return ok();
 }

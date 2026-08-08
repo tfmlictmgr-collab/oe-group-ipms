@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Banknote, Plus, ChevronRight, Unlink } from "lucide-react";
+import { Banknote, Plus, ChevronRight, Unlink, ShieldCheck } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
 import { formatNaira } from "@/lib/currency";
@@ -82,6 +82,16 @@ export default async function PaymentsPage() {
         }))
     : [];
 
+  // ⚠️ Invoices waiting on THIS reader, at the first gate.
+  //
+  // The batch queue above is finance's. An FM/PM or regional manager is the
+  // person who confirms the work actually happened — and had no queue at all:
+  // a raised invoice landed in the same undifferentiated list as everything
+  // else, so "what is waiting on me?" could only be answered by reading every
+  // row. RLS already narrows `payments` to vendors they are scoped to, so this
+  // is exactly their own workload.
+  const awaitingVerification = payments.filter((p) => p.status === "pending_verification");
+
   // Money out, or about to go out, with nothing on file saying what it bought.
   const unmatched = payments.filter((p) => p.unmatched_and_paid);
 
@@ -126,6 +136,45 @@ export default async function PaymentsPage() {
               request(s) — none pays out until the gate passes.
             </p>
           </div>
+
+          {awaitingVerification.length > 0 && (
+            <Card className="border-[var(--brand)]/40">
+              <CardContent className="space-y-2 p-4 sm:p-5">
+                <p className="flex items-center gap-2 font-medium">
+                  <ShieldCheck className="size-4 text-[var(--brand)]" />
+                  {awaitingVerification.length} invoice
+                  {awaitingVerification.length === 1 ? "" : "s"} awaiting service
+                  verification
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Nothing moves until someone confirms the work was delivered.
+                  This is the first gate, and it is yours.
+                </p>
+                <ul className="space-y-1 pt-1">
+                  {awaitingVerification.slice(0, 8).map((p) => (
+                    <li key={p.payment_id} className="text-xs">
+                      <Link
+                        href={`/dashboard/payments/${p.payment_id}`}
+                        className="underline underline-offset-2"
+                      >
+                        {p.vendor_name ?? "—"} · {p.invoice_reference ?? "no reference"}
+                      </Link>
+                      <span className="text-muted-foreground">
+                        {" "}
+                        · {formatNaira(p.amount)}
+                        {p.ticket_id ? ` · job ${shortRef(p.ticket_id)}` : " · no work order"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                {awaitingVerification.length > 8 && (
+                  <p className="text-xs text-muted-foreground">
+                    …and {awaitingVerification.length - 8} more.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           <BatchApprove
             rows={queue}

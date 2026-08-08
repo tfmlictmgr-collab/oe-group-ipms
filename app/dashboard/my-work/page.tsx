@@ -40,6 +40,21 @@ export const dynamic = "force-dynamic";
 
 const OPEN_STATES = ["open", "assigned", "acknowledged", "in_progress"];
 
+// What each gate stage means to the person waiting for the money, in terms of
+// WHO holds it now. A contractor reading "recommended" cannot tell whether that
+// is good news or a queue, and "pending_verification" does not say that the
+// facility manager who dispatched the job is the one who has to act.
+const STAGE_MEANING: Record<string, string> = {
+  pending_verification: "with your facility manager, to confirm the work",
+  verified: "work confirmed — performance check next",
+  pending_evaluation: "awaiting your performance score",
+  recommended: "cleared the gate — with finance to approve",
+  pending_approval: "with finance to approve",
+  approved: "approved — payment is being arranged",
+  remitted: "paid",
+  rejected: "not approved — see the reason, then resubmit",
+};
+
 const fmtDate = (d: string | null) =>
   d
     ? new Date(d).toLocaleDateString("en-GB", {
@@ -114,7 +129,7 @@ export default async function MyWorkPage() {
       .order("fm_pm_submitted_at", { ascending: false, nullsFirst: false }),
     supabase
       .from("payments")
-      .select("id, invoice_reference, amount, status, created_at, approved_at, remittance_reference, ticket_id")
+      .select("id, invoice_reference, amount, status, created_at, approved_at, remittance_reference, ticket_id, rejected_reason")
       .order("created_at", { ascending: false })
       .limit(50),
   ]);
@@ -155,7 +170,7 @@ export default async function MyWorkPage() {
   type Payment = {
     id: string; invoice_reference: string | null; amount: number | string;
     status: string; created_at: string; approved_at: string | null;
-    remittance_reference: string | null;
+    remittance_reference: string | null; rejected_reason: string | null;
   };
   const payments = (paymentsRes.data ?? []) as Payment[];
 
@@ -377,7 +392,20 @@ export default async function MyWorkPage() {
                       <TableCell className="text-right tabular-nums">
                         {formatNaira(Number(p.amount))}
                       </TableCell>
-                      <TableCell><StatusBadge status={p.status} /></TableCell>
+                      <TableCell>
+                        <StatusBadge status={p.status} />
+                        {/* ⚠️ WHO is holding it, not just what it is called.
+                            "verified" tells a contractor nothing about whether
+                            anyone still has to act, or who. */}
+                        <span className="mt-0.5 block text-xs text-muted-foreground">
+                          {STAGE_MEANING[p.status] ?? ""}
+                        </span>
+                        {p.status === "rejected" && p.rejected_reason && (
+                          <span className="mt-1 block max-w-xs text-xs text-destructive">
+                            {p.rejected_reason}
+                          </span>
+                        )}
+                      </TableCell>
                       <TableCell className="text-right text-sm tabular-nums">
                         {fmtDate(p.created_at)}
                       </TableCell>

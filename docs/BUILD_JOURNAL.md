@@ -4360,3 +4360,97 @@ channel that silently cannot fire is worse than one that says why.
 **and its role and org are unchanged afterwards** — 36 combinations, plus a
 check that a tenant cannot rebrand the organisation. Verified live as a TFML
 tenant: Settings lands on My Profile, and the channel picker is fully editable.
+
+---
+
+## A refusal that says why, reaches the vendor, and can be undone
+
+**Migrations 0136–0137 · 8 Aug 2026**
+
+Four questions asked of the live build. One had an answer; three did not.
+
+### Who does what (the one that was already true)
+
+From `enforce_payment_transition` and `payments_update`, asserted now rather
+than described:
+
+| Step | Who |
+|---|---|
+| Submit invoice | the vendor themselves, or finance/admin keying in a paper one |
+| **Service verification** | the FM/PM or regional manager **scoped to that vendor** — plus admin/finance/executive |
+| **Performance check** | triggered by a person, **decided by the number**: the vendor's composite AURA score against the org's `min_performance_score` |
+| **Approve** | finance, admin or executive — and above the threshold, admin or executive only (decision 9) |
+| **Remit** | finance or admin **only**. Never an executive — oversight authorises, finance disburses |
+
+### The three that did not
+
+📌 **A rejection recorded no reason.** `payments` had no such column. An invoice
+could be refused and nothing, anywhere, said why.
+
+📌 **Nobody was told.** Approval notifies the vendor through the B8 cascade;
+refusal notified no one. The invoice simply went quiet.
+
+📌 **`rejected` was terminal.** The state machine listed no transition out of
+it. An invoice refused in error — a mis-click, or a performance score low only
+because the tenant's half of an evaluation had not landed yet — could never be
+corrected, for work that had genuinely been done. The screen said *"Blocked —
+vendor failed the performance gate. No remittance possible."* and offered
+nothing.
+
+Worse, that was the **only** rejection the product could produce: there was no
+manual reject at all. A verifier looking at work that plainly had not been done
+had no button for it, and the honest options were to leave the invoice sitting
+or to run a performance check they knew would fail.
+
+### What now exists
+
+`reject_payment` takes a mandatory reason (≥10 characters), records who and
+when, and notifies the vendor with it. The reason requirement is **in the
+trigger too**, so a direct UPDATE cannot produce a silent dead end either.
+
+`reopen_payment` is the appeal outcome: `rejected → pending_verification`,
+finance or admin only, **with `service_verified_at` and `performance_validated`
+cleared**. A reopened invoice that kept its old verification would walk straight
+to approval carrying a judgement made before the reason for refusal was known.
+
+⚠️ The appeal is deliberately **not** a new subsystem. Correcting and re-issuing
+a refused invoice is the standard commercial path and already worked — both
+`submit_vendor_invoice` and `payments_work_order_valid` treat a rejected invoice
+as not blocking a fresh one. Nothing told the vendor that, which was the real
+defect. Reopening covers only what resubmission cannot: a refusal that should
+never have happened.
+
+### Surfaced at the touchpoints
+
+- **Vendor** — each invoice now says *who holds it*: "with your facility
+  manager, to confirm the work", "cleared the gate — with finance to approve",
+  "not approved — see the reason, then resubmit". A contractor reading
+  "recommended" cannot tell whether that is good news or a queue.
+- **FM/PM** — a first-gate queue on Payments: *"N invoices awaiting service
+  verification — nothing moves until someone confirms the work was delivered.
+  This is the first gate, and it is yours."* Previously a raised invoice landed
+  in the same undifferentiated list as everything else.
+- **Payment detail** — Reject, with a reason box, at every live stage; and
+  Reopen for finance/admin on a rejected one.
+
+### The suite found a defect in my own function
+
+On its first clean run, a vendor attempting to reopen was told **"only a
+rejected invoice can be reopened (this one is rejected)"** — self-contradictory,
+and useless to whoever reads it.
+
+Cause: these functions are SECURITY INVOKER by design, so `payments_update`
+decides who may act — and **a zero-row UPDATE under RLS is ambiguous**. It means
+either "wrong status" or "not your invoice", and both were reported as the
+first. 0137 distinguishes them. Nothing is disclosed by doing so: the row was
+already readable to the caller under the same policies.
+
+Three fixture faults were also mine, each caught by disbelieving a green line:
+`$3` used as three different types in one statement (nine phantom product
+failures); node-pg returning only the last result of a multi-statement query;
+and section B run against the POC's **deactivated** vendor login, where
+`notify_user` declines by design — the same trap that caught
+`verify-role-workflows` earlier in this build.
+
+New: `scripts/verify-invoice-appeal.mjs`. Money suites green: payment-gate,
+remittance, vendor-journey, finance-journey, role-surface, embeds. Clean build.
