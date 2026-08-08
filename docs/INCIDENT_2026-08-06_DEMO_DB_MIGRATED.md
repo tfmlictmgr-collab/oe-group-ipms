@@ -169,3 +169,43 @@ Both failure directions were silent before this: migrating the wrong database
 looks exactly like a successful catch-up, and a fix you just wrote appears
 applied when it is not. Had this guard existed at 04:59, the incident would not
 have occurred.
+
+---
+
+## 6. Addendum — 2026-08-08: the config itself was still not corrected
+
+Section 5 closed this by adding a guard. It did not change `.env.local`, and
+nobody went back to. Two days later, applying an unrelated migration from PC2
+(`0143`, the build-audit 0806-M1 fix) hit the refusal — with the same two refs,
+unchanged:
+
+```
+  SUPABASE_DB_*            -> egqzjrmzxqqxrrqpdwbt   (the frozen POC demo project)
+  NEXT_PUBLIC_SUPABASE_URL -> uszwigxdvjlwcwkjsjmc   (the Phase-1 dev project)
+```
+
+**The guard did its job — this is the incident not recurring, visibly.** But it
+is worth being honest about what the 6 Aug response actually achieved: it made
+the failure loud instead of silent, and left the machine one
+`ALLOW_MIGRATE_TARGET_MISMATCH=1` away from repeating it. A guard that fires
+every time you try to work is a standing invitation to reach for the escape
+hatch, and the escape hatch here writes to the frozen demo database.
+
+**A guard is not a fix. The config is now actually corrected on PC2:**
+`SUPABASE_DB_*` names the Phase-1 dev project, via its **session** pooler
+(port 5432 — not transaction mode on 6543, because `migrate.mjs` issues explicit
+`BEGIN`/`COMMIT` per migration). `0143` then applied normally and its regression
+test passed against the correct database.
+
+One trap on the way, recorded so the next person does not lose time to it:
+setting `SUPABASE_DB_USER` to `postgres.<new-ref>` while leaving
+`SUPABASE_DB_HOST` on the *old* project's regional pooler fails with
+`(ENOTFOUND) tenant/user postgres.<ref> not found`. Each regional pooler only
+knows its own tenants — the username and the host must name the same region.
+The error names the user, not the host, which points attention at the wrong
+half of the pair.
+
+**Still open, for PC1:** whether PC1's own `.env.local` carries the same drift
+was never checked. The guard will refuse rather than misfire there too, but the
+point of this addendum is that a refusal at the moment you need to migrate is
+not the same as a correct configuration at rest.
