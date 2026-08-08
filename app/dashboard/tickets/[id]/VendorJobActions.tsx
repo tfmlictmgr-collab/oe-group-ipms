@@ -3,7 +3,8 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { CheckCircle2, XCircle, Loader2, HandHelping } from "lucide-react";
+import { CheckCircle2, XCircle, Loader2, HandHelping, Camera, X as XIcon } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,6 +15,15 @@ import {
 import { runAction, messageOf, hintOf } from "@/lib/run-action";
 import { acknowledgeJob } from "./actions";
 import { declineWorkOrder, completeWorkOrder } from "./vendor-actions";
+import { recordAttachment } from "./media-actions";
+
+const EVIDENCE_BUCKET = "work-order-media";
+const EVIDENCE_ACCEPTED = ["image/jpeg", "image/png", "image/webp", "image/heic"];
+const EVIDENCE_MAX_PHOTOS = 2;
+const EVIDENCE_MAX_TOTAL_BYTES = 5 * 1024 * 1024; // 5 MB combined
+
+const prettySize = (bytes: number) =>
+  bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 
 /**
  * The contractor's own controls on a job that is theirs.
@@ -25,10 +35,12 @@ import { declineWorkOrder, completeWorkOrder } from "./vendor-actions";
  */
 export default function VendorJobActions({
   ticketId,
+  orgId,
   status,
   acknowledged,
 }: {
   ticketId: string;
+  orgId: string;
   status: string;
   acknowledged: boolean;
 }) {
@@ -37,8 +49,41 @@ export default function VendorJobActions({
   const [confirming, setConfirming] = React.useState<"decline" | "complete" | null>(null);
   const [reason, setReason] = React.useState("");
   const [note, setNote] = React.useState("");
+  const [photos, setPhotos] = React.useState<File[]>([]);
+  const photoRef = React.useRef<HTMLInputElement>(null);
 
   const done = ["resolved", "closed"].includes(status);
+  const photoBytes = photos.reduce((sum, f) => sum + f.size, 0);
+
+  function addPhotos(list: FileList | null) {
+    if (!list?.length) return;
+    const incoming = Array.from(list);
+    for (const f of incoming) {
+      if (!EVIDENCE_ACCEPTED.includes(f.type)) {
+        toast.error("Unsupported file type", { description: "Attach a photo (JPEG, PNG, WebP, HEIC)." });
+        return;
+      }
+    }
+    const combined = [...photos, ...incoming];
+    if (combined.length > EVIDENCE_MAX_PHOTOS) {
+      toast.error(`Up to ${EVIDENCE_MAX_PHOTOS} photos`, {
+        description: "Remove one before adding another.",
+      });
+      return;
+    }
+    const totalBytes = combined.reduce((sum, f) => sum + f.size, 0);
+    if (totalBytes > EVIDENCE_MAX_TOTAL_BYTES) {
+      toast.error("Photos too large together", {
+        description: `Both photos together must be under 5 MB — this is ${prettySize(totalBytes)}.`,
+      });
+      return;
+    }
+    setPhotos(combined);
+  }
+
+  function removePhoto(i: number) {
+    setPhotos((p) => p.filter((_, idx) => idx !== i));
+  }
 
   async function run(what: string, fn: Promise<{ ok: boolean } & Record<string, unknown>>, success: string) {
     setBusy(what);
@@ -46,6 +91,48 @@ export default function VendorJobActions({
       await runAction(fn as never);
       toast.success(success);
       setConfirming(null);
+      router.refresh();
+    } catch (e) {
+      toast.error(messageOf(e, "That could not be done."), {
+        description: hintOf(e), duration: Infinity, closeButton: true,
+      });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function completeWithEvidence() {
+    setBusy("complete");
+    try {
+      // Uploaded WHILE the ticket is still open — ticket_attachments' own
+      // insert policy refuses evidence on a resolved/closed ticket (0106), so
+      // this must happen before, not after, completeWorkOrder flips the
+      // status. Sequential, not parallel: a slow mobile upload failing mid-
+      // batch should stop cleanly rather than leave completion racing ahead
+      // of its own evidence.
+      const supabase = createClient();
+      for (const photo of photos) {
+        const ext = photo.name.split(".").pop()?.toLowerCase() || "jpg";
+        const path = `${orgId}/${ticketId}/${crypto.randomUUID()}.${ext}`;
+        const { error: upErr } = await supabase.storage
+          .from(EVIDENCE_BUCKET)
+          .upload(path, photo, { contentType: photo.type });
+        if (upErr) throw new Error(`Could not upload ${photo.name}: ${upErr.message}`);
+
+        const recorded = await recordAttachment({
+          ticketId,
+          storagePath: path,
+          fileName: photo.name,
+          contentType: photo.type,
+          sizeBytes: photo.size,
+        });
+        if (!recorded.ok) throw new Error(recorded.message);
+      }
+
+      await runAction(completeWorkOrder(ticketId, note || null));
+      toast.success("Marked complete");
+      setConfirming(null);
+      setPhotos([]);
       router.refresh();
     } catch (e) {
       toast.error(messageOf(e, "That could not be done."), {
@@ -159,13 +246,70 @@ export default function VendorJobActions({
               placeholder="e.g. Replaced the pump seal and tested for an hour"
             />
           </div>
+
+          <div className="mt-4 space-y-2">
+            <Label>
+              Photo evidence{" "}
+              <span className="font-normal text-muted-foreground">(optional, up to 2, 5 MB together)</span>
+            </Label>
+            <input
+              ref={photoRef}
+              type="file"
+              accept={EVIDENCE_ACCEPTED.join(",")}
+              multiple
+              className="sr-only"
+              aria-label="Attach photo evidence of the completed job"
+              onChange={(e) => {
+                addPhotos(e.target.files);
+                e.target.value = "";
+              }}
+            />
+            {photos.length > 0 && (
+              <ul className="space-y-1.5">
+                {photos.map((f, i) => (
+                  <li
+                    key={`${f.name}-${i}`}
+                    className="flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm"
+                  >
+                    <span className="min-w-0 flex-1 truncate">{f.name}</span>
+                    <span className="flex-shrink-0 text-xs text-muted-foreground">{prettySize(f.size)}</span>
+                    <button
+                      type="button"
+                      onClick={() => removePhoto(i)}
+                      aria-label={`Remove ${f.name}`}
+                      className="flex-shrink-0 text-muted-foreground hover:text-destructive"
+                    >
+                      <XIcon className="size-4" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {photos.length < EVIDENCE_MAX_PHOTOS && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => photoRef.current?.click()}
+              >
+                <Camera /> Attach a photo
+              </Button>
+            )}
+            {photoBytes > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {prettySize(photoBytes)} of 5 MB used.
+              </p>
+            )}
+          </div>
+
           <AlertDialogFooter>
             <AlertDialogCancel>Not yet</AlertDialogCancel>
             <AlertDialogAction
               onClick={(e) => {
                 e.preventDefault();
-                run("complete", completeWorkOrder(ticketId, note || null), "Marked complete");
+                completeWithEvidence();
               }}
+              disabled={busy !== null}
             >
               {busy === "complete" ? "Saving…" : "Mark complete"}
             </AlertDialogAction>

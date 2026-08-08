@@ -363,7 +363,7 @@ export default async function MyWorkPage() {
             is verified and your performance is validated.
           </CardDescription>
           <div className="pt-3">
-            <SubmitInvoice jobs={invoiceable} />
+            <SubmitInvoice jobs={invoiceable} orgId={session.profile!.org_id} />
           </div>
         </CardHeader>
         <CardContent className="pt-2">

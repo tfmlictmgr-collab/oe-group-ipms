@@ -267,6 +267,7 @@ export default async function TicketDetailPage({
           <CardContent>
             <VendorJobActions
               ticketId={t.id}
+              orgId={session.profile!.org_id}
               status={t.status}
               acknowledged={Boolean(t.acknowledged_at)}
             />

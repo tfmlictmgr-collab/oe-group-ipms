@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ArrowLeft, Check, X, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Check, X, AlertTriangle, Paperclip } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
 import { formatNaira } from "@/lib/currency";
@@ -53,7 +53,7 @@ export default async function PaymentDetailPage({
   const { data: payment } = await supabase
     .from("payments")
     .select(
-      "id, vendor_id, invoice_reference, amount, status, service_verified_at, performance_validated, approved_at, remittance_reference, created_at, rejected_reason, rejected_at, vendors(name)"
+      "id, vendor_id, invoice_reference, amount, status, service_verified_at, performance_validated, approved_at, remittance_reference, created_at, rejected_reason, rejected_at, invoice_attachment_path, vendors(name)"
     )
     .eq("id", id)
     .single();
@@ -61,6 +61,18 @@ export default async function PaymentDetailPage({
 
   const vendor = payment.vendors as unknown as { name: string } | null;
   const p = payment as unknown as PaymentRow;
+
+  // Signed server-side, in the same request that already proved (via
+  // payments_select) the caller may see this row — no separate lookup-by-path
+  // action needed, since the path never came from the client here, only from
+  // a row RLS already admitted.
+  let invoiceAttachmentUrl: string | null = null;
+  if (payment.invoice_attachment_path) {
+    const { data: signed } = await supabase.storage
+      .from("invoice-attachments")
+      .createSignedUrl(payment.invoice_attachment_path, 300);
+    invoiceAttachmentUrl = signed?.signedUrl ?? null;
+  }
 
   const { data: settings } = await supabase
     .from("payment_settings")
@@ -117,6 +129,14 @@ export default async function PaymentDetailPage({
             </div>
             <StatusBadge status={p.status} label={statusLabel(p.status)} />
           </div>
+
+          {invoiceAttachmentUrl && (
+            <Button asChild variant="outline" size="sm" className="w-fit">
+              <a href={invoiceAttachmentUrl} target="_blank" rel="noopener noreferrer">
+                <Paperclip /> View signed invoice
+              </a>
+            </Button>
+          )}
 
           <Separator />
 

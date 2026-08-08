@@ -50,14 +50,29 @@ export async function submitVendorInvoice(input: {
   amount: number;
   invoiceReference: string;
   ticketId: string | null;
+  /** Storage path of an already-uploaded scan of the signed paper invoice
+   * (0140) — optional, most invoices have none. The path is set once, inside
+   * the RPC, at the same moment the payment row is created; there is no
+   * separate step that attaches it afterward. */
+  attachmentPath?: string | null;
 }): Promise<ActionResult<{ id: string }>> {
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("submit_vendor_invoice", {
     p_amount: input.amount,
     p_invoice_reference: input.invoiceReference,
     p_ticket_id: input.ticketId,
+    p_attachment_path: input.attachmentPath ?? null,
   });
-  if (error) return fail(error.message.replace(/^.*?:\s*/, ""));
+  if (error) {
+    // The RPC's own check refuses an attachment path that isn't under this
+    // vendor's org — if that happens the already-uploaded object is orphaned
+    // otherwise, the same stranded-file risk recordAttachment() guards
+    // against for ticket evidence.
+    if (input.attachmentPath) {
+      await supabase.storage.from("invoice-attachments").remove([input.attachmentPath]);
+    }
+    return fail(error.message.replace(/^.*?:\s*/, ""));
+  }
 
   revalidatePath("/dashboard/my-work");
   revalidatePath("/dashboard/payments");

@@ -3,7 +3,8 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Receipt, Loader2 } from "lucide-react";
+import { Receipt, Loader2, Paperclip, X } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,6 +17,13 @@ export type InvoiceableJob = {
   label: string;
 };
 
+const BUCKET = "invoice-attachments";
+const ACCEPTED = ["image/jpeg", "image/png", "image/webp", "image/heic", "application/pdf"];
+const MAX_BYTES = 2 * 1024 * 1024; // 2 MB
+
+const prettySize = (bytes: number) =>
+  bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+
 /**
  * A contractor raising their own invoice.
  *
@@ -25,30 +33,66 @@ export type InvoiceableJob = {
  * into money, and both belong to somebody else, so this enters the B4 gate at
  * its first stage and no further.
  */
-export default function SubmitInvoice({ jobs }: { jobs: InvoiceableJob[] }) {
+export default function SubmitInvoice({ jobs, orgId }: { jobs: InvoiceableJob[]; orgId: string }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [reference, setReference] = React.useState("");
   const [amount, setAmount] = React.useState("");
   const [ticketId, setTicketId] = React.useState("");
+  const [file, setFile] = React.useState<File | null>(null);
+  const fileRef = React.useRef<HTMLInputElement>(null);
+
+  function pickFile(f: File | undefined) {
+    if (!f) return;
+    if (!ACCEPTED.includes(f.type)) {
+      toast.error("Unsupported file type", {
+        description: "Attach a photo (JPEG, PNG, WebP, HEIC) or a PDF of the signed invoice.",
+      });
+      return;
+    }
+    if (f.size > MAX_BYTES) {
+      toast.error("File too large", {
+        description: `The invoice scan must be under 2 MB — this one is ${prettySize(f.size)}.`,
+      });
+      return;
+    }
+    setFile(f);
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     try {
+      // Uploaded first, straight from the browser — routing a 2 MB file
+      // through the server action would buy nothing (same reasoning
+      // TicketMedia already follows for work-order evidence). The path is
+      // only recorded against real money once submitVendorInvoice's own
+      // checks pass; a refusal there removes this object again.
+      let attachmentPath: string | null = null;
+      if (file) {
+        const supabase = createClient();
+        const ext = file.name.split(".").pop()?.toLowerCase() || "bin";
+        attachmentPath = `${orgId}/${crypto.randomUUID()}.${ext}`;
+        const { error: upErr } = await supabase.storage
+          .from(BUCKET)
+          .upload(attachmentPath, file, { contentType: file.type });
+        if (upErr) throw new Error(`Could not upload the invoice scan: ${upErr.message}`);
+      }
+
       await runAction(
         submitVendorInvoice({
           amount: Number(amount),
           invoiceReference: reference,
           ticketId: ticketId || null,
+          attachmentPath,
         })
       );
       toast.success("Invoice submitted", {
         description: "It now waits on the team to verify the work.",
       });
       setOpen(false);
-      setReference(""); setAmount(""); setTicketId("");
+      setReference(""); setAmount(""); setTicketId(""); setFile(null);
       router.refresh();
     } catch (err) {
       toast.error(messageOf(err, "That invoice could not be submitted."), {
@@ -106,6 +150,46 @@ export default function SubmitInvoice({ jobs }: { jobs: InvoiceableJob[] }) {
             something else — a retainer or a scheduled service.
           </p>
         )}
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="inv-file">
+          Signed paper invoice{" "}
+          <span className="font-normal text-muted-foreground">(optional)</span>
+        </Label>
+        <input
+          ref={fileRef}
+          id="inv-file"
+          type="file"
+          accept={ACCEPTED.join(",")}
+          className="sr-only"
+          onChange={(e) => {
+            pickFile(e.target.files?.[0]);
+            e.target.value = "";
+          }}
+        />
+        {file ? (
+          <div className="flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
+            <Paperclip className="size-4 flex-shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate">{file.name}</span>
+            <span className="flex-shrink-0 text-xs text-muted-foreground">{prettySize(file.size)}</span>
+            <button
+              type="button"
+              onClick={() => setFile(null)}
+              aria-label="Remove attachment"
+              className="flex-shrink-0 text-muted-foreground hover:text-destructive"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+        ) : (
+          <Button type="button" variant="outline" size="sm" onClick={() => fileRef.current?.click()}>
+            <Paperclip /> Attach a photo or PDF
+          </Button>
+        )}
+        <p className="text-xs text-muted-foreground">
+          A photo or scan of the signed paper invoice, if you have one. Up to 2 MB.
+        </p>
       </div>
 
       {Number(amount) > 0 && (
