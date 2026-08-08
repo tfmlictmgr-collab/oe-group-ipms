@@ -8,6 +8,10 @@
     {
       "path": "/api/jobs/raise-rent-demands",
       "schedule": "30 8 * * *"
+    },
+    {
+      "path": "/api/jobs/purge-applications",
+      "schedule": "0 3 * * *"
     }
   ]
 }

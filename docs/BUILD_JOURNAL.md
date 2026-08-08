@@ -4454,3 +4454,93 @@ and section B run against the POC's **deactivated** vendor login, where
 
 New: `scripts/verify-invoice-appeal.mjs`. Money suites green: payment-gate,
 remittance, vendor-journey, finance-journey, role-surface, embeds. Clean build.
+
+---
+
+## Day 12 — security pass, NDPA pack, UAT script
+
+**8 August 2026 · no migration**
+
+The final roadmap stage. Three deliverables, one real finding, and one false
+alarm I nearly published.
+
+### The finding: retention was specified, built, tested — and never ran
+
+📌 Decision 3 of the OEA expansion locks **90-day purge** of rejected and
+withdrawn applications. `0082` sets `purge_after` on every rejection. `0062`
+wrote `purge_expired_applications()`, which nulls the PII and keeps an
+anonymised stub proving a decision was made. `verify-application-review` asserts
+the date is correct.
+
+**And `vercel.json` carried two cron jobs, neither of them this one.** The
+function was called by nothing — the same shape as `create_rent_remittance`
+earlier in this build, and with a worse consequence: every rejected applicant's
+identity documents, address, employment details and next of kin would have been
+retained indefinitely, by a system whose own consent copy promises otherwise.
+
+**Deletion that is scheduled but never executed is not a retention policy; it is
+a record of one.**
+
+Fixed: `/api/jobs/purge-applications`, daily at 03:00, authenticated on
+`CRON_SECRET` like its siblings, idempotent, and logging how many were due —
+recorded *before* the purge, because afterwards there is nothing left to count
+and "0 purged" cannot be distinguished from "did nothing". Proven end to end:
+name and email become `[purged]`, phone null, `form` and `sensitive` `{}`,
+`purged_at` stamped, stub retained.
+
+### The false alarm I nearly published
+
+`verify-security-posture` first read the **grant** tables and reported:
+
+> ANON CAN WRITE *(68 tables)* · ANON MAY EXECUTE 237 UNEXPECTED FUNCTIONS ·
+> audit_log is mutable by anon · **3 CHECKS FAILED — do not go live**
+
+⚠️ **Every one of those was wrong.** The grant layer is the wrong thing to
+measure on Supabase: `ALTER DEFAULT PRIVILEGES … GRANT ALL ON TABLES TO anon,
+authenticated` is the platform's standard posture, and **RLS sits on top of it**.
+Of the 237 functions, 24 were triggers, 194 were `SECURITY INVOKER`, and all 22
+definer functions were public surfaces or internally gated —
+`operator_provision_org`, the worst-looking, opens with
+`if not caller_is_operator_admin() then raise`.
+
+Publishing a "do not go live" verdict built on that would have been worse than
+publishing nothing. The check now does what an attacker would: holds the anon
+key and tries. 17 tables, a delete and an update against the audit trail, an
+insert, and the provisioning function — all refused or empty.
+
+### Deliverables
+
+- **`DAY12_SECURITY_PASS.md`** — verdict, the database boundary (30 checks), the
+  application boundary (the standing suites), dependencies, secrets, and an
+  explicit section on **what this pass does not cover**, because a security
+  report implying more coverage than it has is itself a risk.
+- **`NDPA_COMPLIANCE_PACK.md`** — every claim marked ✅ enforced / 📄 documented /
+  ⛔ open, grounded in code checked while writing. Thirteen unsigned processor
+  DPAs are the largest gap; the breach procedure does not exist and should
+  before go-live.
+- **`UAT_SCRIPT.md`** — all ten roles plus the operator, with the **"must
+  refuse"** rows called out as mattering equally: every one of them was a real
+  defect at some point in this build.
+
+### Dependencies — a deferral, argued not waved through
+
+`next@14.2.35` carries 21 advisories and the fix is a **major** bump to 16.x.
+Applicability was assessed rather than assumed: the Image Optimizer advisories
+name self-hosted deployments (this is Vercel, with no `remotePatterns`
+configured at all); the i18n middleware bypass needs Pages Router **and** i18n
+(this is App Router, no i18n); the custom-server SSRF needs a custom server;
+the CSP-nonce XSS needs nonces. What genuinely applies is the Server Components
+DoS class and RSC cache poisoning — availability and cache-correctness, not
+disclosure.
+
+**Recommendation: schedule Next 16 as the first post-go-live item, with its own
+regression cycle.** Two major versions days before cutover trades largely
+non-applicable advisories for a large untested regression surface across a
+system that moves client money. Every non-breaking fix was applied.
+
+### Still open, and honestly so
+
+The approved-application **6-year** clock has no job (years away, not a
+blocker). No subject-access export. No documented bias audit of document
+extraction. No external penetration test or load test — both need production
+plus, for the pen test, a third party and written authorisation.
