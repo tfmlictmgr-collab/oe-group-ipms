@@ -28,7 +28,7 @@ env:
       includePaths:
         - "${ZAP_TARGET}.*"
       excludePaths:
-        - ".*\.(png|jpe?g|gif|svg|webp|ico|woff2?|ttf)$"
+        - '.*\.(png|jpe?g|gif|svg|webp|ico|woff2?|ttf)$'
         - ".*/_next/static/.*"
 
         # ── Money. Never actively scanned. ──────────────────────────────────
@@ -59,8 +59,8 @@ env:
           # Signed out, /dashboard redirects to /login. Its absence is the
           # signal that the session died mid-scan — without this ZAP happily
           # spends an hour scanning the sign-in page and reports it clean.
-          loggedInRegex: "\Qdashboard\E"
-          loggedOutRegex: "\QSign in\E"
+          loggedInRegex: '\Qdashboard\E'
+          loggedOutRegex: '\QSign in\E'
       sessionManagement:
         method: cookie
       users:

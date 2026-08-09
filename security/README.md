@@ -139,6 +139,10 @@ that lets one brand see another is worse than a "high" missing header.
 - *X-Powered-By / Server headers* — Vercel's, not ours.
 - 429 responses reported as errors during the spike — that is the limiter
   working, which is what `spike.js` asserts.
+- *Information Disclosure — Sensitive Information in URL* (often flagged as
+  "credit card information") on `/monitoring?o=…&p=…&r=…` — that's Sentry's
+  `tunnelRoute` (`next.config.mjs`), carrying Sentry org/project/region IDs.
+  A numeric ID occasionally passes ZAP's Luhn check; it is not payment data.
 
 Everything else gets an entry in `docs/DAY12_SECURITY_PASS.md` with a decision:
 fixed, accepted with a reason, or deferred with an owner.

@@ -19,7 +19,7 @@ env:
         - "${ZAP_TARGET}.*"
       excludePaths:
         # Third-party and noise. Excluded so the report is about US.
-        - ".*\.(png|jpe?g|gif|svg|webp|ico|woff2?|ttf)$"
+        - '.*\.(png|jpe?g|gif|svg|webp|ico|woff2?|ttf)$'
         - ".*/_next/static/.*"
   parameters:
     failOnError: true

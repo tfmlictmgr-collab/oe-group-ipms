@@ -27,6 +27,26 @@ const nextConfig = {
   async headers() {
     return [
       {
+        // Site-wide baseline, added after the Day 12 ZAP baseline pass flagged
+        // their absence (docs/DAY12_SECURITY_PASS.md). Deliberately NOT
+        // including Content-Security-Policy here: this app loads Paystack's
+        // checkout script, Sentry's tunnel, and WhatsApp/Telegram-adjacent
+        // assets, and a CSP guessed without testing each of those risks
+        // breaking checkout in production. That one is a recorded, owned
+        // decision, not a blind fix.
+        source: "/:path*",
+        headers: [
+          // No legitimate reason to frame this app — nothing here embeds it,
+          // and clickjacking a payment-approval or lease-signing screen is
+          // exactly the scenario this exists to close off.
+          { key: "X-Frame-Options", value: "DENY" },
+          // Stop the browser from guessing content-types and executing an
+          // uploaded document (work-order-media, application-documents) as
+          // something other than what it was served as.
+          { key: "X-Content-Type-Options", value: "nosniff" },
+        ],
+      },
+      {
         // A resume link carries its token in the query string — the same shape as
         // a password-reset link, and with the same exposure: any outbound request
         // from the page would put the full URL in a Referer header. Nothing here

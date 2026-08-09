@@ -3,10 +3,12 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { Inbox, CheckCheck, AlertCircle, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { runAction, describeError } from "@/lib/run-action";
 import { markAllNotificationsRead } from "./actions";
 
 export type InboxRow = {
@@ -56,8 +58,10 @@ export default function NotificationInbox({ rows }: { rows: InboxRow[] }) {
   async function markAll() {
     setBusy(true);
     try {
-      await markAllNotificationsRead();
+      await runAction(markAllNotificationsRead());
       router.refresh();
+    } catch (err) {
+      toast.error("Could not mark notifications read", { description: describeError(err) });
     } finally {
       setBusy(false);
     }

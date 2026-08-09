@@ -19,6 +19,15 @@ import { Rate, Trend } from "k6/metrics";
 const BASE = __ENV.TARGET;
 if (!BASE) throw new Error("Set TARGET, e.g. TARGET=https://host k6 run journey.js");
 
+// ⚠️ Without this, k6's default failure classifier counts ANY 4xx/5xx as a
+// request failure — including the 404 this script deliberately provokes
+// (unknown org must 404) and the 401 an anonymous request to a protected
+// route may get. That misclassifies intentional negative-test assertions as
+// http_req_failed, which trips the <2% threshold every single run regardless
+// of the app's actual health (found 2026-08-09: exactly 1/8 requests failed,
+// matching one guaranteed 404 per iteration, on an otherwise clean run).
+http.setResponseCallback(http.expectedStatuses(200, 302, 307, 401, 404));
+
 const rateLimited = new Rate("rate_limited_429");
 const signInTime = new Trend("t_sign_in_page");
 const publicTime = new Trend("t_public_surface");
