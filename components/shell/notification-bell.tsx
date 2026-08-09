@@ -19,6 +19,14 @@ export type UserNotification = {
   title: string;
   body: string | null;
   link: string | null;
+  /**
+   * Whether the thing this points at is still reachable BY THIS READER.
+   *
+   * From `my_notifications()` (0145). Optional because a row arriving live over
+   * Realtime has not been through that function — see the subscription below,
+   * where a brand-new notification is treated as live, which it is.
+   */
+  target_live?: boolean;
   read_at: string | null;
   created_at: string;
 };
@@ -61,7 +69,12 @@ export function NotificationBell({ initial }: { initial: UserNotification[] }) {
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "user_notifications" },
         (payload) => {
-          setItems((prev) => [payload.new as UserNotification, ...prev].slice(0, 30));
+          // Just written, so its subject exists — Realtime carries the row,
+          // not the computed flag.
+          setItems((prev) => [
+            { ...(payload.new as UserNotification), target_live: true },
+            ...prev,
+          ].slice(0, 30));
         }
       )
       .subscribe();
@@ -173,7 +186,13 @@ export function NotificationBell({ initial }: { initial: UserNotification[] }) {
 
                 return (
                   <li key={n.id} className="border-b border-border last:border-0">
-                    {n.link ? (
+                    {/* ⚠️ A dead link is rendered as plain text, never as a
+                        link. `target_live === false` means the subject was
+                        deleted OR is no longer visible to this reader — the
+                        second of which no cascade can fix. Offering it anyway
+                        is how a finance administrator ends up on "page not
+                        found" twice. */}
+                    {n.link && n.target_live !== false ? (
                       <Link
                         href={n.link}
                         onClick={() => { markRead(n.id); setOpen(false); }}

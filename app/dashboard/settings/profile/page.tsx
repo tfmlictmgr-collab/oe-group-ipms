@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Bell } from "lucide-react";
+import { Bell, ChevronDown } from "lucide-react";
 import { getSessionProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { roleLabel } from "@/lib/roles";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import ProfileForm from "./ProfileForm";
+import NotificationPrefs from "../NotificationPrefs";
 
 // Where a non-administrator lands in Settings.
 //
@@ -28,7 +28,7 @@ export default async function ProfileSettingsPage() {
   const supabase = await createClient();
   const { data: me } = await supabase
     .from("users")
-    .select("full_name, email, notify_email, notify_whatsapp, notify_sms, notify_telegram, phone")
+    .select("full_name, email, notify_email, notify_whatsapp, notify_sms, notify_telegram, phone, telegram_chat_id")
     .eq("id", session.profile!.id)
     .single();
 
@@ -59,26 +59,50 @@ export default async function ProfileSettingsPage() {
         </CardContent>
       </Card>
 
-      {/* The sentence the welcome notification actually promises, made into a
-          link. Someone arriving here from that message is looking for exactly
-          this, and should not have to find it in a tab strip. */}
+      {/* ⚠️ Collapsed by default, and that is the point.
+          "How should we reach you" is set once and rarely revisited; putting
+          the form here in full would bury the profile fields under it. It sits
+          open when nothing is configured, because a person who has switched no
+          channel on is exactly the one who needs to see it. */}
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">How we reach you</CardTitle>
-          <CardDescription>
-            {channels.length > 0
-              ? `Currently by ${channels.join(", ")}${me?.phone ? "" : " — no phone number on file, so WhatsApp and SMS cannot be used"}.`
-              : "No channels are switched on, so you will only see notifications in the portal."}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button asChild variant="outline">
-            <Link href="/dashboard/settings/notifications">
-              <Bell /> Change my notification channels
-            </Link>
-          </Button>
+        <CardContent className="p-0">
+          <details open={channels.length <= 1 && !me?.phone}>
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-4 sm:p-5 [&::-webkit-details-marker]:hidden">
+              <span className="min-w-0">
+                <span className="flex items-center gap-2 font-medium">
+                  <Bell className="size-4 text-muted-foreground" /> How we reach you
+                </span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">
+                  {channels.length > 0
+                    ? `Currently by ${channels.join(", ")}${me?.phone ? "" : " — no phone number on file, so WhatsApp and SMS cannot be used"}.`
+                    : "No channels are switched on, so you will only see notifications in the portal."}
+                </span>
+              </span>
+              <ChevronDown className="size-4 flex-shrink-0 text-muted-foreground transition-transform [details[open]_&]:rotate-180" />
+            </summary>
+            <div className="border-t border-border p-4 sm:p-5">
+              <NotificationPrefs
+                initial={{
+                  phone: me?.phone ?? "",
+                  telegramChatId: me?.telegram_chat_id ?? "",
+                  email: me?.notify_email ?? true,
+                  whatsapp: me?.notify_whatsapp ?? false,
+                  sms: me?.notify_sms ?? false,
+                  telegram: me?.notify_telegram ?? false,
+                }}
+              />
+              <p className="mt-4 text-xs text-muted-foreground">
+                Looking for what has actually happened?{" "}
+                <Link href="/dashboard/settings/notifications" className="underline underline-offset-2">
+                  My Notifications
+                </Link>{" "}
+                is your inbox.
+              </p>
+            </div>
+          </details>
         </CardContent>
       </Card>
+
     </div>
   );
 }

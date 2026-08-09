@@ -55,13 +55,19 @@ export default async function DashboardLayout({
   // Brand-aware: OEA renders facility_manager as "Properties Manager".
   const label = roleLabel(role, org?.delivery_brand);
 
-  // RLS restricts this to the caller's own rows — no role logic needed here.
+  // ⚠️ Read through `my_notifications()` (0145), NOT the table directly.
+  //
+  // The bell used to select `user_notifications` straight, which gave it no way
+  // to know whether a link still points at anything — so it happily offered a
+  // link to a deleted ticket, and clicking it 404ed. Fixing the inbox tab alone
+  // would have moved that bug here rather than closing it, since the bell is
+  // where most people click a notification from.
+  //
+  // The function also applies the retention rule (30 days, plus anything still
+  // unread whatever its age), so the bell and the tab cannot disagree about
+  // what exists.
   const supabase = await createClient();
-  const { data: notifications } = await supabase
-    .from("user_notifications")
-    .select("id, kind, title, body, link, read_at, created_at")
-    .order("created_at", { ascending: false })
-    .limit(30);
+  const { data: notifications } = await supabase.rpc("my_notifications", { p_days: 30 });
 
   // A viewer is outside the organisation, so it is listed in none of the sets
   // below rather than added to any of them. The nav is presentation; RLS is what

@@ -1,42 +1,28 @@
 import { redirect } from "next/navigation";
 import { getSessionProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import NotificationPrefs from "../NotificationPrefs";
+import NotificationInbox, { type InboxRow } from "./NotificationInbox";
 
-// Open to every role — these are personal preferences, not org configuration.
-export default async function NotificationSettingsPage() {
+// The tab is now the INBOX, not the settings form.
+//
+// The channel preferences moved to a collapsible section on My Profile, where
+// they belong: "how do you want to be reached" is set once and rarely revisited,
+// while "what has happened that needs me" is the thing a person opens this for.
+// Handing them a settings form under a heading called "My Notifications" made
+// the tab useless for the second question.
+//
+// Read through `my_notifications()` (0145): the caller's own rows, everything
+// from the last 30 days plus anything still unread whatever its age, and
+// `target_live` per row so a dead link is never offered as one.
+
+export const dynamic = "force-dynamic";
+
+export default async function NotificationInboxPage() {
   const session = await getSessionProfile();
   if (!session) redirect("/login");
 
   const supabase = await createClient();
-  const { data: me } = await supabase
-    .from("users")
-    .select("phone, telegram_chat_id, notify_email, notify_whatsapp, notify_sms, notify_telegram")
-    .eq("id", session.profile!.id)
-    .single();
+  const { data } = await supabase.rpc("my_notifications", { p_days: 30 });
 
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>My notifications</CardTitle>
-        <CardDescription>
-          How we reach you. These apply to your account only — they do not change
-          anything for anyone else in the organisation.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <NotificationPrefs
-          initial={{
-            phone: me?.phone ?? "",
-            telegramChatId: me?.telegram_chat_id ?? "",
-            email: me?.notify_email ?? true,
-            whatsapp: me?.notify_whatsapp ?? false,
-            sms: me?.notify_sms ?? false,
-            telegram: me?.notify_telegram ?? false,
-          }}
-        />
-      </CardContent>
-    </Card>
-  );
+  return <NotificationInbox rows={(data ?? []) as InboxRow[]} />;
 }

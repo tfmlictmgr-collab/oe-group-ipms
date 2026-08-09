@@ -4606,3 +4606,81 @@ and the fix was to stop inferring and run `git ls-files --others` once, cleanly.
 `_tmp-verify-reset-mfa.mjs` was promoted to `verify-account-recovery.mjs`: it
 proved the feature end to end (including signing in with the new password and
 restoring the seeded one) but as a scratch file it would not have survived.
+
+---
+
+## The notification 404, the second time — and the inbox it should have been
+
+**Migration 0145 · 8 Aug 2026**
+
+Pulled PC2's window first: the 0806 audit (which found two gaps in code from
+this machine — see below), the cross-org cascade leak, `0143`'s parent-relocation
+guard, `0144`'s cross-org assignment guard, and the demo-project denylist. All
+applied here; `.env.local` checked for the drift PC2 found on theirs — **clean,
+both halves on the Phase-1 dev project.**
+
+### Why 0138 did not close it
+
+`0138` deletes a notification when its subject is deleted, keyed on
+`entity_type` + `entity_id`. Checked against live data: **zero orphans by that
+key.** Its triggers work exactly as written.
+
+📌 But `notify_user`/`notify_role` take those two columns as trailing **optional**
+arguments, and several callers — `0118`'s work-order notifications among them —
+build a link as `'/dashboard/tickets/' || p_ticket_id` and stop. **84 rows
+carried a UUID in the link and a NULL `entity_id`; 66 of those links were dead**,
+across four roles and two organisations.
+
+**A fix that keys on a field the writer is not required to populate is a fix for
+the cases that happened to populate it.**
+
+Editing those three call sites would not have held — the next `notify_role(...)`
+with a link and no entity reference reintroduces it silently. So the derivation
+moved **into** the notify functions: a link carrying an id now yields its own
+`entity_type`/`entity_id`. Every existing caller is covered without being
+touched; every future one without being told. Backfilled, then 0138's own
+cleanup finally had a key to match on. **66 → 0.**
+
+### The half no cascade could ever have fixed
+
+Reading every notification **as its actual owner** across every org and role
+turned up 9 more that still would not open — and these are a different problem
+entirely. The subject **exists**; the reader cannot see it.
+
+`notify_role` broadcasts to every holder of a role in the organisation, while
+RLS scopes each of them to a subset — an FM/PM is property-scoped on tickets and
+vendor-scoped on payments. So an FM assigned to two properties is told about a
+ticket on a third. **That is the real root of the reported 404, and it was never
+a dangling reference at all.**
+
+Closed at the surface: `my_notifications()` computes `target_live` as the
+**caller** (SECURITY INVOKER, precisely so RLS applies), and both the inbox and
+the bell render a dead link as plain text rather than a link. Wording is *"not
+available to you"*, not *"no longer available"* — for most of these the record
+is alive and well, it simply is not theirs, and telling someone an existing
+record was deleted is a different lie from the 404, not a fix for it.
+
+⚠️ **Outstanding follow-up, quantified rather than tolerated:** narrowing the
+broadcast at the notify site so people are not told about work outside their
+scope. The suite reports the count as a NOTE — a design consequence should not
+turn the build red, but it should not go unmeasured either.
+
+### The inbox
+
+`My Notifications` was a settings form. It is now the inbox: **Needs you** and
+**Already dealt with**, last 30 days, plus anything still unread whatever its
+age — an untreated notification does not stop mattering because it got old.
+
+Retention is enforced in two places, deliberately not duplicates:
+`my_notifications()` **hides** old read rows so the list shows what still needs
+a person; `/api/jobs/purge-notifications` (03:15 daily) **deletes** them so the
+table stays bounded. Hiding alone leaves rows forever; deleting alone makes the
+inbox depend on a job having run.
+
+Channel preferences moved to a **collapsible** section on My Profile — expanded
+automatically when nothing is configured, since a person with no channel on is
+exactly who needs to see it.
+
+New: `scripts/verify-notification-links.mjs`, which checks the **shape** (every
+id-bearing link declares its subject) and not merely the symptom, because the
+shape is what stops the next caller reintroducing it.
