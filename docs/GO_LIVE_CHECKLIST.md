@@ -131,7 +131,11 @@ Everything mechanical once the accounts above exist.
       changes.
 - [ ] Run the Day 12 security pass (dependency + secret scan, OWASP ZAP, k6 load
       test, rate-limit confirmation) against the production URL specifically —
-      not the dev preview.
+      not the dev preview. **How: `security/README.md`** — the ordered sequence,
+      which step is safe against what, and the pre-flight that refuses an unsafe
+      target. ⚠️ The ACTIVE scan's window is after cutover and **before the first
+      client is onboarded**; once production holds client data it becomes a
+      third-party test against a staging clone instead.
 - [ ] Run `npm run verify` against production credentials before declaring it
       live, and confirm the production DB is clean (schema only, zero synthetic
       rows) as the Day 12 exit gate states.

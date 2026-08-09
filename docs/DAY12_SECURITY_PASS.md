@@ -158,9 +158,16 @@ resolve with it.
 Stated plainly, because a security report that implies more coverage than it has
 is itself a risk.
 
-- **No external penetration test.** OWASP ZAP and k6 against a live host are in
-  the checklist as production-target activities, and an external test needs a
-  third party plus written authorisation from OE Group. Neither exists yet.
+- **No external penetration test.** An external test needs a third party plus
+  written authorisation from OE Group; neither exists yet.
+
+  ⚠️ **The tooling is now configured and ready** — `security/README.md` carries
+  the ZAP automation plans (baseline and full), the k6 profiles, install steps,
+  and `scripts/pentest-preflight.mjs`, which refuses a target where an active
+  scan would be unsafe. It is unrun rather than unbuilt. **Read that runbook
+  before running any of it**: this application writes through Next.js Server
+  Actions, so an active scanner replaying a captured POST can fire a real
+  payout.
 - **No load test.** k6 is specified; it should run against production, since
   results from a dev preview on shared infrastructure would not transfer.
 - **No review of the hosting providers' own posture** — Supabase, Vercel,

@@ -43,7 +43,7 @@ unprovisioned world — see `GO_LIVE_CHECKLIST.md`.
 - **`/orgs`** — the operator launcher: every organisation as a card, visible
   only to a member of the platform-operator org (`oe-group`).
 
-## Roles (9, current)
+## Roles (10, current)
 `admin` · `executive` · `regional_manager` · `facility_manager` (branded
 "Properties Manager" on OEA) · `finance_approver` · `property_owner` ·
 `fm_ops_staff` · `vendor` · `tenant` · plus `viewer` (read-only external
@@ -56,6 +56,17 @@ locked/non-delegable capabilities) at Settings → Permissions.
   for "what's built"**
 - `GO_LIVE_CHECKLIST.md` — production cutover: who does what, env vars,
   role-based user guide plan, rollback
+- `../security/README.md` — **pen-test and load-test runbook**: how to run
+  OWASP ZAP (baseline and full) and k6, which step is safe against which
+  environment, and the pre-flight that refuses an unsafe target. Read it before
+  running anything under `npm run pentest:*` — an active scan against this app
+  can replay a payout
+- `DAY12_SECURITY_PASS.md` — the security pass itself: what was checked, what
+  it deliberately does NOT cover, and the two accepted dependency risks
+- `NDPA_COMPLIANCE_PACK.md` — data inventory, lawful basis, retention, the
+  processor register awaiting DPAs, and what the board must action
+- `UAT_SCRIPT.md` — multi-role acceptance script, all ten roles plus the
+  operator, with the "must refuse" rows called out
 - `BUILD_JOURNAL.md` — append-only record of what was built, why, and what
   went wrong along the way (read the tail for recent context)
 - `BUILD_AUDIT_0804.md` (and earlier `BUILD_AUDIT_*`) — dated security/

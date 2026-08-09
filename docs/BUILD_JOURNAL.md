@@ -4755,3 +4755,25 @@ one.
 Handover-ready: `security/README.md` carries install steps, the ordered
 sequence, which step is safe against what, expected false positives not to
 chase, and a rules-of-engagement table to complete before the external test.
+
+**Discoverability follow-up (same day).** Asked whether PC2 could actually find
+`security/README.md`. Checked rather than assumed, and the honest answer was
+**no**: the only reference anywhere was one line at position 4755 of this
+journal — a file nobody navigates by.
+
+Worse, the check surfaced that the repository's **root `README.md` was still the
+unmodified `create-next-app` boilerplate** after an entire Phase-1 build. Anyone
+cloning this — a new developer, an auditor, the second machine — opened it and
+learned how to scaffold a Next.js app.
+
+📌 **Handover material that is not linked from where people start is not
+handover material.** Writing the runbook was the smaller half of the job.
+
+Fixed at the four entry points that actually get opened: a real root `README.md`
+(a "you are… / read this" table, the commands, the layout, and the note that the
+database is the boundary); `HANDOFF.md`'s document index — which also had the
+role count stale at **9** when there are ten; `DAY12_SECURITY_PASS.md` §6, where
+"no external pen test" now says the tooling is *unrun rather than unbuilt*; and
+the `GO_LIVE_CHECKLIST.md` line that already named ZAP and k6 without saying how
+to run them, now carrying the active scan's window — after cutover, before the
+first client.
