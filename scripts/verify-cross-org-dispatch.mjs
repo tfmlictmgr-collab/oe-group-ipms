@@ -114,12 +114,30 @@ console.log("A. The assignment itself");
     ? ok("and an ordinary same-organisation dispatch still succeeds")
     : bad(`a legitimate same-org dispatch was refused: ${sameOrg.message}`);
 
-  // Unassigning must stay possible — the null guard in the trigger.
-  const { error: clearing } = await svc.from("tickets")
-    .update({ assigned_to_user_id: null }).eq("id", t);
-  !clearing
-    ? ok("and a ticket can still be unassigned")
-    : bad(`unassigning was refused: ${clearing.message}`);
+  // Re-dispatch, not unassign. This used to clear assigned_to_user_id to
+  // null while leaving status: 'assigned', and assert that succeeds — it
+  // doesn't, refused by `tickets_require_an_assignee()`
+  // (supabase/migrations/0117_a_job_in_hand_has_a_hand.sql): "a request
+  // cannot be assigned with nobody assigned — dispatch it to a vendor or ops
+  // person first". That's not a regression to work around; it's the rule the
+  // real `assignTicket()` action already enforces at the application layer
+  // (app/dashboard/tickets/[id]/actions.ts: "Pick a vendor or an ops person
+  // to assign this to" — there is no bare-unassign path in the product at
+  // all). This test predates the migration. What the app actually lets
+  // someone do is hand a job to a DIFFERENT assignee, which is what this now
+  // checks instead.
+  const { data: homeVendor } = await svc.from("vendors")
+    .select("id").eq("org_id", home.org.id).limit(1).maybeSingle();
+  if (!homeVendor) {
+    note(`no vendor on ${home.org.slug} — re-dispatch check not testable`);
+  } else {
+    const { error: redispatch } = await svc.from("tickets")
+      .update({ assigned_vendor_id: homeVendor.id, assigned_to_user_id: null, status: "assigned" })
+      .eq("id", t);
+    !redispatch
+      ? ok("and a ticket can still be re-dispatched to a different assignee")
+      : bad(`re-dispatching to a different assignee was refused: ${redispatch.message}`);
+  }
 }
 
 console.log("\nB. The same rule for vendors");

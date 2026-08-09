@@ -1,7 +1,14 @@
 # Penetration test & load test — setup and runbook
 
-**Status:** configured, not yet run. **Owner:** whoever runs the Day 12 pass —
-this is written so either machine (PC1 or PC2) can execute it without the other.
+**Status:** run against **dev**, 8–9 August 2026 — steps 1–7 complete, steps 8
+and 9 still pending their window and a third party. Results and dispositions:
+`docs/DAY12_SECURITY_PASS.md`; what remains open: `docs/DAY12_CLOSEOUT.md`.
+The whole sequence re-runs unchanged against production at cutover.
+
+**Owner:** whoever runs the Day 12 pass — this is written so either machine
+(PC1 or PC2) can execute it without the other. ⚠️ **That is not quite true
+today: only PC2 has Docker, so only PC2 can run ZAP** (steps 4 and 8). k6 and
+gitleaks are on both. See `DAY12_CLOSEOUT.md` §9.
 
 Everything here is prepared against **your own system, on your own
 infrastructure, before real clients are onboarded**. `GO_LIVE_CHECKLIST.md` §1
@@ -62,6 +69,16 @@ macOS/Linux: `brew install k6` · Verify: `k6 version`
 winget install gitleaks
 ```
 
+`gitleaks detect` should exit **0** with *"no leaks found"*. It has four known
+false positives — two invented Flutterwave key *shapes* that
+`verify-fx-collections` uses to prove `gatewayMode()` reads the prefix, and two
+`key:` form-field names — each recorded with its reason in `.gitleaksignore`.
+
+⚠️ **Do not add a new fingerprint there to make a run pass.** The point of that
+file is that the healthy state is a clean exit, so a real leak shows up as a
+change of *state* rather than a change of *count* nobody was reading. Anything
+new is investigated first.
+
 ### What is NOT needed
 
 - **Nuclei / sqlmap / Burp** — deliberately not adopted. ZAP's active scan plus
@@ -104,9 +121,52 @@ Each step gates the next. Do not skip ahead.
 | 4 | **ZAP baseline** (passive) | `npm run pentest:baseline -- <url>` | **anything, incl. production with real data** |
 | 5 | **k6 weekday profile** | `npm run loadtest -- <url>` | anything (read-only) |
 | 6 | **k6 spike** | `npm run loadtest:spike -- <url>` | anything, but expect 429s |
-| 7 | **k6 rate-limit check** | `npm run loadtest:ratelimit -- <url>` | production, after cutover |
+| 7 | **k6 rate-limit check** | `npm run loadtest:ratelimit -- <url>` | anything (rewritten 2026-08-09 — see below) |
 | 8 | **ZAP full** (active) | `npm run pentest:full -- <url>` | **empty production only** |
 | 9 | External pen test | third party | production, with written authorisation |
+
+### ⚠️ Never target a deployment-specific URL
+
+Every command above takes a URL. Give it the **production alias or a custom
+domain** (`tfmlportal.com`, `oeaportal.com`, `oe-group-ipms-dev.vercel.app`) —
+never a per-deployment URL of the shape `…-abc123-<team>.vercel.app`.
+
+Vercel **Deployment Protection** is enabled on this project: those URLs answer
+`302` to Vercel's SSO for pages and `401` for API routes, **before any
+application code runs**. A scan or load test pointed there measures Vercel's
+sign-in wall, sees nothing, and reports a clean bill of health for a target it
+never reached. Measured 9 Aug 2026 against both a Preview and a per-deployment
+Production URL.
+
+The same fact is why Preview deployments having no Upstash credentials is
+**not** an exposure: there is no anonymous surface behind that wall for a
+missing limiter to fail to protect.
+
+### On step 7 — what "refused" looks like here
+
+⚠️ **Nothing in this application ever answers 429.** Every rate-limited route
+is deliberately quiet under abuse: the intake webhooks return `200 "OK"` when
+the per-IP gate trips (so Telegram/Meta/the payment gateways do not
+retry-storm), and `/reset-password`'s gate returns the same `ok()` as success,
+so a prober cannot learn that an address was tried recently.
+
+`security/k6/rate-limit.js` therefore does **not** look for a status code. It
+hammers `POST /api/webhooks/telegram` with no secret token and watches for the
+refusal to *change shape*: `403` (bad token) while under the limit, `200 "OK"`
+(dropped by the per-IP gate) once over it. `requests_rate_limited > 0` is the
+threshold.
+
+A healthy run allows roughly `100 × (duration ÷ 10 s)` requests before the flip
+— matching `INTAKE_LIMITS.coarsePerIp` — which doubles as a check that the
+configured limit is the limit actually running. The probe is keyed on the
+source IP, so it only ever fills the bucket for the machine running it; real
+Telegram traffic is untouched.
+
+> Its earlier version POSTed plain JSON at `/reset-password`, whose handler is
+> a Server Action reachable only via a build-specific `Next-Action` header. It
+> got a flat 405 and reported `requests_refused: 0` forever. If you see that
+> number again, suspect the target, not the limiter — and cross-check with
+> `node scripts/verify-rate-limit.mjs`, which exercises the limiter directly.
 
 ### The window for step 8
 
@@ -179,9 +239,17 @@ security/
   k6/journey.js                 weekday profile, read-only, doubles as an
                                 anonymous-access assertion
   k6/spike.js                   burst; asserts graceful shedding, no 5xx
-  k6/rate-limit.js              asserts the limiter actually refuses
+  k6/rate-limit.js              asserts the limiter actually refuses — reads the
+                                403→200 flip, not a 429 (see step 7 above)
   reports/                      output (git-ignored)
 scripts/
   pentest-preflight.mjs         refuses unsafe targets; wired into pentest:full
   verify-security-posture.mjs   the database boundary (30 checks)
+  verify-rate-limit.mjs         the limiter directly, without HTTP — the
+                                cross-check when the k6 numbers look wrong
+.gitleaksignore                 the four known false positives, with reasons
+docs/
+  DAY12_SECURITY_PASS.md        what the 8–9 Aug run found, and each decision
+  DAY12_FOLLOWUPS.md            PC2's handover — all six now closed
+  DAY12_CLOSEOUT.md             what is STILL open, who owns it, and when
 ```

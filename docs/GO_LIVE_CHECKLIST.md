@@ -133,12 +133,29 @@ Everything mechanical once the accounts above exist.
       test, rate-limit confirmation) against the production URL specifically —
       not the dev preview. **How: `security/README.md`** — the ordered sequence,
       which step is safe against what, and the pre-flight that refuses an unsafe
-      target. ⚠️ The ACTIVE scan's window is after cutover and **before the first
-      client is onboarded**; once production holds client data it becomes a
-      third-party test against a staging clone instead.
+      target. The exact command list, and what "green" looks like for each, is
+      `DAY12_CLOSEOUT.md` §8. ⚠️ The ACTIVE scan's window is after cutover and
+      **before the first client is onboarded**; once production holds client data
+      it becomes a third-party test against a staging clone instead.
+      ⚠️ **Target the production alias or a custom domain — never a
+      deployment-specific `…-abc123-….vercel.app` URL.** Vercel Deployment
+      Protection answers those 302/401 anonymously before the application runs,
+      so a scan or load test aimed there measures Vercel's SSO wall rather than
+      this system, and reports a clean bill of health for a target it never
+      reached.
 - [ ] Run `npm run verify` against production credentials before declaring it
       live, and confirm the production DB is clean (schema only, zero synthetic
       rows) as the Day 12 exit gate states.
+      ⚠️ **Exclude `verify-checkout-e2e` from this run** (`npm run verify -- <name>`
+      filters, so run the set in two parts, or expect and ignore this one).
+      It drives the **simulated** gateway, which `getAdapterByName()` correctly
+      refuses to instantiate wherever real money is possible — in production, or
+      anywhere a Paystack/Flutterwave key is set. On production it reports ten
+      "got 403" failures that are the control working, not a defect; the suite
+      now detects this itself and says so, but the checklist should not send
+      anyone into it blind. The real gateway path is covered here by
+      `verify-collections` and `verify-payment-gate`, which do run against
+      production. (Found 2026-08-09 — `DAY12_CLOSEOUT.md` §3.2.)
 - [ ] Generate the role-based user guides (§3).
 - [ ] Confirm rollback path (§4) is real, not assumed.
 
@@ -174,6 +191,9 @@ missing several of these locally even though they're set on Vercel.
 | `AFRICASTALKING_API_KEY` | SMS fallback | ❌ not set — cascade logs `skipped`, other channels unaffected | decide in/out of scope |
 | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | rate limiting | ✅ set (Production) | reuse; confirm fail-open posture is still intended (§5) |
 | `NEXT_PUBLIC_SENTRY_DSN` | error tracking | ✅ set (Production) | reuse or point at a production Sentry project |
+| `TURNSTILE_SECRET_KEY`, `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | bot resistance on the **public vendor-application form** | ❌ not set on any environment — added to this table 2026-08-09, having been missing from it entirely | **decide in/out of scope.** `lib/turnstile.ts` no-ops cleanly when unconfigured, so the layer is silently off today. Three defences remain in front of it (per-IP rate limit → honeypot → submission timing) on one of the few anonymous write surfaces in the system, so out is a defensible answer — but it should be a decision, not a discovery. Free Cloudflare product; ~5 minutes if in. |
+| `GEMINI_API_KEY`, `GEMINI_MODEL` | LLM failover when Anthropic is unavailable | ✅ key set — but the free tier's **daily** quota was exhausted immediately | enable billing on the Google Cloud project, or accept the failover is best-effort. See `GO_LIVE_RUNWAY.md` Stage 1. |
+| `SIMULATED_GATEWAY_SECRET` | the simulated payment gateway | n/a | **never set in production.** Simulation is refused wherever a real gateway key exists or `NODE_ENV=production`, which is the control that stops an endpoint marking invoices paid without money arriving. |
 | `SUPABASE_DB_*` | local migrate/seed only | n/a — local-only | never needed on Vercel |
 
 **Reading this table right:** most secrets already exist because

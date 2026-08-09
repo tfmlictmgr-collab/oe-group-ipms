@@ -23,10 +23,10 @@ run from PC2 once Docker/WSL2/k6 were installed there.
 | Application boundary (auth, gates, org isolation, roles) | ✅ **Pass** — the standing suites, ~600 checks (2 items below, neither a leak) |
 | Dependencies | ⚠️ **Two accepted risks**, both recorded below |
 | Secrets | ✅ **Pass** — no credential in the repository, confirmed with `gitleaks` (4 hits, all false positives) |
-| ZAP baseline (passive, dev) | ✅ **Pass** — 0 High, 3 Medium (1 fixed, 1 accepted, 1 deferred), see §6 |
+| ZAP baseline (passive, dev) | ✅ **Pass** — 0 High, 3 Medium; **all three now fixed or closed**, see §6.6 |
 | k6 load test (dev) | ✅ **Pass** — weekday profile and spike both clean after fixing a bug in the test script itself |
 | Rate limiter (direct, `verify-rate-limit.mjs`) | ✅ **Pass** — cuts off at request 6, per-sender independence, fails open when unconfigured |
-| k6 rate-limit check (`loadtest:ratelimit`) | ⚠️ **Script broken** — never reaches the limiter, see §6.4 |
+| k6 rate-limit check (`loadtest:ratelimit`) | ✅ **Pass** — script rewritten 9 Aug; 978 of 1,191 requests refused, see §6.6 |
 | ZAP full (active) | ⛔ **Not run** — needs empty production, which doesn't exist yet |
 | External penetration test | ⛔ **Not done** — needs a third party and written authorisation |
 
@@ -317,6 +317,44 @@ self-contained, actionable tasks in `docs/DAY12_FOLLOWUPS.md`** — the k6
 rate-limit script rewrite, the CSP header, verifying the CORS/HSTS findings
 against authenticated routes and the real custom domains, the stale
 cross-org-dispatch test, and the Preview-environment rate-limiting decision.
+
+### 6.6 Closeout — all six follow-ups resolved, 9 August 2026 (PC1)
+
+Worked through on PC1 the same day. **Four fixed in code, two closed by
+measurement; evidence for each is in `docs/DAY12_CLOSEOUT.md` §2.** Three
+findings above are amended by what that work turned up, and the amendments
+matter more than the fixes:
+
+- **CSP (§6.1) — the reason for deferring did not hold.** "Adding a CSP risks
+  breaking Paystack checkout" is not true: checkout is a top-level navigation
+  (`window.location.href`) to Paystack's hosted page, and CSP does not restrict
+  navigating away. A **report-only** policy now ships site-wide. Promoting it to
+  enforcing still waits on nonces, with the Next 16 upgrade.
+- **CORS (§6.1) — closed, confirmed safe by measurement rather than inference.**
+  With a real session, `Access-Control-Allow-Origin` is absent from
+  `/dashboard`, `/dashboard/payments` and `/dashboard/settings/notifications`.
+  It appears only on statically-generated, edge-cached responses.
+- **HSTS (§6.1) — this one was a real gap, not just an inconsistency.** Both
+  custom domains served a bare `max-age=63072000` with **no
+  `includeSubDomains`**, while `.vercel.app` served the full directive. Now set
+  explicitly in `next.config.mjs` so it is identical on every domain. `preload`
+  is deliberately not sent.
+- **The rate limiter (§6.4) is now proven end to end over HTTP**, not only
+  directly: 978 of 1,191 requests refused from one source in 30 s, which also
+  independently confirms the configured 100-per-10-s per-IP limit is the limit
+  actually running.
+- **Preview rate limiting (§6.4) — the decision is easier than it looked.**
+  Vercel Deployment Protection refuses every deployment-specific URL
+  anonymously (302 to SSO; 401 on the webhook) *before the application runs*, so
+  there is no anonymous surface for the absent limiter to fail to protect.
+- **Both application-boundary items (§6.5) are now fixed rather than accepted**,
+  and `npm run verify` is green — so no permanently-red check remains to train
+  people into reading failures as normal. `verify-action-errors` turned out to
+  hide a real bug beneath the deliberate anti-enumeration silence.
+
+⚠️ **The four header fixes are in the repository, not yet on the deployment.**
+A ZAP baseline run against the current dev host still shows the pre-fix state.
+Re-scan after this branch deploys.
 
 ---
 

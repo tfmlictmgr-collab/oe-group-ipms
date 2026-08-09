@@ -11,16 +11,31 @@ import { requestPasswordReset } from "./actions";
 export default function RequestResetForm() {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
-  // No error state on purpose — the action always succeeds from the caller's
-  // side (see actions.ts): whether an account exists is never observable
-  // here, the same anti-enumeration rule the sign-in form itself follows.
   const [sent, setSent] = useState(false);
+  // ⚠️ There is exactly ONE way this action reports a failure, and it is not
+  // "no such account". Whether an account exists is never observable here —
+  // actions.ts returns ok() for sent, for unknown, for stranded-shell and for
+  // rate-limited alike, the same anti-enumeration rule the sign-in form
+  // follows, and that silence must stay.
+  //
+  // But it also returns fail("Enter a valid email address.") for a malformed
+  // address, and this form carries `noValidate`, so the browser does NOT catch
+  // that first — the string reaches the action, comes back as a failure, and
+  // (until now) was discarded, showing "Check your email" for an address no
+  // email could ever be sent to. Nothing leaks by saying so: the input is
+  // wrong on its face, independent of who has an account.
+  const [error, setError] = useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    await requestPasswordReset(email, window.location.origin);
+    setError(null);
+    const result = await requestPasswordReset(email, window.location.origin);
     setLoading(false);
+    if (!result.ok) {
+      setError(result.message);
+      return;
+    }
     setSent(true);
   }
 
@@ -73,6 +88,12 @@ export default function RequestResetForm() {
             />
           </div>
         </div>
+
+        {error && (
+          <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {error}
+          </p>
+        )}
 
         <Button type="submit" variant="brand" size="lg" className="w-full" disabled={loading}>
           {loading ? "Sending…" : "Send reset link"}

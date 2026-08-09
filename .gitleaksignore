@@ -1,0 +1,31 @@
+# Known false positives, so a REAL leak is visible.
+#
+# `gitleaks detect` exits non-zero whenever it finds anything, and this
+# repository has always found the same four. That trains whoever runs it to
+# read "leaks found: 4" as normal — which is precisely how a fifth, real one
+# gets waved through. Each is recorded here with the reason it is not a
+# credential, so the healthy state of this command is a clean exit.
+#
+# Fingerprint format is `commit:path:rule:startline`. It is pinned to the
+# commit that introduced the line, so editing the file later does NOT silently
+# keep the exemption alive — a genuinely new secret on the same line is a new
+# fingerprint and will be reported.
+#
+# Verified independently on PC1 and PC2, 8–9 August 2026
+# (docs/DAY12_SECURITY_PASS.md §5).
+
+# ── scripts/verify-fx-collections.mjs ──────────────────────────────────────
+# Two literal, invented Flutterwave key SHAPES. gatewayMode() decides test vs
+# live from the key's own prefix (`FLWSECK_TEST-` / `FLWSECK-`), and this suite
+# proves it by assigning each shape and asserting the mode it produces. The
+# strings after the prefix are "abc123". There is no account behind them.
+d23dab25bc4a3cd02ddc0194fa7830f523d7e102:scripts/verify-fx-collections.mjs:generic-api-key:309
+d23dab25bc4a3cd02ddc0194fa7830f523d7e102:scripts/verify-fx-collections.mjs:generic-api-key:314
+
+# ── lib/application-form.ts ────────────────────────────────────────────────
+# Form field DEFINITIONS. The matched `key:` is the field's name in the
+# application schema ("bank_name", "trade_ref1_company"), sitting next to a
+# human label — gitleaks' generic-api-key rule matches the word "key" followed
+# by a quoted string. No value, secret or otherwise, is present.
+ef1210127ed723f5d3e996751426da0f7a74e930:lib/application-form.ts:generic-api-key:197
+ef1210127ed723f5d3e996751426da0f7a74e930:lib/application-form.ts:generic-api-key:199

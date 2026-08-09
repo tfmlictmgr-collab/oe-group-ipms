@@ -8,7 +8,19 @@
 // So the payload here deliberately claims ₦999,999,999. If that figure ever
 // appears in the ledger, this script fails.
 //
-// Requires the dev server: npm run dev
+// Requires the dev server: npm run dev — and specifically `dev`, not `start`;
+// see the second pre-flight below for why, and what it costs to find out the
+// hard way.
+//
+// ⚠️ Timing. Every step here is a real HTTP round trip to a dev server that may
+// still be compiling the route on demand, with no retry or polling anywhere in
+// this file. On 2026-08-09 one check failed inside a full `npm run verify` that
+// was competing with a second suite and another workstream (71 s, against a
+// 23 s baseline) and did not reproduce in three isolated runs. If this suite
+// fails as part of the full set, **re-run it alone before believing it** —
+// `verify-all.mjs` reports only the count, not which check. If it fails alone,
+// that is real and it is about money: do not wave it through.
+//
 // Usage: node scripts/verify-checkout-e2e.mjs
 import path from "node:path";
 import crypto from "node:crypto";
@@ -37,6 +49,57 @@ try {
 } catch (e) {
   console.error(`\nCannot reach ${SITE} — start the dev server first (npm run dev).\n${e.message}`);
   process.exit(1);
+}
+
+// ⚠️ Reachable is not the same as runnable. This whole suite drives the
+// SIMULATED gateway, and `getAdapterByName("simulated")` refuses to exist
+// wherever real money is possible (lib/gateway/index.ts) — in production, or
+// anywhere a Paystack/Flutterwave key is set. The route then answers 403, and
+// without this check that surfaces as ten unexplained "got 403" failures with
+// nothing pointing at the cause. Cost an hour on 2026-08-09 against a server
+// started with `npm start` rather than `npm run dev`: `next start` sets
+// NODE_ENV=production, so isProduction() is true on localhost.
+//
+// The refusal is the control working. This suite simply cannot run there —
+// which also means it can never be part of the cutover verification run
+// against production. Say so, loudly, rather than reporting a defect.
+//
+// ⚠️ The route answers a bare "Forbidden" for BOTH a missing adapter and a bad
+// signature, on purpose — telling them apart would hint at internal state to
+// whoever is probing, and that is worth more than a friendly test message. So
+// the probe distinguishes them by sending a CORRECTLY signed notification for a
+// reference that does not exist. If the adapter is present the signature
+// verifies and the route moves on past 403 (finding no intent, and posting
+// nothing — the same harmless path section C asserts deliberately). A 403 here
+// therefore means only one thing: there is no simulated adapter to verify with.
+{
+  const body = JSON.stringify({
+    event: "charge.success",
+    event_id: `PREFLIGHT-${Date.now()}`,
+    reference: `PREFLIGHT-NO-SUCH-INTENT-${Date.now()}`,
+    amount: 100,
+  });
+  const probe = await fetch(`${SITE}/api/webhooks/payments/simulated`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-simulated-signature": crypto.createHmac("sha256", SECRET).update(body).digest("hex"),
+    },
+    body,
+  });
+  if (probe.status === 403) {
+    console.error(
+      `\nThe simulated gateway is disabled on ${SITE}, so this suite cannot run there.\n` +
+      `That is correct behaviour, not a fault: simulation must be unreachable wherever\n` +
+      `real money is possible. Two things switch it off —\n` +
+      `  * NODE_ENV=production — which \`npm start\` sets, even on localhost. Use \`npm run dev\`.\n` +
+      `  * a PAYSTACK_SECRET_KEY or FLUTTERWAVE_SECRET_KEY in the environment.\n\n` +
+      `(If neither applies, check SIMULATED_GATEWAY_SECRET matches the server's.)\n\n` +
+      `⚠️ This suite is therefore NOT part of the production cutover run. The real\n` +
+      `   gateway path is covered by verify-collections and verify-payment-gate.\n`
+    );
+    process.exit(1);
+  }
 }
 
 const { data: fin } = await svc.from("users").select("id, org_id")

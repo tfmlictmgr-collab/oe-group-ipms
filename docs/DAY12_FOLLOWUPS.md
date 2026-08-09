@@ -1,5 +1,24 @@
 # Day 12 follow-ups — for PC1
 
+> ## ✅ ALL SIX ARE CLOSED — worked through on PC1, 9 August 2026.
+>
+> **Dispositions and evidence are in `docs/DAY12_CLOSEOUT.md` §2.** That
+> document is now the one to open when asking "what is still open before go
+> live?" — it also carries four items this pass could not have seen, and the
+> full pre-/post-go-live split for both machines and for OE Group.
+>
+> This file is kept as written, unedited below, because it is the record of
+> what was handed over and why. Quick index of where each one landed:
+>
+> | # | | Outcome |
+> |---|---|---|
+> | 1 | k6 rate-limit script | **Fixed** — retargeted at a real route handler; it had a second bug (asserting a 429 this app never sends). Proven: 978 refused / 1,191. |
+> | 2 | Content-Security-Policy | **Shipped report-only.** The stated risk did not hold — Paystack checkout is a top-level navigation and needs no allowlist entry. |
+> | 3 | CORS wildcard | **Closed, measured.** Present only on statically-cached public pages; absent on every authenticated route, checked with a real session. |
+> | 4 | HSTS on the real domains | **Fixed** — and the check found a real gap: both custom domains lacked `includeSubDomains`. Now set explicitly in `next.config.mjs`. |
+> | 5 | `verify-cross-org-dispatch` | **Fixed** — tests re-dispatch, which the product permits, instead of bare unassign, which it deliberately refuses. |
+> | 6 | Preview rate limiting | **Recommend accept.** Vercel Deployment Protection refuses preview URLs anonymously (302/401) before the app runs — there is no exposure for the absent limiter to cover. |
+
 Everything here came out of the 8–9 August pentest/load-test pass
 (`docs/DAY12_SECURITY_PASS.md` §6). None of it is a blocking defect — the
 database boundary, application boundary, and payment gate are all clean.
