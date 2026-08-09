@@ -312,6 +312,12 @@ suites passed outright; 4 needed a closer look:
 
 None of the four touch access control, the payment gate, or org isolation.
 
+**Six items from this pass need further work and are written up as
+self-contained, actionable tasks in `docs/DAY12_FOLLOWUPS.md`** — the k6
+rate-limit script rewrite, the CSP header, verifying the CORS/HSTS findings
+against authenticated routes and the real custom domains, the stale
+cross-org-dispatch test, and the Preview-environment rate-limiting decision.
+
 ---
 
 ## 7. What this pass does NOT cover
