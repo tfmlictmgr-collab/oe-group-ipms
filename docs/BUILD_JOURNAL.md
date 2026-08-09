@@ -4684,3 +4684,74 @@ exactly who needs to see it.
 New: `scripts/verify-notification-links.mjs`, which checks the **shape** (every
 id-bearing link declares its subject) and not merely the symptom, because the
 shape is what stops the next caller reintroducing it.
+
+---
+
+## Pen-test and load-test setup
+
+**8 Aug 2026 · no migration · configured, not yet run**
+
+Prepared per `DAY12_SECURITY_PASS.md` §6, which listed the external pen test and
+load test as the two things that pass did **not** cover.
+
+### The constraint that shaped all of it
+
+Most applications take an active scan casually. This one cannot, for two reasons
+invisible from outside:
+
+📌 **Next.js Server Actions are POSTs to the page's own URL**, identified only by
+a `Next-Action` header. An active scanner replays captured requests with mutated
+parameters — so a captured *"Send payout"* or *"Approve payment"* carries a real
+finance session, and the replay satisfies the B4 gate **exactly as the original
+did**. `/api/webhooks/payments/*` accepts signed gateway callbacks a replay
+would turn into a collection that never happened, and `/api/jobs/*` includes the
+job that purges personal data.
+
+So `automation-full.yaml` excludes money, job, webhook and account-recovery
+routes, and `scripts/pentest-preflight.mjs` refuses to clear a target where
+those exclusions would not be enough: a **live** gateway key, the frozen POC
+project, or a database that has ever actually **sent a remittance**.
+
+Proven by running it: the dev target is **cleared for baseline** and **refused
+for full** — *"1 remittance(s) have actually been SENT from this database — it
+is not a scan target"*. The gate fires before Docker is even checked.
+
+⚠️ **The trade, stated in the runbook rather than buried:** the active scan
+therefore says *nothing* about the payment gate. That is deliberate — the gate
+is tested far more precisely by `verify-payment-gate`, `verify-remittance`,
+`verify-remittance-race`, `verify-invoice-appeal` and `verify-role-surface`,
+which exercise it as real users with real roles and assert the refusals. A
+scanner guessing parameters is both a worse test of that surface and a dangerous
+one.
+
+### Choices worth recording
+
+- **Active scan runs as a LOW-PRIVILEGE user.** Scanning as an administrator
+  answers *"can an admin do admin things?"* while doing maximum damage. The
+  question worth asking is whether a tenant can reach what they must not.
+- **The spike test inverts the usual pass condition.** Under a burst the correct
+  behaviour is not "serve everything" but "shed predictably and keep the sign-in
+  page alive" — a system that tries to serve a 20× stampede in full falls over
+  instead of degrading. So `spike.js` asserts **zero 5xx** and treats 429s as
+  success, while `journey.js` treats any 429 as a misconfiguration.
+- **`rate-limit.js` fails if nothing is refused.** `lib/rate-limit.ts` fails
+  *open* everywhere except remittance, which means a misconfigured limiter — or
+  a missing Upstash credential on the new production project — looks exactly
+  like a healthy system until someone abuses it. This is the check that tells
+  them apart, which is why it belongs against production after cutover.
+- **k6 is read-only.** Every request is a GET. A load test that fired Server
+  Actions would create thousands of tickets, invoices and notifications in
+  whatever database it was pointed at. `journey.js` doubles as an
+  anonymous-access assertion: `/dashboard`, `/dashboard/payments`,
+  `/dashboard/ledger` and `/orgs` must never answer 200 without a session.
+- **No nuclei, sqlmap or Burp**, deliberately. Each additional tool is another
+  set of payloads that could reach a Server Action, for ground ZAP plus the
+  suites already cover on this stack.
+- **The pre-flight is invoked inside the runner, not chained with `&&` in
+  package.json.** `&&` and `$npm_config_target` behave differently in PowerShell
+  and bash, and a safety gate that silently does not run on one machine is worse
+  than no gate. Both runners work identically from either.
+
+Handover-ready: `security/README.md` carries install steps, the ordered
+sequence, which step is safe against what, expected false positives not to
+chase, and a rules-of-engagement table to complete before the external test.

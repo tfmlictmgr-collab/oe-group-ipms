@@ -1,0 +1,155 @@
+# ZAP Automation Framework — FULL (active) scan.
+#
+# ⚠️ DANGEROUS AGAINST THIS APPLICATION UNLESS THE EXCLUSIONS BELOW HOLD.
+# `scripts/pentest-preflight.mjs --mode full` refuses to clear a target where
+# they would not be enough. Run it first; it is wired into `npm run
+# pentest:full` and is not optional.
+#
+# Why an active scan is not merely "a slower baseline" here:
+#
+#   * This app writes through **Next.js Server Actions** — POSTs to the page's
+#     own URL, distinguished only by a `Next-Action` header. An active scanner
+#     replays captured requests with mutated parameters. A captured
+#     "Send payout" or "Approve payment" carries a real finance session, so a
+#     replay passes the B4 gate exactly as the original did.
+#   * `/api/webhooks/payments/*` accepts signed gateway callbacks. A replay
+#     posts a collection that never happened, straight into the ledger.
+#   * `/api/jobs/*` are the scheduled jobs. One of them PURGES personal data.
+#
+# So the exclusions are not tuning for a quieter report. They are the reason
+# this can be run at all.
+#
+# Run:  npm run pentest:full -- https://your-target
+env:
+  contexts:
+    - name: oe-group
+      urls:
+        - "${ZAP_TARGET}"
+      includePaths:
+        - "${ZAP_TARGET}.*"
+      excludePaths:
+        - ".*\.(png|jpe?g|gif|svg|webp|ico|woff2?|ttf)$"
+        - ".*/_next/static/.*"
+
+        # ── Money. Never actively scanned. ──────────────────────────────────
+        - ".*/dashboard/ledger.*"        # payout run, reconciliation, collections
+        - ".*/dashboard/payments.*"      # verify → performance → approve → remit
+        - ".*/api/webhooks/payments.*"   # a replayed callback posts a fake collection
+
+        # ── Scheduled jobs. One of these deletes personal data. ─────────────
+        - ".*/api/jobs/.*"
+
+        # ── Inbound chat webhooks: a replay creates tickets and sends real
+        #    WhatsApp/Telegram messages to real phone numbers.
+        - ".*/api/webhooks/(whatsapp|telegram|email).*"
+
+        # ── Account recovery: a replay mails reset links to real addresses
+        #    and burns single-use tokens.
+        - ".*/reset-password.*"
+      authentication:
+        method: browser
+        parameters:
+          loginPageUrl: "${ZAP_TARGET}/login"
+          browserId: firefox-headless
+        verification:
+          method: poll
+          pollUrl: "${ZAP_TARGET}/dashboard"
+          pollFrequency: 60
+          pollUnits: requests
+          # Signed out, /dashboard redirects to /login. Its absence is the
+          # signal that the session died mid-scan — without this ZAP happily
+          # spends an hour scanning the sign-in page and reports it clean.
+          loggedInRegex: "\Qdashboard\E"
+          loggedOutRegex: "\QSign in\E"
+      sessionManagement:
+        method: cookie
+      users:
+        # ⚠️ A DELIBERATELY LOW-PRIVILEGE account. The point of an active scan
+        # here is "can this role reach what it must not", and scanning as an
+        # administrator answers the opposite question while doing maximum
+        # damage. Escalation attempts are what we want to see refused.
+        - name: scan-tenant
+          credentials:
+            username: "${ZAP_USER}"
+            password: "${ZAP_PASSWORD}"
+  parameters:
+    failOnError: true
+    progressToStdout: true
+
+jobs:
+  - type: passiveScan-config
+    parameters:
+      maxAlertsPerRule: 20
+      scanOnlyInScope: true
+
+  - type: spider
+    parameters:
+      context: oe-group
+      user: scan-tenant
+      url: "${ZAP_TARGET}"
+      maxDuration: 10
+      maxDepth: 8
+      postForm: false
+      processForm: false
+
+  - type: spiderAjax
+    parameters:
+      context: oe-group
+      user: scan-tenant
+      url: "${ZAP_TARGET}"
+      browserId: firefox-headless
+      maxDuration: 10
+      maxCrawlDepth: 6
+
+  - type: passiveScan-wait
+    parameters:
+      maxDuration: 5
+
+  - type: activeScan
+    parameters:
+      context: oe-group
+      user: scan-tenant
+      maxRuleDurationInMins: 5
+      maxScanDurationInMins: 90
+      # ⚠️ Rate limiting is real here (lib/rate-limit.ts, Upstash). Too many
+      # threads and the scan measures the limiter rather than the application,
+      # then reports the 429s as findings.
+      threadPerHost: 2
+      delayInMs: 200
+    policyDefinition:
+      defaultStrength: medium
+      defaultThreshold: medium
+      rules:
+        # Injection, path traversal, XSS, SSRF — the classes worth the risk.
+        - id: 40018   # SQL injection
+          strength: high
+        - id: 40012   # Reflected XSS
+          strength: high
+        - id: 40014   # Persistent XSS
+          strength: high
+        - id: 40003   # CRLF injection
+          strength: medium
+        - id: 6       # Path traversal
+          strength: high
+        - id: 40044   # SSRF
+          strength: medium
+        # ⚠️ OFF. Not because they are unimportant, but because they are
+        # DESTRUCTIVE against this app and are covered better elsewhere:
+        - id: 42      # Source code disclosure (noisy on Next.js chunks)
+          threshold: off
+        - id: 90020   # Remote OS command injection — its payloads are
+          threshold: off   # time-delay based and would trip the rate limiter
+
+  - type: report
+    parameters:
+      template: modern
+      reportDir: /zap/wrk/reports
+      reportFile: "zap-full-{{yyyy-MM-dd}}"
+      reportTitle: "OE Group IWMS — ZAP full (active)"
+      reportDescription: >
+        Active scan as a LOW-PRIVILEGE user, with money, job and webhook routes
+        excluded. Those exclusions mean this report says nothing about the
+        payment gate — that is covered by verify-payment-gate.mjs,
+        verify-remittance.mjs and verify-role-surface.mjs, which test it far
+        more precisely than a scanner could.
+    risks: [high, medium, low, info]

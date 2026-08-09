@@ -34,3 +34,4 @@ next-env.d.ts
 # Office lock/temp files
 ~$*
 scratchpad/
+security/reports/

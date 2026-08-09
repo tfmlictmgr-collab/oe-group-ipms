@@ -9,7 +9,13 @@
     "lint": "next lint",
     "migrate": "node scripts/migrate.mjs",
     "seed": "tsx scripts/seed.mjs",
-    "verify": "tsx scripts/verify-all.mjs"
+    "verify": "tsx scripts/verify-all.mjs",
+    "pentest:preflight": "node scripts/pentest-preflight.mjs",
+    "pentest:baseline": "node scripts/run-zap.mjs baseline",
+    "pentest:full": "node scripts/run-zap.mjs full",
+    "loadtest": "node scripts/run-k6.mjs journey",
+    "loadtest:spike": "node scripts/run-k6.mjs spike",
+    "loadtest:ratelimit": "node scripts/run-k6.mjs rate-limit"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.112.3",

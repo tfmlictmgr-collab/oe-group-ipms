@@ -1,0 +1,72 @@
+# ZAP Automation Framework — BASELINE (passive) scan.
+#
+# Safe to run against ANY environment, including production with real client
+# data: the spider fetches pages and the passive scanner reads the responses.
+# Nothing is replayed, nothing is mutated, no form is submitted.
+#
+# What it finds: missing/incorrect security headers, cookie flags, information
+# disclosure, mixed content, cacheable sensitive responses, outdated client
+# libraries. It will NOT find injection or broken access control — that is what
+# the full scan and `verify-security-posture.mjs` are for.
+#
+# Run:  npm run pentest:baseline -- https://your-target
+env:
+  contexts:
+    - name: oe-group
+      urls:
+        - "${ZAP_TARGET}"
+      includePaths:
+        - "${ZAP_TARGET}.*"
+      excludePaths:
+        # Third-party and noise. Excluded so the report is about US.
+        - ".*\.(png|jpe?g|gif|svg|webp|ico|woff2?|ttf)$"
+        - ".*/_next/static/.*"
+  parameters:
+    failOnError: true
+    failOnWarning: false
+    progressToStdout: true
+
+jobs:
+  - type: passiveScan-config
+    parameters:
+      maxAlertsPerRule: 20
+      scanOnlyInScope: true
+
+  - type: spider
+    parameters:
+      context: oe-group
+      url: "${ZAP_TARGET}"
+      maxDuration: 5
+      maxDepth: 8
+      # ⚠️ POST forms are NOT submitted even in the baseline. This app writes
+      # through Next.js Server Actions, which are POSTs to the page's own URL —
+      # a spider that "helpfully" submits them would fire real writes while
+      # claiming to be a passive scan.
+      postForm: false
+      processForm: false
+
+  - type: spiderAjax
+    parameters:
+      context: oe-group
+      url: "${ZAP_TARGET}"
+      maxDuration: 5
+      # The dashboard is client-rendered; without the AJAX spider the baseline
+      # sees the sign-in page and almost nothing else.
+      browserId: firefox-headless
+      maxCrawlDepth: 6
+
+  - type: passiveScan-wait
+    parameters:
+      maxDuration: 5
+
+  - type: report
+    parameters:
+      template: modern
+      reportDir: /zap/wrk/reports
+      reportFile: "zap-baseline-{{yyyy-MM-dd}}"
+      reportTitle: "OE Group IWMS — ZAP baseline (passive)"
+      reportDescription: >
+        Passive scan only. No request was replayed and no form submitted.
+        Read alongside docs/DAY12_SECURITY_PASS.md, which covers the database
+        boundary this scan cannot see.
+    risks: [high, medium, low, info]
