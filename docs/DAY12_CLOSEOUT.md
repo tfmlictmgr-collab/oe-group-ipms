@@ -50,18 +50,32 @@ accounts** (§5), not code.
 > `verify-checkout-e2e` — and both are fixed (§3.1, §3.2). Each now passes when
 > run on its own; `verify-checkout-e2e` was re-run three times to be sure.
 >
-> ⚠️ **One thing is not yet clean, and is recorded rather than rounded off.**
-> The confirming full-suite re-run showed `verify-checkout-e2e` failing **1**
-> check (down from 10), in 71 s against a 23 s baseline — i.e. under heavy CPU
-> contention, with a dev server, a second full suite and a parallel workstream
-> all competing. It did not reproduce in three isolated runs. The suite contains
-> no sleeps or polling, so a slow on-demand route compilation in `next dev` is
-> the likely cause, **but that is a hypothesis, not a diagnosis.**
+> **The confirming re-run was destroyed by the machine's network, not by the
+> code — and the diagnosis matters more than the result.** It ended reporting
+> 19 of 80 suites failed. Reading the actual errors rather than the count:
+> `getaddrinfo ENOTFOUND aws-1-eu-west-2.pooler.supabase.com`, `fetch failed`,
+> and a cascade of `Cannot read properties of null` — which is what every suite
+> does when its fixture query silently returns nothing. **DNS on this machine
+> dropped part-way through.** The same outage killed three Vercel deploy
+> attempts in the same window (§10).
 >
-> **Action for whoever runs the next full suite: watch this one.** If it fails
-> again, capture *which* check — `verify-all.mjs` only reports the count, so it
-> has to be re-run alone to see. Do not treat an intermittent failure in a
-> payment suite as noise on the strength of this paragraph.
+> **All 19 were re-run individually once the network returned. Every one
+> passes**, including `verify-role-surface` (which had only timed out at 300 s)
+> and `verify-checkout-e2e`.
+>
+> ⚠️ **The lesson is about reading these runs, not about the run.** A count of
+> failures is not a result. Nineteen red suites here meant one broken network;
+> two red suites in the earlier run meant two real defects. `verify-all.mjs`
+> reports only counts, so **always read the error text before concluding
+> anything** — and re-run a failing suite on its own before believing or
+> dismissing it.
+>
+> The earlier `verify-checkout-e2e` single-check failure (71 s against a 23 s
+> baseline) is now most likely the leading edge of that same network
+> instability, rather than the slow-route-compilation hypothesis first recorded
+> here. It has since passed five isolated runs. **Still worth watching**: it is
+> a payment suite, and an intermittent failure there should never be waved
+> through on the strength of this paragraph.
 
 ---
 
@@ -337,7 +351,7 @@ Ordered by what blocks what. None of these is a defect; they are steps.
 
 | # | Item | Owner | Notes |
 |---|---|---|---|
-| 4.1 | **Deploy this branch, then re-run the ZAP baseline** | either PC | Four headers changed (`X-Frame-Options`, `X-Content-Type-Options`, HSTS, CSP-RO). Two of PC2's three Medium findings should disappear; the third (CORS) is closed by §2.#3. **A scan of the current deployment would still show the old state — the fix is local until deployed.** |
+| 4.1 | ~~Deploy this branch~~ ✅ **DONE 10 Aug** — **re-run the ZAP baseline** | PC2 (needs Docker) | Deployed to production and verified live on both custom domains: `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Strict-Transport-Security: max-age=63072000; includeSubDomains`, and the report-only CSP. Load test against the live deployment: 7,912 requests, p(95) 1,014 ms, **0.00% failed**; rate limiter confirmed live (908 refused of 1,163). **What remains is the ZAP re-scan** — the two header findings should now be gone. See §10 for how the deploy actually had to be done. |
 | 4.2 | **Watch the CSP report-only console during UAT** | both | This is the whole point of shipping it report-only. Brief UAT testers to report console errors. A clean console across all nine roles is what unlocks §7's promotion to enforcing. |
 | 4.3 | **Install Docker Desktop on PC1** | PC1 | `security/README.md` says either machine can run the pass; today only **PC2 can** — PC1 has no Docker, so no ZAP. Single-machine dependency on the one tool the cutover run needs. k6 and gitleaks are now installed on PC1 (k6 v2.1.0). |
 | 4.4 | **Fill in the Rules of Engagement** — `security/README.md` §5 | PC1/PC2 + a named authoriser | Still an empty table: authoriser, target hostnames, window, contact, abort condition. **Required before the active scan (§6) and before any third-party test.** Cannot be filled in without §5.9. |
@@ -512,6 +526,97 @@ cutover day.
 | gitleaks | ✅ (installed this pass) | ✅ |
 | **Docker / ZAP** | ❌ **— §4.3** | ✅ |
 | Upstash credentials in `.env.local` | ✅ | ✅ (hand-copied — see below) |
+
+---
+
+## 10. How to actually deploy to production — read this before cutover
+
+Recorded because it took four attempts to establish, and **cutover is the worst
+possible moment to discover it.**
+
+### `git push` does not deploy production
+
+`phase-1` is not the project's production branch (`main` is, and it is 191
+commits behind and unused). A push produces a **Preview** deployment only. The
+custom domains are served by a deployment with `target: production`, which has
+to be created deliberately.
+
+### ⛔ Never "promote" a Preview build to production
+
+The obvious move — build from git, then promote — **would take the portals
+down**, and silently. `vercel promote` does not rebuild, so the deployment keeps
+the environment it was built with, and on this project **every Supabase
+credential is Production-scoped only**:
+
+```
+NEXT_PUBLIC_SUPABASE_URL        Production
+NEXT_PUBLIC_SUPABASE_ANON_KEY   Production
+SUPABASE_SERVICE_ROLE_KEY       Production
+ANTHROPIC_API_KEY, TELEGRAM_*, WHATSAPP_*, UPSTASH_*, SENTRY, GEMINI   Production
+```
+
+A promoted Preview build therefore has **no database at all**. It would also
+have baked in the wrong CSP: `next.config.mjs` reads
+`NEXT_PUBLIC_SUPABASE_URL` at build time, so an absent value silently degrades
+the policy to the `https://*.supabase.co` wildcard. **Check for the real
+project host in the deployed CSP header — it is a free, honest signal that a
+build got the production environment.**
+
+### ⚠️ `vercel --prod` fails on these machines
+
+Tried three times, foreground and background: the CLI creates the deployment
+record, prints "Building…", then dies with `Error: fetch failed`. The
+deployments sit at status `UNKNOWN` with a 0 ms build — the local file upload
+never completes. They never take the aliases, so **the live site is unharmed**,
+but nothing deploys either.
+
+This is the same class of fault PC2 already recorded for `vercel env pull`
+(below): something on these machines interferes with that CLI's HTTPS calls.
+It is not transient — it reproduced every time.
+
+### ✅ What works: rebuild server-side from the git-built Preview
+
+```bash
+git push origin phase-1
+```
+
+Wait for Vercel's automatic Preview build, then:
+
+```bash
+npx vercel redeploy <the-preview-url> --target production --no-wait
+```
+
+This rebuilds **on Vercel**, so there is no local upload to fail, it builds
+from the pushed commit (nothing uncommitted can ride along), and `--target
+production` means it builds with **Production** environment variables — which
+is exactly what promoting would not do.
+
+> The CLI still printed `Error: fetch failed` — it loses the polling
+> connection. **Ignore the exit status and check the real state** with
+> `npx vercel ls`. The deployment was `● Ready / Production / 2m` and held all
+> four aliases.
+
+### Then verify, every time
+
+```bash
+curl -sSI https://tfmlportal.com/login
+```
+
+Confirm the four security headers are present, and that the CSP names the real
+Supabase host rather than `*.supabase.co`. Then load a brand front door and
+check it renders its own name from the database.
+
+### One more trap, for the real cutover
+
+Deploying from a working copy uploads **uncommitted files too**. On 10 Aug this
+repository had an unrelated in-flight feature sitting uncommitted from a
+parallel session; deploying from the working directory would have shipped it.
+The route above avoids this by construction — Vercel builds from the commit —
+which is a reason to prefer it beyond the CLI being broken.
+
+---
+
+## 11. Machine-specific traps
 
 > ⚠️ **`vercel env pull` cannot be trusted on these machines.** PC2 found
 > something local intercepts that CLI's writes and replaces every value with a

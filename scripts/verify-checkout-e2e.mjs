@@ -12,14 +12,17 @@
 // see the second pre-flight below for why, and what it costs to find out the
 // hard way.
 //
-// ⚠️ Timing. Every step here is a real HTTP round trip to a dev server that may
-// still be compiling the route on demand, with no retry or polling anywhere in
-// this file. On 2026-08-09 one check failed inside a full `npm run verify` that
-// was competing with a second suite and another workstream (71 s, against a
-// 23 s baseline) and did not reproduce in three isolated runs. If this suite
-// fails as part of the full set, **re-run it alone before believing it** —
-// `verify-all.mjs` reports only the count, not which check. If it fails alone,
-// that is real and it is about money: do not wave it through.
+// ⚠️ Timing. Every step here is a real HTTP round trip, with no retry or
+// polling anywhere in this file, so it is unusually sensitive to a flaky
+// network. On 2026-08-09 one check failed inside a full `npm run verify`
+// (71 s, against a 23 s baseline) shortly before this machine's DNS dropped
+// outright and took 19 suites and three Vercel deploys down with it. It has
+// passed every isolated run since.
+//
+// So: if this fails as part of the full set, **re-run it alone before
+// believing it** — `verify-all.mjs` reports only the count, not which check.
+// If it fails alone, that is real and it is about money: do not wave it
+// through.
 //
 // Usage: node scripts/verify-checkout-e2e.mjs
 import path from "node:path";
