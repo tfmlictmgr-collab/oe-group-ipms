@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/patterns/page-header";
 import { EmptyState } from "@/components/patterns/empty-state";
 import { StatusBadge } from "@/components/patterns/status-badge";
+import { ChatWithUs } from "@/components/patterns/chat-with-us";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -208,6 +209,27 @@ export default async function MyRequestsPage() {
           })}
         </div>
       )}
+
+      {/*
+        Placed at page level rather than on each request card, for two reasons:
+        a card-level button repeated down a list of eight requests is noise, and
+        a tenant with NO requests — the empty state above, and the person most
+        likely to need help — would never see one. No reference is passed here
+        because the question at this level is usually not about a specific
+        request; the reference-scoped version lives on the request itself.
+      */}
+      <Card>
+        <CardContent className="space-y-3 p-4 sm:p-5">
+          <div className="space-y-1">
+            <p className="text-sm font-medium">Prefer to message us?</p>
+            <p className="text-xs text-muted-foreground">
+              Raise a request or ask a question on the app you already use. We
+              answer in the same place.
+            </p>
+          </div>
+          <ChatWithUs theme={session.theme} size="sm" />
+        </CardContent>
+      </Card>
     </div>
   );
 }

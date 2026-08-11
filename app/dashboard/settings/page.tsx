@@ -65,6 +65,10 @@ export default async function BrandingSettingsPage() {
               tagline: org?.tagline ?? "",
               supportEmail: org?.support_email ?? "",
               supportPhone: org?.support_phone ?? "",
+              whatsappNumber: org?.whatsapp_number ? `+${org.whatsapp_number}` : "",
+              telegramBotUsername: org?.telegram_bot_username
+                ? `@${org.telegram_bot_username}`
+                : "",
               financeEmail: org?.finance_email ?? "",
               itEmail: org?.it_email ?? "",
               emailFromName: org?.email_from_name ?? "",

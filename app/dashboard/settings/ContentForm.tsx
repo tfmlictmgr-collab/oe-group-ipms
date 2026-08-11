@@ -19,6 +19,8 @@ export default function ContentForm({
     tagline: string;
     supportEmail: string;
     supportPhone: string;
+    whatsappNumber: string;
+    telegramBotUsername: string;
     financeEmail: string;
     itEmail: string;
     emailFromName: string;
@@ -97,6 +99,38 @@ export default function ContentForm({
             placeholder="+234 800 000 0000"
           />
         </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="whatsapp-number">WhatsApp number</Label>
+          <Input
+            id="whatsapp-number"
+            value={form.whatsappNumber}
+            onChange={set("whatsappNumber")}
+            maxLength={24}
+            placeholder="+234 703 689 1329"
+          />
+          <p className="text-xs text-muted-foreground">
+            The number registered for this organisation on WhatsApp Business. It
+            is never shown to people — it only powers the &ldquo;Chat on
+            WhatsApp&rdquo; buttons, so nobody has to type it.
+          </p>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="telegram-bot">Telegram bot</Label>
+          <Input
+            id="telegram-bot"
+            value={form.telegramBotUsername}
+            onChange={set("telegramBotUsername")}
+            maxLength={33}
+            placeholder="@yourorg_support_bot"
+          />
+          <p className="text-xs text-muted-foreground">
+            The bot&rsquo;s own username, not your personal handle. Leave blank
+            until the bot exists in @BotFather.
+          </p>
+        </div>
+
         <div className="space-y-1.5">
           <Label htmlFor="finance-email">Finance / accounts email</Label>
           <Input

@@ -16,6 +16,7 @@ import AcknowledgeControl from "./AcknowledgeControl";
 import VendorJobActions from "./VendorJobActions";
 import EvaluationChecklist, { type ChecklistCriterion } from "./EvaluationChecklist";
 import TicketMedia, { type TicketAttachment } from "./TicketMedia";
+import { ChatWithUs } from "@/components/patterns/chat-with-us";
 import { shortRef } from "@/lib/acknowledgement";
 
 type AssignableTicket = Ticket & {
@@ -282,6 +283,24 @@ export default async function TicketDetailPage({
           </CardHeader>
           <CardContent>
             <AcknowledgeControl ticketId={t.id} />
+          </CardContent>
+        </Card>
+      )}
+
+      {/*
+        Offered to the person who RAISED the request, not to the staff handling
+        it — staff are the other end of this conversation, and a "chat with us"
+        button on an operator's screen is at best noise. The reference is passed
+        so the chat opens already placed, rather than starting with the tenant
+        re-explaining which request they mean.
+      */}
+      {isTenant && !canManage && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Need to talk to us?</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ChatWithUs theme={session.theme} ticketReference={shortRef(t.id)} size="sm" />
           </CardContent>
         </Card>
       )}

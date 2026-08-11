@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { ok, fail, failFromDb, type ActionResult } from "@/lib/action-result";
+import { normalizeWhatsAppNumber } from "@/lib/whatsapp-link";
+import { normalizeTelegramUsername } from "@/lib/telegram-link";
 
 // Admin-configurable payment gate thresholds (B7: admin configures limits).
 // RLS restricts writes to admins; this action just passes the values through.
@@ -99,6 +101,8 @@ export async function updateOrgContent(
     tagline: string;
     supportEmail: string;
     supportPhone: string;
+    whatsappNumber: string;
+    telegramBotUsername: string;
     financeEmail: string;
     itEmail: string;
     emailFromName: string;
@@ -127,12 +131,36 @@ export async function updateOrgContent(
     return v.slice(0, n) || null;
   };
 
+  // Both chat handles are rejected rather than silently dropped. A number that
+  // half-parses produces a working link to the WRONG person, and a bad bot
+  // handle points every "chat with us" button at a stranger — neither is
+  // something to discover from a user's report.
+  const whatsappRaw = input.whatsappNumber.trim();
+  const whatsappNumber = whatsappRaw ? normalizeWhatsAppNumber(whatsappRaw) : null;
+  if (whatsappRaw && !whatsappNumber) {
+    return fail(
+      "That WhatsApp number is not valid.",
+      "Use the international form, e.g. +234 703 689 1329."
+    );
+  }
+
+  const telegramRaw = input.telegramBotUsername.trim();
+  const telegramBotUsername = telegramRaw ? normalizeTelegramUsername(telegramRaw) : null;
+  if (telegramRaw && !telegramBotUsername) {
+    return fail(
+      "That Telegram bot username is not valid.",
+      "It must be the bot's own handle, 5–32 characters, ending in 'bot' — e.g. @tfml_support_bot."
+    );
+  }
+
   const supabase = await createClient();
   const update = {
       portal_name: limit("Portal name", input.portalName, 40),
       tagline: limit("Tagline", input.tagline, 120),
       support_email: email || null,
       support_phone: limit("Support phone", input.supportPhone, 40),
+      whatsapp_number: whatsappNumber,
+      telegram_bot_username: telegramBotUsername,
       finance_email: financeEmail || null,
       it_email: itEmail || null,
       email_from_name: limit("Sender name", input.emailFromName, 60),

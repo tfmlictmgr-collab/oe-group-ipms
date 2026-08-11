@@ -142,6 +142,76 @@ export async function sendWhatsApp(sender: WhatsAppSender, to: string, text: str
 }
 
 /**
+ * Sends a PRE-APPROVED TEMPLATE message — the only thing WhatsApp permits when
+ * the org is speaking first.
+ *
+ * ⚠️ THE 24-HOUR WINDOW, which `sendWhatsApp` above silently depends on.
+ * WhatsApp allows free-form text only inside a 24-hour "customer service
+ * window" opened by the person messaging the org. Outside it — which is every
+ * message WE initiate to someone who has not written in today — a `type:
+ * "text"` send is REJECTED by the API. It does not degrade, it does not queue,
+ * and the failure is at send time rather than anywhere a reader of the calling
+ * code would expect it.
+ *
+ * That matters because the whole point of business-initiated messaging here is
+ * that the org opens the conversation, so the tenant never has to find a number
+ * at all. Doing that requires this function; `sendWhatsApp` cannot do it, and
+ * any proactive notification currently routed through it works only by the
+ * accident of the recipient having messaged in recently.
+ *
+ * A template must be registered and approved in the 360dialog Hub BEFORE it can
+ * be sent — approval takes minutes to a day, and an unapproved name fails the
+ * same way a typo'd one does. `name` and `languageCode` must match the approved
+ * template exactly.
+ *
+ * `variables` fill the template's `{{1}}`, `{{2}}` … placeholders IN ORDER.
+ * They are the only free text in the message, and WhatsApp rejects newlines,
+ * tabs and runs of 5+ spaces inside them — so a variable carrying, say, a
+ * multi-line address fails the whole send. Callers should pass short, flat
+ * values.
+ */
+export async function sendWhatsAppTemplate(
+  sender: WhatsAppSender,
+  to: string,
+  template: { name: string; languageCode: string; variables?: string[] }
+) {
+  const variables = template.variables ?? [];
+  const response = await fetch(`${WHATSAPP_360D_BASE}/messages`, {
+    method: "POST",
+    headers: {
+      "D360-API-KEY": sender.accessToken,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      to,
+      type: "template",
+      template: {
+        name: template.name,
+        language: { code: template.languageCode },
+        ...(variables.length
+          ? {
+              components: [
+                {
+                  type: "body",
+                  parameters: variables.map((text) => ({ type: "text", text })),
+                },
+              ],
+            }
+          : {}),
+      },
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(
+      `WhatsApp template "${template.name}" failed from ${sender.phoneNumberId}: ` +
+        `${response.status} ${await response.text()}`
+    );
+  }
+  return response.json();
+}
+
+/**
  * A row of tappable buttons. Telegram sends the `data` string back as a
  * `callback_query` when one is pressed.
  *

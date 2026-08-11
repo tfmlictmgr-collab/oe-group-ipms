@@ -1,3 +1,6 @@
+import { normalizeWhatsAppNumber } from "@/lib/whatsapp-link";
+import { normalizeTelegramUsername } from "@/lib/telegram-link";
+
 // Brand tokens per CLAUDE.md B2. The org's `delivery_brand` selects the base
 // theme; per-org overrides (set by an org admin in Settings) then win, so a
 // client can tune its own colours and monogram without a code change.
@@ -16,6 +19,12 @@ export type BrandTheme = {
   tagline: string | null;
   supportEmail: string | null;
   supportPhone: string | null;
+  // E.164 without '+', for building wa.me links. Distinct from supportPhone:
+  // that is a number to call, this one is only ever tapped (0146).
+  whatsappNumber: string | null;
+  // Bot username without '@', for building t.me links (0147). The public half
+  // of the bot's identity — the token stays in channel_routes.
+  telegramBotUsername: string | null;
   loginHeadline: string;
 };
 
@@ -27,7 +36,14 @@ export const DEFAULT_LOGIN_HEADLINE =
 // of a brand default — they are filled in by withDefaults() below.
 type BaseBrand = Omit<
   BrandTheme,
-  "logoUrl" | "portalName" | "tagline" | "supportEmail" | "supportPhone" | "loginHeadline"
+  | "logoUrl"
+  | "portalName"
+  | "tagline"
+  | "supportEmail"
+  | "supportPhone"
+  | "whatsappNumber"
+  | "telegramBotUsername"
+  | "loginHeadline"
 >;
 
 const BASE_THEMES: Record<DeliveryBrand, BaseBrand> = {
@@ -68,6 +84,8 @@ export type BrandOverrides = {
   tagline?: string | null;
   support_email?: string | null;
   support_phone?: string | null;
+  whatsapp_number?: string | null;
+  telegram_bot_username?: string | null;
   login_headline?: string | null;
 };
 
@@ -84,6 +102,8 @@ function withDefaults(base: BaseBrand): BrandTheme {
     tagline: null,
     supportEmail: null,
     supportPhone: null,
+    whatsappNumber: null,
+    telegramBotUsername: null,
     loginHeadline: DEFAULT_LOGIN_HEADLINE,
   };
 }
@@ -121,6 +141,12 @@ export function getBrandTheme(
     tagline: overrides.tagline?.trim() || null,
     supportEmail: overrides.support_email?.trim() || null,
     supportPhone: overrides.support_phone?.trim() || null,
+    // Normalised on the way out as well as the way in. The DB constraint (0146)
+    // already guarantees the shape, but this value gets interpolated into a URL
+    // handed to a user, and re-checking at the boundary costs nothing — same
+    // reason safeLogoUrl exists above rather than trusting the stored string.
+    whatsappNumber: normalizeWhatsAppNumber(overrides.whatsapp_number),
+    telegramBotUsername: normalizeTelegramUsername(overrides.telegram_bot_username),
     loginHeadline: overrides.login_headline?.trim() || base.loginHeadline,
   };
 }
