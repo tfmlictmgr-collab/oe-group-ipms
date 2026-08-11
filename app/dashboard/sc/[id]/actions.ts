@@ -109,6 +109,10 @@ export async function generateInvoices(budgetId: string): Promise<ActionResult> 
           orgId: budget.org_id,
           entityType: "service_charge",
           entityId: budget.id,
+          // Business-initiated: we are telling them a statement is ready, not
+          // answering them. The consent gate (0148) needs the person, and this
+          // path already has it.
+          recipientUserId: share.occupant_user_id,
           message: `Your ${budget.period} service charge statement for ${property?.name ?? "your property"} is ready: ${formatNaira(share.amount)}.`,
           phone: u.phone,
           email: u.email,

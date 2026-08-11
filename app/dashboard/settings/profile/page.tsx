@@ -32,6 +32,20 @@ export default async function ProfileSettingsPage() {
     .eq("id", session.profile!.id)
     .single();
 
+  // The person's own consent history (0148). Read through `my_channel_consents`,
+  // which is scoped to auth.uid() — the table itself grants nothing to a client
+  // beyond the caller's own rows. Only the LATEST row per channel decides the
+  // current state; a withdrawal is a newer row, never an edit of the grant.
+  const { data: consentRows } = await supabase.rpc("my_channel_consents");
+  const latestByChannel = new Map<string, string>();
+  for (const r of (consentRows ?? []) as { channel: string; action: string }[]) {
+    // Rows arrive newest-first, so the first sighting of a channel is current.
+    if (!latestByChannel.has(r.channel)) latestByChannel.set(r.channel, r.action);
+  }
+  const consented = (["whatsapp", "telegram", "sms"] as const).filter(
+    (c) => latestByChannel.get(c) === "granted"
+  );
+
   const role = session.profile?.role ?? "member";
   const channels = [
     me?.notify_email && "email",
@@ -82,6 +96,7 @@ export default async function ProfileSettingsPage() {
             </summary>
             <div className="border-t border-border p-4 sm:p-5">
               <NotificationPrefs
+                consented={consented}
                 initial={{
                   phone: me?.phone ?? "",
                   telegramChatId: me?.telegram_chat_id ?? "",

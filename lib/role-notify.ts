@@ -12,6 +12,10 @@ import { sendCascade, type CascadeTarget } from "./cascade";
 type EntityType = CascadeTarget["entityType"];
 
 type Recipient = {
+  // Needed to check consent, which is recorded against a PERSON (0148), not a
+  // phone number — the same row could be reached on a number they have since
+  // replaced.
+  id: string;
   phone: string | null;
   email: string | null;
   telegram_chat_id: string | null;
@@ -22,7 +26,7 @@ type Recipient = {
 };
 
 const RECIPIENT_COLUMNS =
-  "phone, email, telegram_chat_id, notify_whatsapp, notify_sms, notify_email, notify_telegram";
+  "id, phone, email, telegram_chat_id, notify_whatsapp, notify_sms, notify_email, notify_telegram";
 
 // One send per recipient, each restricted to the channels THEY opted into —
 // never a channel they never registered or turned off. `sendCascade`'s own
@@ -42,6 +46,11 @@ async function cascadeToRecipients(
       entityType,
       entityId,
       message,
+      // Every send from here is business-initiated — a role holder or a named
+      // person being told something happened, not an answer to a message they
+      // sent. So the consent gate in `sendCascade` applies, and it needs to
+      // know WHO, not just which number.
+      recipientUserId: r.id,
       whatsapp: r.notify_whatsapp && r.phone ? r.phone : null,
       phone: r.notify_sms && r.phone ? r.phone : null,
       email: r.notify_email && r.email ? r.email : null,

@@ -197,7 +197,11 @@ export async function approvePayment(paymentId: string): Promise<ActionResult> {
   try {
     const { data: vendor } = await supabase
       .from("vendors")
-      .select("contact_phone, contact_email")
+      // `user_id` so the consent gate (0148) can resolve the PERSON behind the
+      // vendor record. A vendor with no portal account has no consent on file
+      // and no way to give it, so WhatsApp is skipped for them and the cascade
+      // falls through to email — which is the correct outcome, not a bug.
+      .select("contact_phone, contact_email, user_id")
       .eq("id", payment.vendor_id)
       .single();
     if (vendor) {
@@ -205,6 +209,7 @@ export async function approvePayment(paymentId: string): Promise<ActionResult> {
         orgId: payment.org_id,
         entityType: "payment",
         entityId: paymentId,
+        recipientUserId: vendor.user_id,
         message: `Your payment of ${formatNaira(payment.amount)} has been approved and is queued for remittance.`,
         phone: vendor.contact_phone,
         email: vendor.contact_email,

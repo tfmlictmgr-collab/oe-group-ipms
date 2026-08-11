@@ -4,6 +4,7 @@ import {
   sendReply, whatsappSenderForOrg, telegramSenderForOrg,
   type WhatsAppSender, type TelegramButton,
 } from "./notify";
+import { mayContact } from "./channel-consent";
 
 // B8 notification cascade (server-side only). Attempts channels in the required
 // order — WhatsApp → SMS → Email — stopping at the first success. Telegram runs
@@ -33,6 +34,17 @@ export type CascadeTarget = {
    * proactive sends, which resolve the org's own number instead.
    */
   whatsappSender?: WhatsAppSender | null;
+  /**
+   * Who this is going to, when they are a portal user. Required to send a
+   * BUSINESS-INITIATED WhatsApp message, because consent is recorded against a
+   * person (0148) and cannot be checked from a bare phone number.
+   *
+   * Omitted for replies (where `whatsappSender` is set instead) and for
+   * recipients who have no user account — a vendor contact reached only through
+   * `vendors.contact_phone`. In the latter case WhatsApp is SKIPPED rather than
+   * attempted; see `tryWhatsApp`.
+   */
+  recipientUserId?: string | null;
   phone?: string | null; // for SMS
   email?: string | null;
   telegram?: string | null; // chat id (parallel, opt-in)
@@ -45,10 +57,39 @@ type Attempt = { status: "sent" | "failed" | "skipped"; detail: string };
 async function tryWhatsApp(
   to: string,
   message: string,
-  sender: WhatsAppSender | null
+  sender: WhatsAppSender | null,
+  /**
+   * True when this is a REPLY inside a conversation the person started. Replies
+   * need no consent record — they messaged us, on the number they chose, about
+   * something they raised. Everything else is business-initiated and gated.
+   */
+  isReply: boolean,
+  recipientUserId: string | null | undefined
 ): Promise<Attempt> {
   if (!process.env.WHATSAPP_ACCESS_TOKEN) {
     return { status: "skipped", detail: "stubbed: no WhatsApp credentials" };
+  }
+
+  // ── The consent gate (0148) ──────────────────────────────────────────────
+  // Business-initiated only. Fails CLOSED: no recorded consent, no send. The
+  // cost of that is this ATTEMPT being skipped, after which the cascade falls
+  // through to SMS and email — so the person still receives the notice, just
+  // not on a channel we cannot prove they agreed to. The cost of failing open
+  // is an unlawful disclosure under NDPA and a WhatsApp policy breach against
+  // the number both brands depend on for inbound.
+  if (!isReply) {
+    if (!recipientUserId) {
+      return {
+        status: "skipped",
+        detail: "no WhatsApp consent on record for this recipient (not a portal user)",
+      };
+    }
+    if (!(await mayContact(recipientUserId, "whatsapp", to))) {
+      return {
+        status: "skipped",
+        detail: "recipient has not consented to WhatsApp, or consent was given for a different number",
+      };
+    }
   }
   // An org with no number of its own is SKIPPED, not sent from someone else's.
   // The cascade then falls through to SMS and email, which is the B8 behaviour
@@ -158,7 +199,17 @@ export async function sendCascade(
     // Answer on the number that received the message; otherwise the org's own.
     // Never a global default — that is what crossed the brands.
     const sender = target.whatsappSender ?? (await whatsappSenderForOrg(target.orgId));
-    const a = await tryWhatsApp(target.whatsapp, target.message, sender);
+    // `whatsappSender` is supplied only when replying to an inbound message —
+    // the type says so, and that makes it the honest discriminator for "did
+    // they speak first," rather than adding a second flag that could disagree
+    // with it.
+    const a = await tryWhatsApp(
+      target.whatsapp,
+      target.message,
+      sender,
+      Boolean(target.whatsappSender),
+      target.recipientUserId
+    );
     await log(target, cascadeId, "whatsapp", target.whatsapp, a, order);
     if (a.status === "sent") delivered = true;
   }
