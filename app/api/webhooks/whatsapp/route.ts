@@ -148,6 +148,16 @@ export async function POST(request: NextRequest) {
   const hasMedia = message.type != null && message.type !== "text";
   const senderName = value.contacts?.[0]?.profile?.name ?? null;
 
+  // 🛑 THIRD-PARTY BOT SUPPRESSION FILTER
+  // Intercepts recycled number traffic (Flutterwave bot) before it triggers AI classification or ticket creation.
+  const isBotSpam = /flutterwave|welcome to our bot service|bot service/i.test(messageText);
+  
+  if (isBotSpam) {
+    console.warn(`[SPAM SUPPRESSED] Dropped Flutterwave bot message from ${senderWaId}`);
+    // Always return 200 OK so Meta/360dialog considers it delivered and doesn't retry
+    return new NextResponse("OK", { status: 200 });
+  }
+
   // ⚠️ Idempotency. WhatsApp/360dialog redeliver a webhook on any slow or
   // non-2xx response, on a backoff that can span hours — normal provider
   // behaviour, exactly like a payment gateway's retry (see gateway_events,
