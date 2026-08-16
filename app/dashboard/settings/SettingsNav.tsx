@@ -26,7 +26,13 @@ const TABS: Tab[] = [
   { href: "/dashboard/settings/notifications", label: "My Notifications", icon: Bell, adminOnly: false },
   { href: "/dashboard/settings/security", label: "Security", icon: Lock, adminOnly: false },
   { href: "/dashboard/settings", label: "Branding", icon: Palette, adminOnly: true, exact: true },
-  { href: "/dashboard/settings/banking", label: "Client Funds", icon: Landmark, adminOnly: true },
+  // ⚠️ Labelled "Banking" and not "Client Funds", which is what it said until
+  // now — the same words as Operations → Client Funds, which is the LEDGER.
+  // Two destinations under one name, one of them the books and the other the
+  // bank account behind them, is a reading of the product that has to be
+  // learned rather than seen. This tab configures the account; that section
+  // reports on the money in it.
+  { href: "/dashboard/settings/banking", label: "Banking", icon: Landmark, adminOnly: true },
   { href: "/dashboard/settings/payments", label: "Payment Gate", icon: ShieldCheck, adminOnly: true },
   // Lettings is OEA-only (B9); the page says so for an org without the module
   // rather than the tab vanishing, so an administrator is not left wondering.

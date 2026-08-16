@@ -47,7 +47,10 @@ export function AppShell({
   return (
     <div className="min-h-screen bg-background">
       {/* Desktop sidebar */}
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-sidebar-border bg-sidebar lg:flex">
+      {/* Desktop sidebar. `print:hidden` — the navigation is not part of any
+          report, and printed at 64 units wide it would push every page's
+          content off the right edge of the sheet. */}
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-sidebar-border bg-sidebar lg:flex print:hidden">
         <div className="flex h-16 items-center border-b border-sidebar-border px-5">
           <BrandMark name={brandName} logoText={logoText} logoUrl={logoUrl} subtitle={portalName} />
         </div>
@@ -68,10 +71,11 @@ export function AppShell({
         </div>
       </aside>
 
-      {/* Main column */}
-      <div className="lg:pl-64">
+      {/* Main column. The sidebar offset comes off in print, since the sidebar
+          itself is gone. */}
+      <div className="lg:pl-64 print:pl-0">
         {/* Top bar */}
-        <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-border bg-background/85 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/70 sm:px-6">
+        <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-border bg-background/85 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/70 sm:px-6 print:hidden">
           {/* Mobile: hamburger + drawer */}
           <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
             <SheetTrigger asChild>
@@ -109,7 +113,7 @@ export function AppShell({
           </div>
         </header>
 
-        <main className="mx-auto w-full max-w-6xl animate-fade-in px-4 py-6 sm:px-6 sm:py-8">
+        <main className="mx-auto w-full max-w-6xl animate-fade-in px-4 py-6 sm:px-6 sm:py-8 print:max-w-none print:p-0">
           {children}
         </main>
       </div>

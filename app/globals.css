@@ -281,3 +281,92 @@
     box-shadow: inset 0 0 0 1px var(--brand, #8b1d1d);
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Print.
+
+   Scoped to `.printable` rather than applied to every page: these rules hide
+   buttons and flatten surfaces, which is right for a report and wrong for, say,
+   a work order someone prints to carry round a site. A section opts in.
+
+   Nothing here gates anything. Print reproduces the DOM the server already
+   decided this reader may see — the page's own access check is the boundary,
+   and a second one here would only be able to disagree with it.
+   ───────────────────────────────────────────────────────────────────────── */
+@media print {
+  @page {
+    margin: 14mm;
+  }
+
+  /* A report printed from a dark-themed screen is pale text on paper the
+     printer leaves white — a blank sheet. So the dark palette is returned to
+     its light values for print only, rather than forcing everything to black,
+     which would erase the one thing a finance reader looks for first: a figure
+     in red. */
+  .dark {
+    --background: 0 0% 100%;
+    --foreground: 222 22% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 22% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 22% 12%;
+    --secondary: 220 16% 95%;
+    --secondary-foreground: 222 22% 18%;
+    --muted: 220 16% 95%;
+    --muted-foreground: 220 10% 35%;
+    --accent: 220 16% 95%;
+    --accent-foreground: 222 22% 18%;
+    --border: 220 16% 78%;
+    --destructive: 0 72% 44%;
+    --success: 152 55% 30%;
+    --destructive-on-tint: 0 74% 38%;
+    --success-on-tint: 152 62% 24%;
+    --warning-on-tint: 36 96% 25%;
+    --info-on-tint: 212 88% 33%;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+  }
+
+  /* Tints carry meaning here — a shortfall card's border, a "Segregated" badge
+     — so they are printed rather than dropped. */
+  .printable {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    max-width: none !important;
+  }
+
+  /* Ink cannot be clicked, and screen furniture (tabs, pickers, nav) tells the
+     reader nothing about the figures. */
+  [data-print="screen-only"],
+  .printable button {
+    display: none !important;
+  }
+
+  /* The counterpart: blocks that exist only on paper — the masthead, the
+     period line the picker was showing on screen. */
+  [data-print="print-only"] {
+    display: block !important;
+  }
+
+  /* Cards keep their outline but lose the elevation, which prints as a smear,
+     and are kept off page boundaries where they fit on one sheet. */
+  .printable .rounded-lg {
+    box-shadow: none !important;
+    break-inside: avoid;
+  }
+
+  /* A long journal or P&L legitimately spans sheets — so the table may break,
+     a row may not, and every sheet repeats the column headings. */
+  .printable table {
+    break-inside: auto;
+  }
+  .printable thead {
+    display: table-header-group;
+  }
+  .printable tr {
+    break-inside: avoid;
+  }
+}

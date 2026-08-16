@@ -4777,3 +4777,59 @@ role count stale at **9** when there are ten; `DAY12_SECURITY_PASS.md` §6, wher
 the `GO_LIVE_CHECKLIST.md` line that already named ZAP and k6 without saying how
 to run them, now carrying the active scan's window — after cutover, before the
 first client.
+
+## A remittance names the account the money left
+
+Client Funds gained a print function, and answering a second question about it —
+"what is the *Settings* → Client Funds tab actually for?" — turned up something
+neither question was about.
+
+`remittances` had no `bank_account_id`. Money going out was tied to a bank
+account only by inference: `record_remittance_sent` re-derived "the" client-funds
+account at posting time via `collection_bank_account(org)`, while reconciliation
+compares a statement against `bank_accounts.ledger_account_id`. The two agreed
+because `bank_accounts_one_client_funds_per_currency_uidx` permits exactly one
+active client-funds account per currency — so the correctness of every payout
+reconciliation rested on a uniqueness index nobody would think to re-read before
+relaxing it. A second Naira account (a new bank, a migration between banks) and
+payouts would post to whichever row `limit 1` returned, matched against a
+statement they never appeared on. No error; the books would simply be about a
+different account than the money.
+
+📌 **An invariant defended only by an index that someone may relax is not
+defended.** The index is a fine rule; resting a money trail on it without saying
+so is not.
+
+Two defects fell out of the same inference, both fixed in `0146`:
+
+- `collection_bank_account(r.org_id)` was called with **no currency**, so it
+  defaulted to NGN — as did the `canonical_ledger_account` calls beside it for
+  the liability and the fee. 0103 gave every money-**in** path its own currency
+  and never reached this one. Nothing has mis-posted: `payments` carries no
+  currency and Paystack Transfers is Naira, so every remittance in existence is
+  NGN. It would have mis-posted the first time one was not.
+- A remittance could be created for an org with **no configured client-funds
+  account at all**, failing only at posting time — after the transfer had been
+  handed to the gateway.
+
+The fix stops inferring. `remittances.bank_account_id` is stamped at creation,
+`not null`, backfilled across every historical row, and posting uses *that*
+account rather than re-deriving one. `client_funds_bank_account()` **raises on
+ambiguity instead of ordering its way out of it** — the same shape as
+`auto_match_statement_lines`: exactly one candidate, or a person decides. Relax
+the index tomorrow and you get a refusal naming the choice, not a silent
+mis-post.
+
+The rule is a **BEFORE INSERT trigger, not three edits**. There are three insert
+paths today (`create_vendor_remittance`, `create_rent_remittance`, and the older
+`create_landlord_remittance`) and the next one would have been the fourth place
+to remember. It also refuses another org's account, an *operating* account —
+client money leaves the segregated one — a currency mismatch, and any attempt to
+re-point a payout that has already posted.
+
+`verify-remittance-account.mjs` holds it: 12 checks, including that the account
+named is the ledger account the posting lands on and the one reconciliation
+compares against. One check was wrong before the code was: it hardcoded USD as
+"a currency with no account", and the fixture org has a USD account (0103), so
+correct behaviour read as a failure. The test now picks a currency the org
+genuinely holds none of.

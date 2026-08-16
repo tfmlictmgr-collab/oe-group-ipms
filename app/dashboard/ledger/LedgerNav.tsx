@@ -18,7 +18,12 @@ export default function LedgerNav({ variance }: { variance?: number }) {
   const pathname = usePathname();
 
   return (
-    <div className="-mx-1 flex gap-1 overflow-x-auto border-b border-border px-1">
+    // Screen-only: on paper the other tabs are unreachable, and the masthead
+    // already says which report this is.
+    <div
+      data-print="screen-only"
+      className="-mx-1 flex gap-1 overflow-x-auto border-b border-border px-1"
+    >
       {TABS.map((t) => {
         const active = t.exact ? pathname === t.href : pathname.startsWith(t.href);
         const Icon = t.icon;

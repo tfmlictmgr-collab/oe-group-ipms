@@ -32,6 +32,19 @@ type PnlRow = {
   posting_count: number;
 };
 
+/**
+ * `YYYY-MM-DD` as a person writes it.
+ *
+ * Formatted in UTC on purpose: these are plain calendar dates from the URL, and
+ * parsing "2026-01-01" then formatting it in a westward zone renders it as
+ * 31 December — a period boundary off by a day on a financial report.
+ */
+function formatPeriodDate(iso: string) {
+  const d = new Date(`${iso}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return new Intl.DateTimeFormat("en-GB", { dateStyle: "long", timeZone: "UTC" }).format(d);
+}
+
 function defaultRange() {
   const now = new Date();
   // The year to date. A finance lead opening "reports" wants the current
@@ -67,7 +80,14 @@ export default async function ReportsPage({
 
   return (
     <div className="space-y-6">
-      <PeriodPicker from={from} to={to} />
+      <div data-print="screen-only">
+        <PeriodPicker from={from} to={to} />
+      </div>
+      {/* What the picker was saying on screen, in a form paper can carry. A
+          P&L without its period on it is a page of numbers about nothing. */}
+      <p data-print="print-only" className="hidden text-sm">
+        <strong>Profit &amp; loss</strong> · {formatPeriodDate(from)} to {formatPeriodDate(to)}
+      </p>
 
       {error ? (
         <EmptyState

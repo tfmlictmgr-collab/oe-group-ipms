@@ -63,6 +63,9 @@ export default function StuckRemittances({ rows }: { rows: StuckRemittance[] }) 
                 <p className="text-sm">
                   <span className="font-semibold tabular-nums">{formatNaira(r.net_amount)}</span>
                   <span className="text-muted-foreground"> to a {r.party}</span>
+                  {r.bank_accounts && (
+                    <span className="text-muted-foreground"> from {r.bank_accounts.label}</span>
+                  )}
                 </p>
               </div>
               <Badge variant={r.status === "unknown" ? "destructive" : "warning"}>

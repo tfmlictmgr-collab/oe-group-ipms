@@ -170,6 +170,12 @@ export type StuckRemittance = {
   transfer_code: string | null;
   gateway_message: string | null;
   created_at: string;
+  /**
+   * The account it left (0146). Whoever works this list has to open a bank's
+   * dashboard to find out whether the transfer went — telling them which
+   * account is the first thing they need and the one thing the row omitted.
+   */
+  bank_accounts: { label: string; currency: string } | null;
 };
 
 const STUCK_AFTER_MINUTES = 10;
@@ -181,14 +187,29 @@ export async function stuckRemittances(): Promise<ActionResult<StuckRemittance[]
   const cutoff = new Date(Date.now() - STUCK_AFTER_MINUTES * 60_000).toISOString();
   const { data, error } = await ctx.supabase
     .from("remittances")
-    .select("id, reference, party, status, net_amount, transfer_code, gateway_message, created_at")
+    .select(
+      "id, reference, party, status, net_amount, transfer_code, gateway_message, created_at, bank_accounts:bank_account_id(label, currency)"
+    )
     .in("status", ["sending", "unknown"])
     .is("ledger_entry_id", null)
     .lt("created_at", cutoff)
     .order("created_at", { ascending: true });
 
   if (error) return failFromDb(error, "list remittances needing attention");
-  return ok((data ?? []) as StuckRemittance[]);
+
+  // PostgREST types an embedded parent as an array even where the foreign key
+  // makes it one row at most, so it is normalised here rather than cast away.
+  return ok(
+    (data ?? []).map((r) => {
+      const { bank_accounts, ...rest } = r as typeof r & {
+        bank_accounts: { label: string; currency: string }[] | { label: string; currency: string } | null;
+      };
+      return {
+        ...rest,
+        bank_accounts: Array.isArray(bank_accounts) ? bank_accounts[0] ?? null : bank_accounts ?? null,
+      };
+    }) as StuckRemittance[]
+  );
 }
 
 /**

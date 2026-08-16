@@ -81,7 +81,10 @@ export default function ReconcileClient({
   return (
     <div className="space-y-4">
       {/* ── 1. Import ─────────────────────────────────────────────────── */}
-      <Card>
+      {/* Screen-only: an empty upload box on paper is not evidence of a
+          reconciliation, only of a form. What matters in print is the run
+          history and the variance below. */}
+      <Card data-print="screen-only">
         <CardHeader className="pb-3">
           <CardTitle className="text-base">1. Import a statement</CardTitle>
           <CardDescription>
@@ -208,7 +211,7 @@ export default function ReconcileClient({
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex flex-wrap items-end gap-3">
+          <div data-print="screen-only" className="flex flex-wrap items-end gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="asof">As at</Label>
               <Input id="asof" type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} className="w-44" />

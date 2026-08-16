@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { getSessionProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -38,6 +39,16 @@ export default async function BankingSettingsPage() {
           landlords and owners — kept apart from the organisation&apos;s own
           operating money, one per currency you collect in — and where each
           currency&apos;s ledger starts counting from.
+        </CardDescription>
+        {/* The other half of the pair. Every empty state in the ledger points
+            HERE; nothing pointed back, so an administrator who finished the
+            setup had no route to the thing they had just enabled. */}
+        <CardDescription>
+          What is held in these accounts is reported in{" "}
+          <Link href="/dashboard/ledger" className="font-medium text-brand underline underline-offset-2">
+            Operations → Client Funds
+          </Link>
+          , which is also where the daily bank reconciliation runs.
         </CardDescription>
       </CardHeader>
       <CardContent>

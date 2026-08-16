@@ -4,6 +4,9 @@ import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
 import { PageHeader } from "@/components/patterns/page-header";
 import { EmptyState } from "@/components/patterns/empty-state";
+import { PrintButton } from "@/components/patterns/print-button";
+import { PrintMasthead } from "@/components/patterns/print-masthead";
+import { roleLabel } from "@/lib/roles";
 import LedgerNav from "./LedgerNav";
 
 // The books are for finance, admin — and oversight. An FM/PM runs operations,
@@ -56,12 +59,31 @@ export default async function LedgerLayout({
     .limit(1)
     .maybeSingle();
 
+  // Printing is offered to whoever the gate above already let in — every org,
+  // every role that reaches this section — and deliberately adds no check of
+  // its own: it puts the reader's own screen on paper. RLS decided what is on
+  // that screen, so a finance lead prints the org's position and an executive
+  // prints the same page, both seeing exactly what they see now.
+  const printedBy = session.profile?.full_name || session.profile?.email || undefined;
+  const printedByLine = printedBy
+    ? `${printedBy} · ${roleLabel(session.profile?.role, session.org?.delivery_brand)}`
+    : undefined;
+
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Client Funds"
-        description="Money held on behalf of tenants, landlords and owners — and its agreement with the bank."
+    <div className="printable space-y-6">
+      <PrintMasthead
+        org={session.org?.name ?? "Client Funds"}
+        title="Client funds"
+        subtitle="Money held on behalf of tenants, landlords and owners"
+        by={printedByLine}
       />
+      <div data-print="screen-only">
+        <PageHeader
+          title="Client Funds"
+          description="Money held on behalf of tenants, landlords and owners — and its agreement with the bank."
+          actions={<PrintButton />}
+        />
+      </div>
       <LedgerNav variance={latest ? Number(latest.variance) : undefined} />
       {children}
     </div>
