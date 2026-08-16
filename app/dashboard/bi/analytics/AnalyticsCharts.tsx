@@ -3,6 +3,8 @@
 import {
   BarChart,
   Bar,
+  ComposedChart,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -37,7 +39,10 @@ export function periodLabel(iso: string, bucket: string) {
   if (bucket === "year") return String(y);
   if (bucket === "quarter") return `Q${Math.floor(m / 3) + 1} ${y}`;
   const mon = d.toLocaleString("en-GB", { month: "short", timeZone: "UTC" });
-  if (bucket === "week") return `${d.getUTCDate()} ${mon}`;
+  // `day` and `week` both label by date. Without the day case every day inside
+  // a month collapsed to the same "Aug 26" label, so a 31-bar chart read as one
+  // bar repeated — the drill's finest level was the one it rendered worst.
+  if (bucket === "day" || bucket === "week") return `${d.getUTCDate()} ${mon}`;
   return `${mon} ${String(y).slice(2)}`;
 }
 
@@ -52,7 +57,8 @@ export function periodEnd(iso: string, bucket: string): Date {
   const d = new Date(`${iso}T00:00:00Z`);
   if (Number.isNaN(d.getTime())) return new Date(8.64e15);
   const e = new Date(d);
-  if (bucket === "week") e.setUTCDate(e.getUTCDate() + 7);
+  if (bucket === "day") e.setUTCDate(e.getUTCDate() + 1);
+  else if (bucket === "week") e.setUTCDate(e.getUTCDate() + 7);
   else if (bucket === "quarter") e.setUTCMonth(e.getUTCMonth() + 3);
   else if (bucket === "year") e.setUTCFullYear(e.getUTCFullYear() + 1);
   else e.setUTCMonth(e.getUTCMonth() + 1);
@@ -245,6 +251,82 @@ export function CategoryCompletionBar({
         <Bar dataKey="pct" name="Completed" fill={p.series2}
              radius={[0, 4, 4, 0]} maxBarSize={22} />
       </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+/**
+ * Volume and speed on ONE plot, for the drill page.
+ *
+ * ⚠️ The console deliberately keeps these apart: with two y-axes the line's
+ * position against the bars is arbitrary, so a combined chart implies a
+ * relationship it cannot support. That reasoning still holds for the OVERVIEW,
+ * where the reader is comparing periods against each other.
+ *
+ * Inside a drill the question is different — "what happened here, and did it
+ * take longer than usual" — and the two series are being read against the same
+ * narrow slice rather than against each other. So the axes are labelled, the
+ * right-hand one is explicitly hours, and the legend names both. It is a
+ * deliberate exception to the rule above, not an oversight of it.
+ */
+export function DrillMixedChart({
+  data,
+  bucket,
+}: {
+  data: MetricRow[];
+  bucket: string;
+}) {
+  const p = usePalette();
+  const { axisProps, tooltipStyle } = chartChrome(p);
+
+  if (data.length === 0) return <EmptyPlot note="No requests in this slice" />;
+
+  const rows = data.map((m) => ({
+    label: periodLabel(String(m.period), bucket),
+    raised: Number(m.total),
+    completed: Number(m.completed),
+    hours: m.avg_hours_to_resolve === null ? null : Number(m.avg_hours_to_resolve),
+  }));
+
+  return (
+    <ResponsiveContainer width="100%" height={280}>
+      <ComposedChart data={rows} margin={{ top: 8, right: 12, bottom: 4, left: -8 }}>
+        <CartesianGrid stroke={p.grid} vertical={false} />
+        <XAxis dataKey="label" {...axisProps} />
+        <YAxis yAxisId="count" {...axisProps} allowDecimals={false} />
+        <YAxis
+          yAxisId="hours"
+          orientation="right"
+          {...axisProps}
+          tickFormatter={(v: number) => `${v}h`}
+        />
+        <Tooltip
+          {...tooltipStyle}
+          formatter={(v, name) =>
+            // A null hours value arrives as undefined here — an unresolved
+            // period must read as "not timed", never as "0 h", which would
+            // claim an instant resolution that never happened.
+            name === "Avg. resolve"
+              ? [v == null ? "not timed" : `${v} h`, String(name)]
+              : [v == null ? "—" : v, String(name)]
+          }
+        />
+        <Legend wrapperStyle={{ fontSize: 12 }} />
+        <Bar yAxisId="count" dataKey="raised" name="Raised" fill={p.series1} radius={[3, 3, 0, 0]} />
+        <Bar yAxisId="count" dataKey="completed" name="Completed" fill={p.series2} radius={[3, 3, 0, 0]} />
+        <Line
+          yAxisId="hours"
+          type="monotone"
+          dataKey="hours"
+          name="Avg. resolve"
+          stroke={p.categorical[2]}
+          strokeWidth={2}
+          dot={{ r: 3 }}
+          // A period in which nothing was resolved is a GAP, not a zero —
+          // joining across it would draw a recovery that did not happen.
+          connectNulls={false}
+        />
+      </ComposedChart>
     </ResponsiveContainer>
   );
 }

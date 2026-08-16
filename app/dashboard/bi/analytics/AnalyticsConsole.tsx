@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { toast } from "sonner";
 import {
   Inbox, CheckCircle2, Timer, MessageSquareReply, Download, FileText,
@@ -205,6 +206,23 @@ export default function AnalyticsConsole({
     } finally {
       setExporting(false);
     }
+  };
+
+  /**
+   * A drill target carries the console's current filters, so opening a figure
+   * shows the slice the reader was looking at rather than a fresh unfiltered
+   * query under the same heading.
+   */
+  const drillHref = (dim: string, value: string) => {
+    const q = new URLSearchParams();
+    if (filters.from) q.set("from", filters.from);
+    if (filters.to) q.set("to", filters.to);
+    if (filters.vendorId) q.set("vendor", filters.vendorId);
+    if (filters.category) q.set("category", filters.category);
+    if (filters.propertyId) q.set("property", filters.propertyId);
+    if (filters.status) q.set("status", filters.status);
+    q.set("bucket", bucket);
+    return `/dashboard/bi/analytics/${dim}/${encodeURIComponent(value)}?${q.toString()}`;
   };
 
   const pdfHref = (() => {
@@ -413,7 +431,9 @@ export default function AnalyticsConsole({
                   <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     Fastest vendor
                   </p>
-                  <p className="truncate text-lg font-semibold">{best.vendor_name}</p>
+                  <p className="truncate text-lg font-semibold">
+                    <Link href={drillHref("vendor", best.vendor_id)} className="underline-offset-4 hover:underline">{best.vendor_name}</Link>
+                  </p>
                   <p className="text-xs text-muted-foreground">
                     {hours(best.avg_hours_to_resolve)} average over {Number(best.timed)} timed job
                     {Number(best.timed) === 1 ? "" : "s"} · {best.completion_pct ?? 0}% completion
@@ -430,7 +450,9 @@ export default function AnalyticsConsole({
                   <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     Slowest vendor
                   </p>
-                  <p className="truncate text-lg font-semibold">{worst.vendor_name}</p>
+                  <p className="truncate text-lg font-semibold">
+                    <Link href={drillHref("vendor", worst.vendor_id)} className="underline-offset-4 hover:underline">{worst.vendor_name}</Link>
+                  </p>
                   <p className="text-xs text-muted-foreground">
                     {hours(worst.avg_hours_to_resolve)} average over {Number(worst.timed)} timed job
                     {Number(worst.timed) === 1 ? "" : "s"} · {worst.completion_pct ?? 0}% completion
@@ -491,7 +513,10 @@ export default function AnalyticsConsole({
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Period detail</CardTitle>
-          <CardDescription>The same figures the charts are drawn from.</CardDescription>
+          <CardDescription>
+            The same figures the charts are drawn from. Open a period to see the
+            requests behind it, grouped one level finer.
+          </CardDescription>
         </CardHeader>
         <CardContent className="pt-2">
           {data.metrics.length === 0 ? (
@@ -513,9 +538,14 @@ export default function AnalyticsConsole({
                 </TableHeader>
                 <TableBody>
                   {data.metrics.map((m) => (
-                    <TableRow key={m.period}>
+                    <TableRow key={m.period} className="group">
                       <TableCell className="font-medium">
-                        {periodLabel(m.period, bucket)}
+                        <Link
+                          href={drillHref("period", String(m.period))}
+                          className="underline-offset-4 hover:underline"
+                        >
+                          {periodLabel(m.period, bucket)}
+                        </Link>
                         {/* Marked, so nobody reads a period still in progress as
                             a finished one that fell off a cliff. */}
                         {isPartialPeriod(m.period, bucket) && (
