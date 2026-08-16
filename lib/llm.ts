@@ -73,7 +73,109 @@ export const anthropicProvider: Provider = {
 // message, and the answer is nested under candidates[0].content.parts[0].text.
 // A 4xx/5xx returns `ok: false` like any other failure, so an unconfigured or
 // rejected fallback lands on the same safe default the caller already had.
-const GEMINI_MODEL = process.env.GEMINI_MODEL ?? "gemini-2.0-flash";
+//
+// ── Choosing a Gemini model, and surviving the next retirement ─────────────
+//
+// ⚠️ `gemini-2.0-flash` was retired by Google, confirmed live: HTTP 404 "This
+// model is no longer available". That is the exact failure this fallback exists
+// to survive, arriving from the fallback itself — worse than a primary outage,
+// because the safety net was the thing that tore.
+//
+// 📌 A better-chosen hardcoded name does not fix it. ANY name goes stale, and
+// the failure is always silent until the day the primary is down. Two things
+// found by probing the live API make that concrete, and neither was guessable:
+//
+//   • `gemini-2.5-flash` and `gemini-2.5-pro` are ALSO 404 — "no longer
+//     available to new users". A chain of plausible current names was, in fact,
+//     entirely dead.
+//   • **ListModels lies.** It reports both of those as supporting
+//     generateContent. Asking the API what exists is therefore not enough; a
+//     discovered model has to be TRIED before it is believed.
+//
+// So the model is resolved, not declared:
+//   1. `GEMINI_MODEL` if set — explicit configuration wins and is never
+//      second-guessed.
+//   2. A short chain, verified live at the time of writing (see below).
+//   3. Discovery, each candidate actually CALLED rather than trusted.
+//
+// The winner is cached for the process, so a dead name is probed once rather
+// than on every webhook.
+const GEMINI_CANDIDATES = [
+  // Newest that answers on this key — the "current high free version".
+  "gemini-3.5-flash",
+  // Rolling alias: Google repoints it, so it outlives snapshots. Second rather
+  // than first because it currently resolves to an older generation.
+  "gemini-flash-latest",
+  "gemini-3-flash-preview",
+];
+
+const GEMINI_API = "https://generativelanguage.googleapis.com/v1beta";
+
+/** Cached across calls: the model that last answered, or null if unresolved. */
+let resolvedGeminiModel: string | null = null;
+
+/**
+ * Whether a failure means "this model will not serve me" as opposed to "this
+ * request did not work right now".
+ *
+ * ⚠️ The distinction decides whether to try the next candidate, and it is wrong
+ * in both directions if taken loosely. Advancing on a 5xx would burn the whole
+ * chain against a transient outage that affects every model equally; NOT
+ * advancing on a 404 is the bug this block exists to fix.
+ *
+ * All three of these answer immediately, so chaining on them costs no real
+ * time — a timeout does not chain, which keeps the caller (a webhook) inside
+ * its budget.
+ *   404 — retired or unknown.
+ *   400 — the request is not valid FOR THIS MODEL. `gemini-flash-lite-latest`
+ *         rejects `thinkingConfig` with exactly this, live.
+ *   429 — this model's own quota. Free-tier pro models exhaust while flash
+ *         models still answer, so another candidate is genuinely worth trying.
+ *   503 — Google says this one PER MODEL: "This model is currently
+ *         experiencing high demand." Seen live from `gemini-3.5-flash` in the
+ *         same minute `gemini-flash-latest` answered normally, which is what
+ *         makes it a reason to move on rather than a reason to give up.
+ *
+ * A 500 is deliberately absent: that is Google's end failing generally, and
+ * walking the chain against it just multiplies one outage by four.
+ */
+function shouldTryNextModel(status: number): boolean {
+  return status === 404 || status === 400 || status === 429 || status === 503;
+}
+
+/**
+ * Ask Google what exists, and RETURN A LIST rather than a pick — because the
+ * list cannot be trusted, every entry has to be attempted by the caller.
+ * Flash models first: this is a classifier emitting one small JSON object, and
+ * the cheapest capable thing is the right thing.
+ */
+async function discoverGeminiModels(key: string): Promise<string[]> {
+  try {
+    const res = await fetch(`${GEMINI_API}/models`, {
+      headers: { "x-goog-api-key": key },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return [];
+    const json = (await res.json()) as {
+      models?: { name?: string; supportedGenerationMethods?: string[] }[];
+    };
+    const usable = (json.models ?? [])
+      .filter((m) => m.name && (m.supportedGenerationMethods ?? []).includes("generateContent"))
+      // The API returns "models/gemini-x"; the generateContent path wants the bare id.
+      .map((m) => m.name!.replace(/^models\//, ""))
+      // Anything whose name announces a non-text job. A TTS or image model
+      // supports generateContent and will not classify a maintenance request.
+      .filter((n) => !/tts|image|embedding|aqa|veo|imagen|banana/i.test(n));
+
+    const flash = usable.filter((n) => /flash/i.test(n));
+    const rest = usable.filter((n) => !/flash/i.test(n));
+    // A handful, not all 37 — the point is to recover, not to exhaust a quota
+    // walking a list on a webhook's clock.
+    return [...flash, ...rest].slice(0, 4);
+  } catch {
+    return [];
+  }
+}
 
 export const geminiProvider: Provider = {
   name: "gemini",
@@ -82,47 +184,106 @@ export const geminiProvider: Provider = {
     const key = process.env.GEMINI_API_KEY;
     if (!key) return { ok: false, provider: "gemini", error: "GEMINI_API_KEY is not set" };
 
-    try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json", "x-goog-api-key": key },
-          body: JSON.stringify({
-            systemInstruction: { parts: [{ text: system }] },
-            contents: [{ role: "user", parts: [{ text: user }] }],
-            generationConfig: {
-              maxOutputTokens: maxTokens,
-              // These prompts all ask for one small JSON object. Low
-              // temperature keeps a classifier a classifier.
-              temperature: 0.2,
-              responseMimeType: "application/json",
-            },
-          }),
-          // A fallback that hangs is not a fallback — the caller is a webhook
-          // with a provider waiting on it.
-          signal: AbortSignal.timeout(15_000),
+    const pinned = process.env.GEMINI_MODEL?.trim();
+    // A pinned model is tried alone — an operator naming one is not asking for
+    // a second opinion. Otherwise start from whatever last answered.
+    const attempts = pinned
+      ? [pinned]
+      : resolvedGeminiModel
+        ? [resolvedGeminiModel, ...GEMINI_CANDIDATES.filter((m) => m !== resolvedGeminiModel)]
+        : [...GEMINI_CANDIDATES];
+
+    const body = JSON.stringify({
+      systemInstruction: { parts: [{ text: system }] },
+      contents: [{ role: "user", parts: [{ text: user }] }],
+      generationConfig: {
+        maxOutputTokens: maxTokens,
+        // These prompts all ask for one small JSON object. Low temperature
+        // keeps a classifier a classifier.
+        temperature: 0.2,
+        responseMimeType: "application/json",
+        // ⚠️ THINKING OFF, and this is not a preference. Current Gemini flash
+        // models reason by default and charge it to `maxOutputTokens` — probed
+        // live, a 200-token budget spent 195 on thoughts and returned the three
+        // characters "```", finishReason MAX_TOKENS. Callers here pass 120–300
+        // (lib/triage, lib/inbound-router), so EVERY real classification would
+        // have come back as truncated JSON: a fallback that answers with
+        // garbage rather than failing cleanly, which is the worse of the two.
+        thinkingConfig: { thinkingBudget: 0 },
+      },
+    });
+
+    const ask = async (model: string) =>
+      fetch(`${GEMINI_API}/models/${model}:generateContent`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-goog-api-key": key },
+        body,
+        // A fallback that hangs is not a fallback — the caller is a webhook
+        // with a provider waiting on it.
+        signal: AbortSignal.timeout(15_000),
+      });
+
+    const textFrom = (json: unknown) =>
+      (json as { candidates?: { content?: { parts?: { text?: string }[] } }[] })
+        ?.candidates?.[0]?.content?.parts?.[0]?.text ?? null;
+
+    let lastError = "no usable Gemini model";
+
+    /** Try each model in turn. Returns a result, or null to keep looking. */
+    const walk = async (models: string[]) => {
+      for (const model of models) {
+        let res: Response;
+        try {
+          res = await ask(model);
+        } catch (error) {
+          // A timeout or network fault is not this model's fault, and proving
+          // that on three more names would spend the caller's whole budget.
+          lastError = error instanceof Error ? error.message : String(error);
+          return { ok: false as const, provider: "gemini" as const, error: lastError };
         }
-      );
 
-      if (!res.ok) {
-        const body = await res.text().catch(() => "");
-        return { ok: false, provider: "gemini", error: `HTTP ${res.status} ${body.slice(0, 160)}` };
+        if (!res.ok) {
+          const detail = await res.text().catch(() => "");
+          lastError = `HTTP ${res.status} ${detail.slice(0, 160)}`;
+          if (shouldTryNextModel(res.status)) {
+            if (resolvedGeminiModel === model) resolvedGeminiModel = null;
+            continue;
+          }
+          return { ok: false as const, provider: "gemini" as const, error: lastError };
+        }
+
+        const text = textFrom(await res.json().catch(() => null));
+        if (!text) {
+          // A 200 carrying no candidate is as useless as a retirement, and
+          // some models answer exactly that way. Treated the same: move on
+          // rather than reporting the fallback as broken.
+          lastError = `${model} answered with no text`;
+          if (resolvedGeminiModel === model) resolvedGeminiModel = null;
+          continue;
+        }
+
+        resolvedGeminiModel = model;
+        return { ok: true as const, text, provider: "gemini" as const };
       }
+      return null;
+    };
 
-      const json = (await res.json()) as {
-        candidates?: { content?: { parts?: { text?: string }[] } }[];
-      };
-      const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!text) return { ok: false, provider: "gemini", error: "no text in response" };
-      return { ok: true, text, provider: "gemini" };
-    } catch (error) {
-      return {
-        ok: false,
-        provider: "gemini",
-        error: error instanceof Error ? error.message : String(error),
-      };
+    const first = await walk(attempts);
+    if (first) return first;
+
+    // Every candidate refused. Ask Google what exists and TRY each — the list
+    // is not trustworthy on its own. Skipped when a model was pinned: quietly
+    // using a different one is exactly what an explicit setting forbids.
+    if (!pinned) {
+      const discovered = await discoverGeminiModels(key);
+      const second = await walk(discovered.filter((m) => !attempts.includes(m)));
+      if (second) return second;
+      if (discovered.length === 0) {
+        lastError = `every known model was refused and none could be discovered — last: ${lastError}`;
+      }
     }
+
+    return { ok: false, provider: "gemini", error: lastError };
   },
 };
 
