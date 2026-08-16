@@ -3,7 +3,8 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Receipt, Loader2, Paperclip, X } from "lucide-react";
+import Link from "next/link";
+import { Receipt, Loader2, Paperclip, X, TriangleAlert } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +16,8 @@ import { submitVendorInvoice } from "../tickets/[id]/vendor-actions";
 export type InvoiceableJob = {
   id: string;
   label: string;
+  /** Whether this vendor has attached their own photo/video of the finished work. */
+  hasEvidence: boolean;
 };
 
 const BUCKET = "invoice-attachments";
@@ -41,6 +44,7 @@ export default function SubmitInvoice({ jobs, orgId }: { jobs: InvoiceableJob[];
   const [amount, setAmount] = React.useState("");
   const [ticketId, setTicketId] = React.useState("");
   const [file, setFile] = React.useState<File | null>(null);
+  const selected = jobs.find((j) => j.id === ticketId) ?? null;
   const fileRef = React.useRef<HTMLInputElement>(null);
 
   function pickFile(f: File | undefined) {
@@ -141,13 +145,30 @@ export default function SubmitInvoice({ jobs, orgId }: { jobs: InvoiceableJob[];
               to be rejected. */}
           <option value="">Not for a specific job</option>
           {jobs.map((j) => (
-            <option key={j.id} value={j.id}>{j.label}</option>
+            <option key={j.id} value={j.id}>
+              {j.hasEvidence ? j.label : `${j.label} — needs a photo`}
+            </option>
           ))}
         </select>
         {jobs.length === 0 && (
           <p className="text-xs text-muted-foreground">
             You have no completed jobs waiting to be invoiced. You can still invoice for
             something else — a retainer or a scheduled service.
+          </p>
+        )}
+        {/* A prompt, not a gate (0162). Nothing here refuses the invoice —
+            it points out that the job has no photo yet, which is the thing the
+            verifier will ask for next. */}
+        {selected && !selected.hasEvidence && (
+          <p className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs">
+            <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+            <span className="text-muted-foreground">
+              This job has no photo or video attached yet. Adding one helps
+              whoever verifies the work approve it faster.{" "}
+              <Link href={`/dashboard/tickets/${selected.id}`} className="underline underline-offset-2">
+                Open the job
+              </Link>
+            </span>
           </p>
         )}
       </div>

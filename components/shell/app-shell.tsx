@@ -102,13 +102,22 @@ export function AppShell({
           <div className="hidden flex-1 lg:block" />
 
           <div className="flex items-center gap-1 sm:gap-2">
-            <NotificationBell initial={notifications} />
-            <ThemeToggle />
+            {/* ⚠️ Hidden below `sm`, not removed. On a 375px screen the bar was
+                a logo and three separate icon buttons competing for the same
+                edge; both of these fold into the profile menu there instead.
+                From `sm` up they keep their own place, because a bell you can
+                see is worth more than a tidy bar on a screen with room for
+                both. */}
+            <div className="hidden items-center gap-1 sm:flex sm:gap-2">
+              <NotificationBell initial={notifications} />
+              <ThemeToggle />
+            </div>
             <UserMenu
               name={user.name}
               email={user.email}
               roleLabel={user.roleLabel}
               isAdmin={ctx.isAdmin}
+              unreadCount={notifications.filter((n) => !n.read_at).length}
             />
           </div>
         </header>

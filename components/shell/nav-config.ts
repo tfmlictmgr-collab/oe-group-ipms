@@ -273,7 +273,21 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     heading: "Records",
     items: [
-      { label: "Statements", href: "/dashboard/statements", icon: FileText, show: (c) => !c.isViewer },
+      {
+        label: "Statements",
+        href: "/dashboard/statements",
+        icon: FileText,
+        // ⚠️ NOT a vendor. This screen is a SERVICE-CHARGE statement — what is
+        // billed to your unit — and a contractor has no unit, so it showed them
+        // an empty statement for charges that could never exist and offered it
+        // as one of the three things in their sidebar.
+        //
+        // Exactly the fault already fixed once for landlords (see `isOwner`
+        // above): the page branches staff-vs-not, and everyone on the "not"
+        // side was assumed to be billed. A contractor is PAID, not billed —
+        // their money lives on My Work under Payment status.
+        show: (c) => !c.isViewer && !c.isVendor,
+      },
       {
         label: "Audit Trail",
         href: "/dashboard/audit",

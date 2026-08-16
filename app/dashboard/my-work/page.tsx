@@ -180,11 +180,25 @@ export default async function MyWorkPage() {
   const alreadyInvoiced = new Set(
     payments.map((p) => (p as unknown as { ticket_id: string | null }).ticket_id).filter(Boolean)
   );
+  // ⚠️ Which finished jobs carry the vendor's OWN completion evidence. Since
+  // 0161 an invoice without it is refused, so a job listed as invoiceable
+  // without saying it needs a photo is a form built to be rejected — the same
+  // reasoning that already excludes unfinished and already-invoiced jobs, one
+  // condition later.
+  const { data: evidenceRows } = await supabase.rpc("vendor_invoiceable_jobs");
+  const readyById = new Map(
+    ((evidenceRows ?? []) as { ticket_id: string; ready: boolean }[])
+      .map((r) => [r.ticket_id, r.ready])
+  );
+
   const invoiceable: InvoiceableJob[] = jobs
     .filter((j) => ["resolved", "closed"].includes(j.status) && !alreadyInvoiced.has(j.id))
     .map((j) => ({
       id: j.id,
       label: `${j.id.slice(0, 8).toUpperCase()} — ${(j.summary ?? j.message_text ?? "Job").slice(0, 48)}`,
+      // Defaults to false: if the lookup failed, say evidence is needed rather
+      // than let someone submit into a refusal.
+      hasEvidence: readyById.get(j.id) ?? false,
     }));
   const awaiting = payments
     .filter((p) => p.status !== "remitted" && p.status !== "rejected")

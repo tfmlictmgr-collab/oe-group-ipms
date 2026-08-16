@@ -38,6 +38,7 @@ export default function InviteDialog({
   const [nodeId, setNodeId] = React.useState("");
   const [unitId, setUnitId] = React.useState("");
   const [vendorId, setVendorId] = React.useState("");
+  const [approvalTier, setApprovalTier] = React.useState<1 | 2 | 3>(1);
   const [busy, setBusy] = React.useState(false);
   const [issued, setIssued] = React.useState<{ url: string; accepted: boolean } | null>(null);
   const [copied, setCopied] = React.useState(false);
@@ -50,6 +51,11 @@ export default function InviteDialog({
   const needsNode = role === "regional_manager";
   const needsUnit = role === "tenant";
   const needsVendor = role === "vendor";
+  // A payment approver's scope is an AMOUNT, not a place — the one role whose
+  // authority cannot be expressed by attaching them to something. Without a
+  // tier the invitation violates its own constraint (0153) and fails only when
+  // the person clicks the link, which is the worst moment to find out.
+  const needsTier = role === "payment_approver";
   const roles = isAdmin ? INVITABLE_ROLES : INVITABLE_ROLES.filter((r) => r !== "admin");
 
   function toggleProperty(id: string) {
@@ -70,6 +76,7 @@ export default function InviteDialog({
           nodeId: needsNode ? nodeId || null : null,
           unitId: needsUnit ? unitId || null : null,
           vendorId: needsVendor ? vendorId || null : null,
+          approvalTier: needsTier ? approvalTier : null,
         })
       );
       setIssued(res);
@@ -149,6 +156,25 @@ export default function InviteDialog({
                 </p>
               )}
             </div>
+
+            {needsTier && (
+              <div className="space-y-1.5">
+                <Label htmlFor="inv-tier">Approval limit</Label>
+                <Select
+                  id="inv-tier"
+                  value={String(approvalTier)}
+                  onChange={(e) => setApprovalTier(Number(e.target.value) as 1 | 2 | 3)}
+                >
+                  <option value="1">Tier 1 — up to the tier-1 limit</option>
+                  <option value="2">Tier 2 — up to the approval limit</option>
+                  <option value="3">Tier 3 — no limit</option>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  The amounts themselves are set by OE Group under Settings →
+                  Payment gate, so this chooses the band rather than the figure.
+                </p>
+              </div>
+            )}
 
             {needsUnit && (
               <div className="space-y-1.5">

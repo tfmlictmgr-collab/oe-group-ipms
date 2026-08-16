@@ -80,6 +80,13 @@ export const ROLE_RANK: Record<string, number> = {
   admin: 100,
   executive: 90,
   finance_approver: 70,
+  // The approval-chain roles (0151). Below finance and above the operational
+  // staff, so a facility manager cannot mint the approver who signs off above
+  // their own head. Absent from here they fell to the `?? 0` default, which is
+  // exactly the drift this file's own comment warns about — the database had
+  // ranked them since 0151 while this list had not.
+  payment_approver: 65,
+  payment_audit_approver: 64,
   regional_manager: 60,
   facility_manager: 50,
   fm_ops_staff: 30,
@@ -112,6 +119,10 @@ export const ROLE_HINTS: Partial<Record<string, string>> = {
   finance_approver:
     "Sees and approves money: the client-funds ledger, collections, remittances and reconciliation.",
   fm_ops_staff: "Works the jobs dispatched to them. No financial access.",
+  payment_audit_approver:
+    "Stage 2 of the payment chain: checks an invoice against the job card and the evidence before it reaches anyone with a spending limit. Sees payments and vendors, nothing operational and nothing in the ledger.",
+  payment_approver:
+    "Stage 3 of the payment chain: final approval, bounded by an amount rather than by a place. Give them a tier — 1 approves up to the tier-1 limit, 2 up to the approval limit, 3 without limit.",
   property_owner: "Their own portfolio only — summary, statements and vendor performance.",
   regional_manager:
     "Runs a region. Everything a facilities/properties manager does, plus inviting operational staff — all of it bounded to the region, project or site they are assigned to. No financial access.",

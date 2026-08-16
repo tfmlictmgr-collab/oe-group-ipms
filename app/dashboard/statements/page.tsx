@@ -68,6 +68,12 @@ export default async function StatementsPage() {
   const session = await getSessionProfile();
   if (!session) redirect("/login");
 
+  // A contractor has no unit and is never billed a service charge, so this page
+  // can only ever be empty for them. Sent to where their money actually is
+  // rather than shown a statement of charges that cannot exist — the nav no
+  // longer offers this, and a bookmark or a typed URL should not either.
+  if (session.profile?.role === "vendor") redirect("/dashboard/my-work");
+
   const isStaff = ["admin", "facility_manager", "finance_approver", "executive"].includes(
     session.profile?.role ?? ""
   );

@@ -27,6 +27,13 @@ export type InviteInput = {
   nodeId?: string | null;
   unitId?: string | null;
   vendorId?: string | null;
+  /**
+   * The spending band for a `payment_approver` (0153). REQUIRED for that role
+   * and forbidden for every other — `invitations_approval_tier_check` refuses
+   * both mistakes, so an invitation issued without it could be created, emailed
+   * and clicked, and would fail only when someone tried to accept it.
+   */
+  approvalTier?: 1 | 2 | 3 | null;
 };
 
 /**
@@ -64,6 +71,13 @@ export async function inviteMember(
   // This replaced `input.role === "admin" && me.role !== "admin"`, which named
   // the one privileged role that existed when it was written. It left `executive`
   // and `regional_manager` issuable by a facility manager.
+  if (input.role === "payment_approver" && ![1, 2, 3].includes(Number(input.approvalTier))) {
+    return fail(
+      "Choose a tier for this payment approver.",
+      "A payment approver's authority is an amount, not a place — tier 1 approves up to the tier-1 limit, tier 2 up to the approval limit, tier 3 without limit."
+    );
+  }
+
   const peerAdmin = me.role === "admin" && input.role === "admin";
   if (!peerAdmin && (ROLE_RANK[input.role] ?? 0) >= (ROLE_RANK[me.role] ?? 0)) {
     return fail(
@@ -104,6 +118,10 @@ export async function inviteMember(
     node_id: input.nodeId || null,
     unit_id: input.unitId || null,
     vendor_id: input.vendorId || null,
+    // Null for every role but payment_approver, which is what the constraint
+    // requires — a tier on anyone else is refused just as firmly as a missing
+    // one on an approver.
+    approval_tier: input.role === "payment_approver" ? (input.approvalTier ?? null) : null,
     token_hash: hashInviteToken(token),
     invited_by: user.id,
   }).select("id").single();
