@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { supabaseAdmin } from "./supabase/admin";
 import {
-  sendReply, whatsappSenderForOrg, telegramSenderForOrg,
+  sendReply, sendWhatsAppTemplate, whatsappSenderForOrg, telegramSenderForOrg,
   type WhatsAppSender, type TelegramButton,
 } from "./notify";
 import { mayContact } from "./channel-consent";
@@ -50,6 +50,22 @@ export type CascadeTarget = {
   telegram?: string | null; // chat id (parallel, opt-in)
   /** Tappable actions to attach to the Telegram message, if any. */
   telegramButtons?: TelegramButton[][];
+  /**
+   * A pre-approved WhatsApp template to send instead of `message`, for a
+   * BUSINESS-INITIATED send (CHAT_DEEP_LINKS.md §4). WhatsApp allows
+   * free-form `type: "text"` only inside the 24-hour window opened by the
+   * recipient's OWN last message — every proactive send is outside that
+   * window by definition, unless they happen to have written in today, and
+   * a plain-text send outside it is rejected by the API outright rather than
+   * degrading. `message` is still required and still logged: it is what SMS
+   * and email send, and what the audit trail records regardless of which
+   * channel actually carried it.
+   *
+   * Ignored on a REPLY (`whatsappSender` set) — free text is correct there,
+   * and templating an answer to someone's own message would make an ordinary
+   * conversation feel robotic for no reason; see `tryWhatsApp`.
+   */
+  whatsappTemplate?: { name: string; languageCode: string; variables?: string[] } | null;
 };
 
 type Attempt = { status: "sent" | "failed" | "skipped"; detail: string };
@@ -64,7 +80,8 @@ async function tryWhatsApp(
    * something they raised. Everything else is business-initiated and gated.
    */
   isReply: boolean,
-  recipientUserId: string | null | undefined
+  recipientUserId: string | null | undefined,
+  template: CascadeTarget["whatsappTemplate"]
 ): Promise<Attempt> {
   if (!process.env.WHATSAPP_ACCESS_TOKEN) {
     return { status: "skipped", detail: "stubbed: no WhatsApp credentials" };
@@ -102,6 +119,18 @@ async function tryWhatsApp(
     };
   }
   try {
+    // A template on a REPLY is impossible by construction (isReply implies
+    // whatsappSender was set, which callers never pair with a template — see
+    // the field's own doc comment) but checked here anyway rather than
+    // trusted, since "outside the window" is exactly the failure mode a
+    // stray template on a reply would silently avoid rather than surface.
+    if (!isReply && template) {
+      await sendWhatsAppTemplate(sender, to, template);
+      return {
+        status: "sent",
+        detail: `delivered via WhatsApp template "${template.name}" from ${sender.phoneNumberId}`,
+      };
+    }
     await sendReply("whatsapp", to, message, sender);
     return { status: "sent", detail: `delivered via WhatsApp from ${sender.phoneNumberId}` };
   } catch (e) {
@@ -208,7 +237,8 @@ export async function sendCascade(
       target.message,
       sender,
       Boolean(target.whatsappSender),
-      target.recipientUserId
+      target.recipientUserId,
+      target.whatsappTemplate
     );
     await log(target, cascadeId, "whatsapp", target.whatsapp, a, order);
     if (a.status === "sent") delivered = true;
