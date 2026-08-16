@@ -138,6 +138,34 @@ console.log("A. The assignment itself");
       ? ok("and a ticket can still be re-dispatched to a different assignee")
       : bad(`re-dispatching to a different assignee was refused: ${redispatch.message}`);
   }
+
+  // The converse, and the reason this block was rewritten rather than deleted
+  // (suggested by PC2, docs/CONSENT_AND_OPEN_ITEMS.md §2). Asserting only that
+  // re-dispatch SUCCEEDS would keep this suite green if `0117`'s guard were
+  // dropped entirely — the hole it closed would reopen silently, because
+  // nothing else in the 80-suite run asserts it directly.
+  //
+  // Whichever branch above ran, the ticket now holds exactly one assignee and
+  // status 'assigned'. Clearing both while the status stands is the precise
+  // state 0117 exists to refuse: "a job in hand, in nobody's hand" — the one
+  // that made a dispatched job invisible to its vendor, with no notification
+  // and nothing on the job card.
+  //
+  // ⚠️ The refusal is matched on 0117's own wording, not merely on "an error
+  // happened". `tickets` carries several BEFORE triggers, and a test that
+  // accepts any error would keep passing if 0117 were dropped and something
+  // unrelated (a cross-org check, a lifecycle stamp) refused for its own
+  // reason instead — green for the wrong rule is how the stale assertion this
+  // block replaces survived so long.
+  const { error: stranded } = await svc.from("tickets")
+    .update({ assigned_vendor_id: null, assigned_to_user_id: null }).eq("id", t);
+  stranded && /nobody assigned/i.test(stranded.message)
+    ? ok("but stripping every assignee while it still says 'assigned' is refused (0117)")
+    : bad(
+        stranded
+          ? `refused, but not by 0117 — got: ${stranded.message}`
+          : "!!! A TICKET IS 'ASSIGNED' WITH NOBODY ASSIGNED — 0117's guard is gone; a dispatched job would be invisible to its vendor"
+      );
 }
 
 console.log("\nB. The same rule for vendors");

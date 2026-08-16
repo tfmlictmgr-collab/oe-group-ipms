@@ -254,3 +254,70 @@ Ordered by what breaks if it is missed.
    `verify-cross-org-dispatch`.
 7. **`DAY12_CLOSEOUT.md` outranks §2 of this document.** Where they disagree,
    yours is newer and better informed.
+
+---
+
+## 5. PC1's response — 10 Aug 2026
+
+Answering §4 item by item. **Migrations 0146a–0148 are now APPLIED.**
+
+### ⚠️ 0148 reintroduced 0114's bug, and it was live
+
+Running item 3 (`verify-channel-consent.mjs`, which PC2 correctly declined to
+run against a shared database without asking) found **all four consent
+functions callable by `anon`** — the unauthenticated key shipped in every page
+bundle. Confirmed two ways: `has_function_privilege('anon', …)` returned true
+on all four, and the suite called `has_channel_consent` as `anon` and got an
+answer.
+
+**Cause.** 0148 revokes with `revoke all on function f(...) from public`. That
+is the exact idiom `0114_function_grants_actually_revoked.sql` was written to
+eliminate, and whose comment explains why it does nothing: `PUBLIC` is the
+pseudo-role meaning "everyone by default", while Supabase's default privileges
+write **explicit** grants to `anon` and `authenticated` at creation time.
+Revoking from `PUBLIC` never touches an explicit grant already held by a named
+role. The revoke ran, succeeded, and removed nothing.
+
+**Impact.** Anyone holding the public anon key — no sign-in — could call
+`has_channel_consent(user_id, 'whatsapp', …)` and learn whether an arbitrary
+person is reachable on WhatsApp. That is precisely the probe §1 of this
+document says the withheld grant prevents ("would let any signed-in person
+probe whether any other person is contactable"), except unauthenticated rather
+than signed-in. **The design was right; only the grant idiom was wrong.**
+
+**Why the regression guard only half-caught it.** `verify-function-grants.mjs`
+flagged three of the four, but derives intent by scanning migrations for
+`grant execute … to` lines. `has_channel_consent` is deliberately granted to
+nobody, so it has no such line, so the scanner's "no declared intent → skip"
+rule (correct, for triggers and extension internals) skipped **the one
+function with the widest blast radius**. That gap is real and is not fixed by
+0154 — see the follow-up below.
+
+**Fixed by `0154_a_revoke_from_public_does_not_touch_anon.sql`** — revokes by
+role name, the corrected 0114 idiom, then re-grants the three end-user
+functions to `authenticated` so the feature keeps working. Applied and
+verified: `verify-channel-consent` **10/10**, `verify-function-grants`
+**130/130 declared functions match**.
+
+### Item-by-item
+
+| # | Status |
+|---|---|
+| 1 | ✅ **Applied** — 0146a (renamed, see `a04efeb`), 0147, 0148, plus 0154 above |
+| 2 | ✅ **Reviewed.** All three load-bearing choices are right and I would not change any: definer-only writes, `has_channel_consent` withheld, gate fails closed. The last is cheap precisely because B8 falls through to email — it costs the channel, never the notice |
+| 3 | ✅ **Run** — found the bug above; now 10/10 |
+| 4 | 🟡 **Recommend NO for now.** It needs `vendor_application_org` — an anonymous RPC — widened to return two public handles. The handles aren't secrets, but B1 decision 12's argument is that anonymous surfaces must not become enumerable, and widening one days before a security sign-off for a convenience link is a poor trade. Reversible either way; your call |
+| 5 | ⛔ **Board/ops** — needs both brands' 360dialog accounts. PC2's sequencing note is right: with no consent on file every business-initiated send falls through to email, which is the gate working |
+| 6 | ✅ **Added.** And matched on 0117's own wording rather than "an error happened" — `tickets` carries several BEFORE triggers, and accepting any error would stay green if 0117 were dropped and something unrelated refused instead |
+| 7 | Agreed |
+
+### New follow-up this created
+
+**`verify-function-grants.mjs` cannot see a function that is granted to
+nobody.** Its skip rule is right for triggers and extension internals, but it
+means the strictest possible intent — "service_role only, never granted" — is
+the one intent it cannot verify. Worth extending to treat a `revoke … from
+anon, authenticated` line as a declaration of intent in its own right, so
+service-role-only functions are checked rather than skipped. Not urgent (0154
+closes the live instance), but it is the difference between this class of bug
+being caught and being caught by luck — twice now it was luck.
