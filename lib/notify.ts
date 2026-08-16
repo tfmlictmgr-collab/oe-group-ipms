@@ -168,7 +168,7 @@ export async function sendWhatsApp(sender: WhatsAppSender, to: string, text: str
  * They are the only free text in the message, and WhatsApp rejects newlines,
  * tabs and runs of 5+ spaces inside them — so a variable carrying, say, a
  * multi-line address fails the whole send. Callers should pass short, flat
- * values.
+ * values — see `flattenTemplateVar` below.
  */
 export async function sendWhatsAppTemplate(
   sender: WhatsAppSender,
@@ -209,6 +209,43 @@ export async function sendWhatsAppTemplate(
     );
   }
   return response.json();
+}
+
+/**
+ * Prepares a value for a `sendWhatsAppTemplate` variable. WhatsApp rejects
+ * the WHOLE send if any variable carries a newline, a tab, or a run of 5+
+ * spaces (WHATSAPP_TEMPLATES.md §0) — likely from a copy-pasted description
+ * or a multi-line address — so this collapses whitespace and caps length
+ * once, here, rather than trusting every call site to remember to.
+ *
+ * `fallback` covers the property-missing / name-missing case each template
+ * already had a bespoke fallback for in free-text form (e.g. "your
+ * property"); a template with an EMPTY variable is a different failure mode
+ * than free text with a blank spot — WhatsApp rejects a body that would
+ * start or end on a variable if it resolves empty, so a caller must never
+ * hand this a value that can be "".
+ */
+export function flattenTemplateVar(
+  value: string | null | undefined,
+  fallback: string,
+  maxLen = 60
+): string {
+  const flat = (value ?? "").replace(/\s+/g, " ").trim();
+  const withFallback = flat || fallback;
+  return withFallback.length > maxLen ? `${withFallback.slice(0, maxLen - 1)}…` : withFallback;
+}
+
+/**
+ * The `{{1}}` greeting name several templates share ("recipient's first
+ * name" — `users.full_name`, first word, per WHATSAPP_TEMPLATES.md §1/§3).
+ * Separate from `flattenTemplateVar` because taking the first word is a
+ * different operation from flattening whitespace, not a stricter version of
+ * it — a caller that wants the whole cleaned name (`payment_approved`'s
+ * `vendors.name`, a company name) must use `flattenTemplateVar` instead.
+ */
+export function firstNameTemplateVar(fullName: string | null | undefined, fallback = "there"): string {
+  const first = (fullName ?? "").trim().split(/\s+/)[0];
+  return first || fallback;
 }
 
 /**
