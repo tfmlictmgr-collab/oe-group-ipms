@@ -53,7 +53,7 @@ const dbConfig = {
   ssl: { rejectUnauthorized: false },
 };
 
-const { data: orgs } = await svc.from("orgs").select("id, slug, management_fee_pct").is("deleted_at", null);
+const { data: orgs } = await svc.from("orgs").select("id, slug, management_fee_pct, admin_fee_flat").is("deleted_at", null);
 const oea = orgs.find((o) => o.slug === "oea");
 const S = Date.now().toString(36).toUpperCase().slice(-5);
 const made = { properties: [], units: [], leases: [], intents: [], entries: [], remittances: [] };
@@ -184,7 +184,15 @@ console.log("\nB. One payout, for the full collected amount");
   const r = (rems ?? [])[0];
   if (r) {
     made.remittances.push(r.id);
-    const expected = 10_000_000 - Math.round(10_000_000 * Number(oea.management_fee_pct) / 100 * 100) / 100;
+    // ⚠️ The FLAT admin fee counts too. This expectation used to subtract only
+    // `management_fee_pct`, so it silently assumed `admin_fee_flat` was zero —
+    // true of TFML and the POC org, and NOT true of OEA, which carries ₦25,000
+    // (decision 14: "the admin fee stays an org-wide flat placeholder"). The
+    // product was deducting both and being reported as wrong for it.
+    const expected =
+      10_000_000
+      - Math.round(10_000_000 * Number(oea.management_fee_pct)) / 100
+      - Number(oea.admin_fee_flat ?? 0);
     Math.abs(Number(r.net_amount) - expected) < 1
       ? ok(`it pays the snapshotted net once (${naira(r.net_amount)})`)
       : bad(`paid ${naira(r.net_amount)}, expected ${naira(expected)}`);

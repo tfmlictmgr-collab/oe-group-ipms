@@ -13,6 +13,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
+import { clearVendorPaymentChain, clearLandlordPayoutChain } from "./lib/approval-chain.mjs";
 
 const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 config({ path: path.join(rootDir, ".env.local") });
@@ -134,6 +135,17 @@ async function newPayment(status, opts = {}) {
     approved_by: opts.approved ? adminUser.id : null,
   }).select("id").single();
   made.payments.push(data.id);
+
+  // ⚠️ Since 0151 `create_vendor_remittance` re-checks that the approval chain
+  // is complete AT THE CURRENT AMOUNT, so an `approved` status alone no longer
+  // makes a payment sendable. The chain is recorded here as a FIXTURE — this
+  // suite is about the remittance gate, not the chain — by three people none of
+  // whom is `fin`, which keeps intact the thing the suite actually asserts: that
+  // the person who releases the money is not one of the people who approved it.
+  if (opts.approved) {
+    const r = await clearVendorPaymentChain(svc, orgId, data.id);
+    if (!r.ok) bad(`could not stage the approval chain — ${r.why}`);
+  }
   return data.id;
 }
 
@@ -210,6 +222,13 @@ console.log("\nB2. Disbursement is finance's, and never the approver's (0142)");
   await svc.from("payments")
     .update({ approved_at: new Date().toISOString(), approved_by: fin.id, status: "approved" })
     .eq("id", selfPayId);
+  // The chain still has to be complete, or this would be refused for being
+  // unapproved rather than for the self-approval it is written to catch — a
+  // pass for the wrong reason.
+  {
+    const r = await clearVendorPaymentChain(svc, orgId, selfPayId);
+    if (!r.ok) bad(`could not stage the self-approval chain — ${r.why}`);
+  }
   const { error: selfErr } = await svc.rpc("create_vendor_remittance", {
     p_payment_id: selfPayId, p_reference: `REM-${stamp}-SELF`, p_executed_by: fin.id,
   });
@@ -241,9 +260,9 @@ console.log("\nC. One live remittance per payment");
 console.log("\nD. An instruction can be claimed for sending exactly once");
 {
   const results = await Promise.all([
-    svc.rpc("claim_remittance_for_sending", { p_id: vendorRemId }),
-    svc.rpc("claim_remittance_for_sending", { p_id: vendorRemId }),
-    svc.rpc("claim_remittance_for_sending", { p_id: vendorRemId }),
+    svc.rpc("claim_remittance_for_sending", { p_id: vendorRemId, p_sent_by: fin.id }),
+    svc.rpc("claim_remittance_for_sending", { p_id: vendorRemId, p_sent_by: fin.id }),
+    svc.rpc("claim_remittance_for_sending", { p_id: vendorRemId, p_sent_by: fin.id }),
   ]);
   const won = results.filter((r) => !r.error).length;
   won === 1
@@ -349,7 +368,15 @@ console.log("\nH. Rent: fees are deducted and land in fee income");
       ? ok("landlord receives ₦875,000")
       : bad(`net ${r.net_amount}`);
 
-    await svc.rpc("claim_remittance_for_sending", { p_id: remId });
+    // ⚠️ A landlord payout climbs the same three-stage chain as a vendor
+    // invoice since 0151 — that asymmetry (custodial client money with weaker
+    // controls than an invoice for a light fitting) is the gap that migration
+    // closed. Recorded as a fixture, by three people none of whom is `fin`.
+    {
+      const lc = await clearLandlordPayoutChain(svc, orgId, remId);
+      if (!lc.ok) bad(`could not stage the landlord chain — ${lc.why}`);
+    }
+    await svc.rpc("claim_remittance_for_sending", { p_id: remId, p_sent_by: fin.id });
     const { data: e2, error: postErr } = await svc.rpc("record_remittance_sent", {
       p_id: remId, p_transfer_code: `TRF_TEST_${stamp}_L`,
     });
@@ -377,7 +404,7 @@ console.log("\nI. Cannot pay out more than is held for a counterparty");
   if (error) { ok(`refused at creation — ${error.message.slice(0, 44)}`); }
   else {
     made.remittances.push(remId);
-    await svc.rpc("claim_remittance_for_sending", { p_id: remId });
+    await svc.rpc("claim_remittance_for_sending", { p_id: remId, p_sent_by: fin.id });
     const { error: postErr } = await svc.rpc("record_remittance_sent", {
       p_id: remId, p_transfer_code: "TRF_OVERDRAW",
     });
@@ -394,7 +421,7 @@ console.log("\nJ. An unknown outcome stays unknown");
     p_payment_id: payId, p_reference: `REM-${stamp}-U`, p_executed_by: fin.id,
   });
   made.remittances.push(remId);
-  await svc.rpc("claim_remittance_for_sending", { p_id: remId });
+  await svc.rpc("claim_remittance_for_sending", { p_id: remId, p_sent_by: fin.id });
   await svc.rpc("record_remittance_outcome", {
     p_id: remId, p_status: "unknown", p_message: "gateway timed out",
   });
@@ -406,7 +433,7 @@ console.log("\nJ. An unknown outcome stays unknown");
     : bad(`status ${r.status}, entry ${r.ledger_entry_id}`);
 
   // The dangerous move: re-claiming it as if it were fresh.
-  const { error } = await svc.rpc("claim_remittance_for_sending", { p_id: remId });
+  const { error } = await svc.rpc("claim_remittance_for_sending", { p_id: remId, p_sent_by: fin.id });
   error ? ok("cannot be re-claimed for sending — no blind retry") : bad("RE-CLAIMED AND WOULD SEND AGAIN");
 }
 

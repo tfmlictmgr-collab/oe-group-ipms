@@ -67,13 +67,36 @@ console.log("\nC. The payment gate is enforced in the database");
 {
   // S-1: the amount threshold was the one gate condition that lived only in a
   // server action, so a direct PATCH bypassed it.
+  //
+  // ⚠️ Since 0151 the threshold is no longer a single comparison inside
+  // `enforce_payment_transition`. It became a BAND — `resolve_required_tier()`
+  // — and the trigger enforces it by refusing any approval whose chain is not
+  // complete, each stage of which was tier-checked against that band. So this
+  // check follows the enforcement to where it went rather than accepting its
+  // absence: the trigger must consult the clearance gate, AND the band must
+  // still be read from `approval_threshold_amount`. Dropping either one is the
+  // regression S-1 was written to catch, and grepping only the old location
+  // would have reported a bypass that does not exist while missing a real one.
   const { rows } = await client.query(
-    `select prosrc from pg_proc where proname = 'enforce_payment_transition'`
+    `select proname, prosrc from pg_proc
+      where proname in ('enforce_payment_transition', 'resolve_required_tier')`
   );
-  const src = rows[0]?.prosrc ?? "";
-  /approval_threshold_amount/.test(src)
-    ? ok("the approval threshold is checked in enforce_payment_transition()")
-    : bad("the amount threshold is NOT in the trigger — a direct PATCH bypasses it");
+  // ⚠️ `src` stays the TRIGGER SOURCE STRING. An earlier version of this edit
+  // rebound it to a lookup function, and the checks further down that do
+  // `src.slice(...)` crashed the whole suite — a safety suite that dies is
+  // indistinguishable from one that never ran.
+  const bodyOf = (n) => rows.find((r) => r.proname === n)?.prosrc ?? "";
+  const src = bodyOf("enforce_payment_transition");
+  const trigger = src;
+  const ladder = bodyOf("resolve_required_tier");
+
+  /is_cleared_for_disbursement/.test(trigger)
+    ? ok("enforce_payment_transition() refuses an approval whose chain is incomplete")
+    : bad("the trigger does NOT consult the approval chain — a direct PATCH bypasses it");
+
+  /approval_threshold_amount/.test(ladder)
+    ? ok("resolve_required_tier() bands the amount against the configured threshold")
+    : bad("the amount threshold is NOT in the tier ladder — every amount resolves to one tier");
   // ⚠️ This matched the literal prose "only finance/admin may remit". The
   // message was later reworded to "only finance or an administrator may remit
   // payments" — an improvement — and this check began reporting **"do NOT go

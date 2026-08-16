@@ -21,6 +21,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
+import { clearLandlordPayoutChain } from "./lib/approval-chain.mjs";
 
 const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 config({ path: path.join(rootDir, ".env.local") });
@@ -218,7 +219,14 @@ console.log("\nD. The named account is the one the posting lands on");
     bad(`could not create — ${cErr.message}`);
   } else {
     made.remittances.push(r.id);
-    await svc.rpc("claim_remittance_for_sending", { p_id: r.id });
+    // ⚠️ Since 0151/0152 a landlord payout climbs the three-stage approval
+    // chain and the sender must be named — this suite is about which BANK
+    // ACCOUNT a payout names, so both are fixtures here rather than assertions.
+    {
+      const lc = await clearLandlordPayoutChain(svc, orgId, r.id);
+      if (!lc.ok) bad(`could not stage the approval chain — ${lc.why}`);
+    }
+    await svc.rpc("claim_remittance_for_sending", { p_id: r.id, p_sent_by: fin.id });
     const { data: entryId, error: pErr } = await svc.rpc("record_remittance_sent", {
       p_id: r.id, p_transfer_code: `TRF_ACCT_${stamp}`,
     });

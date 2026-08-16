@@ -129,32 +129,81 @@ for (const o of tenantOrgs) {
   // takes the most important assertion with it is worse than a failure.
 
   // ── A. What the caller may approve ──────────────────────────────────────
+  //
+  // ⚠️ REWRITTEN FOR THE APPROVAL CHAIN (0151/0155). This section used to
+  // assert that finance may approve up to the threshold. It no longer may
+  // approve at all — that is decision 16 carried to its conclusion and Task 2's
+  // explicit instruction: oversight authorises, finance disburses. Finance
+  // keeps every other thing this suite checks (ledger reconciliation, owner
+  // remittance, reports, consolidation) and loses only the approval it should
+  // never have held alongside the power to release.
   const lim = await asUser(fin.id, `select * from my_approval_limit()`);
   const l = lim.ok ? lim.rows[0] : undefined;
-  l?.may_approve === true && l?.unlimited === false
-    ? ok(`finance may approve, up to ₦${Number(l.threshold).toLocaleString()}`)
-    : bad(`wrong approval limit for finance: ${JSON.stringify(l ?? lim.err)}`);
+  l?.may_approve === false
+    ? ok("finance holds NO final-approval authority — it disburses, it does not authorise")
+    : bad(`finance can still approve: ${JSON.stringify(l ?? lim.err)}`);
+
+  // The band comes from the approver's own tier now, so read the ladder from
+  // the org rather than from finance's (absent) limit.
+  const { data: gate } = await svc.from("payment_settings")
+    .select("tier1_threshold_amount, approval_threshold_amount").eq("org_id", o.id).maybeSingle();
+  const tier1 = Number(gate?.tier1_threshold_amount ?? 100000);
 
   // ── B. A mixed batch ────────────────────────────────────────────────────
   //
   // Three payments: two approvable, one above the threshold, one still at
   // `verified` and therefore not ready. A single multi-row UPDATE would refuse
   // all three.
-  const threshold = Number(l?.threshold ?? 1000000);
+  const threshold = Number(gate?.approval_threshold_amount ?? 1000000);
   if (!vendor) note("no vendor on this org — the approval and invoice sections need one");
+
+  // The batch is now run by a TIER-2 payment approver, because finance can no
+  // longer action any stage. Stages 1 and 2 are pre-recorded by service role so
+  // this section still tests what it was written to test — that a batch is not
+  // a shortcut past the gate and is not all-or-nothing — rather than turning
+  // into a test of stage ordering, which verify-approval-chain already owns.
+  const pick = async (role) => (await svc.from("users").select("id")
+    .eq("org_id", o.id).eq("role", role).is("deactivated_at", null)
+    .limit(1).maybeSingle()).data;
+  const approver2 = (await svc.from("users").select("id")
+    .eq("org_id", o.id).eq("role", "payment_approver").eq("approval_tier", 2)
+    .is("deactivated_at", null).limit(1).maybeSingle()).data
+    ?? (await svc.from("users").select("id")
+    .eq("org_id", o.id).eq("role", "payment_approver").is("deactivated_at", null)
+    .limit(1).maybeSingle()).data;
+  const fmUser = await pick("facility_manager");
+  const auditUser = await pick("payment_audit_approver");
+
+  // Stages 1–2 for every row in `_p` except the one that is deliberately not at
+  // `recommended`. org_id, actor_role, actor_tier and amount are placeholders:
+  // `enforce_approval_rules` overwrites all four from the authoritative records,
+  // which is itself the behaviour verify-approval-chain section 5 proves.
+  const preStages = () =>
+    `insert into payment_approvals (org_id, payable_type, payable_id, stage_order,
+                                    actor_id, actor_role, actor_tier, amount, decision)
+     select '${o.id}', 'vendor_payment', p.id, s.stage_order,
+            case s.stage_order when 1 then '${fmUser?.id}'::uuid else '${auditUser?.id}'::uuid end,
+            'viewer', null, 1, 'approved'
+       from _p p
+       cross join (values (1::smallint), (2::smallint)) s(stage_order)
+      where p.tag <> 'notready'`;
   const mk = (amount, status, ref) =>
     `insert into payments (org_id, vendor_id, amount, status, service_verified_at,
                            performance_validated, invoice_reference)
      values ('${o.id}', '${vendor.id}', ${amount}, '${status}',
              now(), true, 'PROBEFIN-${ref}') returning id`;
 
-  const batch = !vendor ? null : await steps([
+  const batch = (!vendor || !approver2 || !fmUser || !auditUser) ? null : await steps([
     { service: true, sql: `create temp table _p (id uuid, tag text) on commit drop` },
     { service: true, sql: `with n as (${mk(1000, "recommended", "small1")}) insert into _p select id, 'small1' from n` },
     { service: true, sql: `with n as (${mk(2000, "recommended", "small2")}) insert into _p select id, 'small2' from n` },
+    // Above the TIER-2 ceiling, so the batch must refuse it on the ladder.
     { service: true, sql: `with n as (${mk(threshold + 500000, "recommended", "big")}) insert into _p select id, 'big' from n` },
     { service: true, sql: `with n as (${mk(3000, "verified", "notready")}) insert into _p select id, 'notready' from n` },
-    { as: fin.id, sql:
+    // Stages 1–2 on the three that are at `recommended`; `notready` gets none,
+    // so it still exercises the "not awaiting approval" skip.
+    { service: true, sql: preStages() },
+    { as: approver2.id, sql:
       `select p.tag, r.approved, r.reason
          from _p p
          join approve_payments((select array_agg(id) from _p)) r on r.payment_id = p.id
@@ -166,13 +215,15 @@ for (const o of tenantOrgs) {
   } else if (!batch.ok) {
     bad(`the batch itself failed: ${batch.err}`);
   } else {
-    const by = Object.fromEntries(batch.steps[5].map((r) => [r.tag, r]));
+    const by = Object.fromEntries(batch.steps[6].map((r) => [r.tag, r]));
     by.small1?.approved === true && by.small2?.approved === true
-      ? ok("approves the two within the threshold")
+      ? ok("approves the two within the approver's band")
       : bad(`the approvable ones were refused: ${JSON.stringify([by.small1, by.small2])}`);
 
-    by.big?.approved === false && /administrator or an executive/i.test(by.big?.reason ?? "")
-      ? ok("refuses the one above the threshold, in the gate's own words")
+    // The refusal now names the TIER rather than the role, because the ladder
+    // decides it per band instead of at one cut-off.
+    by.big?.approved === false && /tier \d|approver or above/i.test(by.big?.reason ?? "")
+      ? ok("refuses the one above the band, in the ladder's own words")
       : bad(`the over-threshold payment was not refused correctly: ${JSON.stringify(by.big)}`);
 
     by.notready?.approved === false
@@ -193,13 +244,27 @@ for (const o of tenantOrgs) {
                                         service_verified_at, performance_validated, invoice_reference)
                   values ('${o.id}', '${vendor.id}', 1000, 'recommended', null, false, 'PROBEFIN-ungated')
                   returning id) insert into _u select id from n` },
-    { as: fin.id, sql: `select approved, reason from approve_payments(array(select id from _u))` },
+    { as: (approver2 ?? fin).id, sql: `select approved, reason from approve_payments(array(select id from _u))` },
   ]);
   if (ungated) {
     const u = ungated.ok ? ungated.steps[2][0] : undefined;
     u?.approved === false
       ? ok("a payment through no gate is refused even inside a batch")
       : bad(`!!! A BATCH APPROVED AN UNGATED PAYMENT: ${JSON.stringify(u ?? ungated.err)}`);
+  }
+
+  // Finance cannot reach the batch path at all any more — the same rule as
+  // section A, proven by attempting it rather than by reading the limit.
+  if (vendor) {
+    const finBatch = await steps([
+      { service: true, sql: `create temp table _f (id uuid) on commit drop` },
+      { service: true, sql: `with n as (${mk(1000, "recommended", "finbatch")}) insert into _f select id from n` },
+      { as: fin.id, sql: `select approved, reason from approve_payments(array(select id from _f))` },
+    ]);
+    const f = finBatch.ok ? finBatch.steps[2][0] : undefined;
+    f?.approved === false
+      ? ok("and finance cannot approve through the batch either")
+      : bad(`!!! FINANCE APPROVED VIA THE BATCH PATH: ${JSON.stringify(f ?? finBatch.err)}`);
   }
 
   // ── C. The executive's above-threshold approval ─────────────────────────
@@ -215,13 +280,22 @@ for (const o of tenantOrgs) {
       : bad(`the executive is not exempt: ${JSON.stringify(el.rows?.[0] ?? el.err)}`);
 
     const bigExec = await steps([
-      { service: true, sql: `create temp table _e (id uuid) on commit drop` },
-      { service: true, sql: `with n as (${mk(threshold + 900000, "recommended", "execbig")}) insert into _e select id from n` },
+      { service: true, sql: `create temp table _e (id uuid, tag text) on commit drop` },
+      { service: true, sql: `with n as (${mk(threshold + 900000, "recommended", "execbig")}) insert into _e select id, 'execbig' from n` },
+      // Stages 1–2 first: the escalation is about WHO clears the top band, not
+      // about skipping the two pairs of hands before it.
+      { service: true, sql: (!fmUser || !auditUser) ? `select 1` :
+        `insert into payment_approvals (org_id, payable_type, payable_id, stage_order,
+                                        actor_id, actor_role, actor_tier, amount, decision)
+         select '${o.id}', 'vendor_payment', e.id, s.stage_order,
+                case s.stage_order when 1 then '${fmUser?.id}'::uuid else '${auditUser?.id}'::uuid end,
+                'viewer', null, 1, 'approved'
+           from _e e cross join (values (1::smallint), (2::smallint)) s(stage_order)` },
       { as: exec.id, sql: `select approved, reason from approve_payments(array(select id from _e))` },
     ]);
-    bigExec.ok && bigExec.steps[2][0]?.approved === true
+    bigExec.ok && bigExec.steps[3][0]?.approved === true
       ? ok("and can approve above it — the MD is who the escalation was for")
-      : bad(`the executive was refused: ${JSON.stringify(bigExec.steps?.[2]?.[0] ?? bigExec.err)}`);
+      : bad(`the executive was refused: ${JSON.stringify(bigExec.steps?.[3]?.[0] ?? bigExec.err)}`);
 
     // Oversight authorises; finance disburses. This must never soften.
     const remit = await steps([
@@ -465,7 +539,7 @@ await db.end();
 
 console.log(
   failures === 0
-    ? "\n\x1b[32mALL CHECKS PASSED\x1b[0m — finance can approve in bulk, pay owners and report; the gate holds per row, and only the operator consolidates."
+    ? "\n\x1b[32mALL CHECKS PASSED\x1b[0m — finance reconciles, pays owners and reports but never approves; the ladder holds per row, and only the operator consolidates."
     : `\n\x1b[31m${failures} CHECK(S) FAILED\x1b[0m`
 );
 process.exit(failures === 0 ? 0 : 1);

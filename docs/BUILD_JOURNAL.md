@@ -4931,3 +4931,71 @@ approval — **a worse lie than an unhelpful error.**
 
 `verify-approval-chain.mjs`: 49 checks, including all six band boundaries, the
 forged-amount case, amount-tampering after approval, and the landlord gap.
+
+## The suite that passed while the feature was unreachable (0155–0158)
+
+`verify-approval-chain` passed 49 of 49 while the two roles it was written for
+could not read a single payment. `payments_select` and `remittances_select` gate
+on `oversight_roles()`; 0151 added `payment_audit_approver` and
+`payment_approver` and never touched either policy. The Approvals queue would
+have been empty for exactly the people it exists for, and `approve_payments()`
+answered "not awaiting approval, or not yours to approve" for every id.
+
+📌 **A suite that exercises a control with a key that ignores permissions cannot
+tell you the permissions are missing.** Every insert in that suite goes through
+the service role, which bypasses RLS by design. It proved the rules hold; it
+could not prove the roles can reach the rows those rules govern. `0157` adds a
+narrow `payment_chain_roles()` rather than widening `oversight_roles()` — that
+function also governs ledger and audit visibility, and an approver has no
+business in either.
+
+Found by `verify-finance-journey`, not by review, and only because that suite
+drives its assertions through real signed-in sessions.
+
+### What else the change had knocked over
+
+Six suites, one cause: approval stopped being something a role does.
+
+- **`approve_payments()` (0127) had been dead since 0151 landed** — a shipped
+  bulk-approve button that could no longer succeed at anything, because it wrote
+  `status = 'approved'` directly. Rebuilt in `0155` as bulk *stage-3*, keeping
+  the 200 cap, the per-row outcomes and the deliberately ambiguous "not yours"
+  reason. `my_approval_limit()` kept its exact `TABLE(...)` return shape: two
+  call sites read those three columns, and a scalar would have broken at runtime
+  rather than at compile time.
+- **`set_org_gateway_credential` refused the service role** (`0158`). It opened
+  with `if auth.uid() is null then raise 'your session expired'`, and under the
+  service-role client `auth.uid()` IS null — so every seed and fixture was told
+  its session had expired. The mirror image of 0142's defect: that one treated a
+  null actor as a person and wrote NULL; this one treated a null actor as an
+  impostor and refused. Both come from assuming `auth.uid()` is always somebody.
+
+### Killing a verification run has a cost
+
+`npm run verify` buffers all output and exits 0 even when suites fail — the
+first full run reported exit 0 with **13 of 84 failing**. Killing it mid-flight
+then left probe fixtures behind that broke three further suites on the next run,
+each with a message that read like a product defect:
+
+- an orphaned `PROBERACE` property left ₦9,225,000 of collected-unremitted rent,
+  which `verify-finance-journey` summed into a fixture it expected to be ₦450,000;
+- a `PROBEFX-GBP` bank account and its postings left `verify-fx-collections`
+  refusing at its own precondition.
+
+📌 **`verify-fx-collections` can only pass once on a given database.** It
+asserts GBP has no accounts, enables GBP, and never cleans up. That is not
+visible until something interrupts a run. `scripts/lib/reset-fx-probe.mjs` now
+clears that fixture, and refuses to touch any GBP account whose bank account is
+not `PROBEFX-` prefixed — real ledger history is append-only and not a test
+script's business.
+
+And a genuine arithmetic disagreement, where the test was wrong and the product
+right: `verify-remittance-race` computed its expected payout from
+`management_fee_pct` alone, silently assuming `admin_fee_flat` was zero. True of
+TFML and the POC org; **not** true of OEA, which carries ₦25,000 (decision 14).
+The product had been deducting both and being reported as wrong for it.
+
+Three suites (`verify-reconciliation`, `verify-fx-collections`, the asset-import
+pair) import `.ts` modules and must run under `tsx`; invoking them with `node`
+produces `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`, which reads as a broken suite
+rather than a wrong command.

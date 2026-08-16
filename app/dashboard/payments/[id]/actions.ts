@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { averageComposite } from "@/lib/vendor-score";
 import { sendCascade } from "@/lib/cascade";
+import { flattenTemplateVar } from "@/lib/notify";
 import { formatNaira } from "@/lib/currency";
 import { ok, fail, failFromDb, type ActionResult } from "@/lib/action-result";
 import { checkRateLimit, REMITTANCE_LIMIT } from "@/lib/rate-limit";
@@ -201,7 +202,13 @@ export async function approvePayment(paymentId: string): Promise<ActionResult> {
       // vendor record. A vendor with no portal account has no consent on file
       // and no way to give it, so WhatsApp is skipped for them and the cascade
       // falls through to email — which is the correct outcome, not a bug.
-      .select("contact_phone, contact_email, user_id")
+      //
+      // `name` is new here (WHATSAPP_TEMPLATES.md §2's {{1}}) — this call
+      // previously never set `whatsapp:` at all, so WhatsApp was never
+      // attempted for a payment approval regardless of the vendor's own
+      // channel preference; only SMS/email ran. Setting it below is part of
+      // this fix, not incidental.
+      .select("name, contact_phone, contact_email, user_id")
       .eq("id", payment.vendor_id)
       .single();
     if (vendor) {
@@ -211,6 +218,17 @@ export async function approvePayment(paymentId: string): Promise<ActionResult> {
         entityId: paymentId,
         recipientUserId: vendor.user_id,
         message: `Your payment of ${formatNaira(payment.amount)} has been approved and is queued for remittance.`,
+        whatsapp: vendor.contact_phone,
+        whatsappTemplate: {
+          name: "payment_approved",
+          languageCode: "en",
+          // ⚠️ "approved and queued", never "paid" — approval and remittance
+          // are separate steps with separate authorisers by design (finance
+          // disburses, the approver does not — verify-oversight-roles).
+          // WHATSAPP_TEMPLATES.md §2's body already says this; the variable
+          // only ever carries the amount.
+          variables: [flattenTemplateVar(vendor.name, "there"), formatNaira(payment.amount)],
+        },
         phone: vendor.contact_phone,
         email: vendor.contact_email,
       });

@@ -1,7 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { checkRateLimit, clientIp } from "@/lib/rate-limit";
-import { getAdapterByName, type GatewayName } from "@/lib/gateway";
+import { getAdapterByName, getGatewayForOrg, type GatewayName } from "@/lib/gateway";
+
+/**
+ * The adapter whose credentials belong to THIS org, for verifying a webhook it
+ * sent. Falls back to the platform adapter when the org has not connected its
+ * own account — additive, so an unconfigured org behaves exactly as before.
+ */
+async function getAdapterForOrgWebhook(name: GatewayName, orgId: string) {
+  if (name === "simulated") return getAdapterByName(name);
+  const { getOrgCredential } = await import("@/lib/gateway/credentials");
+  const cred = await getOrgCredential(orgId, name);
+  if (!cred) return getAdapterByName(name);
+  // Paystack signs with the SECRET key; Flutterwave with a separate hash. The
+  // adapter takes whichever that gateway uses to verify.
+  return getGatewayForOrg(orgId, name === "paystack" ? "NGN" : "USD");
+}
 
 // Inbound payment webhooks. The order of operations here is the security
 // design, so it is worth stating plainly:
@@ -59,9 +74,41 @@ export async function POST(
   // signature, so the only safe answer is to refuse. Caught rather than allowed
   // to become a 500 — an unhandled error makes gateways retry indefinitely, and
   // it hints at internal state to whoever is probing.
+  // ⚠️ THE ORDERING PROBLEM, and why the org is read from an unverified body.
+  //
+  // With per-org merchant accounts (0156) the signature must be checked against
+  // the SENDING org's secret — but which org sent it is only knowable from the
+  // payload, which is not yet trustworthy. The reference carries an org tag for
+  // exactly this: read it, resolve the org, fetch that org's secret, and only
+  // then verify.
+  //
+  // Using an unverified field to CHOOSE A KEY is safe, and the distinction is
+  // worth stating: a forged body naming another org's tag is verified against
+  // that org's secret and fails. A wrong choice refuses, so the choice cannot be
+  // exploited. Nothing else in this payload is trusted before the check below —
+  // in particular the amount, which is re-verified against the gateway at step 5.
+  //
+  // A reference with no tag (minted before 0156, or an org that has not
+  // connected its own account) resolves to null and verifies against the
+  // platform key, exactly as it did before.
+  let orgId: string | null = null;
+  try {
+    const peeked = JSON.parse(rawBody) as Record<string, unknown>;
+    const peekedRef = extractEvent(name, peeked).reference;
+    if (peekedRef) {
+      const { orgFromPaymentReference } = await import("@/lib/gateway/credentials");
+      orgId = await orgFromPaymentReference(peekedRef);
+    }
+  } catch {
+    // Unparseable body: fall through to the platform key, which will refuse it
+    // on signature or on the JSON parse below.
+  }
+
   let adapter;
   try {
-    adapter = getAdapterByName(name);
+    adapter = orgId
+      ? await getAdapterForOrgWebhook(name, orgId)
+      : getAdapterByName(name);
   } catch {
     console.warn(`Rejected ${name} webhook: gateway not configured, cannot verify`);
     return new NextResponse("Forbidden", { status: 403 });
@@ -73,7 +120,7 @@ export async function POST(
     request.headers.get("x-simulated-signature");
 
   if (!adapter.verifySignature(rawBody, signature)) {
-    console.warn(`Rejected ${name} webhook: invalid signature`);
+    console.warn(`Rejected ${name} webhook: invalid signature${orgId ? ` (org ${orgId})` : ""}`);
     return new NextResponse("Forbidden", { status: 403 });
   }
 

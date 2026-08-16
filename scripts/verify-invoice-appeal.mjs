@@ -88,6 +88,38 @@ async function scenario(orgId, vendorId, status, actorId, sql, extra = "") {
         await db.query("set local request.jwt.claims = '{}'");
         continue;
       }
+      // ⚠️ `CLEAR CHAIN` — since 0151 a payment reaches `approved` only as the
+      // outcome of three recorded stages. This suite is about REOPENING a
+      // rejected invoice, not about the chain, so satisfying stages 1–2 is a
+      // fixture: recorded as superuser, as two people who are not the actor, so
+      // separation of duties is met rather than dodged. Everything rolls back
+      // with the surrounding transaction.
+      if (step === "CLEAR CHAIN") {
+        await db.query("reset role");
+        await db.query("set local request.jwt.claims = '{}'");
+        await db.query(
+          `insert into payment_approvals (org_id, payable_type, payable_id, stage_order,
+                                          actor_id, actor_role, actor_tier, amount, decision)
+           select $1::uuid, 'vendor_payment', $2::uuid, s.stage_order, u.id,
+                  'viewer', null, 1, 'approved'
+             from (values (1::smallint, 'facility_manager'::user_role),
+                          (2::smallint, 'payment_audit_approver'::user_role),
+                          (3::smallint, 'payment_approver'::user_role)) s(stage_order, want)
+             cross join lateral (
+               select id from users
+                where org_id = $1::uuid and role = s.want
+                  and deactivated_at is null and id <> $3::uuid
+                -- Highest tier first, so stage 3 is cleared by someone whose
+                -- band covers the fixture amount whatever it happens to be.
+                order by approval_tier desc nulls last
+                limit 1
+             ) u`,
+          [orgId, id, actorId]
+        );
+        await db.query("set local role authenticated");
+        await db.query(asClaims(actorId));
+        continue;
+      }
       last = await db.query(step.replaceAll("$ID", `'${id}'`));
     }
     await db.query("rollback");
@@ -188,13 +220,20 @@ for (const org of (orgs ?? []).filter((o) => !o.is_platform_operator)) {
     }
 
     if (who.finance_approver) {
-      const finVerify = await scenario(org.id, vendor.id, "recommended", who.finance_approver,
+      // ⚠️ REWRITTEN FOR THE APPROVAL CHAIN (0151). This asserted that finance
+      // approves a recommended invoice. It no longer may — approval is the
+      // outcome of three recorded stages, none of which finance can action.
+      // The claim is inverted rather than deleted, because "finance cannot
+      // approve" is the control decision 16 asked for and is worth holding down
+      // here as well as in verify-finance-journey.
+      const finApprove = await scenario(org.id, vendor.id, "recommended", who.finance_approver,
         `update payments set status='approved', approved_by='${who.finance_approver}', approved_at=now() where id=$ID returning id`);
-      finVerify.ok && finVerify.rows.length === 1
-        ? ok("finance approves a recommended invoice")
-        : bad(`finance could not approve: ${finVerify.err ?? "0 rows"}`);
+      !finApprove.ok && /approval chain/i.test(finApprove.err ?? "")
+        ? ok("finance CANNOT approve an invoice — it disburses, it does not authorise")
+        : bad(`finance approved without the chain: ${JSON.stringify(finApprove.rows ?? finApprove.err)}`);
 
       const finRemit = await scenario(org.id, vendor.id, "recommended", who.finance_approver, [
+        "CLEAR CHAIN",
         `update payments set status='approved', approved_by='${who.finance_approver}', approved_at=now() where id=$ID`,
         `update payments set status='remitted' where id=$ID returning id`,
       ]);
@@ -206,6 +245,7 @@ for (const org of (orgs ?? []).filter((o) => !o.is_platform_operator)) {
     if (who.executive) {
       // The separation that must never soften.
       const execRemit = await scenario(org.id, vendor.id, "recommended", who.executive, [
+        "CLEAR CHAIN",
         `update payments set status='approved', approved_by='${who.executive}', approved_at=now() where id=$ID`,
         `update payments set status='remitted' where id=$ID returning id`,
       ]);

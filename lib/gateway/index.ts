@@ -534,8 +534,57 @@ export function gatewayConfigured(currency = "NGN"): boolean {
     : Boolean(process.env.FLUTTERWAVE_SECRET_KEY);
 }
 
-/** Our own reference. Prefixed so it is recognisable on a bank statement. */
-export function newPaymentReference(purpose: string): string {
+/**
+ * Our own reference. Prefixed so it is recognisable on a bank statement.
+ *
+ * ⚠️ `orgTag` (0156) is what lets an incoming webhook resolve WHICH org's
+ * secret to verify against, before it can verify anything. Optional, and
+ * omitting it produces the pre-0156 shape — which `payment_reference_org_tag()`
+ * correctly resolves to null, sending that webhook to the platform key. That
+ * fallback is not politeness: every reference already in flight lacks the tag,
+ * and a deploy that stopped recognising them would strand real payments.
+ */
+export function newPaymentReference(purpose: string, orgTag?: string | null): string {
   const tag = purpose.slice(0, 2).toUpperCase();
-  return `OE-${tag}-${Date.now().toString(36).toUpperCase()}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
+  const rand = crypto.randomBytes(3).toString("hex").toUpperCase();
+  const stamp = Date.now().toString(36).toUpperCase();
+  return orgTag
+    ? `OE-${orgTag}-${tag}-${stamp}-${rand}`
+    : `OE-${tag}-${stamp}-${rand}`;
+}
+
+/**
+ * The adapter for an ORG's own merchant account, falling back to the platform
+ * key when that org has not connected one.
+ *
+ * ⚠️ This is the segregation that matters for money: a TFML vendor payment must
+ * draw on TFML's balance, never OEA's. Before 0156 both drew on whichever
+ * account `PAYSTACK_SECRET_KEY` happened to name, which with one live client was
+ * invisible and with three organisations is a misdirected payout.
+ */
+export async function getGatewayForOrg(
+  orgId: string,
+  currency = "NGN"
+): Promise<PaymentGatewayAdapter> {
+  const { getOrgCredential } = await import("./credentials");
+  const wanted: "paystack" | "flutterwave" =
+    currency.toUpperCase() === "NGN" ? "paystack" : "flutterwave";
+
+  try {
+    const cred = await getOrgCredential(orgId, wanted);
+    if (cred) {
+      return wanted === "paystack"
+        ? new PaystackAdapter(cred.secretKey)
+        : new FlutterwaveAdapter(cred.secretKey, cred.webhookSecret ?? "");
+    }
+  } catch {
+    // A credential that cannot be decrypted must NOT silently become the
+    // platform key — that would move an org's money through the wrong merchant
+    // account, which is the exact failure this function exists to prevent.
+    throw new Error(
+      "This organisation's payment gateway credentials could not be read. Nothing has been charged or sent."
+    );
+  }
+
+  return getGateway(currency);
 }

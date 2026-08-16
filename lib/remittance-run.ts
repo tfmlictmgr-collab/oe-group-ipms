@@ -48,7 +48,7 @@ export async function sendCreatedRemittance(opts: {
   onPosted?: (reference: string) => Promise<void>;
 }): Promise<RemittanceOutcome> {
   const { supabaseAdmin } = await import("@/lib/supabase/admin");
-  const { getGateway } = await import("@/lib/gateway");
+  const { getGatewayForOrg } = await import("@/lib/gateway");
 
   const touch = () => {
     for (const p of opts.revalidate) revalidatePath(p);
@@ -75,6 +75,7 @@ export async function sendCreatedRemittance(opts: {
   }
 
   const row = (Array.isArray(claimed) ? claimed[0] : claimed) as {
+    org_id: string;
     recipient_id: string;
     net_amount: number | string;
     currency: string;
@@ -101,8 +102,12 @@ export async function sendCreatedRemittance(opts: {
     );
   }
 
-  // 4 — the amount comes from the remittance record, never from the request.
-  const gateway = getGateway(row.currency);
+  // 4 — the amount comes from the remittance record, never from the request,
+  // and so does the ACCOUNT it is drawn on. A TFML vendor payment must draw on
+  // TFML's Paystack balance, never OEA's — before 0156 both drew on whichever
+  // account PAYSTACK_SECRET_KEY happened to name, which is segregation failing
+  // silently rather than loudly.
+  const gateway = await getGatewayForOrg(row.org_id, row.currency);
   const result = await gateway.transfer({
     reference: row.reference,
     recipientCode: recipient.recipient_code,

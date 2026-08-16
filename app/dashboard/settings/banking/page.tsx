@@ -4,6 +4,7 @@ import { getSessionProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import CurrencyAccountsManager from "../CurrencyAccountsManager";
+import GatewayForm from "./GatewayForm";
 import AdminOnly from "../AdminOnly";
 
 export default async function BankingSettingsPage() {
@@ -30,7 +31,14 @@ export default async function BankingSettingsPage() {
       .order("code"),
   ]);
 
+  // What this org may know about its own gateway connection. Never the key —
+  // `org_gateway_status` cannot return one, because it does not select one.
+  const { data: gatewayRows } = await supabase.rpc("org_gateway_status", { p_org_id: null });
+  const paystack = ((gatewayRows ?? []) as Array<{ gateway: string }>)
+    .find((g) => g.gateway === "paystack") ?? null;
+
   return (
+    <>
     <Card>
       <CardHeader>
         <CardTitle>Client funds &amp; banking</CardTitle>
@@ -61,5 +69,20 @@ export default async function BankingSettingsPage() {
         />
       </CardContent>
     </Card>
+
+    <Card className="mt-4">
+      <CardHeader>
+        <CardTitle>Paystack (Naira collections &amp; payouts)</CardTitle>
+        <CardDescription>
+          This organisation&rsquo;s own merchant account. Collections land in it and
+          payouts draw on it, so its money never moves through another
+          organisation&rsquo;s balance.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <GatewayForm status={paystack as never} />
+      </CardContent>
+    </Card>
+    </>
   );
 }

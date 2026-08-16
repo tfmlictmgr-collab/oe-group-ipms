@@ -160,19 +160,51 @@ console.log("\nC. Payment approval — the co-held function");
 
   const c = await login(execEmail);
 
-  const a1 = await c.from("payments")
-    .update({ status: "approved", approved_at: new Date().toISOString() })
-    .eq("id", small).select("id");
-  (!a1.error && (a1.data ?? []).length === 1)
-    ? ok("approves a payment below the threshold")
-    : bad(`could not approve — ${a1.error?.message.slice(0, 60) ?? "no row updated"}`);
+  // ⚠️ REWRITTEN FOR THE APPROVAL CHAIN (0151). The claim is unchanged — an
+  // executive approves below the threshold AND above it, decision 9 — but
+  // approval is no longer a status a role may set. It is stage 3 of a chain,
+  // so the executive now proves the same thing through the path that actually
+  // exists, with their own session. Stages 1–2 are fixtures, recorded by
+  // service role as two other people so separation of duties is satisfied
+  // rather than dodged.
+  const preStages = async (paymentId) => {
+    const pick = async (role) => (await svc.from("users").select("id")
+      .eq("org_id", poc.id).eq("role", role).is("deactivated_at", null)
+      .limit(1).maybeSingle()).data?.id;
+    const fm = await pick("facility_manager");
+    const auditor = await pick("payment_audit_approver");
+    if (!fm || !auditor) return false;
+    for (const [stage, actor] of [[1, fm], [2, auditor]]) {
+      const { error } = await svc.from("payment_approvals").insert({
+        org_id: poc.id, payable_type: "vendor_payment", payable_id: paymentId,
+        stage_order: stage, actor_id: actor,
+        actor_role: "viewer", actor_tier: null, amount: 1, decision: "approved",
+      });
+      if (error) return false;
+    }
+    return true;
+  };
 
-  const a2 = await c.from("payments")
-    .update({ status: "approved", approved_at: new Date().toISOString() })
-    .eq("id", large).select("id");
-  (!a2.error && (a2.data ?? []).length === 1)
+  const stagedSmall = await preStages(small);
+  const stagedLarge = await preStages(large);
+
+  const a1 = stagedSmall
+    ? await c.rpc("record_payment_approval", {
+        p_payable_type: "vendor_payment", p_payable_id: small,
+        p_stage: 3, p_decision: "approved", p_reason: null })
+    : { error: { message: "could not stage the earlier approvals" } };
+  !a1.error
+    ? ok("approves a payment below the threshold")
+    : bad(`could not approve — ${a1.error?.message.slice(0, 70)}`);
+
+  const a2 = stagedLarge
+    ? await c.rpc("record_payment_approval", {
+        p_payable_type: "vendor_payment", p_payable_id: large,
+        p_stage: 3, p_decision: "approved", p_reason: null })
+    : { error: { message: "could not stage the earlier approvals" } };
+  !a2.error
     ? ok("and one ABOVE it — escalation reaches a principal, which is what it is for")
-    : bad(`could not approve above threshold — ${a2.error?.message.slice(0, 70) ?? "no row"}`);
+    : bad(`could not approve above threshold — ${a2.error?.message.slice(0, 70)}`);
 
   await c.auth.signOut();
 }

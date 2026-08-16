@@ -324,6 +324,11 @@ console.log("\nE. Every role has somewhere to land");
     facility_manager: "/dashboard",
     finance_approver: "/dashboard",
     regional_manager: "/dashboard",
+    // The approval-chain roles (0151). They land on the staff dashboard, whose
+    // nav carries Approvals — the queue is the whole reason either account
+    // exists.
+    payment_audit_approver: "/dashboard",
+    payment_approver: "/dashboard",
   };
   const uncovered = ROLES.filter((r) => !HOME[r]);
   uncovered.length === 0

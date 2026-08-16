@@ -169,7 +169,14 @@ export default async function DashboardLayout({
     seesRequestAnalytics: biScope(role).requests,
 
     // Everyone operational who is not given a personal home screen above.
-    isStaff: ["admin", "facility_manager", "finance_approver", "executive", "regional_manager"].includes(role),
+    isStaff: [
+      "admin", "facility_manager", "finance_approver", "executive", "regional_manager",
+      // Both chain roles (0151). A role whose home screen resolves to nothing
+      // is a person who signs in and lands nowhere — caught by
+      // verify-role-surface, which checks exactly that and is the reason this
+      // list is not "everyone operational" written out twice.
+      "payment_audit_approver", "payment_approver",
+    ].includes(role),
     // Administrator of the platform operator org. Asked of the org record
     // rather than inferred from the role, because "admin" means admin of YOUR
     // org — every brand has one, and only one org is the operator.

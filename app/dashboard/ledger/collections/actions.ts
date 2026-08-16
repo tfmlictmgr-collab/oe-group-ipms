@@ -3,7 +3,7 @@
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { getGateway, gatewayConfigured, newPaymentReference } from "@/lib/gateway";
+import { getGateway, getGatewayForOrg, gatewayConfigured, newPaymentReference } from "@/lib/gateway";
 import { unusableForCheckout } from "@/lib/email-address";
 import { SUPPORTED_CURRENCIES } from "@/lib/currency";
 import { ok, fail, failFromDb, type ActionResult } from "@/lib/action-result";
@@ -142,13 +142,23 @@ export async function raisePaymentRequest(input: RaiseInput): Promise<RaiseResul
     );
   }
 
-  const reference = newPaymentReference(input.purpose);
+  // The org tag rides on the reference so the webhook can find this org's
+  // secret before it can verify anything (0156). Read from the org record
+  // rather than passed in — a caller-supplied tag would choose which merchant
+  // account a payment is attributed to.
+  const { data: myOrg } = await supabase
+    .from("orgs").select("gateway_tag").eq("id", me.org_id).maybeSingle();
+
+  const reference = newPaymentReference(input.purpose, myOrg?.gateway_tag ?? null);
   const h = await headers();
   const origin =
     process.env.NEXT_PUBLIC_SITE_URL ??
     `${h.get("x-forwarded-proto") ?? "https"}://${h.get("host")}`;
 
-  const gateway = getGateway(currency);
+  // This org's own merchant account where it has one, the platform key where it
+  // has not. A TFML collection must land in TFML's account, not in whichever
+  // account an environment variable happens to name.
+  const gateway = await getGatewayForOrg(me.org_id, currency);
   const init = await gateway.initialise({
     reference,
     amount,
