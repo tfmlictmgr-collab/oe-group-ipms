@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatNaira } from "@/lib/currency";
 import { runAction, messageOf, hintOf } from "@/lib/run-action";
-import { runLandlordPayout, type PayoutCandidate } from "./actions";
+import { raiseLandlordPayout, type PayoutCandidate } from "./actions";
 
 /**
  * The landlord payout run.
@@ -40,32 +40,32 @@ export default function PayoutRun({
     new Date().toLocaleDateString("en-GB", { month: "long", year: "numeric" })
   );
 
+  /**
+   * Raises the payout for approval. It does NOT send.
+   *
+   * ⚠️ This button used to create and send in one press. Since 0151 a landlord
+   * payout climbs the same three-stage chain as a vendor invoice, so pressing it
+   * assembles the payout — locking and claiming the collected charges, which is
+   * still one atomic step — and hands it to the approvers. Finance sends it from
+   * Approvals once the chain is complete.
+   */
   async function send(c: PayoutCandidate) {
     setBusy(c.propertyId);
     try {
-      const r = await runAction(
-        runLandlordPayout({
+      await runAction(
+        raiseLandlordPayout({
           propertyId: c.propertyId,
           landlordUserId: c.landlordUserId,
           period,
         })
       );
-      if (r.status === "sent") {
-        toast.success(`Sent to ${c.landlordName}.`, {
-          description: `Reference ${r.reference}.`,
-        });
-      } else {
-        // A pending transfer is not a success and must not read like one. The
-        // webhook settles it; claiming it landed would invite a re-send.
-        toast.message("The transfer is pending at the gateway.", {
-          description: `Reference ${r.reference}. It will settle on its own — do not send again.`,
-          duration: Infinity,
-          closeButton: true,
-        });
-      }
+      toast.success(`Raised for approval — ${c.landlordName}.`, {
+        description:
+          "The collected rent is claimed and held. It goes out once job sign-off, the audit check and final approval are recorded.",
+      });
       router.refresh();
     } catch (e) {
-      toast.error(messageOf(e, "That payout could not be sent."), {
+      toast.error(messageOf(e, "That payout could not be raised."), {
         description: hintOf(e),
         duration: Infinity,
         closeButton: true,

@@ -13,7 +13,11 @@ export async function getSessionProfile() {
 
   const { data: profile } = await supabase
     .from("users")
-    .select("id, role, full_name, email, org_id")
+    // `approval_tier` travels with the profile because it is half of what
+    // decides whether a person may action a stage — role alone cannot answer
+    // it (0151). Without it here, a payment_approver would be shown a stage
+    // they hold the role for and then be refused on the tier.
+    .select("id, role, approval_tier, full_name, email, org_id")
     .eq("id", user.id)
     .single();
 

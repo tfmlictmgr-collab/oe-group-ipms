@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { sendCreatedRemittance, type RemittanceOutcome } from "@/lib/remittance-run";
 import { ok, fail, type ActionResult } from "@/lib/action-result";
@@ -53,7 +54,7 @@ export async function payoutCandidates(): Promise<ActionResult<PayoutCandidate[]
     .from("users").select("role, org_id").eq("id", user.id).single();
   if (!me || !["admin", "finance_approver", "executive"].includes(me.role)) {
     // An executive may LOOK — oversight sees everything finance sees (B7) —
-    // and `runLandlordPayout` below still refuses them the send. Oversight
+    // and `sendApprovedPayout` below still refuses them the send. Oversight
     // authorises; finance disburses.
     return fail("Only finance, an administrator or an executive can view payouts.");
   }
@@ -80,32 +81,79 @@ export async function payoutCandidates(): Promise<ActionResult<PayoutCandidate[]
   );
 }
 
-export async function runLandlordPayout(input: {
+/**
+ * RAISE a landlord payout. It does not send.
+ *
+ * ⚠️ This used to create and send in one call. Since 0151/0152 a landlord
+ * payout climbs the same three-stage chain as a vendor invoice, so the run is
+ * two acts with other people's decisions in between: finance assembles the
+ * payout (locking and claiming the collected charges, which is why it must stay
+ * a single atomic step), the chain approves it, and only then does
+ * `sendApprovedPayout` release it.
+ *
+ * Keeping them fused would have meant every payout failing at the send step
+ * with "0 of 3 approval stages" — the control technically enforced and the
+ * feature unusable.
+ */
+export async function raiseLandlordPayout(input: {
   propertyId: string;
   landlordUserId: string;
   period: string;
-}): Promise<RemittanceOutcome> {
+}): Promise<ActionResult<{ remittanceId: string }>> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return fail("Your session expired. Please sign in again.");
 
-  // 1 — authorise. Finance disburses, and nobody else: an executive co-holds
-  // approval and may never execute (board, 29 July 2026), and as of 0142 an
-  // administrator may not either — they set the threshold and approve beneath
-  // it, which is the very thing that disqualifies them from releasing funds.
-  // The database refuses both; this says so in plain words first.
   const { data: me } = await supabase
     .from("users").select("role, org_id").eq("id", user.id).single();
   if (!me || me.role !== "finance_approver") {
     return fail(
-      "Only a finance approver can send a payout.",
-      "Oversight authorises; finance disburses — approving against a limit you can lift yourself is not an approval."
+      "Only a finance approver can raise a payout.",
+      "Oversight authorises; finance disburses."
     );
   }
 
-  // Per-caller cap on real transfers. lib/rate-limit.ts fails open by design
-  // elsewhere, but this route moves money, so a genuine Redis outage refuses
-  // rather than going unguarded.
+  const { supabaseAdmin } = await import("@/lib/supabase/admin");
+  const { data: remittanceId, error } = await supabaseAdmin.rpc(
+    "create_rent_remittance",
+    {
+      p_org_id: me.org_id,
+      p_landlord_user_id: input.landlordUserId,
+      p_property_id: input.propertyId,
+      p_period: input.period,
+      p_executed_by: user.id,
+    }
+  );
+  if (error) {
+    return fail(error.message.replace(/^.*?:\s*/, ""), "Nothing has been raised.");
+  }
+
+  revalidatePath("/dashboard/ledger/payouts");
+  revalidatePath("/dashboard/approvals");
+  return ok({ remittanceId: remittanceId as string });
+}
+
+/**
+ * SEND a payout that has cleared the chain. The database re-checks every part
+ * of that — completion, the amount it was approved at, finance authority, and
+ * that the sender approved no stage of it.
+ */
+export async function sendApprovedPayout(
+  remittanceId: string
+): Promise<RemittanceOutcome> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return fail("Your session expired. Please sign in again.");
+
+  const { data: me } = await supabase
+    .from("users").select("role").eq("id", user.id).single();
+  if (!me || me.role !== "finance_approver") {
+    return fail(
+      "Only a finance approver can send a payout.",
+      "Oversight authorises; finance disburses."
+    );
+  }
+
   const gate = await checkRateLimit(
     "remittance-execute", user.id, REMITTANCE_LIMIT.limit, REMITTANCE_LIMIT.window
   );
@@ -122,37 +170,10 @@ export async function runLandlordPayout(input: {
     );
   }
 
-  const { supabaseAdmin } = await import("@/lib/supabase/admin");
-
-  // 2 — the database locks the charges, totals what was collected, and claims
-  // them. Its refusals are written for a person, so they are surfaced as-is.
-  const { data: remittanceId, error: createErr } = await supabaseAdmin.rpc(
-    "create_rent_remittance",
-    {
-      p_org_id: me.org_id,
-      p_landlord_user_id: input.landlordUserId,
-      p_property_id: input.propertyId,
-      p_period: input.period,
-      // Passed, not inferred — this is a service-role call, so `auth.uid()`
-      // inside the function is null and `created_by` was being stamped NULL
-      // on every landlord payout (0142).
-      p_executed_by: user.id,
-    }
-  );
-  if (createErr) {
-    return fail(
-      createErr.message.replace(/^.*?:\s*/, ""),
-      "Nothing has been sent."
-    );
-  }
-
   return sendCreatedRemittance({
-    remittanceId: remittanceId as string,
+    remittanceId,
+    sentBy: user.id,
     reasonFor: (name, ref) => `Rent remittance ${ref} — ${name}`,
     revalidate: ["/dashboard/ledger/payouts", "/dashboard/ledger"],
-    // No `onPosted`: unlike a vendor payment, there is no single record to
-    // mark. `create_rent_remittance` already stamped `remitted_at` and
-    // `remittance_id` on every charge it claimed, inside the same transaction
-    // that took the lock — which is what makes the double-payout race safe.
   });
 }

@@ -14,6 +14,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import PaymentActions from "./PaymentActions";
+import ChainTrail from "@/components/approvals/ChainTrail";
+import StageActions from "@/components/approvals/StageActions";
+import { getChainState, canActorAction } from "@/lib/approvals/chain";
 
 // Gate progress is derived from `status` alone — it is the authoritative state
 // machine. Deriving from the individual timestamp columns instead lets the
@@ -98,6 +101,18 @@ export default async function PaymentDetailPage({
   const band = avg != null ? scoreBand(avg) : null;
   const passesGate = avg != null && avg >= threshold;
 
+  // The approval chain that now stands between `recommended` and `approved`
+  // (0151). Shown on the payment itself as well as in the queue: someone
+  // looking at an invoice that has stalled should see WHICH pair of hands it is
+  // waiting on without being told to go and find another screen.
+  const chain = await getChainState(supabase, "vendor_payment", p.id);
+  const chainActor = {
+    id: session.profile?.id ?? "",
+    role: session.profile?.role ?? "",
+    approvalTier: session.profile?.approval_tier ?? null,
+  };
+  const canActionChain = canActorAction(chainActor, chain);
+
   const stages = stageState(p);
   const canAct =
     session.profile?.role === "admin" ||
@@ -172,6 +187,25 @@ export default async function PaymentDetailPage({
           </div>
         </CardContent>
       </Card>
+
+      {!["pending_verification", "verified"].includes(p.status) && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Approval chain</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <ChainTrail state={chain} />
+            {canActionChain && chain.nextStage && (
+              <StageActions
+                payableType="vendor_payment"
+                payableId={p.id}
+                stage={chain.nextStage.stageOrder}
+                stageLabel={chain.nextStage.short}
+              />
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

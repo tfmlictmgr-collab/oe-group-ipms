@@ -18,6 +18,8 @@ const BASE_LABELS: Record<string, string> = {
   viewer: "Read-only Observer",
   regional_manager: "Regional Manager",
   executive: "Managing Director",
+  payment_audit_approver: "Payment Auditor",
+  payment_approver: "Payment Approver",
 };
 
 // Per-brand overrides. Only where the brand genuinely changes the job title.
@@ -48,6 +50,8 @@ export const INVITABLE_ROLES = [
   "regional_manager",
   "fm_ops_staff",
   "finance_approver",
+  "payment_audit_approver",
+  "payment_approver",
   "property_owner",
   "tenant",
   "vendor",

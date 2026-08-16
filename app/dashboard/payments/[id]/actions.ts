@@ -320,6 +320,7 @@ export async function executeRemittance(paymentId: string): Promise<RemittanceRe
   const { sendCreatedRemittance } = await import("@/lib/remittance-run");
   return sendCreatedRemittance({
     remittanceId: remittanceId as string,
+    sentBy: user.id,
     reasonFor: (name, ref) => `Vendor payment ${ref} — ${name}`,
     revalidate: [`/dashboard/payments/${paymentId}`, "/dashboard/ledger"],
     // Only after the ledger has the posting. The payment is what this

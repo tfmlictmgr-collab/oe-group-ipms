@@ -32,6 +32,14 @@ export type RemittanceOutcome = ActionResult<{
 
 export async function sendCreatedRemittance(opts: {
   remittanceId: string;
+  /**
+   * Who is releasing the money. REQUIRED and never defaulted — this call runs
+   * through the service-role client, where `auth.uid()` is null by definition,
+   * so a defaulted sender would silently reintroduce the exact defect 0142
+   * found (`created_by` NULL on every remittance ever written). The gate reads
+   * this to check finance authority and that the sender approved no stage.
+   */
+  sentBy: string;
   /** What the payee sees on their statement. */
   reasonFor: (recipientName: string, reference: string) => string;
   /** Paths to revalidate on every terminal outcome. */
@@ -50,13 +58,20 @@ export async function sendCreatedRemittance(opts: {
   // it means the transfer is already on its way.
   const { data: claimed, error: claimErr } = await supabaseAdmin.rpc(
     "claim_remittance_for_sending",
-    { p_id: opts.remittanceId }
+    { p_id: opts.remittanceId, p_sent_by: opts.sentBy }
   );
   if (claimErr) {
-    return fail(
-      "This remittance is already being sent.",
-      "Refresh in a moment to see the outcome."
-    );
+    // ⚠️ Not every refusal here is a lost race any more. Since 0152 this is the
+    // gate that checks the approval chain, the finance authority and the
+    // separation of duties — and those refusals are written for the person
+    // reading them. Flattening all of them into "already being sent" would tell
+    // someone their payout was in flight when it had actually been refused for
+    // want of an approval, which is a worse lie than an unhelpful error.
+    const raw = claimErr.message.replace(/^.*?:\s*/, "");
+    const lostTheRace = /already (sending|sent|failed)/i.test(raw);
+    return lostTheRace
+      ? fail("This remittance is already being sent.", "Refresh in a moment to see the outcome.")
+      : fail(raw, "Nothing has been sent.");
   }
 
   const row = (Array.isArray(claimed) ? claimed[0] : claimed) as {

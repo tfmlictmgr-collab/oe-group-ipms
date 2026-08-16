@@ -7,6 +7,7 @@ import {
   Receipt,
   ReceiptText,
   Banknote,
+  Stamp,
   Scale,
   FileText,
   ShieldCheck,
@@ -94,6 +95,8 @@ export type NavContext = {
   seesServiceCharges: boolean;
   /** Vendor payments. Not capability-derived: approval is non-delegable. */
   seesPayments: boolean;
+  /** The approval queue for outbound payments (0151). Non-delegable likewise. */
+  seesApprovals: boolean;
   canEnroll: boolean;
   /** The client-funds ledger is finance + admin only. */
   seesLedger: boolean;
@@ -233,6 +236,12 @@ export const NAV_GROUPS: NavGroup[] = [
         href: "/dashboard/payments",
         icon: Banknote,
         show: (c) => c.seesPayments,
+      },
+      {
+        label: "Approvals",
+        href: "/dashboard/approvals",
+        icon: Stamp,
+        show: (c) => c.seesApprovals,
       },
     ],
   },

@@ -6,14 +6,38 @@ import { ok, fail, failFromDb, type ActionResult } from "@/lib/action-result";
 import { normalizeWhatsAppNumber } from "@/lib/whatsapp-link";
 import { normalizeTelegramUsername } from "@/lib/telegram-link";
 
-// Admin-configurable payment gate thresholds (B7: admin configures limits).
-// RLS restricts writes to admins; this action just passes the values through.
+/**
+ * The payment gate thresholds, which are OPERATOR-governed as of 0149 — not
+ * admin-configurable, despite what B7's "admin configures limits" row says.
+ *
+ * ⚠️ The reason is decision 16's, carried one step further: an administrator
+ * who can raise `approval_threshold_amount` can raise the limit they then
+ * approve against, which makes the escalation to executive sign-off optional
+ * for the one person it was meant to bind. The database refuses it
+ * (`enforce_payment_gate_config_authority`); this refuses it a layer earlier so
+ * the caller gets a sentence rather than a trigger's exception.
+ *
+ * Operator administrators do not come through here at all — they use
+ * `operator_set_payment_gate`, which requires a stated reason and records the
+ * before/after where the affected org can read it.
+ */
 export async function updatePaymentSettings(
   orgId: string,
   minPerformanceScore: number,
   approvalThresholdAmount: number
 ): Promise<ActionResult> {
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return fail("Your session expired. Please sign in again.");
+
+  const { data: isOperator } = await supabase.rpc("caller_is_operator_admin");
+  if (!isOperator) {
+    return fail(
+      "The approval limit and performance gate are set by OE Group.",
+      "These two controls decide when a payment needs executive sign-off, so they are not the organisation's to change. Ask your OE Group contact."
+    );
+  }
+
   const { error } = await supabase.from("payment_settings").upsert({
     org_id: orgId,
     min_performance_score: minPerformanceScore,

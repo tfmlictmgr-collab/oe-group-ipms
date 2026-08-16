@@ -4833,3 +4833,101 @@ compares against. One check was wrong before the code was: it hardcoded USD as
 "a currency with no account", and the fixture org has a USD account (0103), so
 correct behaviour read as a failure. The test now picks a currency the org
 genuinely holds none of.
+
+---
+
+## Two ways out, one gate — the approval chain (0149–0153)
+
+The board asked for a tiered, multi-stage approval chain on outbound payments.
+Reading the code first turned the shape of the request inside out twice.
+
+### The threshold governed itself (0149)
+
+Decision 16 broke the disbursement concentration in August: an admin who
+approves a payment can no longer release it. It left the other half standing.
+`payment_settings.approval_threshold_amount` was writable by any administrator,
+and `enforce_payment_transition` reads that number to decide whether a payment
+needs executive sign-off. So an admin meeting a ₦5,000,000 payment could raise
+the threshold to ₦10,000,000, then approve it alone — three legal steps, no
+refusal anywhere, and an audit trail that only reports the fact afterwards.
+
+📌 **A control that only produces evidence after the money has gone is a
+report, not a control.**
+
+0072b had already written the principle — *"approving against a threshold you
+can raise yourself is not an approval"* — to justify keeping the threshold away
+from the MD. It was never applied to the administrator, who is the role the
+escalation escalates *to*.
+
+The obvious fix is a role above `admin`, and the reference artifacts proposed
+exactly that. `0078d` refused to add one on purpose: *"the thing this system
+deliberately does not have"*, because an org that cannot appoint its own second
+administrator eventually asks someone with database access to do it. Decision 7
+had already put governance of this kind on the operator portal. So the threshold
+went where the rest of the governance lives, through one audited definer
+function — and the guard is **column-level**, because the fee columns in the
+same table are a commercial term the brand negotiates (decision 14), not a
+control an auditor checks.
+
+### One payable had a gate; the other had nothing (0151/0152)
+
+Two paths move money. `create_vendor_remittance` ran the full B4 gate. Landlord
+payouts ran `assert_may_disburse` and **nothing else** — no approver, no
+threshold, no second pair of hands. One finance approver, acting alone, could
+release a landlord's entire collected rent for a property. It is custodial
+client money and it had strictly weaker controls than a vendor's invoice for a
+light fitting.
+
+📌 **That asymmetry was nobody's decision. It is what happens when a second
+payout path is added beside the first and the gate is not carried over.** Task 2
+as briefed said "all outbound payments" and expected the answer to be "only
+vendor remittance exists"; the honest answer was that a second one existed and
+had been unguarded since 0092b.
+
+Four adaptations away from the reference implementation, each because the live
+schema said so:
+
+- **Naira, not kobo.** Every money column here is `numeric(14,2)`.
+- **The stages are hardwired.** Decision 7 lists payment approval among the
+  controls that "never appear as toggles"; a per-org table of stages is exactly
+  such a toggle. The *amounts* are configurable, and only by the operator.
+- **The ladder lives in `payment_settings`.** Tier 2's ceiling **is** the
+  existing `approval_threshold_amount` — they were always the same number. A
+  separate `approval_thresholds` table would have been a second resolver for one
+  question, which decision 8 forbids in as many words.
+- **The trigger overwrites the amount, the role and the tier** from the
+  authoritative records. Refusing a wrong amount still trusts the caller to send
+  one; there is now no value a caller can send that changes which tier applies.
+
+`admin` resolves to tier 2 and `executive` to tier 3, which is decisions 16 and
+9 stated as code rather than as prose.
+
+### What the tests caught that review did not
+
+- A `RAISE` that built its message with `||` on an unknown-type literal failed
+  with *"malformed array literal"* — and the admin's write **was** refused, by
+  that bug, one line before the authority check. A green test proving nothing.
+- `operator_actions_action_check` was rebuilt from 0079's four values, silently
+  dropping three added by 0083/0089. Same trap 0136 documents for function
+  bodies: **the newest migration that touched a thing is the definition.**
+- An RLS-filtered `UPDATE` returns success with zero rows, not an error. A check
+  written against the error read "finance raised the approval limit" when
+  finance had changed nothing. **A refused write and a write that hit nothing
+  look identical from the client; only the data tells them apart.**
+- `users_approval_tier_check` and `accept_invitation` were each correct alone:
+  the constraint requires a tier for `payment_approver`, and the insert did not
+  carry one. A `payment_approver` invitation could be issued, emailed and
+  clicked, and would fail at the moment someone tried to accept it (0153).
+
+### Sequencing that would have shipped broken
+
+The landlord payout button created and sent in one press. With a chain between
+those acts, every payout would have failed at the send step with "0 of 3
+approval stages" — the control technically enforced and the feature unusable.
+Split into `raiseLandlordPayout` and `sendApprovedPayout`. `sendCreatedRemittance`
+also flattened every claim error into "already being sent", which would have
+told someone their payout was in flight when it had been refused for want of an
+approval — **a worse lie than an unhelpful error.**
+
+`verify-approval-chain.mjs`: 49 checks, including all six band boundaries, the
+forged-amount case, amount-tampering after approval, and the landlord gap.

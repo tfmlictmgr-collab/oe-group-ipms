@@ -30,16 +30,32 @@ const PASSWORD = "OEGroupDemo2026!";
 
 // Roles worth having a standing login for, per tenant org. Deliberately not
 // every role in the enum — a login nobody uses is a credential nobody rotates.
+//
+// ⚠️ The approval chain (0151) needs THREE distinct people to move one payment,
+// and separation of duties means they cannot be the same account wearing
+// different hats. Without a stage-2 auditor and at least one tiered approver
+// seeded, every outbound payment in dev stalls at "waiting on audit
+// verification" — the control working exactly as designed, and the product
+// looking broken. Two approvers at different tiers, because a single tier-3
+// account would let every amount through and prove nothing about the ladder.
 const TENANT_ROLES = [
   ["admin", "Administrator"],
   ["executive", "Managing Director"],
   ["finance_approver", "Finance Approver"],
+  ["payment_audit_approver", "Payment Auditor"],
+  ["payment_approver", "Payment Approver (tier 1)", 1],
   ["regional_manager", "Regional Manager"],
   ["facility_manager", "Manager"],
   ["fm_ops_staff", "Operations Staff"],
   ["property_owner", "Property Owner"],
   ["tenant", "Tenant"],
   ["vendor", "Vendor"],
+];
+
+// A second approver, higher up the ladder, so a payment above ₦100,000 has
+// somebody who can actually clear it.
+const EXTRA_APPROVERS = [
+  ["payment_approver", "Payment Approver (tier 3)", 3, "approver3"],
 ];
 
 // ── 1. Sweep the probe accounts ───────────────────────────────────────────
@@ -187,7 +203,7 @@ const { data: authList } = await svc.auth.admin.listUsers({ perPage: 1000 });
 // pool silently took layer 2 out of everyday use. RLS never stopped holding
 // (`current_user_org_id()` reads the profile table, not the token), which is
 // exactly why nothing failed loudly: **the backstop hid the missing layer.**
-async function ensureLogin(email, orgId, role, fullName, brand) {
+async function ensureLogin(email, orgId, role, fullName, brand, approvalTier = null) {
   const appMetadata = { org_id: orgId, delivery_brand: brand ?? "direct", role };
 
   let authUser = authList?.users?.find((u) => u.email === email);
@@ -216,8 +232,11 @@ async function ensureLogin(email, orgId, role, fullName, brand) {
     });
   }
 
+  // `approval_tier` is REQUIRED for payment_approver and must be null for
+  // everyone else — `users_approval_tier_check` (0151) refuses both mistakes.
   const { error } = await svc.from("users").upsert({
     id: authUser.id, org_id: orgId, role, full_name: fullName, email,
+    approval_tier: approvalTier,
   });
   return { email, ok: !error, why: error?.message.slice(0, 60) };
 }
@@ -234,14 +253,22 @@ rows.push({
 
 // ── 4. One login per role, per tenant org ─────────────────────────────────
 for (const org of orgs.filter((o) => !o.is_platform_operator)) {
-  for (const [role, title] of TENANT_ROLES) {
+  for (const [role, title, tier] of TENANT_ROLES) {
     // `oea.finance@…` reads as "the OEA finance login" at a glance, which is the
     // whole point — the email itself says which door it belongs at.
     const email = `${org.slug}.${role.replace(/_/g, "")}@oegroup.test`;
     rows.push({
       org: org.name, slug: org.slug, role, door: `/o/${org.slug}`,
       ...(await ensureLogin(email, org.id, role, `${org.delivery_brand} ${title}`,
-                            org.delivery_brand)),
+                            org.delivery_brand, tier ?? null)),
+    });
+  }
+  for (const [role, title, tier, tag] of EXTRA_APPROVERS) {
+    const email = `${org.slug}.${tag}@oegroup.test`;
+    rows.push({
+      org: org.name, slug: org.slug, role: `${role} (t${tier})`, door: `/o/${org.slug}`,
+      ...(await ensureLogin(email, org.id, role, `${org.delivery_brand} ${title}`,
+                            org.delivery_brand, tier)),
     });
   }
 }

@@ -148,7 +148,19 @@ export default async function DashboardLayout({
     // Vendor payments: FM/PM verifies delivery, finance and oversight decide.
     // Not capability-derived because approval is non-delegable, and a screen
     // whose only action is refused is worse than no screen.
-    seesPayments: ["admin", "facility_manager", "finance_approver", "executive"].includes(role),
+    seesPayments: [
+      "admin", "facility_manager", "finance_approver", "executive",
+      // The two chain roles exist to look at payments; a payment approver who
+      // cannot reach the payments screen is a role that cannot do its job.
+      "payment_approver", "payment_audit_approver",
+    ].includes(role),
+    // Everyone who can action a stage, plus the roles that need to watch the
+    // queue move. Same reasoning as seesPayments: not capability-derived,
+    // because approval is non-delegable (decision 7).
+    seesApprovals: [
+      "admin", "executive", "facility_manager", "regional_manager",
+      "payment_approver", "payment_audit_approver", "finance_approver",
+    ].includes(role),
     canEnroll: can("people.invite"),
 
     // B7 "Exec / BI dashboard" column — one definition, shared with the pages
