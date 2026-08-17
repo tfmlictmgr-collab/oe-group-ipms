@@ -1,14 +1,11 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import {
-  Inbox, CheckCircle2, TrendingUp, Wallet, Banknote, BarChart3, SlidersHorizontal,
-} from "lucide-react";
+import { BarChart3, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getSessionProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { formatNaira } from "@/lib/currency";
 import { PageHeader } from "@/components/patterns/page-header";
-import { StatCard } from "@/components/patterns/stat-card";
+import BiStats from "./BiStats";
 import { EmptyState } from "@/components/patterns/empty-state";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CountBar, ScoreBar, BudgetBar, MixDonut, type NamedValue, type BudgetRow } from "./Charts";
@@ -147,49 +144,19 @@ export default async function BiDashboardPage() {
         }
       />
 
-      {/* KPI tiles */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {scope.requests && (
-          <>
-            <StatCard
-              label="Open requests"
-              value={openCount}
-              icon={<Inbox />}
-              hint="open + in progress"
-            />
-            <StatCard
-              label="Closed requests"
-              value={closedCount}
-              icon={<CheckCircle2 />}
-              hint="resolved + closed"
-            />
-          </>
-        )}
-        {scope.collection && (
-          <>
-            <StatCard
-              label="Collection rate"
-              value={`${collectionRate.toFixed(1)}%`}
-              icon={<TrendingUp />}
-              hint={`${formatNaira(totalPaid)} of ${formatNaira(totalInvoiced)}`}
-            />
-            <StatCard
-              label="Outstanding"
-              value={formatNaira(outstanding)}
-              icon={<Wallet />}
-              hint="receivables"
-            />
-          </>
-        )}
-        {scope.liabilities && (
-          <StatCard
-            label="Vendor liabilities"
-            value={formatNaira(vendorLiabilities)}
-            icon={<Banknote />}
-            hint="in-flight, not yet remitted"
-          />
-        )}
-      </div>
+      {/* KPI tiles — each opens onto the arithmetic behind it. */}
+      <BiStats
+        scope={scope}
+        statusData={statusData}
+        categoryData={categoryData}
+        openCount={openCount}
+        closedCount={closedCount}
+        collectionRate={collectionRate}
+        totalPaid={totalPaid}
+        totalInvoiced={totalInvoiced}
+        outstanding={outstanding}
+        vendorLiabilities={vendorLiabilities}
+      />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {scope.requests && (

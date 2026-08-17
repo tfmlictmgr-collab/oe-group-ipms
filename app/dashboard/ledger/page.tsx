@@ -1,12 +1,12 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { Scale, TriangleAlert, CheckCircle2, Wallet, Landmark } from "lucide-react";
+import { Scale, TriangleAlert, CheckCircle2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
 import { formatMoney } from "@/lib/currency";
 import { cn } from "@/lib/utils";
 import { EmptyState } from "@/components/patterns/empty-state";
-import { StatCard } from "@/components/patterns/stat-card";
+import SegregationStats from "./SegregationStats";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -137,16 +137,13 @@ export default async function LedgerBalancesPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="grid gap-4 sm:grid-cols-3">
-                  <StatCard label="Funds held" value={formatMoney(held, currency)} icon={<Wallet />} />
-                  <StatCard label="Owed to clients" value={formatMoney(owed, currency)} icon={<Landmark />} />
-                  <StatCard
-                    label={shortfall ? "Shortfall" : "Unallocated"}
-                    value={formatMoney(unallocated, currency)}
-                    icon={shortfall ? <TriangleAlert /> : <CheckCircle2 />}
-                    hint={shortfall ? "must be zero or positive" : "earned fees not yet swept"}
-                  />
-                </div>
+                <SegregationStats
+                  currency={currency}
+                  held={held}
+                  owed={owed}
+                  unallocated={unallocated}
+                  balances={currencyBalances}
+                />
               </CardContent>
             </Card>
 

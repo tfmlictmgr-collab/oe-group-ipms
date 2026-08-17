@@ -1,11 +1,11 @@
 import { redirect } from "next/navigation";
-import { Building, Banknote, Wallet, PiggyBank } from "lucide-react";
+import { Building } from "lucide-react";
 import { getSessionProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { formatNaira, formatMoney } from "@/lib/currency";
 import { PageHeader } from "@/components/patterns/page-header";
-import { StatCard } from "@/components/patterns/stat-card";
 import { EmptyState } from "@/components/patterns/empty-state";
+import PortfolioStats from "./PortfolioStats";
 import { StatusBadge } from "@/components/patterns/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -98,9 +98,9 @@ export default async function PortfolioPage({
   const statement = (stmtRes.data ?? []) as StatementRow[];
   const remittances = (remRes.data ?? []) as Remittance[];
 
-  const collected = statement.reduce((a, r) => a + Number(r.collected), 0);
-  const fees = statement.reduce((a, r) => a + Number(r.fees), 0);
-  const remitted = statement.reduce((a, r) => a + Number(r.remitted), 0);
+  // The tiles compute their own sums (PortfolioStats), but this one is still
+  // needed HERE: the empty-remittances message below turns on it, to tell
+  // "nothing has been sent" apart from "nothing is owed".
   const held = statement.reduce((a, r) => a + Number(r.still_held), 0);
 
   return (
@@ -118,16 +118,11 @@ export default async function PortfolioPage({
         />
       ) : (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <StatCard label="Rent collected" value={formatNaira(collected)} icon={<Banknote />} />
-            <StatCard label="Management & admin fees" value={formatNaira(fees)} icon={<Wallet />} />
-            <StatCard label="Remitted to you" value={formatNaira(remitted)} icon={<PiggyBank />} />
-            {/* The number an owner actually rings about. Held is money that has
-                been collected from a tenant, is net of fees, and has not
-                reached them yet — distinct from "not yet collected", which is
-                not owed to them at all. */}
-            <StatCard label="Held for you" value={formatNaira(held)} icon={<Wallet />} />
-          </div>
+          {/* "Held for you" is the number an owner actually rings about: money
+              collected from a tenant, net of fees, that has not reached them
+              yet — distinct from "not yet collected", which is not owed to
+              them at all. Each tile opens onto its own per-property split. */}
+          <PortfolioStats statement={statement} from={from} to={to} />
 
           {statement.length > 0 && (
             <Card>
