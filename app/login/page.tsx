@@ -1,3 +1,5 @@
+import { redirect } from "next/navigation";
+import { orgForCurrentHost } from "@/lib/org-host";
 import SignInPanel from "@/components/auth/sign-in-panel";
 
 // The **platform operator's** front door — OE Group's own staff, not a client's.
@@ -18,6 +20,19 @@ export default async function LoginPage({
   searchParams: Promise<{ wrong_org?: string }>;
 }) {
   const { wrong_org } = await searchParams;
+
+  // The root page (`/`) already sends a bound client hostname straight to its
+  // own door and never lands here. But `/login` is a URL of its own — bookmarked,
+  // typed directly, or linked from an old message — and until this check it
+  // rendered the operator's hardcoded OE Group screen on ANY host, including one
+  // bound to a client. A TFML employee hitting tfmlportal.com/login saw OE
+  // Group's name and colours on their own company's domain: the same cross-brand
+  // leak the sign-in panel's `owner` prop exists to prevent, just reached by a
+  // path that skipped the check. A client org's own door takes over here instead.
+  const hostOrg = await orgForCurrentHost();
+  if (hostOrg?.slug && !hostOrg.is_platform_operator) {
+    redirect(`/o/${hostOrg.slug}`);
+  }
 
   return (
     <SignInPanel
