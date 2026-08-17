@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { sendCreatedRemittance, type RemittanceOutcome } from "@/lib/remittance-run";
-import { ok, fail, type ActionResult } from "@/lib/action-result";
+import { ok, fail, failFromDb, type ActionResult } from "@/lib/action-result";
 import { checkRateLimit, REMITTANCE_LIMIT } from "@/lib/rate-limit";
 
 // Remitting collected rent to a landlord.
@@ -131,6 +131,80 @@ export async function raiseLandlordPayout(input: {
   revalidatePath("/dashboard/ledger/payouts");
   revalidatePath("/dashboard/approvals");
   return ok({ remittanceId: remittanceId as string });
+}
+
+export type RaisedPayout = {
+  remittanceId: string;
+  reference: string;
+  propertyName: string;
+  landlordName: string;
+  netAmount: number;
+  period: string | null;
+  raisedAt: string;
+};
+
+/**
+ * Landlord payouts that have been RAISED and not yet sent.
+ *
+ * ⚠️ This list is why the split into raise/send is usable at all. Raising a
+ * payout claims the collected rent charges (`create_rent_remittance` stamps
+ * `remitted_at` and `remittance_id` on every one it takes), so the property
+ * immediately drops out of `payoutCandidates()` — and until this existed there
+ * was no second screen for it to appear on, no caller of `sendApprovedPayout`
+ * anywhere in the app, and therefore no route by which a landlord's money could
+ * leave once it had been claimed. It could only be raised and stranded.
+ *
+ * Every row is shown, whether or not its chain is complete, with its own trail:
+ * a payout waiting on an approver and a payout waiting on finance are different
+ * situations and the difference is the only useful thing on the row. Only the
+ * cleared ones get a Send button, and `claim_remittance_for_sending` re-checks
+ * that regardless of what this renders.
+ */
+export async function raisedPayouts(): Promise<ActionResult<RaisedPayout[]>> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return fail("Your session expired. Please sign in again.");
+
+  const { data: me } = await supabase
+    .from("users").select("role").eq("id", user.id).single();
+  if (!me || !["admin", "finance_approver", "executive"].includes(me.role)) {
+    return fail("Only finance, an administrator or an executive can view payouts.");
+  }
+
+  // RLS scopes this to the caller's own org; `queued` with no ledger entry is
+  // "raised, not yet gone".
+  const { data, error } = await supabase
+    .from("remittances")
+    .select(
+      "id, reference, net_amount, period, created_at, properties(name), payout_recipients(display_name)"
+    )
+    .eq("party", "landlord")
+    .eq("status", "queued")
+    .is("ledger_entry_id", null)
+    .order("created_at", { ascending: true })
+    .limit(200);
+
+  if (error) return failFromDb(error, "list payouts awaiting release");
+
+  // PostgREST types an embedded parent as an array even where the foreign key
+  // makes it one row at most.
+  const one = <T,>(v: T | T[] | null | undefined): T | null =>
+    Array.isArray(v) ? (v[0] ?? null) : (v ?? null);
+
+  return ok(
+    (data ?? []).map((r) => ({
+      remittanceId: r.id,
+      reference: r.reference,
+      propertyName: one(r.properties as { name?: string } | { name?: string }[] | null)?.name
+        ?? "A property",
+      landlordName: one(
+        r.payout_recipients as { display_name?: string } | { display_name?: string }[] | null
+      )?.display_name ?? "the landlord",
+      netAmount: Number(r.net_amount),
+      period: r.period ?? null,
+      raisedAt: r.created_at,
+    }))
+  );
 }
 
 /**

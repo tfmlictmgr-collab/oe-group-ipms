@@ -38,7 +38,12 @@ export default function ChainTrail({ state }: { state: ChainState }) {
         {state.stages.map((s) => {
           const done = s.decision === "approved";
           const refused = s.decision === "rejected";
-          const stale = done && s.decidedAmount !== state.amount;
+          // ⚠️ Read from `staleDecision`, not derived by comparing amounts here.
+          // `getChainState` is the one place that decides whether a decision
+          // still counts, and it clears `decision` when it does not — so a stale
+          // stage now reads as awaiting a decision (which it is) while still
+          // showing who signed the old figure off and at what.
+          const stale = s.staleDecision !== null;
 
           return (
             <li
@@ -78,10 +83,14 @@ export default function ChainTrail({ state }: { state: ChainState }) {
                   ) : null}
                 </p>
 
-                {s.decision ? (
+                {s.decision || stale ? (
                   <p className="text-xs text-muted-foreground">
-                    {refused ? "Refused" : "Approved"} by{" "}
-                    {s.actorName ?? "someone no longer listed"}
+                    {refused
+                      ? "Refused"
+                      : stale
+                        ? "Needs approving again — was approved"
+                        : "Approved"}{" "}
+                    by {s.actorName ?? "someone no longer listed"}
                     {s.decidedAt
                       ? ` · ${new Date(s.decidedAt).toLocaleDateString("en-NG", {
                           day: "numeric",

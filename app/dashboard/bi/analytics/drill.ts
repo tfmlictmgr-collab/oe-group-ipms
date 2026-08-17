@@ -4,6 +4,12 @@ import { createClient } from "@/lib/supabase/server";
 import { ok, fail, failFromDb, type ActionResult } from "@/lib/action-result";
 import { shortRef } from "@/lib/acknowledgement";
 import type { Filters, MetricRow } from "./actions";
+// Pure period arithmetic. In its own module because this file is `"use server"`,
+// where every export must be an async action — see the note at its head for why
+// a period's WIDTH cannot be read off its start date.
+import {
+  normaliseBucket, periodBucket, periodRange, finer, type Bucket,
+} from "./period";
 
 // The drill-down read.
 //
@@ -45,6 +51,15 @@ export type DrillResult = {
   value: string;
   /** What to call it on screen — resolved from the record, never from the URL. */
   label: string;
+  /**
+   * How wide the opened period is. Returned rather than re-derived by the page,
+   * because the width of a period is not recoverable from its start date and two
+   * callers guessing separately is two chances to disagree about what a figure
+   * means.
+   */
+  bucket: Bucket;
+  /** The grouping of `series` — one level finer than `bucket`. */
+  innerBucket: Bucket;
   series: MetricRow[];
   tickets: DrillTicket[];
   totals: {
@@ -126,16 +141,24 @@ export async function loadDrill(
   if (dimension === "vendor") narrowed.vendorId = value;
   if (dimension === "category") narrowed.category = value;
 
+  // How wide the opened period is, and therefore the range it covers. Both come
+  // from the bucket the console grouped by, never from the date's shape — see
+  // the note above `periodBucket`.
+  const consoleBucket = normaliseBucket(f.bucket);
+  const openedBucket = dimension === "period" ? periodBucket(value, consoleBucket) : consoleBucket;
+  const range = dimension === "period" ? periodRange(value, openedBucket) : null;
+
   const series = await supabase.rpc("bi_ticket_metrics", {
-    p_from: dimension === "period" ? periodStart(value) : (narrowed.from || null),
-    p_to: dimension === "period" ? periodEnd(value) : (narrowed.to || null),
+    p_from: range ? range.start : (narrowed.from || null),
+    // Inclusive: this RPC's own predicate is `created_at < (p_to + 1)`.
+    p_to: range ? range.endInclusive : (narrowed.to || null),
     p_vendor_id: narrowed.vendorId || null,
     p_category: narrowed.category || null,
     p_property_id: narrowed.propertyId || null,
     p_status: narrowed.status || null,
     // Inside a drill the bucket is always one step finer than the level above —
     // opening a month to see the same month as one bar tells the reader nothing.
-    p_bucket: dimension === "period" ? finer(value) : (f.bucket ?? "month"),
+    p_bucket: dimension === "period" ? finer(openedBucket) : consoleBucket,
   });
   if (series.error) return failFromDb(series.error, "load these figures");
 
@@ -150,8 +173,10 @@ export async function loadDrill(
   if (dimension === "property") q = q.eq("property_id", value);
   if (dimension === "category") q = q.eq("category", value);
   if (dimension === "vendor") q = q.eq("assigned_vendor_id", value);
-  if (dimension === "period") {
-    q = q.gte("created_at", periodStart(value)!).lte("created_at", periodEnd(value)!);
+  if (range) {
+    // Half-open: `lt` on the exclusive end, so the final day of the period is
+    // included in full rather than truncated at its midnight.
+    q = q.gte("created_at", range.start).lt("created_at", range.endExclusive);
   }
   if (narrowed.propertyId && dimension !== "property") q = q.eq("property_id", narrowed.propertyId);
   if (narrowed.category && dimension !== "category") q = q.eq("category", narrowed.category);
@@ -195,6 +220,8 @@ export async function loadDrill(
     dimension,
     value,
     label,
+    bucket: openedBucket,
+    innerBucket: finer(openedBucket),
     series: metrics,
     tickets,
     totals: {
@@ -205,37 +232,4 @@ export async function loadDrill(
       open: tickets.filter((t) => !["resolved", "closed"].includes(t.status)).length,
     },
   });
-}
-
-// ── Period helpers ──────────────────────────────────────────────────────────
-// `2026`, `2026-08`, `2026-08-14`. Shape-validated above before reaching here.
-
-function periodStart(v: string): string | null {
-  if (/^\d{4}$/.test(v)) return `${v}-01-01`;
-  if (/^\d{4}-\d{2}$/.test(v)) return `${v}-01`;
-  return v;
-}
-
-function periodEnd(v: string): string | null {
-  if (/^\d{4}$/.test(v)) return `${v}-12-31`;
-  if (/^\d{4}-\d{2}$/.test(v)) {
-    const [y, m] = v.split("-").map(Number);
-    return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
-  }
-  return v;
-}
-
-/**
- * One level finer than the period being opened.
- *
- * ⚠️ `bi_ticket_metrics` CLAMPS an unrecognised bucket to 'month' rather than
- * refusing it, so an unsupported value here would have drawn months while the
- * page said days — wrong quietly, which is the worst way to be wrong about a
- * figure. `day` is supported as of 0160; a day does not subdivide further, so
- * opening one shows its requests rather than a chart of one bar.
- */
-function finer(v: string): "week" | "month" | "day" {
-  if (/^\d{4}$/.test(v)) return "month";
-  if (/^\d{4}-\d{2}$/.test(v)) return "week";
-  return "day";
 }

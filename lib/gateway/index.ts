@@ -577,10 +577,17 @@ export async function getGatewayForOrg(
         ? new PaystackAdapter(cred.secretKey)
         : new FlutterwaveAdapter(cred.secretKey, cred.webhookSecret ?? "");
     }
-  } catch {
-    // A credential that cannot be decrypted must NOT silently become the
-    // platform key — that would move an org's money through the wrong merchant
-    // account, which is the exact failure this function exists to prevent.
+  } catch (e) {
+    // A credential that cannot be read must NOT silently become the platform
+    // key — that would move an org's money through the wrong merchant account,
+    // which is the exact failure this function exists to prevent. The cause is
+    // logged rather than folded into the thrown message: whoever is looking at
+    // this needs to know whether it was a decryption failure, an unset key or a
+    // database error, and none of that belongs in a message a payer might see.
+    console.error(
+      `gateway credential unreadable for org ${orgId} (${wanted}):`,
+      e instanceof Error ? e.message : e
+    );
     throw new Error(
       "This organisation's payment gateway credentials could not be read. Nothing has been charged or sent."
     );

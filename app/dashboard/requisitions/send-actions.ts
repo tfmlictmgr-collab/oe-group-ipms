@@ -5,7 +5,7 @@ import { fail } from "@/lib/action-result";
 import { checkRateLimit, REMITTANCE_LIMIT } from "@/lib/rate-limit";
 import type { RemittanceOutcome } from "@/lib/remittance-run";
 
-type Guard = { ok: true; userId: string } | RemittanceOutcome;
+type Guard = { ok: true; userId: string; orgId: string } | RemittanceOutcome;
 
 // Disbursing a cleared requisition, per payee — one call settles every
 // not-yet-remitted line naming that vendor or that verified one-off payee
@@ -18,7 +18,8 @@ async function guard(): Promise<Guard> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return fail("Your session expired. Please sign in again.");
 
-  const { data: me } = await supabase.from("users").select("role").eq("id", user.id).single();
+  const { data: me } = await supabase
+    .from("users").select("role, org_id").eq("id", user.id).single();
   if (!me || me.role !== "finance_approver") {
     return fail(
       "Only a finance approver can send a payment.",
@@ -41,7 +42,26 @@ async function guard(): Promise<Guard> {
       "Wait a few minutes and try again — this protects against a runaway or compromised session."
     );
   }
-  return { ok: true, userId: user.id };
+  return { ok: true, userId: user.id, orgId: me.org_id };
+}
+
+/**
+ * A reference carrying this org's tag (0156).
+ *
+ * ⚠️ Belt AND braces. 0174 made the webhook resolve the org from
+ * `remittances.reference` directly, so an untagged reference is no longer fatal
+ * — but a reference minted without the tag was what broke every requisition
+ * payout's webhook in the first place, and the tag costs one indexed read. The
+ * tag is read from the ORG RECORD, never accepted from a caller: a
+ * caller-supplied tag would choose which merchant account a payment is
+ * attributed to.
+ */
+async function taggedReference(orgId: string): Promise<string> {
+  const supabase = await createClient();
+  const { newPaymentReference } = await import("@/lib/gateway");
+  const { data: org } = await supabase
+    .from("orgs").select("gateway_tag").eq("id", orgId).maybeSingle();
+  return newPaymentReference("requisition", org?.gateway_tag ?? null);
 }
 
 export async function sendRequisitionVendorLines(
@@ -52,8 +72,7 @@ export async function sendRequisitionVendorLines(
   if (!("userId" in g)) return g;
 
   const { supabaseAdmin } = await import("@/lib/supabase/admin");
-  const { newPaymentReference } = await import("@/lib/gateway");
-  const reference = newPaymentReference("requisition");
+  const reference = await taggedReference(g.orgId);
 
   const { data: remittanceId, error } = await supabaseAdmin.rpc(
     "create_requisition_vendor_remittance",
@@ -80,8 +99,7 @@ export async function sendRequisitionPayeeLines(
   if (!("userId" in g)) return g;
 
   const { supabaseAdmin } = await import("@/lib/supabase/admin");
-  const { newPaymentReference } = await import("@/lib/gateway");
-  const reference = newPaymentReference("requisition");
+  const reference = await taggedReference(g.orgId);
 
   const { data: remittanceId, error } = await supabaseAdmin.rpc(
     "create_requisition_payee_remittance",

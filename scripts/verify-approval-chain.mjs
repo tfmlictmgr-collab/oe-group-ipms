@@ -309,6 +309,110 @@ console.log("\n7. Amount tampering after approval");
 }
 
 // ---------------------------------------------------------------------------
+console.log("\n7b. Climbing the chain a second time (0175)");
+// ---------------------------------------------------------------------------
+//
+// ⚠️ Section 7 proves an amount edit INVALIDATES the chain. This proves the
+// other half, which was missing until 0175 and is the half that decides whether
+// a payment can ever be paid: that the chain can then be climbed AGAIN.
+//
+// Before 0175 it could not. `unique (payable_type, payable_id, stage_order)`
+// allowed one row per stage for all time, the append-only trigger refused every
+// UPDATE, and the UI's `nextStage` was null because every stage already held a
+// decision. The payable sat announcing "every stage has to be approved again"
+// with nothing in the product or the database able to do it — permanently
+// unapprovable and, for a landlord payout or requisition, with the money already
+// claimed.
+{
+  const p = await mkPayment(T1);
+  await decide(p, fm, 1); await decide(p, auditor, 2); await decide(p, tier1, 3);
+  eq("round one clears", await cleared(p, T1), true);
+
+  // Across two band boundaries, so the new figure needs a more senior approver
+  // than the tier-1 who signed the old one.
+  const raised = T2 + 0.01;
+  await svc.from("payments").update({ amount: raised }).eq("id", p);
+
+  const e1 = await decide(p, fm, 1);
+  e1 ? bad(`stage 1 could not be re-approved — ${e1.message.slice(0, 80)}`)
+     : ok("stage 1 can be re-approved at the new amount");
+
+  // The whole previous round is retired, not merely the stage just re-signed:
+  // otherwise a re-signed stage 1 would carry two stale signatures to
+  // disbursement.
+  const { data: rows } = await svc.from("payment_approvals")
+    .select("stage_order, amount, superseded_at").eq("payable_id", p);
+  const live = (rows ?? []).filter((r) => r.superseded_at === null);
+  const dead = (rows ?? []).filter((r) => r.superseded_at !== null);
+  eq("only the new stage 1 is live", live.length, 1);
+  eq("and the previous round is retained, not deleted", dead.length, 3);
+
+  // No standing on retired signatures to reach the top.
+  const skip = await decide(p, tier3, 3);
+  skip ? ok("stage 3 is refused while stage 2 of the new round is unsigned")
+       : bad("STAGE 3 RECORDED OVER A RETIRED STAGE 2");
+
+  // The new figure is above the tier-1 ceiling, so the tier-1 who cleared round
+  // one may not clear round two.
+  await decide(p, auditor2, 2);
+  const tooSmall = await decide(p, tier1, 3);
+  tooSmall ? ok("the tier-1 who cleared round one cannot clear the raised amount")
+           : bad("A TIER-1 APPROVED ABOVE THEIR CEILING ON A SECOND ROUND");
+
+  const e3 = await decide(p, tier3, 3);
+  e3 ? bad(`stage 3 by tier 3 was refused — ${e3.message.slice(0, 80)}`)
+     : ok("a tier-3 approver completes the second round");
+
+  eq("cleared at the NEW amount", await cleared(p, raised), true);
+  eq("and NOT cleared at the old one", await cleared(p, T1), false);
+
+  // ⚠️ The reason `is_cleared_for_disbursement` also tests `superseded_at`.
+  // Round one's rows match T1 on amount; if staleness were judged by amount
+  // alone, restoring the figure would resurrect a round that was invalidated.
+  await svc.from("payments").update({ amount: T1 }).eq("id", p);
+  eq("a RETIRED round is not revived by restoring its amount", await cleared(p, T1), false);
+  await svc.from("payments").update({ amount: raised }).eq("id", p);
+
+  // Append-only still means append-only: supersession is one permitted shape,
+  // not a general licence to write to this table.
+  const { error: edit } = await svc.from("payment_approvals")
+    .update({ reason: "tampered" }).eq("payable_id", p).is("superseded_at", null);
+  edit ? ok("an approval record still cannot be edited")
+       : bad("AN APPROVAL RECORD WAS EDITED");
+
+  const { error: del } = await svc.from("payment_approvals")
+    .delete().eq("payable_id", p);
+  del ? ok("an approval record still cannot be deleted")
+      : bad("AN APPROVAL RECORD WAS DELETED");
+
+  const { error: smuggle } = await svc.from("payment_approvals")
+    .update({ superseded_at: new Date().toISOString(), amount: 1 })
+    .eq("payable_id", p).is("superseded_at", null).eq("stage_order", 1);
+  smuggle ? ok("superseding cannot smuggle in another change")
+          : bad("SUPERSEDING ALTERED THE RECORD OF A DECISION");
+}
+
+// ---------------------------------------------------------------------------
+console.log("\n7c. A refusal is terminal, and an amount edit does not clear it");
+// ---------------------------------------------------------------------------
+{
+  const p = await mkPayment(T1);
+  await decide(p, fm, 1, "rejected", "the invoice total does not match the job card");
+
+  await svc.from("payments").update({ amount: T1 + 1 }).eq("id", p);
+
+  const { error: sup } = await svc.from("payment_approvals")
+    .update({ superseded_at: new Date().toISOString() })
+    .eq("payable_id", p).eq("decision", "rejected");
+  sup ? ok("a refusal cannot be superseded")
+      : bad("A REFUSAL WAS SUPERSEDED");
+
+  const again = await decide(p, fm2, 1);
+  again ? ok("and the payable cannot be re-approved by nudging the amount")
+        : bad("A REFUSAL WAS ESCAPED BY CHANGING THE AMOUNT");
+}
+
+// ---------------------------------------------------------------------------
 console.log("\n8. Rejection");
 // ---------------------------------------------------------------------------
 {

@@ -61,6 +61,12 @@ export interface StageState {
   requiredTier: ApprovalTier | null;
   /** The amount this stage was decided at — not necessarily the current one. */
   decidedAmount: number | null;
+  /**
+   * A decision that exists but no longer counts, because it was given at a
+   * different amount. `decision` is null in that case: the stage is actionable
+   * again, and this says why it looks decided in the trail.
+   */
+  staleDecision: Decision | null;
 }
 
 export interface ChainState {
@@ -189,6 +195,7 @@ interface ApprovalRow {
   required_tier: number | null;
   reason: string | null;
   created_at: string;
+  superseded_at: string | null;
   users?: { full_name: string | null } | null;
 }
 
@@ -210,10 +217,15 @@ export async function getChainState(
     supabase
       .from("payment_approvals")
       .select(
-        "stage_order, decision, actor_id, actor_role, amount, required_tier, reason, created_at, users:actor_id(full_name)"
+        "stage_order, decision, actor_id, actor_role, amount, required_tier, reason, created_at, superseded_at, users:actor_id(full_name)"
       )
       .eq("payable_type", payableType)
       .eq("payable_id", payableId)
+      // Superseded rows are the record of a PREVIOUS round at a previous amount
+      // (0175). They stay in the table because an approval that can vanish is
+      // not evidence of anything, and they are excluded here because they
+      // authorise nothing.
+      .is("superseded_at", null)
       .order("stage_order"),
   ]);
 
@@ -230,15 +242,37 @@ export async function getChainState(
   });
   const requiredTier = (Number(tier) || 1) as ApprovalTier;
 
+  /**
+   * ⚠️ An approval only COUNTS at the amount it was given for.
+   *
+   * This is what makes an amount change recoverable rather than terminal. The
+   * chain gate has always required every stage approved at the current amount
+   * (`is_cleared_for_disbursement`), but this read path used to treat any row as
+   * a decision — so after an upward edit every stage still looked decided,
+   * `nextStage` was null, `StageActions` rendered nowhere, and the payment sat
+   * telling the reader it had to be approved again with nothing anywhere able to
+   * do it. Treating a stale approval as no decision puts stage 1 back in front
+   * of the person who has to re-sign it.
+   *
+   * A REJECTION is deliberately not amount-scoped. A refusal is terminal, and
+   * scoping it to the amount would let anyone clear one by nudging the figure.
+   */
+  const counts = (a: ApprovalRow | undefined): boolean =>
+    Boolean(a) && (a!.decision === "rejected" || Number(a!.amount) === amount);
+
   const stages: StageState[] = CHAIN_STAGES.map((s) => {
     const a = byStage.get(s.stageOrder);
+    const live = counts(a);
     return {
       stageOrder: s.stageOrder,
       label: s.label,
       short: s.short,
       requiredRoles: s.requiredRoles,
       tierResolved: s.tierResolved,
-      decision: a?.decision ?? null,
+      decision: live ? (a!.decision ?? null) : null,
+      // The actor and the trail are kept even for a stale row: who signed the
+      // old figure off, and at what, is the whole explanation of why this is
+      // back at stage 1.
       actorId: a?.actor_id ?? null,
       actorName: a?.users?.full_name ?? null,
       actorRole: a?.actor_role ?? null,
@@ -246,6 +280,7 @@ export async function getChainState(
       reason: a?.reason ?? null,
       requiredTier: s.tierResolved ? requiredTier : null,
       decidedAmount: a ? Number(a.amount) : null,
+      staleDecision: a && !live ? a.decision : null,
     };
   });
 
@@ -253,10 +288,9 @@ export async function getChainState(
   const rejected = Boolean(rejectedRow);
 
   const allApproved = stages.every((s) => s.decision === "approved");
-  // Cleared only if every stage was approved AT THE CURRENT AMOUNT. An upward
-  // edit after stage 3 invalidates the chain rather than merely being logged.
-  const clearedForDisbursement =
-    !rejected && allApproved && stages.every((s) => s.decidedAmount === amount);
+  // Cleared only if every stage was approved AT THE CURRENT AMOUNT — which
+  // `decision` now already encodes, since a stale row does not count as one.
+  const clearedForDisbursement = !rejected && allApproved;
 
   return {
     orgId,
@@ -271,6 +305,6 @@ export async function getChainState(
     rejected,
     rejectedReason: rejectedRow?.reason ?? null,
     clearedForDisbursement,
-    amountChangedAfterApproval: !rejected && allApproved && !clearedForDisbursement,
+    amountChangedAfterApproval: !rejected && stages.some((s) => s.staleDecision !== null),
   };
 }

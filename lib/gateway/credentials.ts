@@ -98,15 +98,29 @@ export type OrgGatewayCredential = {
  * an org that has not connected its own account keeps working exactly as it did
  * before 0156. It is NOT a silent downgrade, because an org that HAS connected
  * one never reaches the fallback.
+ *
+ * ⚠️ ONLY "no row" may return null. Every other way this can fail THROWS, and
+ * the distinction is the whole safety property: `getGatewayForOrg` reads null as
+ * "this org uses the platform account", so anything that returns null while a
+ * credential actually exists moves that org's money through another
+ * organisation's merchant balance — the exact failure per-org keys exist to
+ * prevent. Two ways in which this used to happen silently:
+ *
+ *   • the query's `error` was discarded, so a statement timeout or a policy
+ *     change on the table read as "no credential";
+ *   • a missing `GATEWAY_CREDENTIAL_KEY` returned early, so dropping the env var
+ *     from a deployment that HAD stored credentials rerouted every payment.
+ *
+ * The key is therefore checked AFTER the row is fetched, not before: a
+ * deployment with no per-org credentials at all is still allowed to run without
+ * the key, which is what keeps the platform-only path working.
  */
 export async function getOrgCredential(
   orgId: string,
   gateway: "paystack" | "flutterwave"
 ): Promise<OrgGatewayCredential | null> {
-  if (!credentialKeyConfigured()) return null;
-
   const { supabaseAdmin } = await import("@/lib/supabase/admin");
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("org_gateway_credentials")
     .select("gateway, public_key, secret_key_enc, webhook_secret_enc, key_mode")
     .eq("org_id", orgId)
@@ -114,7 +128,20 @@ export async function getOrgCredential(
     .eq("active", true)
     .maybeSingle();
 
+  if (error) {
+    throw new Error(
+      `could not read this organisation's ${gateway} credential: ${error.message}`
+    );
+  }
+
+  // The one safe null: this org genuinely has no account of its own.
   if (!data) return null;
+
+  if (!credentialKeyConfigured()) {
+    throw new Error(
+      `this organisation has a stored ${gateway} credential but GATEWAY_CREDENTIAL_KEY is not set, so it cannot be decrypted`
+    );
+  }
 
   return {
     gateway,

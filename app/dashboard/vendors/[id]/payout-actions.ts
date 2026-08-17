@@ -58,8 +58,29 @@ export async function saveVendorPayoutRecipient(
     .from("vendors").select("id, name, org_id").eq("id", input.vendorId).single();
   if (!vendor) return fail("That vendor could not be found.");
 
-  const { getGateway } = await import("@/lib/gateway");
-  const gateway = getGateway("NGN");
+  // ⚠️ The VENDOR'S OWN ORG's account, not the platform's. A Paystack
+  // transferrecipient — and the `recipient_code` it returns — belongs to the
+  // merchant account that created it, and since 0156 the transfer is drawn on
+  // `getGatewayForOrg(remittance.org_id)` (lib/remittance-run.ts). Creating the
+  // recipient on the platform account while sending from the org's would hand
+  // Paystack a code that account has never seen: every payout to this vendor
+  // would fail at the gateway, after the remittance had already been claimed.
+  //
+  // `vendor.org_id` rather than `me.org_id` — the recipient is stored against
+  // the vendor's org below, so it must be verified against the same account the
+  // eventual transfer will be drawn on.
+  const { getGatewayForOrg } = await import("@/lib/gateway");
+  let gateway;
+  try {
+    gateway = await getGatewayForOrg(vendor.org_id, "NGN");
+  } catch (e) {
+    // Refuses rather than falling back — verifying against the wrong merchant
+    // account would store a recipient code the payout account cannot use.
+    return fail(
+      e instanceof Error ? e.message : "This organisation's payment gateway is not usable.",
+      "Nothing has been saved."
+    );
+  }
 
   const created = await gateway.createRecipient({
     name: input.accountName.trim() || vendor.name,

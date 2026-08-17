@@ -74,51 +74,58 @@ export default async function ApprovalsPage() {
       .limit(100),
   ]);
 
-  const rows: QueueRow[] = [];
+  // ⚠️ Resolved in PARALLEL, and the difference is not cosmetic. Each
+  // `getChainState` is three round trips, and these were three sequential `for`
+  // loops over three hundred rows — up to nine hundred queries end to end on a
+  // `force-dynamic` page, which at any realistic latency is past the function's
+  // time budget before it renders a single card. The per-row states are wholly
+  // independent of each other, so there was never a reason to await them in
+  // turn.
+  const described = await Promise.all([
+    ...(payments ?? []).map(async (p) => {
+      const state = await getChainState(supabase, "vendor_payment", p.id);
+      const vendor = (p.vendors as { name?: string } | null)?.name ?? "Vendor";
+      return {
+        payableType: "vendor_payment" as const,
+        payableId: p.id,
+        title: `${vendor} — ${formatNaira(state.amount)}`,
+        subtitle: p.invoice_reference
+          ? `Invoice ${p.invoice_reference}`
+          : "Vendor invoice",
+        href: `/dashboard/payments/${p.id}`,
+        state,
+      };
+    }),
+    ...(payouts ?? []).map(async (r) => {
+      const state = await getChainState(supabase, "landlord_payout", r.id);
+      const prop = (r.properties as { name?: string } | null)?.name ?? "Property";
+      return {
+        payableType: "landlord_payout" as const,
+        payableId: r.id,
+        title: `${prop} — ${formatNaira(state.amount)}`,
+        subtitle: `Landlord payout${r.period ? ` · ${r.period}` : ""}`,
+        href: "/dashboard/ledger/payouts",
+        state,
+      };
+    }),
+    ...(requisitions ?? []).map(async (q) => {
+      const state = await getChainState(supabase, "ops_requisition", q.id);
+      const job = (q.tickets as { summary?: string } | null)?.summary;
+      return {
+        payableType: "ops_requisition" as const,
+        payableId: q.id,
+        title: `${q.reference} — ${formatNaira(state.amount)}`,
+        subtitle: job ? `Requisition for: ${job}` : "Standalone requisition",
+        href: `/dashboard/approvals/requisitions/${q.id}`,
+        state,
+      };
+    }),
+  ]);
 
-  for (const p of payments ?? []) {
-    const state = await getChainState(supabase, "vendor_payment", p.id);
-    if (state.clearedForDisbursement || state.rejected) continue;
-    const vendor = (p.vendors as { name?: string } | null)?.name ?? "Vendor";
-    rows.push({
-      payableType: "vendor_payment",
-      payableId: p.id,
-      title: `${vendor} — ${formatNaira(state.amount)}`,
-      subtitle: p.invoice_reference
-        ? `Invoice ${p.invoice_reference}`
-        : "Vendor invoice",
-      href: `/dashboard/payments/${p.id}`,
-      state,
-    });
-  }
-
-  for (const r of payouts ?? []) {
-    const state = await getChainState(supabase, "landlord_payout", r.id);
-    if (state.clearedForDisbursement || state.rejected) continue;
-    const prop = (r.properties as { name?: string } | null)?.name ?? "Property";
-    rows.push({
-      payableType: "landlord_payout",
-      payableId: r.id,
-      title: `${prop} — ${formatNaira(state.amount)}`,
-      subtitle: `Landlord payout${r.period ? ` · ${r.period}` : ""}`,
-      href: "/dashboard/ledger/payouts",
-      state,
-    });
-  }
-
-  for (const q of requisitions ?? []) {
-    const state = await getChainState(supabase, "ops_requisition", q.id);
-    if (state.clearedForDisbursement || state.rejected) continue;
-    const job = (q.tickets as { summary?: string } | null)?.summary;
-    rows.push({
-      payableType: "ops_requisition",
-      payableId: q.id,
-      title: `${q.reference} — ${formatNaira(state.amount)}`,
-      subtitle: job ? `Requisition for: ${job}` : "Standalone requisition",
-      href: `/dashboard/approvals/requisitions/${q.id}`,
-      state,
-    });
-  }
+  // Anything already cleared or refused is not waiting on anybody.
+  const rows: QueueRow[] = described.filter(
+    (r) => !r.state.clearedForDisbursement && !r.state.rejected
+  );
 
   const mine = rows.filter((r) => canActorAction(actor, r.state));
   const others = rows.filter((r) => !canActorAction(actor, r.state));

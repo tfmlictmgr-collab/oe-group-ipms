@@ -84,8 +84,33 @@ export async function saveRequisitionLinePayee(input: {
     return fail("Choose the payee's bank.");
   }
 
-  const { getGateway } = await import("@/lib/gateway");
-  const gateway = getGateway("NGN");
+  // ⚠️ Which ORG's merchant account must verify this payee. A Paystack
+  // `recipient_code` belongs to the account that created it, and since 0156 the
+  // transfer is drawn on `getGatewayForOrg(remittance.org_id)`
+  // (lib/remittance-run.ts) — so verifying on the platform account while paying
+  // from the org's would store a code that account cannot use, and every send to
+  // this payee would fail at the gateway after the lines had been claimed.
+  //
+  // Read under the caller's own session, so RLS decides whether they may touch
+  // this line at all; `save_requisition_line_payee` re-resolves the org and the
+  // authority for itself regardless.
+  const { data: line } = await supabase
+    .from("ops_requisition_lines")
+    .select("id, org_id")
+    .eq("id", input.lineId)
+    .maybeSingle();
+  if (!line) return fail("That requisition line could not be found.");
+
+  const { getGatewayForOrg } = await import("@/lib/gateway");
+  let gateway;
+  try {
+    gateway = await getGatewayForOrg(line.org_id, "NGN");
+  } catch (e) {
+    return fail(
+      e instanceof Error ? e.message : "This organisation's payment gateway is not usable.",
+      "Nothing has been saved."
+    );
+  }
 
   const created = await gateway.createRecipient({
     name: input.accountName.trim(),

@@ -86,7 +86,12 @@ export default async function DrillPage({
     bucket: (one("bucket") as Filters["bucket"]) ?? "month",
   };
 
-  const res = await loadDrill(dim as DrillDimension, decodeURIComponent(value), filters);
+  // ⚠️ NOT `decodeURIComponent(value)`. Next.js has already decoded the dynamic
+  // segment, so decoding a second time corrupts any value containing a literal
+  // `%` — and on a crafted URL like `/period/%zz` it throws URIError, which
+  // surfaces as a 500 rather than the refusal below. The console encodes on the
+  // way out; one decode on the way in is the whole of it.
+  const res = await loadDrill(dim as DrillDimension, value, filters);
 
   if (!res.ok) {
     return <Refusal title={res.message} description={res.hint ?? undefined} />;
@@ -101,19 +106,21 @@ export default async function DrillPage({
     }).filter(([, v]) => Boolean(v)) as [string, string][]
   ).toString();
 
+  // ⚠️ Both buckets come from `loadDrill`, which is the one place that decides
+  // how wide the opened period is. Labelling it here from the URL's own shape is
+  // what made a month read "Aug 26" over a single day's figures: the width of a
+  // period is not recoverable from its start date, and `bi_ticket_metrics`
+  // returns a full date at every bucket.
   const heading =
     d.dimension === "period"
-      ? periodLabel(d.label, filters.bucket ?? "month")
+      ? periodLabel(d.label, d.bucket)
       : d.dimension === "category"
         ? titleize(d.label)
         : d.label;
 
   // One level finer than what was opened. Stated on screen because a chart
   // whose grouping is not named is a chart the reader has to guess at.
-  const innerBucket =
-    d.dimension === "period"
-      ? /^\d{4}$/.test(d.value) ? "month" : /^\d{4}-\d{2}$/.test(d.value) ? "week" : "day"
-      : (filters.bucket ?? "month");
+  const innerBucket = d.innerBucket;
 
   return (
     <div className="space-y-6">
