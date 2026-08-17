@@ -122,10 +122,37 @@ This also *is* the manual verification the board chose (decision 3): a human rea
 
 ---
 
+### The file-transfer worker
+
+`app/api/jobs/copy-vendor-documents/route.ts`, on a `*/15 * * * *` Vercel cron.
+
+`accept_vendor_introduction()` copies metadata; it cannot copy files, because `storage.objects`
+indexes bytes the database does not hold. The alternative — letting the receiving org read the
+sending org's storage prefix — would permanently widen the bucket policy that keeps one brand's
+evidence out of the other's reach, for every request, to serve one transfer. So the boundary stays
+where `0164` put it and the one actor legitimately holding paths in two orgs is the service role.
+
+**Copy the file, then mark the row** — never the reverse. A crash between the two leaves
+`copied_at` null and the pack reading as incomplete, so the next run finishes it. The opposite order
+would tell a reviewer a document is present when it is not, and they would approve a registration
+against evidence that does not exist. A destination that already exists is treated as done, which is
+exactly that crash case on the following run.
+
+⚠️ **`CRON_SECRET` must be set in the Vercel environment.** Every job route here is *closed* when it
+is unset, not open — so a missing secret means this silently 401s forever and carried-over packs
+never complete. It is not set in `.env.local`, which is why the local check below covers both paths.
+
 ## 5. Verification
 
-`scripts/verify-vendor-self-service.mjs` — 41 checks, all passing. Each refusal is verified by
+`scripts/verify-vendor-self-service.mjs` — 47 checks, all passing. Each refusal is verified by
 **attempting** the operation as a real signed-in user, never by reading a policy or grant table.
+Section F stages real objects in the bucket and moves them across a brand boundary — a transfer
+suite that never moves a byte proves only that two tables agree with each other.
+
+The route itself was additionally exercised end to end against a running dev server: unauthenticated
+and wrong-bearer both 401; authorised with an empty queue returns `{copied: 0}`; with one real
+cross-org document queued it returned `{copied: 1}`, the file was readable at its new path with
+contents intact, and a re-run was a no-op.
 
 Also re-run green after the policy rewrites: `verify-vendor-journey`, `verify-vendor-onboarding`,
 `verify-vendor-applications`, `verify-vendor-evaluation`, `verify-approval-chain`,
@@ -140,14 +167,13 @@ node scripts/verify-vendor-self-service.mjs
 ## 6. Still owed
 
 1. **UI** — vendor Users screen, the tiered registration wizard, the staff review queue, and the
-   introductions queue. None built.
-2. **The file-copy worker.** `pending_vendor_document_copies()` / `mark_vendor_document_copied()`
-   are service-role only and nothing calls them yet. Until one does, a carried-over pack shows its
-   documents as queued rather than present — visibly incomplete, which is the correct thing for a
-   reviewer to see, but it must be built before the introduction flow goes live.
-3. **NDPA retention for `director_id`.** Enhanced-tier packs carry government ID for named
+   introductions queue. None built. This is now the only thing standing between the feature and use.
+2. **NDPA retention for `director_id`.** Enhanced-tier packs carry government ID for named
    individuals. There is no purge job; the tenant rule (decision 10(3)) is the obvious model. **Owed
    before enhanced onboarding opens to real vendors** — flagged in the migration itself, not left to
-   be discovered.
-4. **`orgs.vendor_enhanced_kyc_threshold`** exists and is grant-writable; Settings has no field for
+   be discovered. Standard tier does not collect it, so standard onboarding is unblocked.
+3. **`orgs.vendor_enhanced_kyc_threshold`** exists and is grant-writable; Settings has no field for
    it yet.
+4. **When the acceptance UI is built, have it kick the transfer** rather than waiting up to fifteen
+   minutes for the cron. The job stays as the safety net — the queue is the state, the schedule
+   never was.

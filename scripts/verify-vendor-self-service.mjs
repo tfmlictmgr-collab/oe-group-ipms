@@ -61,6 +61,8 @@ async function login(email) {
 const S = Date.now().toString(36).toUpperCase().slice(-5);
 const madeUsers = [];
 const madeVendors = [];
+const madeObjects = [];
+let carriedVendorId = null;   // the vendor created in the receiving org by section E
 
 // Start-of-run sweep — end-of-run cleanup cannot repair end-of-run cleanup.
 {
@@ -324,11 +326,20 @@ console.log("\nD. The registration pack");
     compliance_declared_at: new Date().toISOString(),
   }).eq("vendor_id", vendorA);
 
-  // Documents. Metadata only — the bucket itself is exercised by the app.
+  // Documents — with REAL objects in the bucket, not metadata alone. Section F
+  // copies these across a brand boundary, and a transfer suite that never moves
+  // a byte proves only that two tables agree with each other.
   for (const doc of ["cac_certificate", "tin_certificate", "bank_evidence", "proof_of_address"]) {
+    const path = `${org.id}/${vendorA}/${doc}-${S}.pdf`;
+    const { error: upErr } = await svc.storage.from("vendor-documents")
+      .upload(path, Buffer.from(`%PDF-1.4 probe ${doc} ${S}`), {
+        contentType: "application/pdf", upsert: true,
+      });
+    if (upErr) bad(`could not stage ${doc} in the bucket — ${upErr.message}`);
+    madeObjects.push(path);
     await ownerC.from("vendor_documents").insert({
       org_id: org.id, vendor_id: vendorA, doc_type: doc,
-      storage_path: `${org.id}/${vendorA}/${doc}-${S}.pdf`, uploaded_by: ownerId,
+      storage_path: path, uploaded_by: ownerId,
     });
   }
 
@@ -425,6 +436,7 @@ console.log("\nE. Cross-brand introduction, without telling either brand about t
   if (acceptErr) { bad(`E8 accept failed — ${acceptErr.message}`); }
   else {
     madeVendors.push(newVendorId);
+    carriedVendorId = newVendorId;
     ok("E8 the receiving organisation takes it on");
 
     const { data: nv } = await svc.from("vendors").select("org_id, name").eq("id", newVendorId).single();
@@ -464,8 +476,70 @@ console.log("\nE. Cross-brand introduction, without telling either brand about t
 }
 
 // ---------------------------------------------------------------------------
+console.log("\nF. The files themselves follow (app/api/jobs/copy-vendor-documents)");
+// ---------------------------------------------------------------------------
+if (!carriedVendorId) {
+  bad("F skipped — no carried vendor to transfer files for");
+} else {
+  // The job's own sequence: copy the object, THEN mark the row. Run here
+  // against the same RPCs the route calls, so the contract is verified even
+  // though the route is HTTP glue over it.
+  const { data: queue } = await svc.rpc("pending_vendor_document_copies");
+  const mine = (queue ?? []).filter((q) => q.target_path.includes(carriedVendorId));
+  eq("F1 four documents are queued for the carried vendor", mine.length, 4);
+
+  let copied = 0;
+  for (const q of mine) {
+    const { error: copyErr } = await svc.storage.from("vendor-documents")
+      .copy(q.source_path, q.target_path);
+    if (copyErr) { bad(`F could not copy ${q.source_path} — ${copyErr.message}`); continue; }
+    madeObjects.push(q.target_path);
+    const { error: markErr } = await svc.rpc("mark_vendor_document_copied", {
+      p_document_id: q.document_id,
+    });
+    if (markErr) { bad(`F could not mark ${q.document_id} — ${markErr.message}`); continue; }
+    copied += 1;
+  }
+  eq("F2 every one of them copies across the brand boundary", copied, mine.length);
+
+  // The bytes are actually there, under the RECEIVING org's prefix.
+  if (mine[0]) {
+    const { data: blob, error: dlErr } = await svc.storage
+      .from("vendor-documents").download(mine[0].target_path);
+    const text = blob ? await blob.text() : "";
+    !dlErr && text.includes("%PDF-1.4 probe")
+      ? ok("F3 and the file is readable at its new path, contents intact")
+      : bad(`F3 the copied file is not there — ${dlErr?.message ?? "empty"}`);
+  }
+
+  const { data: after } = await svc.from("vendor_documents")
+    .select("copied_at").eq("vendor_id", carriedVendorId);
+  (after ?? []).every((d) => d.copied_at !== null)
+    ? ok("F4 the pack now reads as complete rather than queued")
+    : bad("F4 documents are still marked as not yet copied");
+
+  // Idempotence, both halves. The queue is the state; a re-run must be safe.
+  const { data: queueAfter } = await svc.rpc("pending_vendor_document_copies");
+  (queueAfter ?? []).some((q) => q.target_path.includes(carriedVendorId))
+    ? bad("F5 the queue still offers work that is already done")
+    : ok("F5 the queue is empty for that vendor — a re-run does nothing");
+
+  // The crash-between-copy-and-mark case the route treats as success.
+  if (mine[0]) {
+    const { error: dupErr } = await svc.storage.from("vendor-documents")
+      .copy(mine[0].source_path, mine[0].target_path);
+    dupErr && /already exists|duplicate|resource already/i.test(dupErr.message)
+      ? ok("F6 re-copying onto an existing destination reports 'already exists', which the job treats as done")
+      : bad(`F6 unexpected re-copy behaviour — ${dupErr?.message ?? "it silently overwrote"}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Teardown
 // ---------------------------------------------------------------------------
+if (madeObjects.length > 0) {
+  await svc.storage.from("vendor-documents").remove(madeObjects);
+}
 for (const id of madeVendors) {
   await svc.from("vendor_introductions").delete().eq("source_vendor_id", id);
   await svc.from("vendor_introductions").delete().eq("target_vendor_id", id);
