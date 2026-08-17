@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import {
-  Briefcase, Clock, CheckCircle2, Star, Banknote, HardHat,
+  Clock, HardHat,
 } from "lucide-react";
 import { getSessionProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
@@ -9,8 +9,8 @@ import {
   WEIGHT_LABELS, SCORE_WEIGHTS, averageComposite, scoreBand,
 } from "@/lib/vendor-score";
 import { PageHeader } from "@/components/patterns/page-header";
-import { StatCard } from "@/components/patterns/stat-card";
 import SubmitInvoice, { type InvoiceableJob } from "./SubmitInvoice";
+import WorkStats from "./WorkStats";
 import JobCard from "./JobCard";
 import { shortRef } from "@/lib/acknowledgement";
 import { EmptyState } from "@/components/patterns/empty-state";
@@ -220,25 +220,22 @@ export default async function MyWorkPage() {
         actions={<StatusBadge status={vendor.status} />}
       />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Open jobs" value={openCount} icon={<Briefcase />}
-                  hint={`${inProgress}${listTruncated ? "+" : ""} in progress`} />
-        <StatCard label="Completed" value={doneCount} icon={<CheckCircle2 />}
-                  hint="all time" />
-        <StatCard
-          label="Performance score"
-          value={average === null ? "—" : average.toFixed(1)}
-          icon={<Star />}
-          hint={average === null
-            ? awaitingCount > 0
-              ? `${awaitingCount} awaiting the other side's review`
-              : "no evaluation recorded yet"
-            : `${scoreBand(average).label} · ${complete.length} job${complete.length === 1 ? "" : "s"}`
-              + (awaitingCount > 0 ? ` · ${awaitingCount} pending` : "")}
-        />
-        <StatCard label="Awaiting payment" value={formatNaira(awaiting)} icon={<Banknote />}
-                  hint="submitted, not yet remitted" />
-      </div>
+      <WorkStats
+        jobs={jobs}
+        openCount={openCount}
+        doneCount={doneCount}
+        listTruncated={listTruncated}
+        complete={complete}
+        average={average}
+        awaitingCount={awaitingCount}
+        payments={payments}
+        awaitingTotal={awaiting}
+      />
+      {inProgress > 0 && (
+        <p className="text-xs text-muted-foreground">
+          {inProgress}{listTruncated ? "+" : ""} of your open jobs are in progress right now.
+        </p>
+      )}
 
       {/* ── Pipeline ─────────────────────────────────────────────────────── */}
       <Card>

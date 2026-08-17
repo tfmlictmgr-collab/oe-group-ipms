@@ -1,15 +1,15 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { HardHat, Clock, CheckCircle2, ChevronRight, Wrench, ReceiptText } from "lucide-react";
+import { HardHat, ChevronRight, ReceiptText } from "lucide-react";
 import { getSessionProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { shortRef } from "@/lib/acknowledgement";
 import { PageHeader } from "@/components/patterns/page-header";
-import { StatCard } from "@/components/patterns/stat-card";
 import { EmptyState } from "@/components/patterns/empty-state";
 import { StatusBadge } from "@/components/patterns/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import JobStats from "./JobStats";
 
 // An internal ops staffer's own dispatched work.
 //
@@ -68,10 +68,6 @@ export default async function MyJobsPage() {
     property_or_unit: string | null;
   }[];
 
-  const open = jobs.filter((j) => OPEN_STATES.includes(j.status));
-  const unacknowledged = open.filter((j) => !j.acknowledged_at);
-  const done = jobs.filter((j) => !OPEN_STATES.includes(j.status));
-
   return (
     <div className="space-y-6">
       <PageHeader
@@ -94,15 +90,7 @@ export default async function MyJobsPage() {
         />
       ) : (
         <>
-          <div className="grid gap-4 sm:grid-cols-3">
-            <StatCard label="Open" value={String(open.length)} icon={<Wrench />} />
-            <StatCard
-              label="Awaiting your acknowledgement"
-              value={String(unacknowledged.length)}
-              icon={<Clock />}
-            />
-            <StatCard label="Completed" value={String(done.length)} icon={<CheckCircle2 />} />
-          </div>
+          <JobStats jobs={jobs} />
 
           <ul className="space-y-2.5">
             {jobs.map((j) => (
