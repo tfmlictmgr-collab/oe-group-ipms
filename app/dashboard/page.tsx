@@ -7,6 +7,7 @@ import { type Ticket } from "@/lib/ticket-format";
 import { PageHeader } from "@/components/patterns/page-header";
 import { Button } from "@/components/ui/button";
 import TicketList from "./TicketList";
+import RequestStats from "./RequestStats";
 
 export default async function DashboardPage() {
   // A viewer has no policy on tickets, so this page would render an empty list
@@ -71,6 +72,8 @@ export default async function DashboardPage() {
           </div>
         }
       />
+      <RequestStats tickets={(tickets as Ticket[]) ?? []} truncated={truncated} total={total} />
+
       <TicketList initialTickets={(tickets as Ticket[]) ?? []} />
 
       {truncated && (
