@@ -60,17 +60,28 @@ const madePayments = [];
 const madeVendors = [];
 
 // Start-of-run sweep — end-of-run cleanup cannot repair end-of-run cleanup.
+//
+// ⚠️ Does NOT attempt to delete `payment_approvals`. It cannot be done by
+// anyone (`trg_approvals_append_only`, 0151) and the attempt is what made both
+// this sweep and the teardown below no-ops for every run before this one: the
+// delete failed, the user delete then failed on the foreign key, supabase-js
+// returned both errors rather than throwing, and nothing read either. An
+// account that authored an approval is deactivated instead — see the teardown.
 {
   const { data: stale } = await svc.from("users").select("id").like("email", "probechain.%@oegroup.test");
   for (const u of stale ?? []) {
-    await svc.from("payment_approvals").delete().eq("actor_id", u.id);
-    await svc.from("users").delete().eq("id", u.id);
-    await svc.auth.admin.deleteUser(u.id).catch(() => {});
+    const { error } = await svc.from("users").delete().eq("id", u.id);
+    if (!error) {
+      await svc.auth.admin.deleteUser(u.id).catch(() => {});
+    } else {
+      await svc.from("users")
+        .update({ deactivated_at: new Date().toISOString() })
+        .eq("id", u.id)
+        .is("deactivated_at", null);
+    }
   }
   const { data: staleV } = await svc.from("vendors").select("id").like("name", "Probe Chain%");
   for (const v of staleV ?? []) {
-    const { data: ps } = await svc.from("payments").select("id").eq("vendor_id", v.id);
-    for (const p of ps ?? []) await svc.from("payment_approvals").delete().eq("payable_id", p.id);
     await svc.from("payments").delete().eq("vendor_id", v.id);
     await svc.from("vendors").delete().eq("id", v.id);
   }
@@ -560,15 +571,49 @@ console.log("\n12. The status machine no longer takes approval on trust");
 // ---------------------------------------------------------------------------
 // Teardown
 // ---------------------------------------------------------------------------
+// ⚠️ `payment_approvals` CANNOT be deleted — not by the service role, not by
+// anyone. `trg_approvals_append_only` (0151) fires on DELETE regardless of the
+// caller's role, which is the whole point: "a decision is never deleted".
+//
+// This teardown used to try anyway. supabase-js RETURNS the error rather than
+// throwing it, and nothing here read it, so every run silently failed to clean
+// up, then silently failed to delete the users those approvals reference (FK),
+// and left the whole cast behind. Seventy probe accounts had accumulated before
+// anyone looked — found only because a network outage made the teardown noisy
+// enough to notice.
+//
+// So: delete what genuinely can be deleted, and DEACTIVATE the rest. That is
+// the same answer `seed-org-logins.mjs` reached for the same reason — an
+// account that has done anything cannot be erased without orphaning the record
+// of what it did, and every picker filters `deactivated_at is null`, so a
+// deactivated probe disappears from the product without breaking the trail.
 for (const id of madePayments) {
-  await svc.from("payment_approvals").delete().eq("payable_id", id);
   await svc.from("payments").delete().eq("id", id);
 }
 for (const id of madeVendors) await svc.from("vendors").delete().eq("id", id);
+
+let hardDeleted = 0;
+let deactivated = 0;
 for (const id of madeUsers) {
-  await svc.from("users").delete().eq("id", id);
-  await svc.auth.admin.deleteUser(id).catch(() => {});
+  const { error } = await svc.from("users").delete().eq("id", id);
+  if (!error) {
+    await svc.auth.admin.deleteUser(id).catch(() => {});
+    hardDeleted++;
+    continue;
+  }
+  // Referenced by an append-only approval — deactivate instead of leaving it
+  // active and pretending the cleanup worked.
+  const { error: deErr } = await svc
+    .from("users")
+    .update({ deactivated_at: new Date().toISOString() })
+    .eq("id", id)
+    .is("deactivated_at", null);
+  if (!deErr) deactivated++;
 }
+console.log(
+  `\ncleanup: ${hardDeleted} probe account(s) removed, ${deactivated} deactivated ` +
+    `(they authored append-only approvals and cannot be erased)`
+);
 
 console.log(failures === 0
   ? "\n\x1b[32mAll approval chain checks passed.\x1b[0m\n"
