@@ -50,9 +50,9 @@ export default async function ApprovalsPage() {
   };
   const myTier = effectiveTier(actor.role, actor.approvalTier);
 
-  // Vendor invoices that have passed the B4 gate and are awaiting the chain,
-  // plus landlord payouts raised and not yet sent.
-  const [{ data: payments }, { data: payouts }] = await Promise.all([
+  // Vendor invoices that have passed the B4 gate, landlord payouts raised and
+  // not yet sent, and FM/PM ops requisitions awaiting the same chain (0170).
+  const [{ data: payments }, { data: payouts }, { data: requisitions }] = await Promise.all([
     supabase
       .from("payments")
       .select("id, amount, invoice_reference, status, vendors(name)")
@@ -64,6 +64,12 @@ export default async function ApprovalsPage() {
       .select("id, net_amount, period, reference, status, properties(name)")
       .eq("party", "landlord")
       .eq("status", "queued")
+      .order("created_at", { ascending: true })
+      .limit(100),
+    supabase
+      .from("ops_requisitions")
+      .select("id, total_amount, reference, status, tickets(summary)")
+      .eq("status", "pending_approval")
       .order("created_at", { ascending: true })
       .limit(100),
   ]);
@@ -100,6 +106,20 @@ export default async function ApprovalsPage() {
     });
   }
 
+  for (const q of requisitions ?? []) {
+    const state = await getChainState(supabase, "ops_requisition", q.id);
+    if (state.clearedForDisbursement || state.rejected) continue;
+    const job = (q.tickets as { summary?: string } | null)?.summary;
+    rows.push({
+      payableType: "ops_requisition",
+      payableId: q.id,
+      title: `${q.reference} — ${formatNaira(state.amount)}`,
+      subtitle: job ? `Requisition for: ${job}` : "Standalone requisition",
+      href: `/dashboard/approvals/requisitions/${q.id}`,
+      state,
+    });
+  }
+
   const mine = rows.filter((r) => canActorAction(actor, r.state));
   const others = rows.filter((r) => !canActorAction(actor, r.state));
 
@@ -108,8 +128,9 @@ export default async function ApprovalsPage() {
       <div className="space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight">Approvals</h1>
         <p className="text-sm text-muted-foreground">
-          Every payment leaving the organisation — vendor invoices and landlord
-          payouts alike — passes three pairs of hands before finance sends it.
+          Every payment leaving the organisation — vendor invoices, landlord
+          payouts and ops requisitions alike — passes three pairs of hands
+          before finance sends it.
           {myTier ? ` You approve up to ${tierLabel(myTier).toLowerCase()}.` : ""}
         </p>
       </div>

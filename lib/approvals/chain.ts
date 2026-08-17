@@ -14,7 +14,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-export type PayableType = "vendor_payment" | "landlord_payout";
+export type PayableType = "vendor_payment" | "landlord_payout" | "ops_requisition";
 export type ApprovalTier = 1 | 2 | 3;
 export type Decision = "approved" | "rejected";
 

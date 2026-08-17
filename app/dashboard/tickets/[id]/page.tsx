@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ArrowLeft, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, ReceiptText } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
 import { type Ticket, CHANNEL_LABELS, formatDateTime } from "@/lib/ticket-format";
@@ -349,6 +349,12 @@ export default async function TicketDetailPage({
               </>
             )}
             <TicketStatusControl ticketId={t.id} currentStatus={t.status} />
+            <Separator />
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/dashboard/requisitions/new?ticket=${t.id}`}>
+                <ReceiptText /> Raise a requisition for this job
+              </Link>
+            </Button>
           </CardContent>
         </Card>
       )}

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { HardHat, Clock, CheckCircle2, ChevronRight, Wrench } from "lucide-react";
+import { HardHat, Clock, CheckCircle2, ChevronRight, Wrench, ReceiptText } from "lucide-react";
 import { getSessionProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { shortRef } from "@/lib/acknowledgement";
@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/patterns/page-header";
 import { StatCard } from "@/components/patterns/stat-card";
 import { EmptyState } from "@/components/patterns/empty-state";
 import { StatusBadge } from "@/components/patterns/status-badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
 // An internal ops staffer's own dispatched work.
@@ -76,6 +77,13 @@ export default async function MyJobsPage() {
       <PageHeader
         title="My Jobs"
         description="Work dispatched to you. Open a job to acknowledge it and record progress."
+        actions={
+          <Button asChild variant="outline" size="sm">
+            <Link href="/dashboard/requisitions/new">
+              <ReceiptText /> Raise a requisition
+            </Link>
+          </Button>
+        }
       />
 
       {jobs.length === 0 ? (
