@@ -73,6 +73,8 @@ export type NavContext = {
    * owner is not billed; they are paid.
    */
   isOwner: boolean;
+  /** Decision 9: "Nothing financial, no org-wide read." */
+  isRegionalManager: boolean;
   seesBi: boolean;
   /** The `requests` capability of the B7 BI matrix — the analytics console. */
   seesRequestAnalytics: boolean;
@@ -277,16 +279,21 @@ export const NAV_GROUPS: NavGroup[] = [
         label: "Statements",
         href: "/dashboard/statements",
         icon: FileText,
-        // ⚠️ NOT a vendor. This screen is a SERVICE-CHARGE statement — what is
-        // billed to your unit — and a contractor has no unit, so it showed them
-        // an empty statement for charges that could never exist and offered it
-        // as one of the three things in their sidebar.
+        // ⚠️ NOT a vendor, and not ops/dispatched staff either. This screen is
+        // a SERVICE-CHARGE statement — what is billed to your unit — and
+        // neither a contractor nor internal dispatched staff has a unit, so
+        // each was shown an empty statement for charges that could never
+        // exist. Same fault, found a second time: `isStaff` on the page itself
+        // is `["admin","facility_manager","finance_approver","executive"]`,
+        // which never included `fm_ops_staff` either, so they fell into the
+        // same tenant-billed branch a vendor did.
         //
         // Exactly the fault already fixed once for landlords (see `isOwner`
         // above): the page branches staff-vs-not, and everyone on the "not"
-        // side was assumed to be billed. A contractor is PAID, not billed —
-        // their money lives on My Work under Payment status.
-        show: (c) => !c.isViewer && !c.isVendor,
+        // side was assumed to be billed. A contractor is PAID, not billed; an
+        // ops staff member is neither billed nor paid through this screen —
+        // their money, where relevant, lives elsewhere.
+        show: (c) => !c.isViewer && !c.isVendor && !c.isOpsStaff && !c.isRegionalManager,
       },
       {
         label: "Audit Trail",

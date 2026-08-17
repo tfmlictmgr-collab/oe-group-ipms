@@ -126,6 +126,13 @@ export default async function DashboardLayout({
     // nowhere to look.
     isOpsStaff: role === "fm_ops_staff",
     isOwner: role === "property_owner",
+    // Decision 9, verbatim: "Nothing financial, no org-wide read." Statements
+    // is a financial screen with two branches — a per-unit tenant bill, or the
+    // org-wide staff ledger — and a regional manager is entitled to neither.
+    // `seesServiceCharges` already keeps them off the SC dashboard nav item
+    // via the capability matrix; Statements is a second, separate way onto the
+    // same financial data that the matrix was never asked about.
+    isRegionalManager: role === "regional_manager",
 
     // Capability-derived. `properties`/`vendors`/`leases` read as "can act on
     // them at all"; RLS then decides WHICH — an FM/PM and a regional manager

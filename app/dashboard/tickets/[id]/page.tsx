@@ -49,9 +49,19 @@ export default async function TicketDetailPage({
   const session = await getSessionProfile();
   if (!session) redirect("/login");
 
+  // Dispatch authority: who may ASSIGN a job and later EVALUATE the vendor.
+  // `regional_manager` was missing here — B7 gives them the same operational
+  // authority as a facility/properties manager over a wider place (0078a's
+  // `fm_roles()`), and `tickets.assign` is granted to both in the permission
+  // matrix (0072b). `fm_ops_staff` deliberately stays OUT of this one: they
+  // hold no `tickets.assign` capability, `AssignControl` has no guard of its
+  // own, and `assignTicket` has no server-side role check either — it relies
+  // entirely on RLS to refuse. Bundling them in here would have shown a
+  // dispatch control the database was always going to reject.
   const canManage =
     session.profile?.role === "admin" ||
-    session.profile?.role === "facility_manager";
+    session.profile?.role === "facility_manager" ||
+    session.profile?.role === "regional_manager";
 
   const supabase = await createClient();
   const { data: ticket } = await supabase
@@ -113,6 +123,16 @@ export default async function TicketDetailPage({
   const isTenant = Boolean(t.sender_id) && t.sender_id === session.user.id;
   const isDone = DONE_STATES.includes(t.status);
   const canEvaluate = t.assigned_vendor_id != null && isDone && (isTenant || canManage);
+
+  // ⚠️ THE ACTUAL BUG. `assigned_to_user_id = auth.uid()` has been in
+  // `tickets_update`'s RLS policy since the table existed — the database
+  // always let a dispatched ops staff member move their own job's status. The
+  // UI never rendered the control for them: this card gated on `canManage`
+  // alone, which was dispatch authority, and status-on-your-own-job is a
+  // narrower, different permission. An ops staff member could Acknowledge (its
+  // own separate card) and then had no way to record progress or mark a job
+  // done — the empty middle of "My jobs → acknowledge → [nothing] → evidence".
+  const canExecuteStatus = canManage || (session.profile?.role === "fm_ops_staff" && isAssignee);
 
   const [criteriaRes, evalsRes] = canEvaluate
     ? await Promise.all([
@@ -305,20 +325,29 @@ export default async function TicketDetailPage({
         </Card>
       )}
 
-      {canManage && (
+      {canExecuteStatus && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Dispatch &amp; status</CardTitle>
+            <CardTitle className="text-base">
+              {canManage ? "Dispatch & status" : "Progress"}
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-5">
-            <AssignControl
-              ticketId={t.id}
-              vendors={vendors}
-              opsStaff={opsStaff}
-              currentVendorId={t.assigned_vendor_id}
-              currentOpsUserId={t.assigned_to_user_id}
-            />
-            <Separator />
+            {/* Assignment stays with dispatch authority only — an ops staff
+                member executes the job they were given, they do not hand it
+                to someone else. */}
+            {canManage && (
+              <>
+                <AssignControl
+                  ticketId={t.id}
+                  vendors={vendors}
+                  opsStaff={opsStaff}
+                  currentVendorId={t.assigned_vendor_id}
+                  currentOpsUserId={t.assigned_to_user_id}
+                />
+                <Separator />
+              </>
+            )}
             <TicketStatusControl ticketId={t.id} currentStatus={t.status} />
           </CardContent>
         </Card>

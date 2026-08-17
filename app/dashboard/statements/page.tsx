@@ -68,11 +68,23 @@ export default async function StatementsPage() {
   const session = await getSessionProfile();
   if (!session) redirect("/login");
 
-  // A contractor has no unit and is never billed a service charge, so this page
-  // can only ever be empty for them. Sent to where their money actually is
-  // rather than shown a statement of charges that cannot exist — the nav no
-  // longer offers this, and a bookmark or a typed URL should not either.
+  // Neither has a unit to be billed, and neither should see the org-wide
+  // financial view: a contractor is paid, not billed, and a regional manager
+  // holds "nothing financial, no org-wide read" (decision 9) — Statements is
+  // exactly the financial screen that sentence rules them out of. Both are
+  // sent to where they actually belong rather than shown a statement of
+  // charges that cannot exist. The nav no longer offers this to either; a
+  // bookmark or a typed URL should not reach it either.
   if (session.profile?.role === "vendor") redirect("/dashboard/my-work");
+  if (session.profile?.role === "regional_manager") redirect("/dashboard");
+
+  // ⚠️ `fm_ops_staff` was never in this list either, and unlike vendor/regional
+  // it had no redirect at all — reaching this page directly would have dropped
+  // them into the tenant-billed branch below, querying service charges billed
+  // to a unit they do not occupy. Excluded from the nav in the same pass, but
+  // the page itself needed the same fix, since the nav is a courtesy and never
+  // the boundary.
+  if (session.profile?.role === "fm_ops_staff") redirect("/dashboard/my-jobs");
 
   const isStaff = ["admin", "facility_manager", "finance_approver", "executive"].includes(
     session.profile?.role ?? ""

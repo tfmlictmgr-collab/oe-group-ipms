@@ -4999,3 +4999,26 @@ Three suites (`verify-reconciliation`, `verify-fx-collections`, the asset-import
 pair) import `.ts` modules and must run under `tsx`; invoking them with `node`
 produces `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`, which reads as a broken suite
 rather than a wrong command.
+
+---
+
+## A correction: what Day 11 actually was
+
+Day 11 was cited earlier this session as a reason to stage a dashboard-wide
+interactive-card redesign for later — decision 13's "internal dashboard's
+polish stays in Day 11's existing production UX pass". Checked against the
+actual commits (`6957137`, `a243c25`, `7896f49`, `ed042b4`, "Day 11 complete")
+rather than the one-line summary: Day 11 was **correctness and accessibility**
+polish — Module 5 (Audit & Compliance), dual-source vendor evaluation replacing
+a free-typed number, confirmation dialogs on real money, loading states, work-
+order photo/video evidence, and a **measured** WCAG AA pass that found and fixed
+real failures (badge contrast down to 2.06:1, focusable-but-unnamed file
+inputs).
+
+None of that is an interaction-PATTERN change. Drawers, dropdowns, drill-downs
+do not appear in it. So the caution against duplicating Day 11 was the right
+instinct to check — a real board-minuted staging decision is not something to
+route around on assumption — but the conflict it was checking for turns out not
+to exist: Day 11 and a dashboard-wide drawer/dropdown pass are different kinds
+of work that happen to share the word "polish". Corrected here rather than left
+standing, since the wrong caution given confidently is its own kind of drift.
