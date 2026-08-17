@@ -1,10 +1,10 @@
 import { redirect } from "next/navigation";
-import { Package, Building2, Building, Inbox, ShieldCheck, Gauge } from "lucide-react";
+import { Inbox, ShieldCheck } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
 import { roleLabel } from "@/lib/roles";
 import { PageHeader } from "@/components/patterns/page-header";
-import { StatCard } from "@/components/patterns/stat-card";
+import OverviewStats from "./OverviewStats";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -118,12 +118,7 @@ export default async function OverviewPage() {
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Properties" value={String(props.length)} icon={<Building />} />
-        <StatCard label="Units" value={String(unitRows.length)} icon={<Building2 />} />
-        <StatCard label="Assets on register" value={String(assetRows.length)} icon={<Package />} />
-        <StatCard label="Vendors" value={String(vendorRows.length)} icon={<Gauge />} />
-      </div>
+      <OverviewStats props={props} unitRows={unitRows} assetRows={assetRows} vendorRows={vendorRows} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>

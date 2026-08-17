@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Building, Plus, Home, Map } from "lucide-react";
+import { Building, Plus, Map } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
 import { PageHeader } from "@/components/patterns/page-header";
 import { EmptyState } from "@/components/patterns/empty-state";
-import { StatCard } from "@/components/patterns/stat-card";
+import PropertyStats from "./PropertyStats";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -40,9 +40,6 @@ export default async function PropertiesPage() {
     node_path: string | null;
   }[];
 
-  const totalUnits = props.reduce((s, p) => s + Number(p.unit_count), 0);
-  const occupied = props.reduce((s, p) => s + Number(p.occupied_count), 0);
-
   return (
     <div className="space-y-6">
       <PageHeader
@@ -64,14 +61,7 @@ export default async function PropertiesPage() {
         }
       />
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <StatCard label="Properties" value={String(props.length)} icon={<Building />} />
-        <StatCard label="Units" value={String(totalUnits)} icon={<Home />} />
-        <StatCard
-          label="Occupied"
-          value={totalUnits ? `${Math.round((occupied / totalUnits) * 100)}%` : "—"}
-        />
-      </div>
+      <PropertyStats props={props} />
 
       {props.length === 0 ? (
         <EmptyState

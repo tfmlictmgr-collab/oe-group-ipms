@@ -14,6 +14,7 @@ import { Input, Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { EmptyState } from "@/components/patterns/empty-state";
 import { StatCard } from "@/components/patterns/stat-card";
+import { RecordDrawer, useDrawer } from "@/components/patterns/record-drawer";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table, TableHeader, TableBody, TableRow, TableHead, TableCell,
@@ -81,6 +82,7 @@ export default function CollectionsClient({
   const [busy, setBusy] = React.useState<string | null>(null);
   const checkedRef = React.useRef(false);
   const [fxForm, setFxForm] = React.useState({ amount: "", currency: fxCurrencies[0] ?? "", email: "" });
+  const drawer = useDrawer();
 
   // ⚠️ Grouped by currency, not summed across all of them. `intents` can now
   // legitimately mix NGN and FX rows (0103) — summing a ₦ figure and a $ figure
@@ -244,19 +246,62 @@ export default function CollectionsClient({
         </Card>
       )}
 
-      {statRows.map(([currency, s]) => (
-        <div key={currency} className="grid gap-4 sm:grid-cols-3">
-          <StatCard
-            label={currency === "NGN" ? "Collected (last 60 requests)" : `Collected — ${currency}`}
-            value={formatMoney(s.collected, currency)} icon={<CheckCircle2 />}
-          />
-          <StatCard
-            label="Still awaiting payment"
-            value={formatMoney(s.awaiting, currency)} icon={<Clock />}
-          />
-          <StatCard label="Amount mismatches" value={String(s.flagged)} icon={<TriangleAlert />} />
-        </div>
-      ))}
+      {statRows.map(([currency, s]) => {
+        // The intents composing each figure for THIS currency. Already on the
+        // page — the drawer stops the reader having to scan the table below
+        // and filter by currency in their head.
+        const forCur = intents.filter((i) => (i.currency || "NGN") === currency);
+        const collectedRows = forCur.filter((i) => i.ledger_entry_id);
+        const awaitingRows = forCur.filter((i) => ["pending", "part_paid"].includes(i.status));
+        const flaggedRows = forCur.filter((i) => i.amount_mismatch);
+        const asRecord = (i: IntentRow, amount: number, tone?: "warning" | "destructive") => ({
+          id: i.id,
+          title: i.gateway_reference,
+          meta: `${i.purpose.replace(/_/g, " ")} · ${formatMoney(amount, i.currency || "NGN")}`,
+          tag: i.status,
+          tone,
+        });
+
+        return (
+          <div key={currency} className="grid gap-4 sm:grid-cols-3">
+            <StatCard
+              label={currency === "NGN" ? "Collected (last 60 requests)" : `Collected — ${currency}`}
+              value={formatMoney(s.collected, currency)} icon={<CheckCircle2 />}
+              onClick={() => drawer.open({
+                eyebrow: `Collections · ${currency}`, title: "Collected",
+                scope: "Received and posted to the ledger",
+                facts: [["Total collected", formatMoney(s.collected, currency)]],
+                records: collectedRows.map((i) => asRecord(i, Number(i.amount_paid ?? 0))),
+                emptyLabel: "Nothing collected in this currency yet.",
+              })}
+            />
+            <StatCard
+              label="Still awaiting payment"
+              value={formatMoney(s.awaiting, currency)} icon={<Clock />}
+              onClick={() => drawer.open({
+                eyebrow: `Collections · ${currency}`, title: "Still awaiting payment",
+                scope: "Raised and not yet settled",
+                facts: [["Total awaiting", formatMoney(s.awaiting, currency)]],
+                records: awaitingRows.map((i) =>
+                  asRecord(i, Number(i.amount_expected) - Number(i.amount_paid ?? 0), "warning")
+                ),
+                emptyLabel: "Nothing awaiting payment.",
+              })}
+            />
+            <StatCard
+              label="Amount mismatches" value={String(s.flagged)} icon={<TriangleAlert />}
+              onClick={() => drawer.open({
+                eyebrow: `Collections · ${currency}`, title: "Amount mismatches",
+                scope: "Paid a different amount than was requested — each needs a person",
+                records: flaggedRows.map((i) =>
+                  asRecord(i, Number(i.amount_paid ?? 0), "destructive")
+                ),
+                emptyLabel: "No mismatches — every payment matched its request.",
+              })}
+            />
+          </div>
+        );
+      })}
 
       {/* Which gateway mode is in force. Nothing else on screen distinguishes a
           test key from a live one, and the difference is whether real cards are
@@ -535,6 +580,8 @@ export default function CollectionsClient({
           )}
         </CardContent>
       </Card>
+
+      <RecordDrawer state={drawer.state} onClose={drawer.close} />
     </div>
   );
 }

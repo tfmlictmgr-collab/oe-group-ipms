@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { FileText, Plus, Home, Banknote, AlertTriangle } from "lucide-react";
+import { FileText, Plus, AlertTriangle } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
 import { PageHeader } from "@/components/patterns/page-header";
 import { EmptyState } from "@/components/patterns/empty-state";
-import { StatCard } from "@/components/patterns/stat-card";
+import LeaseStats from "./LeaseStats";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -74,9 +74,8 @@ export default async function LeasesPage() {
 
   const canWrite = Boolean(canWriteRes.data);
   const live = rows.filter((r) => r.status === "active" || r.status === "renewed");
-  const contracted = live.reduce((s, r) => s + Number(r.rent_amount), 0);
-  const outstanding = rows.reduce((s, r) => s + Number(r.rent_outstanding), 0);
-  // The number a manager acts on this quarter, not a vanity metric.
+  // The totals moved into LeaseStats with the tiles. `expiring` stays here —
+  // the banner below it is a separate call to action, not a tile.
   const expiring = live.filter((r) => r.days_to_expiry >= 0 && r.days_to_expiry <= 90);
 
   return (
@@ -93,16 +92,7 @@ export default async function LeasesPage() {
         }
       />
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Active tenancies" value={String(live.length)} icon={<Home />} />
-        <StatCard label="Contracted rent" value={naira(contracted)} icon={<Banknote />} />
-        <StatCard
-          label="Outstanding"
-          value={naira(outstanding)}
-          icon={<AlertTriangle />}
-        />
-        <StatCard label="Expiring in 90 days" value={String(expiring.length)} />
-      </div>
+      <LeaseStats rows={rows} />
 
       {expiring.length > 0 && (
         <Card>
