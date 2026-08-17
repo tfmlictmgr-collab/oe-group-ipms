@@ -94,6 +94,23 @@ everything around them but cannot execute them.
       (ongoing % vs one-time per-tenancy charge). The column exists
       (`orgs.admin_fee_flat`) as a flat placeholder; it is not built out further
       until this is decided.
+      **⚠️ Found 10 Aug 2026: it is not actually inert.** `raise_rent_charge`
+      (`0091`) and the rent-collection ledger split (`0092`) have deducted
+      `admin_fee_flat` from every real rent collection since Day 9 — "placeholder"
+      described the DECISION, not the code, which was fully wired the whole
+      time. OEA's is currently `25000` (default `0`), live on the shared dev
+      database — deducting an extra ₦25,000 from every ₦10M rent collection —
+      almost certainly set by manual testing of Settings → Payments/Lettings and
+      never reset. `verify-rent-demands`/`verify-rent-money` (2 suites, 6 checks)
+      fail as a result: their own expected-value math never accounted for this
+      column, so it went unnoticed until the value left `0`. Neither the config
+      nor the tests have been touched — deliberately, since this is live state
+      another session may be mid-test with, and reversing someone else's
+      in-progress work without asking is worse than a red suite. **Needs a
+      decision:** reset OEA to `0` (tests pass, matches "not built out yet"), or
+      update the two tests to account for a real nonzero value (matches what the
+      code actually does today). Either is a five-minute fix once decided —
+      recorded here so it isn't rediscovered as a mystery later.
 
 ### Actions I (Claude) execute
 Everything mechanical once the accounts above exist.

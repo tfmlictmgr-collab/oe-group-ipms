@@ -42,6 +42,22 @@ const db = new pg.Client({
   host: process.env.SUPABASE_DB_HOST, port: Number(process.env.SUPABASE_DB_PORT || 5432),
   database: process.env.SUPABASE_DB_NAME, user: process.env.SUPABASE_DB_USER,
   password: process.env.SUPABASE_DB_PASSWORD, ssl: { rejectUnauthorized: false },
+  // Section D holds this one connection open across every user in every org —
+  // dozens of serial round-trips over the remote pooler. A NAT/firewall idle
+  // timeout can drop it mid-loop, and pg's default behaviour for a socket
+  // error with no listener is to THROW, crashing the whole suite and losing
+  // every result gathered so far. keepAlive makes the drop itself less likely;
+  // the listener below is what stops it taking the process down when it still
+  // happens — each in-flight query then rejects into its own try/catch
+  // instead of the process exiting uncaught.
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10000,
+});
+db.on("error", (err) => {
+  console.log(
+    `  \x1b[33mNOTE\x1b[0m database connection dropped mid-suite (${err.message.slice(0, 90)}) — ` +
+    `remaining checks will fail individually rather than crash the run.`
+  );
 });
 await db.connect();
 

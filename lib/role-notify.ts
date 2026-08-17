@@ -16,6 +16,7 @@ type Recipient = {
   // phone number — the same row could be reached on a number they have since
   // replaced.
   id: string;
+  full_name: string | null;
   phone: string | null;
   email: string | null;
   telegram_chat_id: string | null;
@@ -26,7 +27,14 @@ type Recipient = {
 };
 
 const RECIPIENT_COLUMNS =
-  "id, phone, email, telegram_chat_id, notify_whatsapp, notify_sms, notify_email, notify_telegram";
+  "id, full_name, phone, email, telegram_chat_id, notify_whatsapp, notify_sms, notify_email, notify_telegram";
+
+/** Builds a WhatsApp template for ONE recipient — needed because {{1}} is
+ * conventionally a first name, which differs per person, unlike `message`
+ * (one string shared by everyone in the loop). Returning `null`/`undefined`
+ * falls back to `message` as free text for that recipient, same as omitting
+ * a template entirely. */
+type TemplateBuilder = (r: Recipient) => CascadeTarget["whatsappTemplate"];
 
 // One send per recipient, each restricted to the channels THEY opted into —
 // never a channel they never registered or turned off. `sendCascade`'s own
@@ -38,7 +46,8 @@ async function cascadeToRecipients(
   recipients: Recipient[],
   message: string,
   entityType: EntityType,
-  entityId: string | null
+  entityId: string | null,
+  buildWhatsAppTemplate?: TemplateBuilder
 ): Promise<void> {
   for (const r of recipients) {
     await sendCascade({
@@ -52,6 +61,7 @@ async function cascadeToRecipients(
       // know WHO, not just which number.
       recipientUserId: r.id,
       whatsapp: r.notify_whatsapp && r.phone ? r.phone : null,
+      whatsappTemplate: buildWhatsAppTemplate ? buildWhatsAppTemplate(r) : null,
       phone: r.notify_sms && r.phone ? r.phone : null,
       email: r.notify_email && r.email ? r.email : null,
       telegram: r.notify_telegram && r.telegram_chat_id ? r.telegram_chat_id : null,
@@ -110,7 +120,8 @@ export async function cascadeToUserIds(
   userIds: string[],
   message: string,
   entityType: EntityType,
-  entityId: string | null
+  entityId: string | null,
+  buildWhatsAppTemplate?: TemplateBuilder
 ): Promise<void> {
   if (userIds.length === 0) return;
   // Runs on the service role, so nothing else here stops a foreign-org id
@@ -126,5 +137,12 @@ export async function cascadeToUserIds(
     .eq("org_id", orgId)
     .in("id", userIds)
     .is("deactivated_at", null);
-  await cascadeToRecipients(orgId, (recipients ?? []) as Recipient[], message, entityType, entityId);
+  await cascadeToRecipients(
+    orgId,
+    (recipients ?? []) as Recipient[],
+    message,
+    entityType,
+    entityId,
+    buildWhatsAppTemplate
+  );
 }

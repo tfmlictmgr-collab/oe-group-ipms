@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { apportion } from "@/lib/apportionment";
 import { sendCascade } from "@/lib/cascade";
+import { flattenTemplateVar, firstNameTemplateVar } from "@/lib/notify";
 import { formatNaira } from "@/lib/currency";
 import { ok, fail, failFromDb, type ActionResult } from "@/lib/action-result";
 
@@ -97,10 +98,18 @@ export async function generateInvoices(budgetId: string): Promise<ActionResult> 
       .map((s) => s.occupant_user_id)
       .filter((id): id is string => !!id);
     if (occupantIds.length > 0) {
+      // `full_name` is new here (WHATSAPP_TEMPLATES.md §3's {{1}}); `phone`
+      // was already selected but, like the payment-approval site, was never
+      // passed as `whatsapp:` below — WhatsApp was never attempted for a
+      // statement-ready notice regardless of the occupant's own preference.
       const { data: occupants } = await supabase
         .from("users")
-        .select("id, email, phone")
+        .select("id, full_name, email, phone")
         .in("id", occupantIds);
+      // {{3}} — flattened once per property, not per share, since it does not
+      // vary within this loop. `property?.name` keeps the same "your property"
+      // fallback the free-text message already used.
+      const propertyName = flattenTemplateVar(property?.name, "your property");
       for (const share of shares) {
         if (!share.occupant_user_id) continue;
         const u = occupants?.find((o) => o.id === share.occupant_user_id);
@@ -114,6 +123,17 @@ export async function generateInvoices(budgetId: string): Promise<ActionResult> 
           // path already has it.
           recipientUserId: share.occupant_user_id,
           message: `Your ${budget.period} service charge statement for ${property?.name ?? "your property"} is ready: ${formatNaira(share.amount)}.`,
+          whatsapp: u.phone,
+          whatsappTemplate: {
+            name: "service_charge_ready",
+            languageCode: "en",
+            variables: [
+              firstNameTemplateVar(u.full_name),
+              flattenTemplateVar(String(budget.period), "this period", 30),
+              propertyName,
+              formatNaira(share.amount),
+            ],
+          },
           phone: u.phone,
           email: u.email,
         });

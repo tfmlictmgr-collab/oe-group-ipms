@@ -117,12 +117,14 @@ console.log("\nC. Every orgs column is either allowed or deliberately excluded")
     "vendor_applications_open", "finance_email", "it_email",
     "email_from_name", "email_from_address", "tenant_applications_open",
     "management_fee_pct", "admin_fee_flat", "renewal_notice_days", "rent_demand_lead_days",
+    "whatsapp_number", "telegram_bot_username",   // 0146a/0147, granted by 0158
   ]);
   const EXCLUDED = new Set([
     "id", "created_at",              // identity, never in an UPDATE payload
     "deleted_at",                    // retire_org()/unretire_org() only
     "is_platform_operator",          // the org-isolation crossing (0050)
     "slug", "custom_domain",         // operator controls (0085, 0089)
+    "gateway_tag",                   // DB-generated (0156), read-only everywhere it's used
   ]);
 
   // ⚠️ THE CALLER'S OWN ROW. Not `.limit(1)`.

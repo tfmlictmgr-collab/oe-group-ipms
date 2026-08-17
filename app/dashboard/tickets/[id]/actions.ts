@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { ok, fail, failFromDb, type ActionResult } from "@/lib/action-result";
 import { cascadeToUserIds } from "@/lib/role-notify";
+import { flattenTemplateVar, firstNameTemplateVar } from "@/lib/notify";
+import { shortRef } from "@/lib/acknowledgement";
 
 // Dispatch a ticket to a vendor and/or an FM ops person. Runs under the caller's
 // session, so RLS restricts this to admin/FM. Sets status to 'assigned' and
@@ -42,7 +44,7 @@ export async function assignTicket(
       status: "assigned",
     })
     .eq("id", ticketId)
-    .select("id, org_id");
+    .select("id, org_id, summary");
   if (error) return failFromDb(error, "assign this job");
   if (!updated?.length) {
     return fail(
@@ -51,6 +53,10 @@ export async function assignTicket(
     );
   }
   const orgId = updated[0].org_id as string;
+  // job_assigned's {{2}}/{{3}} (WHATSAPP_TEMPLATES.md §1) — computed once,
+  // outside the per-recipient loop, since neither varies by recipient.
+  const jobSummary = flattenTemplateVar(updated[0].summary as string | null, "a new job");
+  const jobRef = shortRef(ticketId);
 
   // ── Tell the assignee ────────────────────────────────────────────────────
   //
@@ -91,7 +97,14 @@ export async function assignTicket(
       recipients,
       "A job has been assigned to you. Open the portal to acknowledge and get started.",
       "ticket",
-      ticketId
+      ticketId,
+      // job_assigned (WHATSAPP_TEMPLATES.md §1) — {{1}} is per-recipient, so
+      // this has to be a function, not a fixed template built once above.
+      (r) => ({
+        name: "job_assigned",
+        languageCode: "en",
+        variables: [firstNameTemplateVar(r.full_name), jobSummary, jobRef],
+      })
     );
   } catch (e) {
     console.error("Could not send external dispatch notification:", e);
