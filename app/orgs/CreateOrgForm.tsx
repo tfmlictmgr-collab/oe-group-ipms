@@ -98,8 +98,8 @@ export default function CreateOrgForm() {
                 <option value="OEA">OEA — property-delivered</option>
               </Select>
               <p className="text-xs text-muted-foreground">
-                Decides whether lettings switches on and which vanity slug it
-                competes for — it is not the org's identity.
+                Decides whether lettings switches on — it is not the org's
+                identity, so its address always comes from the name above.
               </p>
             </div>
             <div className="space-y-1.5">
