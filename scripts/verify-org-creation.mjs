@@ -15,6 +15,11 @@
 //   • a reason that says nothing, a missing name, or a missing admin email
 //     are all refused
 //
+// Identities are throwaway probe accounts created here with the service-role
+// key (same shape as verify-operator-governance.mjs) rather than assumed
+// fixture logins — this suite must pass against any environment, not only
+// one seeded with specific named accounts.
+//
 // Usage: node scripts/verify-org-creation.mjs
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -34,53 +39,97 @@ const ok = (m) => console.log(`  \x1b[32mPASS\x1b[0m ${m}`);
 const bad = (m) => { failures++; console.log(`  \x1b[31mFAIL\x1b[0m ${m}`); };
 
 const svc = createClient(URL_, SVCK, { auth: { persistSession: false } });
-const login = async (email) => {
+async function login(email) {
   const c = createClient(URL_, ANON, { auth: { persistSession: false } });
   const { error } = await c.auth.signInWithPassword({ email, password: PW });
-  return error ? null : c;
-};
+  if (error) throw new Error(`${email}: ${error.message}`);
+  return c;
+}
 
 const S = Date.now().toString(36).toUpperCase().slice(-5);
 const madeOrgIds = [];
+const madeUserIds = [];
 
 // A provisioned org can never be deleted (0114/verify-operator-governance) —
 // `operator_actions` and `audit_log` reference it and the trail is append-only.
 // So the marker is retired at the end, not removed, and any straggler from a
 // previous crashed run is retired here too, before it can shadow this run's
 // slug-collision checks.
-async function retireProbes() {
+async function retireProbeOrgs() {
   const { data } = await svc
     .from("orgs").select("id").like("name", "PROBEORG-%").is("deleted_at", null);
   for (const o of data ?? []) {
     await svc.from("orgs").update({ deleted_at: new Date().toISOString() }).eq("id", o.id);
   }
 }
-await retireProbes();
+async function cleanupStaleProbeUsers() {
+  const { data } = await svc.from("users").select("id").like("email", "probeorg.%@oegroup.test");
+  for (const u of data ?? []) {
+    await svc.from("users").delete().eq("id", u.id);
+    await svc.auth.admin.deleteUser(u.id).catch(() => {});
+  }
+}
+await retireProbeOrgs();
+await cleanupStaleProbeUsers();
+
+const orgRes = await svc
+  .from("orgs").select("id, slug, name, delivery_brand, is_platform_operator").is("deleted_at", null);
+if (orgRes.error) { console.error("db unreachable:", orgRes.error.message); process.exit(1); }
+
+const flaggedOperator = orgRes.data.find((o) => o.is_platform_operator);
+// If nothing is flagged as the operator yet, borrow the platform's own POC/
+// foundation org for the duration of this run, the way
+// verify-operator-governance.mjs does — restored before exit either way.
+const operatorOrg = flaggedOperator ?? orgRes.data.find((o) => o.delivery_brand === "direct");
+if (!operatorOrg) {
+  console.error("No organisation to use as the operator, and none is flagged is_platform_operator.");
+  process.exit(1);
+}
+const wasOperator = !!flaggedOperator;
+if (!wasOperator) {
+  await svc.from("orgs").update({ is_platform_operator: true }).eq("id", operatorOrg.id);
+}
+const brandOrg = orgRes.data.find((o) => o.id !== operatorOrg.id);
+if (!brandOrg) {
+  console.error("No second organisation to use as a non-operator brand admin.");
+  process.exit(1);
+}
+
+async function makeUser(orgId, role, tag) {
+  const email = `probeorg.${tag}.${S}@oegroup.test`;
+  const { data: created, error } = await svc.auth.admin.createUser({ email, password: PW, email_confirm: true });
+  if (error) throw new Error(`${email}: ${error.message}`);
+  await svc.from("users").upsert({
+    id: created.user.id, org_id: orgId, email, full_name: `Probe ${tag}`, role,
+  });
+  madeUserIds.push(created.user.id);
+  return { id: created.user.id, email };
+}
 
 console.log("Org creation: a working address for every organisation, operator-only\n");
 
+const opAdmin = await makeUser(operatorOrg.id, "admin", "opadmin");
+const brandAdmin = await makeUser(brandOrg.id, "admin", "brandadmin");
+
 console.log("A. Only an administrator OF the operator org may provision one");
 {
-  const brand = await login("tfml.admin@oegroup.test");
-  if (!brand) bad("could not sign in as the TFML administrator");
-  else {
-    const { error } = await brand.rpc("operator_provision_org", {
-      p_name: `PROBEORG-Refused-${S}`, p_delivery_brand: "direct",
-      p_admin_email: `probeorg.refused.${S}@example.com`, p_admin_name: "Refused",
-      p_reason: "a brand administrator attempting to provision an org",
-      p_token_hash: "x".repeat(16),
-    });
-    error ? ok("a brand administrator cannot provision an org via the RPC")
-          : bad("A BRAND ADMIN PROVISIONED AN ORGANISATION");
+  const brand = await login(brandAdmin.email);
+  const { error } = await brand.rpc("operator_provision_org", {
+    p_name: `PROBEORG-Refused-${S}`, p_delivery_brand: "direct",
+    p_admin_email: `probeorg.refused.${S}@example.com`, p_admin_name: "Refused",
+    p_reason: "a brand administrator attempting to provision an org",
+    p_token_hash: "x".repeat(16),
+  });
+  error ? ok("a brand administrator cannot provision an org via the RPC")
+        : bad("A BRAND ADMIN PROVISIONED AN ORGANISATION");
 
-    // Nor by writing the table directly — RLS, not just the definer function.
-    const { data: patched } = await brand
-      .from("orgs").insert({ name: `PROBEORG-Direct-${S}`, delivery_brand: "direct" }).select("id");
-    (patched ?? []).length === 0
-      ? ok("nor insert into orgs directly")
-      : bad("A BRAND ADMIN INSERTED AN ORG ROW DIRECTLY");
-    await brand.auth.signOut();
-  }
+  // Nor by writing the table directly — RLS, not just the definer function.
+  const { data: patched } = await brand
+    .from("orgs").insert({ name: `PROBEORG-Direct-${S}`, delivery_brand: "direct" }).select("id");
+  (patched ?? []).length === 0
+    ? ok("nor insert into orgs directly")
+    : bad("A BRAND ADMIN INSERTED AN ORG ROW DIRECTLY");
+  await brand.auth.signOut();
 
   const anon = createClient(URL_, ANON, { auth: { persistSession: false } });
   const { error: anonErr } = await anon.rpc("operator_provision_org", {
@@ -93,12 +142,9 @@ console.log("A. Only an administrator OF the operator org may provision one");
           : bad("AN ANONYMOUS CALLER PROVISIONED AN ORGANISATION");
 }
 
-let op;
+const op = await login(opAdmin.email);
 console.log("\nB. An operator administrator can, and it does more than insert a row");
 {
-  op = await login("platform@oegroup.test");
-  if (!op) { bad("could not sign in as the platform administrator — aborting"); process.exit(1); }
-
   const name = `PROBEORG-Client-${S}`;
   const { data: orgId, error } = await op.rpc("operator_provision_org", {
     p_name: name, p_delivery_brand: "OEA",
@@ -181,14 +227,20 @@ console.log("\nC. A slug collision resolves instead of colliding");
   } else {
     madeOrgIds.push(orgId3);
     const { data: org3 } = await svc.from("orgs").select("slug").eq("id", orgId3).single();
-    org3?.slug && org3.slug !== "tfml"
-      ? ok(`a second TFML-branded org got its own slug (${org3.slug}), not "tfml"`)
-      : bad(`A SECOND TFML ORG TOOK "tfml"'S SLUG (${org3?.slug})`);
+    if (!realTfml) {
+      org3?.slug === "tfml"
+        ? ok(`no pre-existing "tfml" org in this environment, so it claimed the base slug (${org3.slug})`)
+        : bad(`unexpected slug with no collision to resolve: ${org3?.slug}`);
+    } else {
+      org3?.slug && org3.slug !== "tfml"
+        ? ok(`a second TFML-branded org got its own slug (${org3.slug}), not "tfml"`)
+        : bad(`A SECOND TFML ORG TOOK "tfml"'S SLUG (${org3?.slug})`);
 
-    const { data: stillReal } = await svc.from("orgs").select("slug").eq("id", realTfml.id).single();
-    stillReal.slug === "tfml"
-      ? ok("the real TFML org's slug is untouched")
-      : bad(`THE REAL TFML ORG'S SLUG CHANGED TO ${stillReal.slug}`);
+      const { data: stillReal } = await svc.from("orgs").select("slug").eq("id", realTfml.id).single();
+      stillReal.slug === "tfml"
+        ? ok("the real TFML org's slug is untouched")
+        : bad(`THE REAL TFML ORG'S SLUG CHANGED TO ${stillReal.slug}`);
+    }
   }
 }
 
@@ -218,13 +270,20 @@ console.log("\nD. Refused with no real reason, no name, or no admin email");
   }
 }
 
-await op?.auth.signOut();
+await op.auth.signOut();
 
 // ── Cleanup ──────────────────────────────────────────────────────────────
 for (const id of madeOrgIds) {
   await svc.from("orgs").update({ deleted_at: new Date().toISOString() }).eq("id", id);
 }
-console.log(`\n(retired ${madeOrgIds.length} probe organisation(s) — provisioned rows are never deleted)`);
+for (const id of madeUserIds) {
+  await svc.from("users").delete().eq("id", id);
+  await svc.auth.admin.deleteUser(id).catch(() => {});
+}
+if (!wasOperator) {
+  await svc.from("orgs").update({ is_platform_operator: false }).eq("id", operatorOrg.id);
+}
+console.log(`\n(retired ${madeOrgIds.length} probe organisation(s) and ${madeUserIds.length} probe user(s))`);
 
 console.log(
   failures === 0
