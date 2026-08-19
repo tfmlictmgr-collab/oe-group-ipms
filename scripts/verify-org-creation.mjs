@@ -5,10 +5,11 @@
 //   • only an administrator OF the operator org may provision an org
 //   • a brand administrator is refused, both via the RPC and via a direct
 //     insert into `orgs` (RLS)
-//   • the new org gets a slug, derived the way 0085 backfilled one — TFML and
-//     OEA keep their pre-agreed addresses, everything else slugifies the name
-//   • the slug is unique: two orgs sharing a name, or a second TFML/OEA-branded
-//     org, get numbered suffixes instead of colliding
+//   • the new org gets a slug derived from its own NAME, never its brand
+//     (0177) — a second org merely delivered by TFML/OEA must not steal or
+//     be given 'tfml'/'oea', which belong only to the two rows 0085 set them on
+//   • the slug is unique: two orgs sharing a name get numbered suffixes
+//     instead of colliding
 //   • provisioning is audited to operator_actions, carrying the slug it set
 //   • the B7 permission baseline, the lettings flag and the geopolitical
 //     hierarchy all land in the same call — this is not just a slug patch
@@ -22,6 +23,7 @@
 //
 // Usage: node scripts/verify-org-creation.mjs
 import path from "node:path";
+import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
@@ -47,6 +49,11 @@ async function login(email) {
 }
 
 const S = Date.now().toString(36).toUpperCase().slice(-5);
+// invitations.token_hash is unique — a fixed literal collides with the row a
+// previous (even failed) run left behind, since a provisioned org's invitation
+// outlives the org's own retirement. Random per call, same as
+// verify-operator-governance.mjs's tok().
+const tok = () => crypto.randomBytes(24).toString("hex");
 const madeOrgIds = [];
 const madeUserIds = [];
 
@@ -118,7 +125,7 @@ console.log("A. Only an administrator OF the operator org may provision one");
     p_name: `PROBEORG-Refused-${S}`, p_delivery_brand: "direct",
     p_admin_email: `probeorg.refused.${S}@example.com`, p_admin_name: "Refused",
     p_reason: "a brand administrator attempting to provision an org",
-    p_token_hash: "x".repeat(16),
+    p_token_hash: tok(),
   });
   error ? ok("a brand administrator cannot provision an org via the RPC")
         : bad("A BRAND ADMIN PROVISIONED AN ORGANISATION");
@@ -136,7 +143,7 @@ console.log("A. Only an administrator OF the operator org may provision one");
     p_name: `PROBEORG-Anon-${S}`, p_delivery_brand: "direct",
     p_admin_email: `probeorg.anon.${S}@example.com`, p_admin_name: "Anon",
     p_reason: "an anonymous caller attempting to provision an org",
-    p_token_hash: "x".repeat(16),
+    p_token_hash: tok(),
   });
   anonErr ? ok("an anonymous caller cannot provision an org")
           : bad("AN ANONYMOUS CALLER PROVISIONED AN ORGANISATION");
@@ -150,7 +157,7 @@ console.log("\nB. An operator administrator can, and it does more than insert a 
     p_name: name, p_delivery_brand: "OEA",
     p_admin_email: `probeorg.first.${S}@example.com`, p_admin_name: "First Admin",
     p_reason: "verification: provisioning a new OEA-delivered client",
-    p_token_hash: "y".repeat(16),
+    p_token_hash: tok(),
   });
   if (error || !orgId) {
     bad(`provisioning failed — ${error?.message?.slice(0, 90)}`);
@@ -202,7 +209,7 @@ console.log("\nC. A slug collision resolves instead of colliding");
     p_name: name, p_delivery_brand: "direct",
     p_admin_email: `probeorg.second.${S}@example.com`, p_admin_name: "Second Admin",
     p_reason: "verification: a second org sharing the first one's name",
-    p_token_hash: "z".repeat(16),
+    p_token_hash: tok(),
   });
   if (error || !orgId2) {
     bad(`the second org could not be created — ${error?.message?.slice(0, 90)}`);
@@ -220,7 +227,7 @@ console.log("\nC. A slug collision resolves instead of colliding");
     p_name: `PROBEORG-SecondTFML-${S}`, p_delivery_brand: "TFML",
     p_admin_email: `probeorg.tfml2.${S}@example.com`, p_admin_name: "Second TFML Admin",
     p_reason: "verification: a second TFML-branded org must not steal the vanity slug",
-    p_token_hash: "w".repeat(16),
+    p_token_hash: tok(),
   });
   if (e3 || !orgId3) {
     bad(`the second TFML-branded org could not be created — ${e3?.message?.slice(0, 90)}`);
@@ -250,17 +257,17 @@ console.log("\nD. Refused with no real reason, no name, or no admin email");
     ["a reason that says nothing", {
       p_name: `PROBEORG-NoReason-${S}`, p_delivery_brand: "direct",
       p_admin_email: `probeorg.x.${S}@example.com`, p_admin_name: "X",
-      p_reason: "short", p_token_hash: "a".repeat(16),
+      p_reason: "short", p_token_hash: tok(),
     }],
     ["no name", {
       p_name: "  ", p_delivery_brand: "direct",
       p_admin_email: `probeorg.y.${S}@example.com`, p_admin_name: "Y",
-      p_reason: "verification: an organisation needs a name", p_token_hash: "b".repeat(16),
+      p_reason: "verification: an organisation needs a name", p_token_hash: tok(),
     }],
     ["no admin email", {
       p_name: `PROBEORG-NoEmail-${S}`, p_delivery_brand: "direct",
       p_admin_email: "  ", p_admin_name: "Z",
-      p_reason: "verification: the first administrator needs an email", p_token_hash: "c".repeat(16),
+      p_reason: "verification: the first administrator needs an email", p_token_hash: tok(),
     }],
   ];
   for (const [label, args] of cases) {
