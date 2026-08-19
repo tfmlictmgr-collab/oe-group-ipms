@@ -5022,3 +5022,162 @@ route around on assumption — but the conflict it was checking for turns out no
 to exist: Day 11 and a dashboard-wide drawer/dropdown pass are different kinds
 of work that happen to share the word "polish". Corrected here rather than left
 standing, since the wrong caution given confidently is its own kind of drift.
+
+---
+
+## The cleanup that never cleaned up — confirmed fixed
+
+`b373b01` fixed `verify-approval-chain.mjs`'s teardown: `payment_approvals`
+cannot be deleted by anyone (`trg_approvals_append_only`, 0151, fires on DELETE
+regardless of caller, service role included — the control working as intended,
+"a decision is never deleted"). Both the suite's start-of-run sweep and its
+teardown tried to delete probe accounts anyway; supabase-js *returns* the error
+rather than throwing, neither call read it, so every run since 0151 silently
+failed to delete the approvals, then failed on the accounts those approvals
+reference (foreign key), then reported a clean teardown regardless. Seventy
+probe accounts had accumulated before anyone noticed — surfaced only because a
+network outage made the failure noisy. The fix: delete what can genuinely be
+deleted, deactivate the rest (same answer `seed-org-logins.mjs` already reached
+for the same reason), and report which happened instead of leaving it implied.
+
+That commit landed with an open flag — network dropped mid-run, so the fix was
+checked by syntax and by the manual 2/68 split against the 70 stranded
+accounts, not by a real end-to-end pass. Re-run today: clean, full 12-section
+suite green (tier ladder, stage ordering, role gating, decision 16's threshold
+rule, amount-tampering, 0175 re-approval, landlord payouts, append-only,
+cross-org isolation), and the teardown itself now reports correctly —
+`3 probe account(s) removed, 8 deactivated (they authored append-only approvals
+and cannot be erased)` — rather than the prior silent no-op. Flag cleared.
+
+---
+
+## The full suite, and the flat admin fee's third and fourth victims
+
+`npm run verify` — 88 suites — came back 9 failed. Seven were the same LAN-level
+network drop already diagnosed once this session:
+`verify-leases-and-rent` (timed out at 300s), `verify-ledger`,
+`verify-logo-storage`, `verify-notifications`, `verify-operator-governance`
+(all `fetch failed`), and `verify-notification-links` (`connect ECONNABORTED
+192.168.68.105:5432`). That last one is the tell — `SUPABASE_DB_HOST` is
+`aws-1-eu-west-2.pooler.supabase.com`, and 192.168.68.105 is a LAN address, not
+an AWS one. When the WAN link actually drops, this router answers every DNS
+query with itself rather than failing the lookup, so `pg.Client` dialled the
+router on port 5432 instead of the pooler — and `pg.Client` is created here
+with no `connectionTimeoutMillis`, which defaults to **no timeout**, so the
+suite hung rather than erroring. All seven passed clean on re-run once
+`nslookup` confirmed the hostname was resolving to AWS again.
+
+The other two were real, and both were the admin_fee_flat omission
+`verify-remittance-race` already found once this build — reproduced twice more
+because it lives in a locally-computed constant in each suite, not a shared
+helper:
+
+- **`verify-rent-money`** (5 checks) — `FEE` was `management_fee_pct` only.
+  `record_collection` posts ONE combined `fee_income` line (mgmt + admin
+  together, `0092`), so every fee_income/landlord-share/remittance comparison
+  in the suite was short by OEA's ₦25,000. Fixed by adding `TOTAL_FEE = FEE +
+  admin_fee_flat` and using it everywhere the ledger's combined posting is
+  compared against — including section B, which now reads
+  `admin_fee_amount` off the snapshot row itself rather than assuming it's
+  zero, and section D's remittance total (2.5×(RENT − TOTAL_FEE), not
+  2.5×(RENT − FEE)).
+- **`verify-rent-demands`** (1 check) — `landlord_net_amount` compared against
+  `amount − management_fee_amount − 0`, a literal hardcoded zero where
+  `admin_fee_amount` belonged (0091's `raise_rent_charge` subtracts both).
+
+Three appearances of the identical shape — a test author reads
+`management_fee_pct`, forgets `admin_fee_flat` exists because it is zero on
+every org except OEA — is a pattern, not three unrelated typos. The fix each
+time is one line different from the last; nothing here yet stops a fourth.
+
+A fourth failure category, found while re-running `verify-lettings-grants` in
+isolation (its *original* run had also just been network noise): `orgs` had
+gained `vendor_enhanced_kyc_threshold` (`0164`, vendor self-service KYC
+tiering, granted `update` to `authenticated`) since this suite's ALLOWED/
+EXCLUDED classification was last written. The suite did exactly what its own
+comment says it exists to do — flagged the column as unclassified rather than
+silently passing or silently failing — and is now updated to include it.
+
+📌 Two lessons, not one. First: a suite timing out or throwing `fetch failed`
+is not evidence of a product defect — check whether the *transport* failed
+before reading the failure as the *assertion* failing, same as the
+`verify-lettings-grants` timeout-vs-permission distinction already built into
+that suite (§C above). Second: when the same wrong assumption has now produced
+three separate test failures across three suites, the fix that actually closes
+this is a shared `totalManagementFee(org)` helper, not a fourth hand-derived
+constant next time someone adds a suite that touches rent money.
+
+---
+
+## A fourth world, so "clean before go-live" stops being a wipe
+
+`GO_LIVE_CHECKLIST.md`'s own rollback section already accepted rehearsal data
+landing in production as a possibility — "if production is ever found to hold
+synthetic data by accident: re-provision it." That's the tell: the plan as
+written rehearsed UAT *on* the real production project (Stage 3, step 7) and
+treated a wipe-and-recreate as the acceptable fallback if that went wrong.
+Workable, but it puts the one truly irreversible step — recreating a live
+Supabase project — on cutover day, under the most time pressure of the whole
+sequence.
+
+Added a `staging` world instead: same shape as the `demo` ↔ `dev` split that
+already exists twice in this codebase (separate Supabase + Vercel project,
+switched via `.env.<world>.local` + `.vercel.<world>.bak`), migrated in
+lockstep with `prod` so it stays a true preview rather than drifting into its
+own thing. Rehearsal, UAT, training recordings, board walkthroughs happen
+there, freely and repeatedly. Production gets provisioned last, migrated
+schema-only, and is never the thing being tested — clean by construction
+instead of clean by a scramble.
+
+Two scripts:
+- `scripts/use-env.mjs` — extended `demo|dev` to `demo|dev|staging|prod`. The
+  ref-lookup table (`HOSTS`, cosmetic — only affects what `active()` prints)
+  and the switch-target list (`WORLDS`, load-bearing) are now separate, so a
+  world can be switched to the moment its `.env.<world>.local` exists, before
+  its project ref is known well enough to label.
+- `scripts/migrate-all.mjs` (new) — runs `migrate.mjs` once per named world in
+  one sitting, so a schema change applied to `dev` doesn't quietly stop being
+  applied to `staging` because someone forgot the second `npm run migrate`.
+  Still schema-only, still one idempotent transactional run per file, per
+  world — this only removes "forgot the other world" as a failure mode. It
+  does not and cannot copy a data row between worlds; nothing in this codebase
+  does that, on purpose, and this script does not become the first.
+
+Both smoke-tested against live state: unknown target refused before touching
+`.env.local`, a target whose backing file doesn't exist yet (`staging`,
+correctly — the project doesn't exist) refused the same way, active world
+(`dev`) unchanged by either refusal.
+
+Neither Supabase project exists yet — that provisioning step is a board/
+billing action (`GO_LIVE_CHECKLIST.md` §1), same boundary as everything else
+in that section. The tooling is ready for the moment it does.
+
+**Update, later the same day: it does now.** Staging was provisioned —
+Supabase `tjboghjzbalxwhhatogl` (`eu-west-2`), Vercel project
+`oe-group-ipms-staging`, deployed from `phase-1`, live at
+`oe-group-ipms-staging.vercel.app`. `.env.staging.local` and
+`.vercel.staging.bak` exist alongside the `demo`/`dev` pair; `use-env.mjs
+staging` and `migrate:all` both exercised against it, not just smoke-tested
+against an absent target. Migrated to `0175`, schema only, zero synthetic rows
+at that point.
+
+Seeding it for demo/testing purposes the same day surfaced a real gap: no
+application code anywhere provisions a new org — only `scripts/seed*.mjs` and
+raw migrations ever have, so an org created outside migration 0085's one-off
+slug backfill gets `slug = null` and silently can't take a custom domain
+(`/login`'s redirect needs a slug). `oeaportal.com` / `tfmlportal.com` were
+also found pointed at `oe-group-ipms-dev` rather than a clean environment, and
+were repointed here. Both are logged in full in `GO_LIVE_CHECKLIST.md` §1 —
+recorded there rather than duplicated here, since that is now where a reader
+checking "is staging real" would look first.
+
+That org-creation gap was closed the same way it was found — in code, not in
+this journal: `56e976b` (slug derivation at `operator_provision_org` plus the
+app-layer path that calls it), `8910939` (the verify suite switched from
+guessed fixture logins to disposable probe users), `a6e0757` (the slug always
+derives from the org's own name, never `delivery_brand`, after two OEA orgs
+collided on the first attempt), `ac25a82` (random token hashes in the same
+suite, not fixed literals). ⚠️ None of those four commits got a journal entry
+of their own when they landed — this paragraph is the first record of them
+here, after the fact, and is why this entry exists at all rather than ending
+at "the tooling is ready for the moment it does."

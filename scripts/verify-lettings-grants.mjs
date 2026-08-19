@@ -118,6 +118,7 @@ console.log("\nC. Every orgs column is either allowed or deliberately excluded")
     "email_from_name", "email_from_address", "tenant_applications_open",
     "management_fee_pct", "admin_fee_flat", "renewal_notice_days", "rent_demand_lead_days",
     "whatsapp_number", "telegram_bot_username",   // 0146a/0147, granted by 0158
+    "vendor_enhanced_kyc_threshold",              // 0164, vendor self-service tiering
   ]);
   const EXCLUDED = new Set([
     "id", "created_at",              // identity, never in an UPDATE payload

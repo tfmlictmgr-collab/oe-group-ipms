@@ -36,14 +36,25 @@ These need a person with authority outside this codebase — a bank, a legal
 signature, a Meta/360dialog business account, a payment processor. I can prepare
 everything around them but cannot execute them.
 
-- [ ] **Designate the DPO** (Data Protection Officer) — a named person, per NDPA.
+- [x] **Designate the DPO** — **Ebube Ikechwu**, confirmed 2026-08-19.
+      NDPC registration of the DPO and publishing their contact details on the
+      privacy notice are still open (see draft below).
 - [ ] **Sign processor DPAs** — Supabase, Vercel, Anthropic, 360dialog (WhatsApp),
       Telegram (if a DPA is even offered — confirm), Paystack, Flutterwave.
       `CLAUDE.md` A3 requires a data-processing agreement with every processor
-      before real personal data flows through it.
+      before real personal data flows through it. **Drafted 2026-08-19:**
+      `docs/DPA_TEMPLATE_AND_TRACKER.md` — a model NDPA-aligned DPA for
+      processors with none of their own, plus the addendum clauses and
+      per-vendor status table. Still needs legal review and an actual
+      signature from each vendor — drafting is not executing.
 - [ ] **Publish the privacy notice** — covers the automated document-verification
       consent line added for decision 10 (AI may verify, never screen).
-- [ ] **Obtain live payment gateway keys.** Checked directly against the
+      **Drafted 2026-08-19:** `docs/PRIVACY_NOTICE.md`. Needs legal review,
+      the DPO's contact details filled in, and a publish decision before it's
+      live-linked from the sign-in/application screens.
+- [ ] **Obtain live payment gateway keys.** Paystack + Flutterwave business
+      verification is **in progress** (started 2026-08-19) — no keys yet, but
+      no longer "not started". Checked directly against the
       deployed dev host (`oe-group-ipms-dev.vercel.app`): Paystack is already
       configured with a **test** key — the Collections screen shows "Paystack
       test mode. Checkout is the real Paystack page, but no card is charged"
@@ -84,10 +95,35 @@ everything around them but cannot execute them.
       here, follow it exactly, then hand the two tokens to whoever runs
       `scripts/register-telegram-bot.mjs` (§1 below, "Actions I execute" —
       registration itself is mechanical once the tokens exist).
-- [ ] **Provision a production Supabase project and a production Vercel
-      project** — separate from `oe-group-dev` and separate from the frozen POC
-      demo. Billing/account-owner action; I can configure everything inside them
-      once they exist.
+- [x] **Provision a STAGING Supabase project and Vercel project** — done
+      2026-08-19. Supabase `tjboghjzbalxwhhatogl` (eu-west-2), migrated to
+      `0175` (schema only, zero synthetic rows). Vercel project
+      `oe-group-ipms-staging`, deployed from `phase-1`, live at
+      `oe-group-ipms-staging.vercel.app`. Full runtime env-var table (§2) set
+      to mirror `dev` — test-mode Paystack, no live keys. `use-env.mjs staging`
+      switches a local checkout to it; `.vercel.staging.bak` / `.vercel.dev.bak`
+      hold both links so switching between them doesn't need re-linking.
+      Console shows one non-blocking issue (`NEXT_PUBLIC_SENTRY_DSN` rejected
+      by the Sentry SDK on this fresh build despite a verified-correct value —
+      SDK just disables itself, no functional impact; flagged as a follow-up,
+      not yet root-caused).
+      **2026-08-19, for demo/testing:** seeded with the standard demo dataset
+      (`npm run seed`) and `oeaportal.com`/`tfmlportal.com` repointed here from
+      `oe-group-ipms-dev` (both were serving dev, not a clean environment).
+      Doing this surfaced a real gap, not just a staging quirk: **no
+      application code anywhere creates a new org** — only `scripts/seed*.mjs`
+      and raw migrations ever have. An org created without going through
+      migration 0085's one-off slug backfill gets `slug = null` and silently
+      cannot use a custom domain (`/login`'s redirect requires a slug). This
+      blocks the "provision TFML, OEA, and any client org through the real
+      UI" plan below until that UI/action is actually built — flagged as its
+      own task, not fixed here (staging's orgs were patched by hand for
+      tomorrow only).
+- [ ] **Provision the production Supabase project and production Vercel
+      project** — separate again, and untouched by anything but the real
+      cutover sequence below. Billing/account-owner action; provision this
+      only once staging has proven out, so production is never the thing
+      being rehearsed on.
 - [ ] **Board go/no-go** after UAT (Day 12) — a person decision, not a technical
       one.
 - [ ] **Decide the admin-fee shape** — flagged as an open decision since Day 9
@@ -140,7 +176,9 @@ Everything mechanical once the accounts above exist.
 - [ ] Seed the **operator org only** (`oe-group`, `is_platform_operator = true`)
       and the first real operator admin account — the minimum needed for a human
       to then provision TFML, OEA, and any client orgs through the real UI.
-      Nothing else.
+      Nothing else. **⚠️ Blocked: that UI doesn't exist yet** — found
+      2026-08-19 while seeding staging, see the staging entry above. Needs
+      building before this step is possible for real.
 - [ ] Confirm `tfmlportal.com` / `oeaportal.com` (already live and linked per the
       journal) resolve correctly against the **new** production deployment, not
       the dev one — a DNS record pointing at the right Vercel project needs no
@@ -271,12 +309,16 @@ screens that won't change again before go-live.
   (Vercel keeps every deployment addressable) while the database issue is fixed
   forward — Postgres migrations in this codebase are additive, not destructive,
   so there is no "roll the schema back" step to worry about.
-- If the production DB is ever found to hold synthetic/rehearsal data by
-  accident (Day 12's stated risk if a rehearsal writes into it): **re-provision
-  it**, per the Day 12 gate. Do not hand-delete rows — `audit_log` cannot be
-  cleaned this way (it's append-only by trigger) and financial rows are
-  retained by design, so a partial cleanup would leave the DB in a state this
-  codebase was specifically built to prevent existing.
+- **The staging world exists so this shouldn't happen.** Rehearsal, UAT
+  rehearsals and training recordings run on `staging`, never on `prod` — see
+  `GO_LIVE_RUNWAY.md` §"Four worlds, one codebase". Production only ever sees
+  `npm run migrate` (schema) before cutover and real onboarding after it.
+- If the production DB is nonetheless ever found to hold synthetic/rehearsal
+  data by accident: **re-provision it** — recreate the Supabase project and
+  run `npm run migrate` fresh, per the Day 12 gate. Do not hand-delete rows —
+  `audit_log` cannot be cleaned this way (it's append-only by trigger) and
+  financial rows are retained by design, so a partial cleanup would leave the
+  DB in a state this codebase was specifically built to prevent existing.
 
 ---
 

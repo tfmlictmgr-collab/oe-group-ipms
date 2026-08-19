@@ -77,16 +77,61 @@ answer and expensive to answer late.
 |---|---|---|
 | 7 | **Sign processor DPAs** — Supabase, Vercel, Anthropic, 360dialog, Paystack, Flutterwave (if in scope), Resend | #1 (DPO named) |
 | 8 | **Publish the privacy notice** — must include the automated document-verification line (locked decision 10) | #1, #7 |
-| 9 | **Provision the production Supabase project and production Vercel project** | Billing/account owner. Separate from dev *and* from the frozen demo — this separation is the whole point. |
+| 9 | **Provision a STAGING Supabase project and Vercel project first** — same migrations, a real production preview, rehearsed on freely with no real data. Provision the actual PRODUCTION pair only once staging has proven out and cutover is imminent. | Billing/account owner. Separate from dev, staging, *and* the frozen demo — this separation is the whole point (2026-08-18: added a fourth world for exactly this reason — rehearsing directly on production would have meant "clean before go-live" required a wipe-and-recreate under cutover-day time pressure; staging means production is simply never touched by anything but the real thing). |
 | 10 | **Hand me the live Paystack keys** (and Flutterwave, if in scope) | #2 / #6 clearing their review queues |
 
 > **⚠️ On #9, from experience this week.** Two incidents in seven days came
 > from a stale environment pointer — one aimed a deploy at the wrong Vercel
 > project, one aimed a migration at the frozen demo database. Both were
-> recoverable; both were avoidable. When the production projects exist,
-> **the very first thing to do is confirm which project every tool is pointed
-> at**, before anything is deployed or migrated. `scripts/migrate.mjs` now
-> refuses a mismatched target on its own, which closes the migration half.
+> recoverable; both were avoidable. Now with four worlds instead of two, that
+> risk is worse, not better, unless the switch is always tooled rather than
+> hand-edited: `node scripts/use-env.mjs <world>` to point `.env.local`,
+> `npx vercel deploy --prod` from the checkout linked to that world's
+> `.vercel/project.json`. **The very first thing to do when a new project
+> exists is confirm which project every tool is pointed at**, before anything
+> is deployed or migrated. `scripts/migrate.mjs` refuses a mismatched target
+> or the frozen demo on its own; `scripts/migrate-all.mjs <world> <world>...`
+> applies the same migration files to several worlds in one sitting so staging
+> and production cannot silently drift apart — schema only, never data, never
+> a copy between worlds. See "Four worlds, one codebase" below.
+
+### Four worlds, one codebase
+
+The `demo` ↔ `dev` split ([[phase1-env-split]]: a separate Supabase + Vercel
+project per world, switched by `.env.<world>.local` + `.vercel.<world>.bak`)
+extends to four:
+
+| World | Purpose | Real data? | Migrated | Seeded |
+|---|---|---|---|---|
+| `demo` | frozen POC/sales demo | no | never again (locked) | once, long ago |
+| `dev` | ongoing Phase-1 build + verify | no | continuously | `npm run seed` freely |
+| `staging` | **production preview** — rehearsal, UAT, training recordings, board walkthroughs | no | kept in lockstep with `prod` via `migrate:all` | freely, and reset freely — it exists to be messy |
+| `prod` | the real thing | yes | schema only, `npm run migrate`, **never seed** | never — every row arrives through real onboarding |
+
+Switch with `node scripts/use-env.mjs <world>` (or `npm run use-env -- <world>`).
+Apply a new migration to several worlds at once with
+`npm run migrate:all -- dev staging` (or `staging prod` once `prod` exists) —
+each world still gets its own ordered, transactional, idempotent run via
+`migrate.mjs`; this only saves someone from running it once and forgetting the
+second world exists. **No command in this codebase copies data between
+worlds.** Seeding is per-world and manual, always has been — that boundary
+doesn't change with a fourth world, it's the entire reason for having one.
+
+Setup, once the staging Supabase + Vercel projects exist:
+1. `node scripts/use-env.mjs staging` will report the file is missing — create
+   `.env.staging.local` from the new project's own dashboard (API keys, DB
+   pooler credentials), the same way `.env.dev.local` was created. Never copy
+   another world's file and edit it; a stray unedited value is how two worlds
+   end up sharing a secret.
+2. Add `staging: "<project ref>"` to `HOSTS` in `scripts/use-env.mjs` (cosmetic
+   — only affects what `active()` prints).
+3. `node scripts/use-env.mjs staging && npm run migrate` — brings staging's
+   schema from empty to current.
+4. Link a **separate** checkout (or `vercel switch`) to the new Vercel
+   project, the same way `.vercel.demo.bak` already preserves the demo link
+   alongside the dev one; back it up as `.vercel.staging.bak`.
+5. Deploy staging from the same branch/tag production will ship from, so
+   rehearsal tests the actual cutover candidate, not a stand-in for it.
 
 ---
 

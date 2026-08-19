@@ -31,7 +31,7 @@ const ok = (m) => console.log(`  \x1b[32mPASS\x1b[0m ${m}`);
 const bad = (m) => { failures++; console.log(`  \x1b[31mFAIL\x1b[0m ${m}`); };
 const naira = (n) => `₦${Number(n).toLocaleString()}`;
 
-const { data: orgs } = await svc.from("orgs").select("id, slug, management_fee_pct").is("deleted_at", null);
+const { data: orgs } = await svc.from("orgs").select("id, slug, management_fee_pct, admin_fee_flat").is("deleted_at", null);
 const oea = orgs.find((o) => o.slug === "oea");
 const S = Date.now().toString(36).toUpperCase().slice(-5);
 const made = { properties: [], units: [], leases: [], intents: [], entries: [] };
@@ -82,6 +82,15 @@ made.leases.push(lease.id);
 const RENT = 10_000_000;
 const PCT = Number(oea.management_fee_pct);
 const FEE = Math.round(RENT * PCT / 100 * 100) / 100;
+// ⚠️ The flat admin fee counts too. `record_collection` posts ONE combined
+// `fee_income` line (0092) — management + admin together — and OEA carries a
+// non-zero `admin_fee_flat` (₦25,000, decision 14: "the admin fee stays an
+// org-wide flat placeholder"). A FEE constant that only knows the pct made
+// every landlord-share and fee_income comparison below wrong by exactly that
+// amount; the product was deducting both and being reported as wrong for it —
+// the same defect `verify-remittance-race` already found and fixed.
+const ADMIN_FEE = Number(oea.admin_fee_flat ?? 0);
+const TOTAL_FEE = FEE + ADMIN_FEE;
 
 console.log("Rent money, from tenant to landlord\n");
 
@@ -126,13 +135,13 @@ let charge, entryId;
     ? ok(`the bank is debited the full receipt (${naira(RENT)})`)
     : bad(`bank posting was ${byPurpose.client_funds}`);
 
-  byPurpose.fee_income === -FEE
-    ? ok(`the fee is credited to fee income (${naira(FEE)}) — it no longer sits in the landlord's balance`)
-    : bad(`fee income was ${byPurpose.fee_income}, expected ${-FEE}`);
+  byPurpose.fee_income === -TOTAL_FEE
+    ? ok(`the fee is credited to fee income (${naira(TOTAL_FEE)}) — it no longer sits in the landlord's balance`)
+    : bad(`fee income was ${byPurpose.fee_income}, expected ${-TOTAL_FEE}`);
 
-  byPurpose.landlord_payable === -(RENT - FEE)
-    ? ok(`the landlord is a creditor for the NET only (${naira(RENT - FEE)})`)
-    : bad(`landlord payable was ${byPurpose.landlord_payable}, expected ${-(RENT - FEE)}`);
+  byPurpose.landlord_payable === -(RENT - TOTAL_FEE)
+    ? ok(`the landlord is a creditor for the NET only (${naira(RENT - TOTAL_FEE)})`)
+    : bad(`landlord payable was ${byPurpose.landlord_payable}, expected ${-(RENT - TOTAL_FEE)}`);
 
   // ⚠️ Postings must EXIST before "sums to zero" means anything — an empty
   // entry sums to zero perfectly. Third time this shape has appeared in this
@@ -157,7 +166,9 @@ console.log("\nB. The snapshot governs, not a rate read at payment time");
   const { data: cid } = await svc.rpc("raise_rent_charge", {
     p_lease_id: lease.id, p_period_start: "2027-09-01", p_period_end: "2028-09-01",
   });
-  const snap = (await svc.from("rent_charges").select("management_fee_amount").eq("id", cid).single()).data;
+  const snap = (await svc.from("rent_charges")
+    .select("management_fee_amount, admin_fee_amount").eq("id", cid).single()).data;
+  const snapFee = Number(snap.management_fee_amount) + Number(snap.admin_fee_amount);
 
   await svc.from("orgs").update({ management_fee_pct: 40 }).eq("id", oea.id);
 
@@ -171,9 +182,9 @@ console.log("\nB. The snapshot governs, not a rate read at payment time");
   const fee = (postings ?? []).filter((p) => p.ledger_accounts?.purpose === "fee_income")
     .reduce((s, p) => s + Number(p.amount), 0);
 
-  Math.abs(fee + Number(snap.management_fee_amount)) < 0.005
-    ? ok(`the fee taken is the snapshot (${naira(snap.management_fee_amount)}), though the org rate is now 40%`)
-    : bad(`took ${-fee}, snapshot said ${snap.management_fee_amount}`);
+  Math.abs(fee + snapFee) < 0.005
+    ? ok(`the fee taken is the snapshot (${naira(snapFee)}), though the org rate is now 40%`)
+    : bad(`took ${-fee}, snapshot said ${snapFee}`);
 
   await svc.from("orgs").update({ management_fee_pct: PCT }).eq("id", oea.id);
 }
@@ -195,9 +206,9 @@ console.log("\nC. A part payment apportions the fee");
   const fee = -(postings ?? []).filter((p) => p.ledger_accounts?.purpose === "fee_income")
     .reduce((s, p) => s + Number(p.amount), 0);
 
-  Math.abs(fee - FEE / 2) < 0.01
+  Math.abs(fee - TOTAL_FEE / 2) < 0.01
     ? ok(`half the rent takes half the fee (${naira(fee)}), not the whole of it`)
-    : bad(`took ${naira(fee)} on a half payment; the full fee is ${naira(FEE)}`);
+    : bad(`took ${naira(fee)} on a half payment; the full fee is ${naira(TOTAL_FEE)}`);
 
   const { data: st } = await svc.from("rent_charges").select("status").eq("id", cid).single();
   st.status === "part_paid" ? ok("and the demand reads part paid") : bad(`status is ${st.status}`);
@@ -245,9 +256,10 @@ console.log("\nD. The fee is taken once — remittance deducts nothing further")
       ? ok("so gross and net are the same figure")
       : bad(`gross ${rem.gross_amount} but net ${rem.net_amount}`);
 
-    // Collected only: the full charge (net 9,000,000) plus half of the part paid
-    // one (net 4,500,000) — the unpaid remainder must NOT be remitted.
-    const expected = (RENT - FEE) * 2 + (RENT - FEE) / 2;
+    // Collected only: two full charges (net RENT - TOTAL_FEE each) plus half of
+    // the part-paid one (net (RENT - TOTAL_FEE) / 2) — the unpaid remainder must
+    // NOT be remitted.
+    const expected = (RENT - TOTAL_FEE) * 2 + (RENT - TOTAL_FEE) / 2;
     Math.abs(Number(rem.net_amount) - expected) < 1
       ? ok(`it pays out only what was collected (${naira(rem.net_amount)})`)
       : bad(`paid out ${naira(rem.net_amount)}, expected ${naira(expected)}`);

@@ -122,12 +122,16 @@ console.log("\nC. Raising it removes it, and the fee is snapshotted");
   error ? bad(`could not raise — ${error.message.slice(0, 70)}`) : ok("the demand is raised");
 
   const { data: c } = await svc.from("rent_charges")
-    .select("management_fee_pct, management_fee_amount, landlord_net_amount, amount")
+    .select("management_fee_pct, management_fee_amount, admin_fee_amount, landlord_net_amount, amount")
     .eq("id", chargeId).single();
   Number(c.management_fee_pct) > 0 && Number(c.management_fee_amount) > 0
     ? ok(`the fee was snapshotted by the same writer the button uses (${c.management_fee_pct}%)`)
     : bad("the scheduled path did not snapshot a fee");
-  Number(c.landlord_net_amount) === Number(c.amount) - Number(c.management_fee_amount) - 0
+  // ⚠️ The flat admin fee counts too (decision 14, admin_fee_flat) — the same
+  // omission already found in verify-remittance-race and verify-rent-money.
+  // landlord_net_amount is amount minus BOTH deductions (0091); a hardcoded
+  // `- 0` here assumed OEA's admin_fee_flat was zero, and it is ₦25,000.
+  Number(c.landlord_net_amount) === Number(c.amount) - Number(c.management_fee_amount) - Number(c.admin_fee_amount)
     ? ok("and the landlord's net is the rent less the fee")
     : bad(`net ${c.landlord_net_amount} does not reconcile`);
 

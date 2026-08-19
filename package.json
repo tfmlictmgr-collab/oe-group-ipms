@@ -8,6 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "migrate": "node scripts/migrate.mjs",
+    "migrate:all": "node scripts/migrate-all.mjs",
+    "use-env": "node scripts/use-env.mjs",
     "seed": "tsx scripts/seed.mjs",
     "verify": "tsx scripts/verify-all.mjs",
     "pentest:preflight": "node scripts/pentest-preflight.mjs",

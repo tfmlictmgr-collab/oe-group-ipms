@@ -23,7 +23,7 @@ where international clients are in scope (`CLAUDE.md` A3).
 | | |
 |---|---|
 | **Data controller** | OE Group (TFML and OEA as brands; each client org's data is controlled by OE Group under its management agreement) |
-| **Data Protection Officer** | ⛔ **Not designated.** NDPA requires a named person. Board action. |
+| **Data Protection Officer** | ✅ **Designated: Ebube Ikechwu** (2026-08-19, board). NDPC registration of the DPO and publication of contact details are still open — see §11. |
 | **Registration with the NDPC** | ⛔ Confirm whether OE Group meets the data-controller-of-major-importance threshold. Board/legal action. |
 
 ---
@@ -214,8 +214,8 @@ or explicit consent) for each processor in §4.
 
 | # | Action | Owner |
 |---|---|---|
-| 1 | Designate a DPO | Board |
-| 2 | Sign 13 processor DPAs | Legal |
+| 1 | ~~Designate a DPO~~ — **Ebube Ikechwu**, 2026-08-19 | Board ✅ |
+| 2 | Sign 13 processor DPAs — drafts prepared, see `DPA_TEMPLATE_AND_TRACKER.md` | Legal |
 | 3 | Write the breach procedure | DPO + legal |
 | 4 | Publish the privacy notice | Legal |
 | 5 | Confirm cross-border transfer basis and hosting region | DPO |
