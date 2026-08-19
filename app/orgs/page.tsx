@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/patterns/empty-state";
 import DomainField from "./DomainField";
+import CreateOrgForm from "./CreateOrgForm";
 
 // The OE Group operator launcher: every organisation on the platform as a card,
 // each opening that organisation's own address.
@@ -94,6 +95,10 @@ export default async function OrgLauncherPage() {
             own address, with its own branding and its own people — the data stays
             separated exactly as it is inside the product.
           </p>
+        </div>
+
+        <div className="mb-10 max-w-2xl">
+          <CreateOrgForm />
         </div>
 
         <ul className="stagger grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
