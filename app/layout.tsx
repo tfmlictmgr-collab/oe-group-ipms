@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -55,14 +55,43 @@ export const metadata: Metadata = {
     "Facilities and property management in one auditable workspace — requests, service charges, vendor payments and reporting.",
 };
 
+// Explicit rather than relying on Next's own default. `viewportFit: "cover"`
+// draws under the notch/home-indicator on a real phone (every screenshot from
+// testing showed one) instead of leaving bars of unstyled browser chrome at
+// the top and bottom. Zoom is deliberately left alone — WCAG 1.4.4 requires
+// pinch-to-zoom to keep working, so this never sets `userScalable: false` or
+// a `maximumScale`, however tempting that is for an "app-like" feel.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}>
+    <html lang="en" suppressHydrationWarning className="overflow-x-hidden">
+      {/*
+        `overflow-x-hidden` on body is the last line of defence, not the fix
+        itself — every wide element (Table, MatrixEditor) already scrolls
+        inside its own container. This just guarantees that if a future page
+        adds one that doesn't, the PAGE still can't scroll sideways on a
+        phone; the offending element clips instead of dragging the whole
+        viewport with it.
+
+        ⚠️ Needed on BOTH html and body, not body alone. Found 2026-08-20: a
+        `position: fixed` element (record-drawer.tsx, always mounted and slid
+        off-screen via `translate-x-full` while closed) is positioned against
+        the viewport/initial containing block, which `<body>`'s own overflow
+        never clips — only `<html>` does. With only body covered, every page
+        using that drawer carried a permanent phantom horizontal scrollbar
+        and a blank strip the width of the closed drawer, because `<html>`
+        was left at its default `overflow-x: visible`.
+      */}
+      <body className={`${geistSans.variable} ${geistMono.variable} overflow-x-hidden font-sans antialiased`}>
         <ThemeProvider
           attribute="class"
           defaultTheme="light"

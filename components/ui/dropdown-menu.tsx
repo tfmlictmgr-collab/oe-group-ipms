@@ -12,13 +12,18 @@ const DropdownMenuGroup = DropdownMenuPrimitive.Group;
 const DropdownMenuContent = React.forwardRef<
   React.ElementRef<typeof DropdownMenuPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content>
->(({ className, sideOffset = 6, ...props }, ref) => (
+>(({ className, sideOffset = 6, collisionPadding = 12, ...props }, ref) => (
   <DropdownMenuPrimitive.Portal>
     <DropdownMenuPrimitive.Content
       ref={ref}
       sideOffset={sideOffset}
+      collisionPadding={collisionPadding}
       className={cn(
-        "z-50 min-w-[12rem] overflow-hidden rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg",
+        // `max-w-[calc(100vw-1.5rem)]` is the floor every panel gets for free:
+        // a fixed `w-*`/`min-w-*` in a caller's className can still ask for more
+        // than a narrow phone has, but it can never get more than the viewport
+        // minus the collision padding either side.
+        "z-50 min-w-[12rem] max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg",
         "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
         className
       )}

@@ -242,7 +242,11 @@ export default function AnalyticsConsole({
       {/* ── Filters ───────────────────────────────────────────────────────── */}
       <Card>
         <CardContent className="space-y-4 p-4 sm:p-5">
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
+          {/* One column on a true phone — six fields squeezed two-per-row left
+              every date input and select fighting for room with its own
+              calendar/caret icon. From `sm` (a small tablet or a phone in
+              landscape) there's room for two; `lg` opens it flat. */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6">
             <Field label="From">
               <input type="date" className={FIELD} value={filters.from ?? ""}
                      max={filters.to ?? undefined}

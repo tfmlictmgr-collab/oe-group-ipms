@@ -122,7 +122,7 @@ export function NotificationBell({ initial }: { initial: UserNotification[] }) {
         </Button>
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent align="end" className="w-[22rem] p-0">
+      <DropdownMenuContent align="end" className="w-[calc(100vw-1.5rem)] max-w-[22rem] p-0">
         <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
           <p className="text-sm font-semibold">Notifications</p>
           {unread > 0 && (
@@ -135,7 +135,7 @@ export function NotificationBell({ initial }: { initial: UserNotification[] }) {
           )}
         </div>
 
-        <div className="max-h-[26rem] overflow-y-auto">
+        <div className="max-h-[min(26rem,70vh)] overflow-y-auto">
           {items.length === 0 ? (
             <div className="px-4 py-10 text-center">
               <Bell className="mx-auto mb-2 size-6 text-muted-foreground" />

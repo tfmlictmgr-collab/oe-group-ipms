@@ -80,7 +80,14 @@ export function UserMenu({
             : "Account menu"}
         </span>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-60">
+      {/* `avoidCollisions={false}`: this trigger lives in one place — the
+          header's top-right corner — on every screen, every role, every
+          width. Radix's own collision-flip is what a menu with a
+          conditionally-positioned trigger needs; this one doesn't have that
+          problem, and on a slow first paint or a partially-hydrated layout it
+          was the flip logic itself landing the panel top-left instead of
+          under the avatar. Pinning it removes that failure mode outright. */}
+      <DropdownMenuContent align="end" avoidCollisions={false} className="w-60">
         <DropdownMenuLabel className="flex items-center gap-3 py-2 text-foreground">
           <Avatar className="h-9 w-9">
             <AvatarFallback

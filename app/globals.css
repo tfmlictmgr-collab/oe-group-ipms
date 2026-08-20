@@ -136,6 +136,11 @@
   }
   html {
     -webkit-text-size-adjust: 100%;
+    /* Belt-and-suspenders for mobile: only `body` carried the app background
+       before. Anywhere the browser paints past body's own box — overscroll
+       rubber-banding, a pinch-zoom edge, any gap a future layout bug leaves —
+       showed bare white through `html` instead of the app's surface colour. */
+    @apply bg-background;
   }
   body {
     @apply bg-background text-foreground antialiased;
