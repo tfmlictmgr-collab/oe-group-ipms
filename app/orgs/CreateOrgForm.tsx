@@ -98,12 +98,12 @@ export default function CreateOrgForm() {
                 <option value="OEA">OEA — property-delivered</option>
               </Select>
               <p className="text-xs text-muted-foreground">
-                Decides whether lettings switches on — it is not the org's
+                Decides whether lettings switches on — it is not the org&apos;s
                 identity, so its address always comes from the name above.
               </p>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="org-admin-email">First administrator's email</Label>
+              <Label htmlFor="org-admin-email">First administrator&apos;s email</Label>
               <Input
                 id="org-admin-email" type="email" required value={adminEmail}
                 onChange={(e) => setAdminEmail(e.target.value)}

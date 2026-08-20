@@ -99,9 +99,22 @@ const nextConfig = {
     // (a genuinely new ticket) while leaving already-open-thread replies
     // (follow-up/status/pleasantry, which never call it) looking fine. This
     // explicitly guarantees the file is bundled for both webhook routes.
+    //
+    // ⚠️ Found 2026-08-20: the portal's own "Submit Request" path
+    // (app/dashboard/new/actions.ts, a server action calling
+    // classifyMessageWithProvider directly, not through handle-inbound.ts)
+    // hits the exact same gap and was never added here. It didn't crash —
+    // loadSystemPrompt()'s try/catch (deliberately added after the webhook
+    // incident above) caught the missing file and fell back to
+    // `{ classification: FALLBACK_CLASSIFICATION, provider: "none" }`
+    // silently, so every portal-submitted request landed as
+    // general/normal/needs-human-review regardless of what was actually
+    // typed — indistinguishable from "no AI key configured" unless you check
+    // `tickets.classified_by`, which is what caught it.
     outputFileTracingIncludes: {
       "/api/webhooks/whatsapp/route": ["./docs/AURA_Triage_Classification_Prompt.md"],
       "/api/webhooks/telegram/route": ["./docs/AURA_Triage_Classification_Prompt.md"],
+      "/dashboard/new": ["./docs/AURA_Triage_Classification_Prompt.md"],
     },
   },
 
