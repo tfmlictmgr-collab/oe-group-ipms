@@ -41,7 +41,7 @@ const svc = createClient(
 
 const BRANDS = [
   {
-    orgName: "TFML — Total Facilities Management",
+    orgName: "Total Facilities Management Limited",
     finance: { email: "tfml.financeapprover@oegroup.test", name: "Chidi Nwosu (TFML Finance)" },
     tenant: { email: payerEmail("tfml", "tfmlconsultant.com"), name: "Halima Yusuf" },
     retiredTenantEmail: "tenant.tfml@oegroup.test",

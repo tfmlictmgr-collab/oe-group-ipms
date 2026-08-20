@@ -20,7 +20,7 @@ const supabase = createClient(
 
 const BRANDS = [
   {
-    orgName: "TFML — Total Facilities Management",
+    orgName: "Total Facilities Management Limited",
     brand: "TFML",
     email: "tfml.admin@oegroup.test",
     userName: "Ifeanyi Uche (TFML)",

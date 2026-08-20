@@ -5181,3 +5181,51 @@ suite, not fixed literals). ⚠️ None of those four commits got a journal entr
 of their own when they landed — this paragraph is the first record of them
 here, after the fact, and is why this entry exists at all rather than ending
 at "the tooling is ready for the moment it does."
+
+---
+
+## `scripts/seed.mjs` seeded zero tickets, silently, for as long as 0117 has existed
+
+Found 2026-08-19 preparing staging for a live demo, the same night as the
+Sentry/dev-redeploy mix-up: `POC_ORG_ID`'s ticket count on staging was **0**,
+not the 20 `npm run seed` had just printed "Tickets: 20 across all categories
+and urgencies" for.
+
+The cause is two ordinary defects meeting badly. `0117_a_job_in_hand_has_a_hand.sql`
+refuses `status IN ('assigned','acknowledged','in_progress')` with neither
+`assigned_vendor_id` nor `assigned_to_user_id` set — "a job in hand, in
+nobody's hand," and correctly so; that's the control working. But
+`seed.mjs`'s ticket rows have used `i % 5 === 1 ? "in_progress" : ...` with no
+assignee since before 0117 existed, and the insert's `.error` was never
+checked — the exact pattern already flagged twice this build
+(`seed-org-logins.mjs`'s own comment about it, and the approval-chain teardown
+in `b373b01`). One statement, all twenty rows, rejected as a unit; the script
+never noticed and printed success regardless. **Every seed since 0117 landed
+has produced an org with vendors, properties, payments and SC cycles, and
+zero tickets** — a demo walkthrough that opens the ticket list first would
+have shown nothing, and nothing in the build's own verification suites caught
+it because none of them assert on `npm run seed`'s output, only on
+purpose-built fixtures inserted directly.
+
+Fixed in `seed.mjs`: `in_progress` rows now carry `assigned_to_user_id: opsId`,
+and the insert's error is checked and thrown rather than swallowed. The same
+two mistakes existed in `scripts/seed-brand-demo-content.mjs` (new this
+session, giving TFML/OEA their own demo content beyond the one placeholder
+ticket `seed.mjs` gives each) — written by copying `seed.mjs`'s shape closely
+enough to inherit the bug before either had a chance to diverge. Both now
+check every insert's `.error` and throw.
+
+📌 **A script that prints "N added" is not evidence N were added** — only a
+subsequent read of the row count is. This is the fourth time this exact class
+of finding has appeared in this build (0151/0152's approval-chain suite,
+`verify-remittance-race`'s admin-fee omission surfaced the same "trusted the
+log line" habit from a different angle, and now this) — worth treating as a
+standing rule for any script that inserts and reports a count, not a
+case-by-case catch.
+
+Not caught earlier because staging was provisioned and seeded the same
+session it was first looked at closely — dev's own POC-org ticket count was
+never independently re-verified after its original seed either, though dev's
+tickets predate 0117 and were very likely inserted before the constraint
+existed to violate. Worth a five-minute check on dev too, next time someone's
+in there.

@@ -44,7 +44,7 @@ console.log("Truncated all app tables.");
 
 // ── 2. Orgs ────────────────────────────────────────────────────────────────
 await supabase.from("orgs").insert({ id: POC_ORG_ID, name: "OE Group — Foundation POC", delivery_brand: "direct" });
-const { data: tfmlOrg } = await supabase.from("orgs").insert({ name: "TFML — Total Facilities Management", delivery_brand: "TFML" }).select().single();
+const { data: tfmlOrg } = await supabase.from("orgs").insert({ name: "Total Facilities Management Limited", delivery_brand: "TFML" }).select().single();
 const { data: oeaOrg } = await supabase.from("orgs").insert({ name: "OEA — Ora Egbunike & Associates", delivery_brand: "OEA" }).select().single();
 console.log("Orgs: POC + TFML + OEA");
 
@@ -194,13 +194,21 @@ const TICKETS = [
   ["Good morning", "general", "low"],
   ["What are the estate office hours?", "general", "low"],
 ];
+// ⚠️ 0117 refuses 'assigned'/'acknowledged'/'in_progress' with neither
+// assigned_vendor_id nor assigned_to_user_id — "a job in hand, in nobody's
+// hand". This insert used to set in_progress with neither, which the trigger
+// rejects for the WHOLE batch (one statement, all-or-nothing) — so this
+// silently seeded ZERO tickets for months while printing success, because the
+// error was never checked either. Both fixed together.
 const ticketRows = TICKETS.map((t, i) => ({
   org_id: POC_ORG_ID, channel: CH[i % 3], channel_sender_ref: `demo-${i}`,
   message_text: t[0], category: t[1], urgency: t[2], summary: t[0],
   property_id: propList[i % propList.length],
   status: i % 5 === 0 ? "resolved" : i % 5 === 1 ? "in_progress" : "open",
+  assigned_to_user_id: i % 5 === 1 ? opsId : null,
 }));
-await supabase.from("tickets").insert(ticketRows);
+const { error: ticketErr } = await supabase.from("tickets").insert(ticketRows);
+if (ticketErr) throw new Error(`tickets insert: ${ticketErr.message}`);
 console.log(`Tickets: ${TICKETS.length} across all categories/urgencies`);
 
 // ── 9. payment_settings + 3 payments in three gate stages ──────────────────
