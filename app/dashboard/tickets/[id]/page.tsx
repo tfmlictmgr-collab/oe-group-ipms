@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import TicketStatusControl from "./TicketStatusControl";
 import AssignControl from "./AssignControl";
+import ReviewControl from "./ReviewControl";
 import AcknowledgeControl from "./AcknowledgeControl";
 import VendorJobActions from "./VendorJobActions";
 import EvaluationChecklist, { type ChecklistCriterion } from "./EvaluationChecklist";
@@ -24,6 +25,7 @@ type AssignableTicket = Ticket & {
   assigned_to_user_id: string | null;
   assigned_at: string | null;
   acknowledged_at: string | null;
+  reviewed_at: string | null;
   sender_id: string | null;
 };
 
@@ -67,7 +69,7 @@ export default async function TicketDetailPage({
   const { data: ticket } = await supabase
     .from("tickets")
     .select(
-      "id, channel, message_text, category, urgency, summary, property_or_unit, requires_human_review, status, created_at, assigned_vendor_id, assigned_to_user_id, assigned_at, acknowledged_at, sender_id"
+      "id, channel, message_text, category, urgency, summary, property_or_unit, requires_human_review, status, created_at, assigned_vendor_id, assigned_to_user_id, assigned_at, acknowledged_at, reviewed_at, sender_id"
     )
     .eq("id", id)
     .single();
@@ -338,13 +340,21 @@ export default async function TicketDetailPage({
                 to someone else. */}
             {canManage && (
               <>
-                <AssignControl
-                  ticketId={t.id}
-                  vendors={vendors}
-                  opsStaff={opsStaff}
-                  currentVendorId={t.assigned_vendor_id}
-                  currentOpsUserId={t.assigned_to_user_id}
-                />
+                {/* 0178: an FM/regional_manager reviews before dispatch — a
+                    request self-raised via raiseWorkOrder arrives already
+                    reviewed, so this only shows for what came from somewhere
+                    else (tenant, vendor, WhatsApp, Telegram, the portal). */}
+                {!t.reviewed_at && !t.assigned_vendor_id && !t.assigned_to_user_id ? (
+                  <ReviewControl ticketId={t.id} />
+                ) : (
+                  <AssignControl
+                    ticketId={t.id}
+                    vendors={vendors}
+                    opsStaff={opsStaff}
+                    currentVendorId={t.assigned_vendor_id}
+                    currentOpsUserId={t.assigned_to_user_id}
+                  />
+                )}
                 <Separator />
               </>
             )}

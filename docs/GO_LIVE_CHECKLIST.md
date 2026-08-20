@@ -198,6 +198,32 @@ Everything mechanical once the accounts above exist.
       so a scan or load test aimed there measures Vercel's SSO wall rather than
       this system, and reports a clean bill of health for a target it never
       reached.
+- [ ] **Both of these ship with whatever commit becomes the production build**
+      — built and verified live on staging 2026-08-20, neither yet merged:
+      - `0178_a_request_is_reviewed_before_it_is_dispatched.sql` — a request
+        can no longer be dispatched to a vendor or ops person until an FM (or
+        regional_manager) has reviewed it, enforced by trigger. Closes a real
+        gap: `admin` held identical dispatch authority to `facility_manager`
+        with nothing requiring the operational review to happen first — same
+        shape as decision 9/16, one layer earlier than the money path.
+        `tickets.assign_without_review` is the operator-toggle escape hatch,
+        off by default for every role including admin. All three paths
+        verified against real signed-in sessions on staging: blocked before
+        review (real error, not a silent no-op), succeeds after, admin
+        equally blocked by default, the toggle correctly overrides when an
+        operator turns it on, and `raiseWorkOrder`'s existing "raise and
+        dispatch in one step" flow still works unchanged (it stamps its own
+        review on creation — raising it yourself IS the review).
+      - **Add `/dashboard/new` to `next.config.mjs`'s `outputFileTracingIncludes`
+        before production ever builds.** Found 2026-08-20 on staging: the
+      portal's own "Submit Request" action calls `classifyMessageWithProvider`
+      directly (not through the webhook routes' `handle-inbound.ts` path), and
+      was never added to the include list added for the 2026-08-05 webhook
+      incident. Every portal-submitted request silently fell back to
+      general/normal/needs-human-review — `tickets.classified_by = 'none'`
+      for all of them, indistinguishable from a missing API key unless that
+      column is checked. Fixed on staging; the fix is in the working tree and
+      needs to ship with whatever commit becomes the production build.
 - [ ] Run `npm run verify` against production credentials before declaring it
       live, and confirm the production DB is clean (schema only, zero synthetic
       rows) as the Day 12 exit gate states.

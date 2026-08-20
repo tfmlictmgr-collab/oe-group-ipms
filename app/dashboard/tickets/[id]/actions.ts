@@ -134,3 +134,30 @@ export async function acknowledgeJob(ticketId: string): Promise<ActionResult> {
   revalidatePath("/dashboard");
   return ok();
 }
+
+// An FM (or regional_manager) reviewing a request before it can be dispatched
+// — 0178. Required once for anything that didn't arrive through raiseWorkOrder
+// (which stamps this on creation, since raising it yourself IS the review):
+// a tenant's WhatsApp/Telegram/portal message, or a vendor's own report.
+// RLS's tickets_update policy already governs who may touch this row; the
+// review itself needs no separate permission beyond that.
+export async function reviewTicket(ticketId: string): Promise<ActionResult> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const { error } = await supabase
+    .from("tickets")
+    .update({
+      reviewed_at: new Date().toISOString(),
+      reviewed_by: user?.id ?? null,
+    })
+    .eq("id", ticketId)
+    .is("reviewed_at", null);
+  if (error) return failFromDb(error, "review this request");
+
+  revalidatePath(`/dashboard/tickets/${ticketId}`);
+  revalidatePath("/dashboard");
+  return ok();
+}
