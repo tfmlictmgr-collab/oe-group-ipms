@@ -37,6 +37,34 @@ follows it. Propagation is usually minutes; allow up to an hour.
 issues the TLS certificate automatically once DNS resolves. A domain that is not
 added here will not be served no matter what DNS says.
 
+> ⚠️ **Assign the domain to the project. Never `vercel alias set` it.**
+>
+> A domain *assigned to a project* automatically serves that project's current
+> production deployment, forever. `vercel alias set <deployment> <domain>` does
+> something that looks identical on the day and is not: it pins the hostname to
+> one **immutable deployment**, which no later `vercel deploy --prod` ever
+> moves.
+>
+> Learned the expensive way on 2026-08-20. All three hostnames were assigned to
+> `oe-group-ipms-dev` and then aliased by hand at staging deployments. They
+> worked, so nothing looked wrong — and then four consecutive deploys (a mobile
+> overflow fix, the portal classifier fix, migration 0178, a seed fix) went out
+> while `tfmlportal.com` and `oeaportal.com` quietly served an **eighteen-day-old
+> build**. Caught the day before a live demo, by diffing the served HTML against
+> the source rather than by anything failing.
+>
+> 📌 The tell is a hostname that is *correct today* and has no reason to stay
+> correct. If a domain needs re-pointing after every deploy, it is pinned, not
+> assigned — fix the assignment rather than adding the re-alias to a runbook.
+>
+> To check which project owns a hostname: `vercel domains inspect <domain>` and
+> read the **Projects** block. To verify a deploy actually propagated, compare
+> the `?dpl=` id on the served assets across every hostname:
+>
+> ```bash
+> curl -sSL https://tfmlportal.com/login | grep -o 'dpl_[A-Za-z0-9]*' | head -1
+> ```
+
 **3 · In the app** — sign in as the platform administrator at `/login`, and on
 the launcher click the hostname line under an organisation to bind it. Only an
 operator can do this, and every bind is written to `operator_actions` with a

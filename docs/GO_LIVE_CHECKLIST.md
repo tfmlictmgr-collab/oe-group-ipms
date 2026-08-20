@@ -179,11 +179,23 @@ Everything mechanical once the accounts above exist.
       Nothing else. **⚠️ Blocked: that UI doesn't exist yet** — found
       2026-08-19 while seeding staging, see the staging entry above. Needs
       building before this step is possible for real.
-- [ ] Confirm `tfmlportal.com` / `oeaportal.com` (already live and linked per the
-      journal) resolve correctly against the **new** production deployment, not
-      the dev one — a DNS record pointing at the right Vercel project needs no
-      client action if it already targets Vercel's edge, but the project itself
-      changes.
+- [ ] **Move** `tfmlportal.com`, `oeaportal.com` and `portal.tfmlconsultant.com`
+      to the production Vercel project — Settings → Domains → Add Domain →
+      take the "move" option. DNS needs no client action (it already targets
+      Vercel's edge); what changes is which project owns the hostname.
+      ⚠️ **Move them, never `vercel alias set` them.** An assigned domain
+      follows the project's production deployment forever; an alias pins the
+      hostname to one immutable deployment that no later deploy moves. That
+      exact mistake left both brand portals serving an 18-day-old build across
+      four deploys, found the day before the demo (2026-08-20) — see the
+      warning block in `CUSTOM_DOMAINS.md`.
+      Verify propagation by comparing the `?dpl=` id served on every hostname
+      after a deploy, not by eye:
+      `curl -sSL https://<host>/login | grep -o 'dpl_[A-Za-z0-9]*' | head -1`
+      ⚠️ The **apex** `tfmlconsultant.com` stays where it is (currently
+      `50.6.204.142`, TFML's marketing site). Vercel will warn that the apex
+      isn't configured; that warning is correct to ignore — only the `portal.`
+      subdomain belongs to this system.
 - [ ] Run the Day 12 security pass (dependency + secret scan, OWASP ZAP, k6 load
       test, rate-limit confirmation) against the production URL specifically —
       not the dev preview. **How: `security/README.md`** — the ordered sequence,
