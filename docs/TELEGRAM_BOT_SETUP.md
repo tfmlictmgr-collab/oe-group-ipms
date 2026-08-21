@@ -14,6 +14,29 @@ so the naming below is not decoration.
 
 ---
 
+## 0. What is actually registered
+
+The tables below are the *suggestions* this guide was written with. Both bots
+now exist, and TFML's did not take the first-choice username — so this block,
+not the table, is what to publish to tenants. Read live from Telegram's own
+`getMe` on 2026-08-20, not from the label stored beside the token:
+
+| Brand | Username | Display name |
+|---|---|---|
+| TFML | **`@tfml_support_bot`** | Total Facilities Management Limited (TFML) |
+| OEA | **`@oea_properties_bot`** | Ora Egbunike & Associates |
+
+⚠️ Publishing the wrong handle is worse than publishing none: `@tfml_facilities_bot`
+(this guide's original first choice) is not ours, and a tenant who finds
+*something* at a plausible-looking username has no way to tell. To re-confirm
+either at any time, ask Telegram rather than any record we keep:
+
+```bash
+curl -s "https://api.telegram.org/bot<token>/getMe"
+```
+
+---
+
 ## 1. Create each bot in BotFather
 
 Open Telegram, message [@BotFather](https://t.me/BotFather), send `/newbot`, and
