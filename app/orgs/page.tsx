@@ -138,12 +138,12 @@ function OrgCard({ org }: { org: Row }) {
   // navy, by its own explicit choice, not by falling through this path — kept
   // identical here rather than silently recoloured to the "direct" house
   // theme meant for OTHER direct-delivered clients.
-  const primary = org.is_platform_operator
-    ? "#003366"
-    : getBrandTheme(org.delivery_brand, {
-        theme_primary: org.theme_primary,
-        theme_logo_text: org.theme_logo_text,
-      }).primary;
+  const theme = getBrandTheme(org.delivery_brand, {
+    name: org.name,
+    theme_primary: org.theme_primary,
+    theme_logo_text: org.theme_logo_text,
+  });
+  const primary = org.is_platform_operator ? "#003366" : theme.primary;
   const label = org.portal_name || org.name;
   const href = org.slug ? `/o/${org.slug}` : "/login";
 
@@ -178,7 +178,13 @@ function OrgCard({ org }: { org: Row }) {
             className="flex h-12 w-12 items-center justify-center rounded-xl text-base font-bold text-white shadow-sm transition-transform duration-200 group-hover:scale-105"
             style={{ background: primary }}
           >
-            {org.theme_logo_text || label.slice(0, 2).toUpperCase()}
+            {/* ⚠️ Was `label.slice(0, 2)`, which spelled "TO" out of "Total
+                Facilities Management Limited" — while that same org's own
+                door at /o/tfml showed "TF" from its brand theme. One
+                organisation, two different monograms depending on which
+                page you were looking at. Resolved through the same
+                getBrandTheme() both pages now share. */}
+            {theme.logoText ?? label.slice(0, 2).toUpperCase()}
           </span>
         )}
         {org.is_platform_operator ? (

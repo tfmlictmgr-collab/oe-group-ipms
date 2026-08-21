@@ -98,6 +98,11 @@ export default async function OrgLoginPage({
   // for a direct client — never one hardcoded colour for every org that
   // hasn't customised. A second, divergent fallback here was the bug.
   const theme = getBrandTheme(org.delivery_brand, {
+    // The org's own name drives its monogram (orgMonogram), so two orgs of
+    // the same delivery brand no longer share one badge. Passed as `name`
+    // rather than `portal_name` so an org shows the SAME mark here, in the
+    // operator directory and in its own dashboard sidebar.
+    name: org.name,
     theme_primary: org.theme_primary,
     theme_accent: org.theme_accent,
     theme_logo_text: org.theme_logo_text,

@@ -108,6 +108,59 @@ function withDefaults(base: BaseBrand): BrandTheme {
   };
 }
 
+/**
+ * A two-letter monogram derived from the organisation's OWN name.
+ *
+ * ⚠️ Why this is not a brand default. `BASE_THEMES` gives OEA and `direct`
+ * the same `logoText` of "OE" — correct as a *brand* mark, and wrong as an
+ * *organisation* mark, because a monogram is identity rather than palette.
+ * On a database where no org has customised anything, OE Group, OEA and
+ * every direct-delivered client rendered the identical "OE" tile: three
+ * different organisations wearing one badge, in the operator's own
+ * directory and on each org's public sign-in door.
+ *
+ * A colour is legitimately shared across every org a brand delivers. A
+ * monogram is not, so it is derived here from the name that is already
+ * unique per org, and the brand default becomes a last resort rather than
+ * the usual answer.
+ *
+ * An all-caps first word of three or more letters is treated as the org's
+ * own acronym and used directly ("OEA — Ora Egbunike & Associates" -> OE).
+ * Below that length it is just a word, so initials win instead ("OE Group"
+ * -> OG, which is what keeps it distinct from OEA). Anything else takes the
+ * initials of its first two words ("Total Facilities Management Limited" ->
+ * TF), or the first two letters when there is only one word.
+ *
+ * Two orgs with genuinely similar names still collide — "OE Group" and "OE
+ * Group - Foundation POC" both give OG. That is inherent to two letters,
+ * and the answer for those is the per-org `theme_logo_text` override or an
+ * uploaded logo, both of which already take precedence over this.
+ */
+export function orgMonogram(name: string | null | undefined): string | null {
+  const words = (name ?? "")
+    // Latin range rather than \p{L} with the /u flag: this project's TS
+    // target predates it (TS1501). Covers accented Latin names, which is
+    // the alphabet every org on the platform uses.
+    .split(/[^A-Za-zÀ-ɏ0-9]+/)
+    .filter(Boolean)
+    // Filler that says nothing about who this is. "Group" is deliberately NOT
+    // here: dropping it would reduce "OE Group" to the bare acronym "OE" and
+    // reintroduce the exact collision with OEA that this function exists to
+    // remove.
+    .filter((w) => !/^(the|of|and)$/i.test(w));
+
+  if (words.length === 0) return null;
+
+  const first = words[0];
+  if (first.length >= 3 && first === first.toUpperCase()) {
+    return first.slice(0, 2).toUpperCase();
+  }
+  if (words.length >= 2) {
+    return (first[0] + words[1][0]).toUpperCase();
+  }
+  return first.slice(0, 2).toUpperCase();
+}
+
 // Accepts a hex colour or returns the fallback. Guards the CSS var against junk.
 function safeHex(value: string | null | undefined, fallback: string): string {
   if (value && /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value.trim())) return value.trim();
@@ -135,7 +188,13 @@ export function getBrandTheme(
     name: overrides.name?.trim() || base.name,
     primary: safeHex(overrides.theme_primary, base.primary),
     accent: safeHex(overrides.theme_accent, base.accent),
-    logoText: overrides.theme_logo_text?.trim()?.slice(0, 2) || base.logoText,
+    // Explicit override first, then the org's own name, and only then the
+    // brand default — which is shared by every org of that brand and so
+    // cannot identify one (see orgMonogram above).
+    logoText:
+      overrides.theme_logo_text?.trim()?.slice(0, 2) ||
+      orgMonogram(overrides.name) ||
+      base.logoText,
     logoUrl: safeLogoUrl(overrides.logo_url),
     portalName: overrides.portal_name?.trim() || base.portalName,
     tagline: overrides.tagline?.trim() || null,
