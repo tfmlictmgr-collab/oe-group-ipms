@@ -58,12 +58,23 @@ export const metadata: Metadata = {
 // Explicit rather than relying on Next's own default. `viewportFit: "cover"`
 // draws under the notch/home-indicator on a real phone (every screenshot from
 // testing showed one) instead of leaving bars of unstyled browser chrome at
-// the top and bottom. Zoom is deliberately left alone — WCAG 1.4.4 requires
-// pinch-to-zoom to keep working, so this never sets `userScalable: false` or
-// a `maximumScale`, however tempting that is for an "app-like" feel.
+// the top and bottom.
+//
+// `minimumScale: 1` — confirmed live (2026-08-20): the page itself never
+// mis-renders; the blank panel only ever appeared once the reader pinched
+// PAST 100%, which is ordinary browser behaviour on every site, not a bug
+// here — the layout is exactly device-width, so zooming out reveals real
+// canvas beyond it, the same as it would on any page. Facebook, Instagram
+// and Gmail's mobile web all stop that exact gesture at 100% rather than
+// truly disabling zoom. This does the same: floors the scale at 1 so the
+// page can never be zoomed out past its own width, while placing NO ceiling
+// on zooming IN — `maximumScale` is left unset, so magnifying past 100%
+// (WCAG 1.4.4) still works without limit. Only `user-scalable: false` would
+// have broken that; this is not that.
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  minimumScale: 1,
   viewportFit: "cover",
 };
 
