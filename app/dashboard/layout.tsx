@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import type { Metadata } from "next";
 import { getSessionProfile } from "@/lib/auth";
 import { orgForCurrentHost } from "@/lib/org-host";
 import { createClient } from "@/lib/supabase/server";
@@ -6,6 +7,40 @@ import { AppShell } from "@/components/shell/app-shell";
 import { roleLabel } from "@/lib/roles";
 import type { NavContext } from "@/components/shell/nav-config";
 import { seesBi, biScope } from "./bi/scope";
+
+// ⚠️ The browser tab named the wrong company.
+//
+// This layout set NO metadata, so every dashboard page inherited the root
+// title from app/layout.tsx — "OE Group — Integrated FM & Property
+// Management". An OEA user working inside oeaportal.com read OE Group's
+// name across the top of their browser, on every screen, all day.
+//
+// Root metadata's own comment already anticipated this ("Per-org pages
+// override this in their own generateMetadata") and the public doors at
+// /o/<slug> and /tenancy/<org> both do. The dashboard — the surface people
+// actually spend their day on — was the one that never did.
+//
+// `noindex` because a client's dashboard has no business in a search index,
+// and the favicon becomes the org's own logo so a person with both brands
+// open can tell the tabs apart by icon as well as by name — the same
+// reasoning /o/[slug] already applies.
+export async function generateMetadata(): Promise<Metadata> {
+  const session = await getSessionProfile();
+  const org = session?.org;
+  if (!org) return { title: "Sign in", robots: { index: false, follow: false } };
+
+  // The org's own NAME, never `delivery_brand`. Decision 12 is explicit that
+  // the brand says which brand delivers the work, not which organisation this
+  // is — two OEA-delivered orgs would otherwise carry an identical tab.
+  const title = `${org.name} — Integrated FM & Property Management`;
+  return {
+    title,
+    description: `Requests, service charges, vendor performance and payments for ${org.name}.`,
+    robots: { index: false, follow: false },
+    openGraph: { title, siteName: org.name },
+    icons: session?.theme?.logoUrl ? { icon: session.theme.logoUrl } : undefined,
+  };
+}
 
 export default async function DashboardLayout({
   children,

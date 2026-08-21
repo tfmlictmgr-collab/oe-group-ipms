@@ -1,9 +1,17 @@
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { getBrandTheme } from "@/lib/brands";
 
 // Loads the logged-in user's profile row + org (both RLS-scoped to self).
 // Returns null if there's no session.
-export async function getSessionProfile() {
+//
+// ⚠️ Wrapped in React's `cache` so the three queries below run ONCE per
+// request no matter how many callers ask. The dashboard layout needs this to
+// render the shell, and its `generateMetadata` needs the same org to title
+// the browser tab — two calls in one render pass. Without deduping, every
+// dashboard page load would pay for a doubled auth + profile + org round
+// trip, on the entry path of the whole product.
+export const getSessionProfile = cache(async function getSessionProfile() {
   const supabase = await createClient();
   const {
     data: { user },
@@ -35,4 +43,4 @@ export async function getSessionProfile() {
     org,
     theme: getBrandTheme(org?.delivery_brand, org),
   };
-}
+});
