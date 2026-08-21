@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { orgForCurrentHost } from "@/lib/org-host";
+import { getBrandTheme } from "@/lib/brands";
 import SignInPanel from "@/components/auth/sign-in-panel";
 
 // An organisation's own front door.
@@ -24,7 +25,9 @@ type Branding = {
   login_headline: string | null;
   logo_url: string | null;
   theme_primary: string | null;
+  theme_accent: string | null;
   theme_logo_text: string | null;
+  delivery_brand: string;
 };
 
 async function brandingFor(slug: string): Promise<Branding | null> {
@@ -86,18 +89,28 @@ export default async function OrgLoginPage({
   const org = await brandingFor(slug);
   if (!org) notFound();
 
-  const primary = /^#[0-9a-fA-F]{6}$/.test(org.theme_primary ?? "")
-    ? org.theme_primary!
-    : "#003366";
+  // ⚠️ Was a hand-rolled fallback hardcoded to TFML's own navy (#003366) for
+  // ANY org with no theme_primary set — so OEA, with nothing configured on a
+  // fresh database, rendered its own sign-in door in TFML's exact brand
+  // colour. `getBrandTheme` already exists, is already correct (it is what
+  // the post-login dashboard uses), and falls back to THAT org's own base
+  // palette by `delivery_brand` — navy for TFML, red for OEA, dark-red/gold
+  // for a direct client — never one hardcoded colour for every org that
+  // hasn't customised. A second, divergent fallback here was the bug.
+  const theme = getBrandTheme(org.delivery_brand, {
+    theme_primary: org.theme_primary,
+    theme_accent: org.theme_accent,
+    theme_logo_text: org.theme_logo_text,
+  });
   const portalName = org.portal_name || org.name;
 
   return (
     <SignInPanel
       brand={{
         portalName,
-        logoText: org.theme_logo_text || portalName.slice(0, 2).toUpperCase(),
+        logoText: theme.logoText ?? portalName.slice(0, 2).toUpperCase(),
         logoUrl: org.logo_url,
-        primary,
+        primary: theme.primary,
         headline: org.login_headline || `Welcome to ${portalName}.`,
         tagline:
           org.tagline ||

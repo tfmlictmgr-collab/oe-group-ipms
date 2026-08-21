@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { Building2, User, ShieldCheck, ChevronRight } from "lucide-react";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { resolvePublicOrg } from "@/lib/org-public";
+import { getBrandTheme } from "@/lib/brands";
 import { hashToken } from "@/lib/application-resume";
 import StartApplication from "./StartApplication";
 import ApplicationForm from "./ApplicationForm";
@@ -91,9 +92,13 @@ export default async function ApplyPage({
   });
 
   const brandName = organisation.portal_name || organisation.name;
-  const brand = /^#[0-9a-fA-F]{6}$/.test(organisation.theme_primary ?? "")
-    ? organisation.theme_primary!
-    : "#003366";
+  // Was hardcoded to TFML's own navy for any org with no theme_primary set —
+  // an unbranded OEA applicant link rendered in TFML's colour. Same fix as
+  // the sign-in door (0179's application-layer half): fall back to THIS
+  // org's own base palette by delivery_brand, never one shared hex.
+  const brand = getBrandTheme(organisation.delivery_brand, {
+    theme_primary: organisation.theme_primary,
+  }).primary;
 
   // Which properties are taking applications right now. The org flag is the
   // master switch; each property then decides for itself (0076).

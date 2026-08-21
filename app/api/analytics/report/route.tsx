@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { createClient } from "@/lib/supabase/server";
+import { getBrandTheme } from "@/lib/brands";
 import { biScope } from "@/app/dashboard/bi/scope";
 import {
   AnalyticsReportDocument, type AnalyticsReportData,
@@ -90,7 +91,7 @@ export async function GET(request: NextRequest) {
       p_from: from, p_to: to, p_vendor_id: vendorId, p_property_id: propertyId,
     }),
     supabase.from("orgs")
-      .select("name, portal_name, logo_url, theme_primary, tagline")
+      .select("name, portal_name, logo_url, theme_primary, delivery_brand, tagline")
       .eq("id", profile?.org_id).single(),
   ]);
 
@@ -150,7 +151,10 @@ export async function GET(request: NextRequest) {
     org: {
       name: org?.portal_name || org?.name || "Organisation",
       logoUrl: org?.logo_url ?? null,
-      primary: org?.theme_primary ?? "#003366",
+      // Was `org?.theme_primary ?? "#003366"` — TFML's own navy for any org
+      // with nothing customised. Falls back to THIS org's own base palette by
+      // delivery_brand instead (same fix as the receipt route and 0179).
+      primary: getBrandTheme(org?.delivery_brand, { theme_primary: org?.theme_primary }).primary,
       tagline: org?.tagline ?? null,
     },
     generatedAt: new Date().toLocaleString("en-GB", {

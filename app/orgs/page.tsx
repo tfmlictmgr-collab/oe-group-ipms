@@ -6,6 +6,7 @@ import { getSessionProfile } from "@/lib/auth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/patterns/empty-state";
+import { getBrandTheme } from "@/lib/brands";
 import DomainField from "./DomainField";
 import CreateOrgForm from "./CreateOrgForm";
 
@@ -130,9 +131,19 @@ export default async function OrgLauncherPage() {
 }
 
 function OrgCard({ org }: { org: Row }) {
-  const primary = /^#[0-9a-fA-F]{6}$/.test(org.theme_primary ?? "")
-    ? org.theme_primary!
-    : "#003366";
+  // ⚠️ Was hardcoded to TFML's own navy for ANY org with no theme_primary set
+  // — so an unbranded OEA, or an unbranded new "direct" client, showed up in
+  // the operator's own directory wearing another org's colour. The operator's
+  // own row is the one deliberate exception: `/login`'s door has always been
+  // navy, by its own explicit choice, not by falling through this path — kept
+  // identical here rather than silently recoloured to the "direct" house
+  // theme meant for OTHER direct-delivered clients.
+  const primary = org.is_platform_operator
+    ? "#003366"
+    : getBrandTheme(org.delivery_brand, {
+        theme_primary: org.theme_primary,
+        theme_logo_text: org.theme_logo_text,
+      }).primary;
   const label = org.portal_name || org.name;
   const href = org.slug ? `/o/${org.slug}` : "/login";
 

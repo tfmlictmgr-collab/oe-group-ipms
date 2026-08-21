@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { createClient } from "@/lib/supabase/server";
+import { getBrandTheme } from "@/lib/brands";
 import { ReceiptDocument, type ReceiptData } from "@/lib/pdf/receipt";
 
 // Receipts are generated on demand rather than stored, so a receipt can never
@@ -42,7 +43,9 @@ export async function GET(
 
   const { data: org } = await supabase
     .from("orgs")
-    .select("name, portal_name, logo_url, theme_primary, tagline, support_email, support_phone")
+    .select(
+      "name, portal_name, logo_url, theme_primary, delivery_brand, tagline, support_email, support_phone"
+    )
     .eq("id", intent.org_id)
     .single();
 
@@ -63,7 +66,10 @@ export async function GET(
     org: {
       name: org?.portal_name || org?.name || "Client Portal",
       logoUrl: org?.logo_url ?? null,
-      primary: org?.theme_primary ?? "#003366",
+      // Was `org?.theme_primary ?? "#003366"` — TFML's own navy for any org
+      // with nothing customised, so an OEA receipt printed in TFML's colour.
+      // Falls back to THIS org's own base palette by delivery_brand instead.
+      primary: getBrandTheme(org?.delivery_brand, { theme_primary: org?.theme_primary }).primary,
       supportEmail: org?.support_email ?? null,
       supportPhone: org?.support_phone ?? null,
       tagline: org?.tagline ?? null,
