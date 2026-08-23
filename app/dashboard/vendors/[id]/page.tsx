@@ -15,6 +15,7 @@ import { EmptyState } from "@/components/patterns/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { FM_PM } from "@/lib/roles";
 import {
   Table,
   TableHeader,
@@ -145,7 +146,7 @@ export default async function VendorDetailPage({
 
   const canEvaluate =
     session.profile?.role === "admin" ||
-    session.profile?.role === "facility_manager";
+    (FM_PM as readonly string[]).includes(session.profile?.role ?? "");
 
   // Completed jobs for this vendor with no fm_pm evaluation yet — the
   // free-typed "submit a new evaluation" form is gone; a checklist can only be

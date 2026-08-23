@@ -8,11 +8,12 @@ import { Button } from "@/components/ui/button";
 import RoleGate, { roleAllowed } from "../../RoleGate";
 import { writableProperties } from "../actions";
 import AssetForm from "./AssetForm";
+import { FM_PM } from "@/lib/roles";
 
 export default async function NewAssetPage() {
   const session = await getSessionProfile();
   if (!session) redirect("/login");
-  if (!roleAllowed(session.profile?.role, ["admin", "facility_manager"])) {
+  if (!roleAllowed(session.profile?.role, ["admin", ...FM_PM])) {
     return <RoleGate title="Add asset" />;
   }
 

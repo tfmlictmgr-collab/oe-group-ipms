@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { ok, fail, type ActionResult } from "@/lib/action-result";
+import { FM_PM } from "@/lib/roles";
 
 // The permission matrix editor.
 //
@@ -36,27 +37,68 @@ export type MatrixView = {
 
 /** B7, restated in one place so the badge and the reset agree on the baseline. */
 const B7: Record<string, string[]> = {
-  "tickets.read_all": ["finance_approver"],
+  // ⚠️ Org-wide sight of the request queue moved off finance and onto the
+  // payment auditor (board, 21 Aug 2026 — see 0184/0185). `admin` and
+  // `executive` are not listed here because b7Grants() gives them everything
+  // by role, not by capability. If this line and `request_read_all_roles()`
+  // ever disagree, the "differs from B7" badge starts lying about which of the
+  // two is the deviation.
+  "tickets.read_all": ["payment_audit_approver"],
   "assets.read": ["finance_approver"],
   "sc.read_all": ["finance_approver"],
   "properties.read_all": ["finance_approver"],
-  "tickets.assign": ["facility_manager"],
-  "tickets.close": ["facility_manager"],
-  "assets.write": ["facility_manager"],
-  "assets.import": ["facility_manager"],
-  "vendors.write": ["facility_manager"],
-  "vendors.evaluate": ["facility_manager"],
-  "properties.write": ["facility_manager"],
-  "units.assign_occupant": ["facility_manager"],
-  "people.invite": ["facility_manager"],
-  "vendors.read": ["facility_manager", "finance_approver"],
+  "tickets.assign": [...FM_PM],
+  "tickets.close": [...FM_PM],
+  "assets.write": [...FM_PM],
+  "assets.import": [...FM_PM],
+  "vendors.write": [...FM_PM],
+  "vendors.evaluate": [...FM_PM],
+  "properties.write": [...FM_PM],
+  "units.assign_occupant": [...FM_PM],
+  "people.invite": [...FM_PM],
+  "vendors.read": [...FM_PM, "finance_approver"],
   "sc.manage": ["finance_approver"],
-  "bi.read": ["facility_manager", "finance_approver", "property_owner"],
+  "bi.read": [...FM_PM, "finance_approver", "property_owner"],
   "people.deactivate": [],
 };
 
+/**
+ * Roles the database seed gives their OWN arm, rather than resolving through
+ * the capability map above.
+ *
+ * ⚠️ Without these, `b7Grants` answered false for every capability an
+ * executive, regional manager or payment-chain role legitimately holds — so the
+ * matrix badged each of them as "differs from B7" when they matched B7
+ * exactly. The badge is meant to make deliberate drift visible; one that cries
+ * wolf on the baseline itself trains people to ignore it.
+ *
+ * Mirrors the role arms in `seed_b7_permissions` (0184), in the same order.
+ */
+const B7_BY_ROLE: Record<string, string[]> = {
+  executive: [
+    "tickets.read_all", "assets.read", "sc.read_all", "properties.read_all",
+    "vendors.read", "bi.read", "tickets.triage_unassigned",
+  ],
+  payment_audit_approver: [
+    "tickets.read_all", "vendors.read", "bi.read", "properties.read_all",
+  ],
+  payment_approver: ["vendors.read", "bi.read", "properties.read_all"],
+  regional_manager: [
+    "tickets.assign", "tickets.close", "tickets.triage_unassigned",
+    "assets.write", "assets.import",
+    "vendors.read", "vendors.write", "vendors.evaluate",
+    "properties.write", "units.assign_occupant",
+    "people.invite", "bi.read", "applications.review_all",
+  ],
+};
+
 function b7Grants(role: string, capability: string): boolean {
+  // Named and false before admin's blanket grant, exactly as the seed orders
+  // it — an operator turns this on per org, for the exceptional case it exists
+  // for (0178).
+  if (capability === "tickets.assign_without_review") return false;
   if (role === "admin") return true;
+  if (role in B7_BY_ROLE) return B7_BY_ROLE[role].includes(capability);
   return (B7[capability] ?? []).includes(role);
 }
 

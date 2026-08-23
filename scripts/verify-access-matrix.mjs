@@ -203,10 +203,30 @@ try {
       : fail(`FM evaluations ${fe} not money-scoped (admin ${ae})`);
   }
   if (owner && admin) {
+    // ⚠️ INVERTED, 21 Aug 2026. This used to assert that a landlord saw SOME
+    // tickets — the ones on properties they own — and passed for a year while
+    // describing a leak.
+    //
+    // `current_user_property_ids()` does not distinguish an owner from a
+    // manager (by design; decision 8 made it the single resolver), so the
+    // unguarded place branch of `tickets_select` handed every landlord every
+    // tenant complaint on every building they own. B7's Service-requests cell
+    // for `property_owner` has always read "—". 0184 gated that branch to
+    // `fm_roles()`; the assertion now says what B7 says.
+    //
+    // A landlord still sees requests they RAISED themselves (sender_id), so
+    // this is bounded by what they reported, not pinned at zero.
     const ot = visibleCounts[owner.id].tickets;
-    ot > 0 && ot < visibleCounts[admin.id].tickets
-      ? pass(`owner sees ${ot} tickets (owned property) < admin ${visibleCounts[admin.id].tickets}`)
-      : fail(`owner tickets ${ot} not property-scoped`);
+    const ownRaised = await asUser(owner.id, async () => {
+      const { rows } = await client.query(
+        "select count(*)::int as n from tickets where sender_id = $1",
+        [owner.id]
+      );
+      return rows[0].n;
+    });
+    ot <= ownRaised
+      ? pass(`owner sees ${ot} tickets — all self-raised (B7: no tenant requests)`)
+      : fail(`owner sees ${ot} tickets but raised only ${ownRaised} — reading tenants' requests`);
     const osc = visibleCounts[owner.id].service_charges;
     osc > 0
       ? pass(`owner sees ${osc} SC rows (owned portfolio)`)

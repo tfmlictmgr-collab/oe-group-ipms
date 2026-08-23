@@ -7,6 +7,7 @@ import { verifyTurnstile } from "@/lib/turnstile";
 import { generateInviteToken, hashInviteToken } from "@/lib/invitation";
 import { sendEmail } from "@/lib/email";
 import { ok, fail, type ActionResult } from "@/lib/action-result";
+import { FM_PM } from "@/lib/roles";
 
 // The public vendor application endpoint — the only unauthenticated write in the
 // system. Layers, in order of cost, so an abusive request is dropped as early as
@@ -134,7 +135,7 @@ export async function submitVendorApplication(input: ApplyInput): Promise<ApplyR
     const { supabaseAdmin } = await import("@/lib/supabase/admin");
     await supabaseAdmin.rpc("notify_role", {
       p_org_id: input.orgId,
-      p_roles: ["admin", "facility_manager"],
+      p_roles: ["admin", ...FM_PM],
       p_kind: "application",
       p_title: "New vendor application",
       p_body: `${businessName} has applied to work with you.`,

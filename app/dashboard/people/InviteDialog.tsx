@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { roleLabel, INVITABLE_ROLES, ROLE_HINTS } from "@/lib/roles";
+import { roleLabel, INVITABLE_ROLES, ROLE_HINTS, FM_PM } from "@/lib/roles";
 import HierarchyPicker, { type OrgNode } from "@/components/patterns/hierarchy-picker";
 import { inviteMember } from "./actions";
 import { runAction, describeError } from "@/lib/run-action";
@@ -44,7 +44,8 @@ export default function InviteDialog({
   const [copied, setCopied] = React.useState(false);
 
   // Attaché assignment only applies to the roles that are scoped to properties.
-  const needsProperties = role === "facility_manager" || role === "property_owner";
+  const needsProperties =
+    (FM_PM as readonly string[]).includes(role) || role === "property_owner";
   // A regional manager is scoped to a NODE, not a list of properties — the
   // whole point (0067) is that they reach everything beneath it, including
   // properties filed later, without ever being re-assigned.

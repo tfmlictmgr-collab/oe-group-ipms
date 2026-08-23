@@ -8,8 +8,15 @@ import { PageHeader } from "@/components/patterns/page-header";
 import { Button } from "@/components/ui/button";
 import TicketList from "./TicketList";
 import RequestStats from "./RequestStats";
+import ScopeTabs from "./ScopeTabs";
+import { FM_PM } from "@/lib/roles";
+import { parseScope, showsScopeTabs, scopeLabel } from "./request-scope";
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ view?: string }>;
+}) {
   // A viewer has no policy on tickets, so this page would render an empty list
   // that reads as a broken build rather than a withheld one. Send them to the
   // page that is actually theirs.
@@ -24,22 +31,40 @@ export default async function DashboardPage() {
   // beside it.
   if (session?.profile?.role === "vendor") redirect("/dashboard/my-work");
 
-  const canRaiseWork = ["admin", "facility_manager", "regional_manager"].includes(
+  const canRaiseWork = ["admin", ...FM_PM, "regional_manager"].includes(
     session?.profile?.role ?? ""
   );
 
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  // Which desk this page is showing. The DEFAULT is what the board direction
+  // moved — an FM/PM lands on their own assigned work rather than on every
+  // request across their properties. The other view stays one click away
+  // because triage depends on it (0178).
+  const scope = parseScope((await searchParams)?.view, session?.profile?.role);
+
   // Bounded deliberately. Unbounded, this hit PostgREST's 1000-row cap and older
   // requests dropped off the list with nothing to say so — the reader would
   // believe they were seeing everything. A stated limit is honest; a silent one
   // is not. Proper keyset pagination is Day 10 work.
   const REQUEST_PAGE = 200;
-  const { data: tickets, count } = await supabase
+  let q = supabase
     .from("tickets")
     .select(
-      "id, channel, message_text, category, urgency, summary, property_or_unit, requires_human_review, status, created_at",
+      "id, channel, message_text, category, urgency, summary, property_or_unit, requires_human_review, status, created_at, assigned_to_user_id",
       { count: "exact" }
-    )
+    );
+
+  // ⚠️ Applied SERVER-side, not by filtering the fetched page. With a 200-row
+  // cap, narrowing after the fact would let 200 unassigned requests push a
+  // manager's own three off the end — and the page would say "no requests
+  // assigned to you" while three sat waiting.
+  if (scope === "mine" && user) q = q.eq("assigned_to_user_id", user.id);
+
+  const { data: tickets, count } = await q
     .order("created_at", { ascending: false })
     .limit(REQUEST_PAGE);
 
@@ -50,7 +75,11 @@ export default async function DashboardPage() {
     <div className="space-y-6">
       <PageHeader
         title="Service Requests"
-        description="Requests you have access to, updating in real time."
+        description={
+          scope === "mine"
+            ? "The requests assigned to you, updating in real time."
+            : "Requests you have access to, updating in real time."
+        }
         actions={
           <div className="flex flex-wrap gap-2">
             {/* Work an FM/PM initiates. Distinct from "New Request", which
@@ -72,9 +101,21 @@ export default async function DashboardPage() {
           </div>
         }
       />
+      {showsScopeTabs(session?.profile?.role) && (
+        <ScopeTabs
+          active={scope}
+          role={session?.profile?.role ?? null}
+          propertiesLabel={scopeLabel("properties", session?.profile?.role)}
+        />
+      )}
+
       <RequestStats tickets={(tickets as Ticket[]) ?? []} truncated={truncated} total={total} />
 
-      <TicketList initialTickets={(tickets as Ticket[]) ?? []} />
+      <TicketList
+        initialTickets={(tickets as Ticket[]) ?? []}
+        scope={scope}
+        viewerId={user?.id ?? null}
+      />
 
       {truncated && (
         <p className="text-xs text-muted-foreground">

@@ -7,12 +7,13 @@ import { PageHeader } from "@/components/patterns/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import RequisitionForm from "../RequisitionForm";
+import { FM_PM } from "@/lib/roles";
 
 // Raising an FM/PM ops requisition — reachable from the shared Requests
 // screen, My Jobs, and (with a ticket already chosen) from that job's own
 // page. Same eligibility raise_ops_requisition itself enforces server-side
 // (0170): operational staff and the people above them.
-const ELIGIBLE = ["fm_ops_staff", "facility_manager", "regional_manager", "admin"];
+const ELIGIBLE = ["fm_ops_staff", ...FM_PM, "regional_manager", "admin"];
 
 export default async function NewRequisitionPage({
   searchParams,

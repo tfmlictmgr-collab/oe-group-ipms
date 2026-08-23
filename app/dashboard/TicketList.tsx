@@ -11,6 +11,7 @@ import { StatusBadge } from "@/components/patterns/status-badge";
 import { EmptyState } from "@/components/patterns/empty-state";
 import { type Ticket, CHANNEL_LABELS, formatDateTime } from "@/lib/ticket-format";
 import { shortRef } from "@/lib/acknowledgement";
+import type { RequestScope } from "./request-scope";
 
 const FILTERS = [
   { key: "all", label: "All" },
@@ -21,13 +22,29 @@ const FILTERS = [
 
 export default function TicketList({
   initialTickets,
+  scope = "all",
+  viewerId = null,
 }: {
   initialTickets: Ticket[];
+  scope?: RequestScope;
+  viewerId?: string | null;
 }) {
   const [tickets, setTickets] = useState<Ticket[]>(initialTickets);
   const [live, setLive] = useState(false);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<(typeof FILTERS)[number]["key"]>("all");
+
+  // The server query was scoped; the socket is not. A request dispatched to
+  // somebody else still arrives here (RLS lets this manager read it — they
+  // manage the property), and without this it would land on their "Assigned to
+  // me" list and stay there until a refresh corrected it.
+  //
+  // ⚠️ Narrowing only, and only of rows RLS already released. This cannot show
+  // anything `tickets_select` withheld.
+  const belongsHere = useMemo(() => {
+    if (scope !== "mine" || !viewerId) return () => true;
+    return (t: Ticket) => t.assigned_to_user_id === viewerId;
+  }, [scope, viewerId]);
 
   useEffect(() => {
     const supabase = createClient();
@@ -38,22 +55,27 @@ export default function TicketList({
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "tickets" },
         (payload) => {
-          setTickets((prev) => {
-            const next = payload.new as Ticket;
-            if (prev.some((t) => t.id === next.id)) return prev;
-            return [next, ...prev];
-          });
+          const next = payload.new as Ticket;
+          if (!belongsHere(next)) return;
+          setTickets((prev) =>
+            prev.some((t) => t.id === next.id) ? prev : [next, ...prev]
+          );
         }
       )
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "tickets" },
         (payload) => {
-          setTickets((prev) =>
-            prev.map((t) =>
-              t.id === (payload.new as Ticket).id ? (payload.new as Ticket) : t
-            )
-          );
+          const next = payload.new as Ticket;
+          setTickets((prev) => {
+            const known = prev.some((t) => t.id === next.id);
+            // Reassignment moves a request between desks in both directions:
+            // one dispatched TO this person should appear without a refresh,
+            // and one taken away from them should go.
+            if (!belongsHere(next)) return known ? prev.filter((t) => t.id !== next.id) : prev;
+            if (!known) return [next, ...prev];
+            return prev.map((t) => (t.id === next.id ? next : t));
+          });
         }
       )
       .subscribe((status) => setLive(status === "SUBSCRIBED"));
@@ -61,7 +83,7 @@ export default function TicketList({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [belongsHere]);
 
   // Client-side narrowing only — RLS already scoped what arrived here, so a
   // filter can never widen visibility beyond the viewer's B7 row.
@@ -195,14 +217,18 @@ export default function TicketList({
           icon={<Inbox />}
           title={
             tickets.length === 0
-              ? "No requests yet"
+              ? scope === "mine"
+                ? "Nothing assigned to you"
+                : "No requests yet"
               : searching
                 ? "Searching…"
                 : "No matching requests"
           }
           description={
             tickets.length === 0
-              ? "New requests from WhatsApp, Telegram, or the portal form appear here instantly."
+              ? scope === "mine"
+                ? "Nothing is dispatched to you right now. Switch to your properties above to see requests waiting to be picked up."
+                : "New requests from WhatsApp, Telegram, or the portal form appear here instantly."
               : searching
                 ? "Checking older requests for that reference."
                 : "Try a different search term or status filter. A reference like C1AF0AF7 finds a request however old it is."

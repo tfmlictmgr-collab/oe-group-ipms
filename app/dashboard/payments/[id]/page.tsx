@@ -17,6 +17,7 @@ import PaymentActions from "./PaymentActions";
 import ChainTrail from "@/components/approvals/ChainTrail";
 import StageActions from "@/components/approvals/StageActions";
 import { getChainState, canActorAction } from "@/lib/approvals/chain";
+import { FM_PM } from "@/lib/roles";
 
 // Gate progress is derived from `status` alone — it is the authoritative state
 // machine. Deriving from the individual timestamp columns instead lets the
@@ -116,7 +117,7 @@ export default async function PaymentDetailPage({
   const stages = stageState(p);
   const canAct =
     session.profile?.role === "admin" ||
-    session.profile?.role === "facility_manager" ||
+    (FM_PM as readonly string[]).includes(session.profile?.role ?? "") ||
     session.profile?.role === "finance_approver";
 
   const stateValues = [

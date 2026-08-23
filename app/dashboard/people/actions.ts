@@ -9,7 +9,7 @@ import {
   buildInviteUrl,
 } from "@/lib/invitation";
 import { sendEmail } from "@/lib/email";
-import { roleLabel, INVITABLE_ROLES, ROLE_RANK, type InvitableRole } from "@/lib/roles";
+import { roleLabel, INVITABLE_ROLES, ROLE_RANK, type InvitableRole, FM_PM } from "@/lib/roles";
 import { ok, fail, failFromDb, type ActionResult } from "@/lib/action-result";
 
 // Enrolment writes go through the caller's own session so RLS decides what is
@@ -54,7 +54,7 @@ export async function inviteMember(
     .from("users").select("org_id, role, full_name").eq("id", user.id).single();
   if (!me) return fail("Could not resolve your profile.");
 
-  if (!["admin", "facility_manager", "regional_manager"].includes(me.role)) {
+  if (!["admin", ...FM_PM, "regional_manager"].includes(me.role)) {
     return fail("Only an administrator or a manager may invite people.");
   }
 

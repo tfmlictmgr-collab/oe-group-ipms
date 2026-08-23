@@ -4,7 +4,7 @@ import { getSessionProfile } from "@/lib/auth";
 import { orgForCurrentHost } from "@/lib/org-host";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/shell/app-shell";
-import { roleLabel } from "@/lib/roles";
+import { roleLabel, FM_PM } from "@/lib/roles";
 import type { NavContext } from "@/components/shell/nav-config";
 import { seesBi, biScope } from "./bi/scope";
 
@@ -191,7 +191,7 @@ export default async function DashboardLayout({
     // Not capability-derived because approval is non-delegable, and a screen
     // whose only action is refused is worse than no screen.
     seesPayments: [
-      "admin", "facility_manager", "finance_approver", "executive",
+      "admin", ...FM_PM, "finance_approver", "executive",
       // The two chain roles exist to look at payments; a payment approver who
       // cannot reach the payments screen is a role that cannot do its job.
       "payment_approver", "payment_audit_approver",
@@ -200,7 +200,7 @@ export default async function DashboardLayout({
     // queue move. Same reasoning as seesPayments: not capability-derived,
     // because approval is non-delegable (decision 7).
     seesApprovals: [
-      "admin", "executive", "facility_manager", "regional_manager",
+      "admin", "executive", ...FM_PM, "regional_manager",
       "payment_approver", "payment_audit_approver", "finance_approver",
     ].includes(role),
     canEnroll: can("people.invite"),
@@ -212,7 +212,7 @@ export default async function DashboardLayout({
 
     // Everyone operational who is not given a personal home screen above.
     isStaff: [
-      "admin", "facility_manager", "finance_approver", "executive", "regional_manager",
+      "admin", ...FM_PM, "finance_approver", "executive", "regional_manager",
       // Both chain roles (0151). A role whose home screen resolves to nothing
       // is a person who signs in and lands nowhere — caught by
       // verify-role-surface, which checks exactly that and is the reason this

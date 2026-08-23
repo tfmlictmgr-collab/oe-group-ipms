@@ -16,6 +16,7 @@ import {
   TableCell,
 } from "@/components/ui/table";
 import ServiceCharges, { type ServiceChargeRow } from "./ServiceCharges";
+import { FM_PM } from "@/lib/roles";
 
 // Statements, from both sides of the invoice.
 //
@@ -86,7 +87,7 @@ export default async function StatementsPage() {
   // the boundary.
   if (session.profile?.role === "fm_ops_staff") redirect("/dashboard/my-jobs");
 
-  const isStaff = ["admin", "facility_manager", "finance_approver", "executive"].includes(
+  const isStaff = ["admin", ...FM_PM, "finance_approver", "executive"].includes(
     session.profile?.role ?? ""
   );
 

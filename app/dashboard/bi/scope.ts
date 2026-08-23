@@ -31,7 +31,10 @@ export function biScope(role: string | undefined): BiScope {
     // enforced in `enforce_payment_transition()`, not by blinding a dashboard.
     case "executive":
       return { requests: true, vendorPerf: true, collection: true, liabilities: true, budget: true };
-    case "facility_manager": // ops KPIs + operational budgets (managed properties)
+    // Both peer managers, one arm. A property manager runs the same ops KPIs
+    // and the same operational budgets over a different discipline.
+    case "facility_manager":
+    case "property_manager":
       return { requests: true, vendorPerf: true, collection: false, liabilities: false, budget: true };
     // B7 v3.3: ops KPIs and managed vendors, "nothing financial". Same operational
     // shape as the FM/PM, minus the budget column — hence no `budget`.

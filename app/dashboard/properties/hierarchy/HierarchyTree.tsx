@@ -26,6 +26,7 @@ export type Node = {
 };
 
 export type Manager = { id: string; name: string };
+export type NigeriaState = { code: string; name: string; region: string };
 
 // REGION → LOCATION → PROJECT → SITE (0087). A project happens in a place.
 const NEXT_LEVEL: Record<Node["level"], Node["level"] | null> = {
@@ -48,11 +49,13 @@ export default function HierarchyTree({
   managers,
   assignments,
   canWrite,
+  states = [],
 }: {
   nodes: Node[];
   managers: Manager[];
   assignments: { node_id: string; user_id: string }[];
   canWrite: boolean;
+  states?: NigeriaState[];
 }) {
   const [panel, setPanel] = React.useState<Panel>(null);
   const [expanded, setExpanded] = React.useState<Set<string>>(
@@ -87,7 +90,7 @@ export default function HierarchyTree({
         <p className="text-sm text-muted-foreground">
           No regions yet. Everything else in the tree hangs off one.
         </p>
-        {canWrite && <AddForm parentId={null} level="region" onClose={() => setPanel(null)} open />}
+        {canWrite && <AddForm parentId={null} level="region" onClose={() => setPanel(null)} open states={[]} />}
       </div>
     );
   }
@@ -108,12 +111,13 @@ export default function HierarchyTree({
             managers={managers}
             assignments={assignments}
             canWrite={canWrite}
+            states={states}
           />
         ))}
       </ul>
       {canWrite && (
         panel?.nodeId === "__root__" && panel.mode === "add" ? (
-          <AddForm parentId={null} level="region" onClose={() => setPanel(null)} open />
+          <AddForm parentId={null} level="region" onClose={() => setPanel(null)} open states={[]} />
         ) : (
           <Button
             type="button" variant="outline" size="sm"
@@ -129,6 +133,7 @@ export default function HierarchyTree({
 
 function NodeRow({
   node, depth, byParent, expanded, onToggle, panel, setPanel, managers, assignments, canWrite,
+  states,
 }: {
   node: Node;
   depth: number;
@@ -140,6 +145,7 @@ function NodeRow({
   managers: Manager[];
   assignments: { node_id: string; user_id: string }[];
   canWrite: boolean;
+  states: NigeriaState[];
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
@@ -244,7 +250,15 @@ function NodeRow({
 
       {canWrite && panel?.nodeId === node.id && panel.mode === "add" && nextLevel && (
         <div style={{ paddingLeft: `${(depth + 1) * 1.5}rem` }} className="pb-2 pr-2">
-          <AddForm parentId={node.id} level={nextLevel} onClose={() => setPanel(null)} open />
+          <AddForm
+            parentId={node.id}
+            level={nextLevel}
+            onClose={() => setPanel(null)}
+            open
+            // A location hangs off a region, so the parent's name IS the region
+            // whose states should be offered. Only meaningful at that one level.
+            states={nextLevel === "location" ? states.filter((st) => st.region === node.name) : []}
+          />
         </div>
       )}
       {canWrite && panel?.nodeId === node.id && panel.mode === "rename" && (
@@ -273,6 +287,7 @@ function NodeRow({
               managers={managers}
               assignments={assignments}
               canWrite={canWrite}
+              states={states}
             />
           ))}
         </ul>
@@ -281,23 +296,48 @@ function NodeRow({
   );
 }
 
+/** Sentinel for the "not on the list" option — never a state's own name. */
+const OTHER = "__other__";
+
 function AddForm({
-  parentId, level, onClose, open,
+  parentId, level, onClose, open, states,
 }: {
-  parentId: string | null; level: Node["level"]; onClose: () => void; open: boolean;
+  parentId: string | null;
+  level: Node["level"];
+  onClose: () => void;
+  open: boolean;
+  states: NigeriaState[];
 }) {
   const router = useRouter();
   const [name, setName] = React.useState("");
   const [code, setCode] = React.useState("");
   const [busy, setBusy] = React.useState(false);
 
+  // A LOCATION is a state, chosen from the 36 + FCT (0186). Every other level
+  // is free text: a project or a site is named by whoever runs it, and there is
+  // no closed set to offer.
+  //
+  // ⚠️ The list is only offered when it is NON-EMPTY. A region a manager
+  // invented themselves ("Coastal", say) has no states mapped to it, and
+  // showing an empty dropdown there would make its locations unaddable —
+  // exactly the dead end decision 8 gave them `hierarchy.write` to avoid.
+  const picking = level === "location" && states.length > 0;
+  const [choice, setChoice] = React.useState("");
+  const typing = !picking || choice === OTHER;
+  const effectiveName = typing ? name : choice;
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     try {
-      await runAction(createNode(parentId, level, name, code));
-      toast.success(`${name} added`);
-      setName(""); setCode("");
+      // A state carries its ISO code across; a hand-typed location uses
+      // whatever the person put in the code box, or none.
+      const picked = states.find((s) => s.name === effectiveName);
+      await runAction(
+        createNode(parentId, level, effectiveName, picked?.code ?? code)
+      );
+      toast.success(`${effectiveName} added`);
+      setName(""); setCode(""); setChoice("");
       onClose();
       router.refresh();
     } catch (err) {
@@ -311,17 +351,49 @@ function AddForm({
 
   return (
     <form onSubmit={submit} className="flex flex-wrap items-center gap-2 rounded-md border border-dashed border-border p-2">
-      <Input
-        autoFocus value={name} onChange={(e) => setName(e.target.value)}
-        placeholder={`New ${LEVEL_LABEL[level].toLowerCase()} name`}
-        className="h-8 max-w-[220px] text-sm"
-      />
-      <Input
-        value={code} onChange={(e) => setCode(e.target.value)}
-        placeholder="Code (optional)"
-        className="h-8 max-w-[140px] text-sm"
-      />
-      <Button type="submit" size="sm" variant="brand" disabled={busy || name.trim().length < 2}>
+      {picking && (
+        <select
+          autoFocus
+          value={choice}
+          onChange={(e) => { setChoice(e.target.value); setName(""); }}
+          aria-label="State"
+          className="h-8 max-w-[220px] rounded-md border border-input bg-background px-2 text-sm"
+        >
+          <option value="">Choose a state…</option>
+          {states.map((s) => (
+            <option key={s.code} value={s.name}>{s.name}</option>
+          ))}
+          {/* The escape hatch. The board's three-region grouping is fixed but a
+              portfolio may genuinely need a location that is not a state — a
+              free-trade zone, an island, a campus — and a picker that can only
+              select is a dead end. */}
+          <option value={OTHER}>Somewhere else…</option>
+        </select>
+      )}
+
+      {typing && (
+        <Input
+          autoFocus={!picking}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder={`New ${LEVEL_LABEL[level].toLowerCase()} name`}
+          className="h-8 max-w-[220px] text-sm"
+        />
+      )}
+
+      {/* A chosen state brings its own ISO code, so there is nothing to type. */}
+      {typing && (
+        <Input
+          value={code} onChange={(e) => setCode(e.target.value)}
+          placeholder="Code (optional)"
+          className="h-8 max-w-[140px] text-sm"
+        />
+      )}
+
+      <Button
+        type="submit" size="sm" variant="brand"
+        disabled={busy || effectiveName.trim().length < 2}
+      >
         Add
       </Button>
       <Button type="button" size="sm" variant="ghost" onClick={onClose}>Cancel</Button>

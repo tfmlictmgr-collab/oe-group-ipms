@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { ArrowLeft, MapPin, Package } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
-import { roleLabel } from "@/lib/roles";
+import { roleLabel, FM_PM } from "@/lib/roles";
 import { PageHeader } from "@/components/patterns/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -116,7 +116,7 @@ export default async function PropertyDetailPage({
             propertyId={id}
             brand={session.org?.delivery_brand ?? null}
             candidates={allMembers
-              .filter((m) => ["facility_manager", "property_owner"].includes(m.role))
+              .filter((m) => [...FM_PM, "property_owner"].includes(m.role))
               .map((m) => ({
                 id: m.id,
                 name: m.full_name ?? m.email ?? "Unnamed",

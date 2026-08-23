@@ -9,6 +9,7 @@ import { PageHeader } from "@/components/patterns/page-header";
 import { EmptyState } from "@/components/patterns/empty-state";
 import { StatusBadge } from "@/components/patterns/status-badge";
 import RoleGate, { roleAllowed } from "../RoleGate";
+import { FM_PM } from "@/lib/roles";
 
 type BudgetRow = {
   id: string;
@@ -26,7 +27,7 @@ export default async function ServiceChargePage() {
   // every service charge is explicitly theirs. Creating budgets is not: that is
   // `sc.manage`, which they do not hold, and the button below is gated on it.
   if (!roleAllowed(session.profile?.role, [
-    "admin", "facility_manager", "finance_approver", "executive",
+    "admin", ...FM_PM, "finance_approver", "executive",
   ])) {
     return <RoleGate title="Service Charge Administration" />;
   }

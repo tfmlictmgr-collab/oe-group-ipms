@@ -7,7 +7,7 @@ import { PageHeader } from "@/components/patterns/page-header";
 import { EmptyState } from "@/components/patterns/empty-state";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import HierarchyTree, { type Node, type Manager } from "./HierarchyTree";
+import HierarchyTree, { type Node, type Manager, type NigeriaState } from "./HierarchyTree";
 
 // The board's structure (29 July 2026): REGION → PROJECT → LOCATION → SITE,
 // one table hanging above the property register (0066). Everyone in the org
@@ -19,12 +19,17 @@ export default async function HierarchyPage() {
   if (!session) redirect("/login");
 
   const supabase = await createClient();
-  const [nodesRes, canWriteRes] = await Promise.all([
+  const [nodesRes, canWriteRes, statesRes] = await Promise.all([
     supabase
       .from("org_nodes_overview")
       .select("id, parent_id, level, name, code, child_count, direct_property_count, subtree_property_count")
       .order("name"),
     supabase.rpc("has_permission", { p_capability: "hierarchy.write" }),
+    // The 36 states and the FCT (0186). Offered as a list when adding a
+    // LOCATION, because a closed set typed by hand becomes "Portharcourt",
+    // "Port-Harcourt" and "PH" — three locations the sibling-name constraint
+    // cannot catch, since they are genuinely different strings.
+    supabase.from("nigeria_states").select("code, name, region").order("name"),
   ]);
 
   const canWrite = Boolean(canWriteRes.data);
@@ -80,6 +85,7 @@ export default async function HierarchyPage() {
               managers={managers}
               assignments={assignments}
               canWrite={canWrite}
+              states={(statesRes.data ?? []) as NigeriaState[]}
             />
             {!canWrite && (
               <p className="mt-4 text-xs text-muted-foreground">

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Lock, RotateCcw, ShieldCheck, Eye } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { roleLabel } from "@/lib/roles";
+import { roleLabel, FM_PM } from "@/lib/roles";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,7 +21,7 @@ import { setPermission, resetToB7, type MatrixView } from "./actions";
 //
 // Ordered roughly by seniority so the matrix reads the way the org does.
 const ROLES = [
-  "tenant", "vendor", "fm_ops_staff", "facility_manager",
+  "tenant", "vendor", "fm_ops_staff", ...FM_PM,
   "regional_manager", "finance_approver", "property_owner", "viewer",
   "executive", "admin",
 ] as const;

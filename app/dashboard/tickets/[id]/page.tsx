@@ -19,6 +19,7 @@ import EvaluationChecklist, { type ChecklistCriterion } from "./EvaluationCheckl
 import TicketMedia, { type TicketAttachment } from "./TicketMedia";
 import { ChatWithUs } from "@/components/patterns/chat-with-us";
 import { shortRef } from "@/lib/acknowledgement";
+import { FM_PM } from "@/lib/roles";
 
 type AssignableTicket = Ticket & {
   assigned_vendor_id: string | null;
@@ -62,7 +63,7 @@ export default async function TicketDetailPage({
   // dispatch control the database was always going to reject.
   const canManage =
     session.profile?.role === "admin" ||
-    session.profile?.role === "facility_manager" ||
+    (FM_PM as readonly string[]).includes(session.profile?.role ?? "") ||
     session.profile?.role === "regional_manager";
 
   const supabase = await createClient();

@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/patterns/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import VendorForm, { type UnlinkedUser } from "./VendorForm";
+import { FM_PM } from "@/lib/roles";
 
 // Adding a vendor company by hand — the path that did not exist.
 //
@@ -25,7 +26,7 @@ export default async function NewVendorPage() {
   // Mirrors the vendor list's own gate. RLS (`vendors_insert`) is the real
   // boundary; this only decides whether to show a form that would be refused.
   const role = session.profile?.role ?? "";
-  if (!["admin", "facility_manager"].includes(role)) {
+  if (!["admin", ...FM_PM].includes(role)) {
     redirect("/dashboard/vendors");
   }
 

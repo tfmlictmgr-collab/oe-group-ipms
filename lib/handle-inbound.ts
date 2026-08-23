@@ -11,6 +11,7 @@ import { supabaseAdmin } from "./supabase/admin";
 import { classifyAndCreateTicket } from "./triage";
 import { routeInboundMessage, type OpenThread } from "./inbound-router";
 import { notifyRoleWithCascade } from "./role-notify";
+import { FM_PM } from "@/lib/roles";
 import {
   buildAcknowledgement,
   buildFollowUpAck,
@@ -235,7 +236,7 @@ export async function handleInboundMessage(opts: {
   try {
     await notifyRoleWithCascade({
       orgId,
-      roles: ["admin", "facility_manager"],
+      roles: ["admin", ...FM_PM],
       kind: "request",
       title: `New ${ticket.urgency} request — ${shortRef(ticket.id)}`,
       body: ticket.summary ?? messageText.slice(0, 140),

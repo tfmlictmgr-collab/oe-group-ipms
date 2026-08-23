@@ -1,17 +1,24 @@
 import type { DeliveryBrand } from "./brands";
 
-// The same `facility_manager` role means different things by brand:
-//   TFML (facilities management) → "Facilities Manager"
-//   OEA  (property management)   → "Properties Manager"
-// Permissions are identical, so this is presentation only — one role, one set of
-// policies, a brand-appropriate label. Splitting it into two roles would double
-// every RLS policy for no security gain.
+// ⚠️ `facility_manager` USED to mean different things by brand — "Facilities
+// Manager" on TFML, "Properties Manager" on OEA — and this file argued that
+// splitting it "would double every RLS policy for no security gain".
+//
+// That held while no organisation employed both at once. OEA now staffs
+// facilities managers alongside its property managers (board, 21 Aug 2026), so
+// a brand-aware label can no longer tell the two apart: they share a brand.
+// `property_manager` is a real role as of 0182, and the OEA override is gone
+// with it — on OEA, "Facilities Manager" now means a facilities manager.
+//
+// The cost turned out to be one array element, not thirty predicates, because
+// `fm_roles()` has been the single operational resolver since 0078a.
 
 const BASE_LABELS: Record<string, string> = {
   tenant: "Tenant",
   vendor: "Vendor",
   fm_ops_staff: "Operations Staff",
   facility_manager: "Facilities Manager",
+  property_manager: "Properties Manager",
   finance_approver: "Finance / Approver",
   property_owner: "Property Owner",
   admin: "Administrator",
@@ -25,7 +32,6 @@ const BASE_LABELS: Record<string, string> = {
 // Per-brand overrides. Only where the brand genuinely changes the job title.
 const BRAND_LABELS: Partial<Record<DeliveryBrand, Record<string, string>>> = {
   OEA: {
-    facility_manager: "Properties Manager",
     fm_ops_staff: "Property Operations Staff",
     regional_manager: "Regional Properties Manager",
     // OEA is a partnership; TFML is a company. Same role, same policies, the
@@ -38,6 +44,21 @@ const BRAND_LABELS: Partial<Record<DeliveryBrand, Record<string, string>>> = {
 };
 
 /**
+ * The two peer managers, as one array.
+ *
+ * The app-layer twin of `fm_roles()` (0183) and it exists for the same reason:
+ * when the FM/PM split landed there were 41 places in this codebase holding a
+ * literal `["admin", "facility_manager"]`, and adding the new role to 41 arrays
+ * by hand is how one screen silently keeps refusing a property manager six
+ * months from now. Spread it — `["admin", ...FM_PM]` — rather than restating it.
+ *
+ * ⚠️ Deliberately WITHOUT `regional_manager`. That role supersedes both over a
+ * wider place (0078a) and several of these call sites include it and several
+ * do not; folding it in here would silently widen the ones that do not.
+ */
+export const FM_PM = ["facility_manager", "property_manager"] as const;
+
+/**
  * Roles that may be issued through an invitation, in the order they are offered.
  *
  * ONE list. This was previously duplicated — a server-side validation array and
@@ -47,6 +68,7 @@ const BRAND_LABELS: Partial<Record<DeliveryBrand, Record<string, string>>> = {
  */
 export const INVITABLE_ROLES = [
   "facility_manager",
+  "property_manager",
   "regional_manager",
   "fm_ops_staff",
   "finance_approver",
@@ -88,7 +110,12 @@ export const ROLE_RANK: Record<string, number> = {
   payment_approver: 65,
   payment_audit_approver: 64,
   regional_manager: 60,
+  // Peers, not a hierarchy. Equal ranks cannot invite each other (the rule is
+  // "strictly below your own"), which is the intent: a facilities manager has
+  // no business appointing a property manager or the reverse. Mirrors
+  // `role_rank()` in 0183.
   facility_manager: 50,
+  property_manager: 50,
   fm_ops_staff: 30,
   property_owner: 20,
   viewer: 15,
@@ -119,6 +146,10 @@ export const ROLE_HINTS: Partial<Record<string, string>> = {
   finance_approver:
     "Sees and approves money: the client-funds ledger, collections, remittances and reconciliation.",
   fm_ops_staff: "Works the jobs dispatched to them. No financial access.",
+  facility_manager:
+    "Maintenance, plant and services on the properties assigned to them — and on OEA, that is now a distinct job from the property manager's. Sees requests on their properties, dispatches them, and signs off the work.",
+  property_manager:
+    "Lettings, tenancies and owner relations on the properties assigned to them. Identical authority to a facilities manager over a different discipline; both sign off their own work only.",
   payment_audit_approver:
     "Stage 2 of the payment chain: checks an invoice against the job card and the evidence before it reaches anyone with a spending limit. Sees payments and vendors, nothing operational and nothing in the ledger.",
   payment_approver:
@@ -143,8 +174,16 @@ export function roleLabel(
   );
 }
 
-/** Short form used where space is tight (e.g. "FM" vs "PM"). */
+/**
+ * Short form used where space is tight.
+ *
+ * No longer brand-dependent: the two are separate roles now, so "FM" and "PM"
+ * are read off the role itself. Previously this asked the BRAND, which is
+ * exactly the assumption the split invalidated — on OEA it would have
+ * abbreviated a facilities manager to "PM".
+ */
 export function roleAbbrev(role: string | null | undefined, brand?: string | null): string {
-  if (role !== "facility_manager") return roleLabel(role, brand);
-  return brand === "OEA" ? "PM" : "FM";
+  if (role === "facility_manager") return "FM";
+  if (role === "property_manager") return "PM";
+  return roleLabel(role, brand);
 }

@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { validateAssetCsv, type ImportContext } from "@/lib/asset-import";
 import { ASSET_FIELDS } from "@/lib/asset-schema";
 import { ok, fail, failFromDb, type ActionResult } from "@/lib/action-result";
+import { FM_PM } from "@/lib/roles";
 
 // Every write below goes through the caller's own session, so RLS decides what
 // is permitted. Nothing here uses the service role — the UI cannot grant itself
@@ -140,7 +141,7 @@ export async function commitAssetImport(csvText: string): Promise<
   const { data: me } = await supabase
     .from("users").select("org_id, role").eq("id", user.id).single();
   if (!me) return fail("Could not resolve your profile.");
-  if (!["admin", "facility_manager"].includes(me.role)) {
+  if (!["admin", ...FM_PM].includes(me.role)) {
     return fail("Only an administrator or the managing FM/PM may import assets.");
   }
 

@@ -9,6 +9,7 @@ import { EmptyState } from "@/components/patterns/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import RoleGate, { roleAllowed } from "../RoleGate";
+import { FM_PM } from "@/lib/roles";
 
 type VendorRow = {
   id: string;
@@ -33,7 +34,7 @@ export default async function VendorsPage() {
   // deliberately not theirs — an evaluation feeds the payment gate they sit on,
   // so writing one would let the same person set and clear their own bar.
   if (!roleAllowed(session.profile?.role, [
-    "admin", "facility_manager", "finance_approver", "executive",
+    "admin", ...FM_PM, "finance_approver", "executive",
   ])) {
     return <RoleGate title="Vendors" />;
   }
@@ -42,7 +43,7 @@ export default async function VendorsPage() {
   // see vendors, but creating a company is the same audience `vendors.write`
   // covers. RLS refuses the insert regardless — this only decides whether to
   // offer a button that would be refused.
-  const canAddVendor = roleAllowed(session.profile?.role, ["admin", "facility_manager"]);
+  const canAddVendor = roleAllowed(session.profile?.role, ["admin", ...FM_PM]);
 
   const supabase = await createClient();
   // ⚠️ Scores come from `vendor_evaluation_tickets`, NOT an embedded

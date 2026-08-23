@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { Plus, Download, Upload } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
-import { roleAbbrev } from "@/lib/roles";
+import { roleAbbrev, FM_PM } from "@/lib/roles";
 import { PageHeader } from "@/components/patterns/page-header";
 import { Button } from "@/components/ui/button";
 import RoleGate, { roleAllowed } from "../RoleGate";
@@ -20,7 +20,7 @@ export default async function AssetsPage() {
   if (
     !roleAllowed(session.profile?.role, [
       "admin",
-      "facility_manager",
+      ...FM_PM,
       "finance_approver",
       "property_owner",
       "executive",
@@ -29,7 +29,11 @@ export default async function AssetsPage() {
     return <RoleGate title="Asset Register" />;
   }
 
-  const canWrite = ["admin", "facility_manager"].includes(session.profile?.role ?? "");
+  const canWrite = ["admin", ...FM_PM].includes(session.profile?.role ?? "");
+  // Who maintains plant is the FACILITIES manager on both brands now that OEA
+  // employs them too — this used to read the brand and would have told an OEA
+  // reader their assets were maintained by the "PM", which is precisely the
+  // confusion the split removes.
   const who = roleAbbrev("facility_manager", session.org?.delivery_brand);
 
   const supabase = await createClient();

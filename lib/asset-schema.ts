@@ -37,9 +37,15 @@ export function humanize(value: string): string {
 type FieldType = "text" | "enum" | "date" | "number" | "boolean";
 
 /** 0121. `usage` is a Phase-2 seam: valid in the database so the column never
- *  needs widening when meters/sensor_readings land, and deliberately NOT
- *  offered here, because nothing can compute it yet. */
-export const MAINTENANCE_STRATEGIES = ["reactive", "calendar"] as const;
+ *  needs widening when meters/sensor_readings land.
+ *
+ *  ⚠️ `usage` is now OFFERED (0187). It was withheld while "nothing can compute
+ *  it yet" was true; what it actually needed was three columns and a place to
+ *  type the number painted on the front of the generator, not the Phase-2 IoT
+ *  integration it was waiting behind. A 500-hour service interval is six weeks
+ *  of grid instability or nine months of standby duty, and a calendar cannot
+ *  tell those apart. */
+export const MAINTENANCE_STRATEGIES = ["reactive", "calendar", "usage"] as const;
 /**
  * What an asset serves (decision 8). `site` is offered but never guessed on
  * import: nothing in a spreadsheet distinguishes "serves this building" from
@@ -130,6 +136,18 @@ export const ASSET_FIELDS: AssetField[] = [
     group: "lifecycle",
     hint: "Required when the strategy is calendar; leave blank otherwise.",
     example: "90" },
+  { key: "service_interval_hours", label: "Service interval (running hours)",
+    type: "number", group: "lifecycle",
+    hint: "Required when the strategy is usage — a generator serviced every 500 hours. Leave blank otherwise.",
+    example: "500" },
+  { key: "running_hours", label: "Hour-meter reading", type: "number",
+    group: "lifecycle",
+    hint: "What the hour meter reads now. Only counts up — corrections go through the asset's own meter entry, which refuses a reading below the last one.",
+    example: "1240.5" },
+  { key: "last_service_running_hours", label: "Meter at last service",
+    type: "number", group: "lifecycle",
+    hint: "What the meter read when it was last serviced — the point the next interval counts from.",
+    example: "1000" },
 
   // Commercial
   { key: "purchase_cost", label: "Purchase cost (NGN)", type: "number", group: "commercial",

@@ -4,6 +4,7 @@ import { getSessionProfile } from "@/lib/auth";
 import { PageHeader } from "@/components/patterns/page-header";
 import RoleGate, { roleAllowed } from "../RoleGate";
 import SubNav from "./SubNav";
+import { FM_PM } from "@/lib/roles";
 
 // Shared chrome for the People section. The counts are computed once here so
 // every sub-page shows the same figures and each page stays focused on one job.
@@ -14,7 +15,7 @@ export default async function PeopleLayout({
 }) {
   const session = await getSessionProfile();
   if (!session) redirect("/login");
-  if (!roleAllowed(session.profile?.role, ["admin", "facility_manager"])) {
+  if (!roleAllowed(session.profile?.role, ["admin", ...FM_PM])) {
     return <RoleGate title="People & Onboarding" />;
   }
 

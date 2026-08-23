@@ -64,6 +64,22 @@ export default async function AssetDetailPage({
   }
   if (!asset) notFound();
 
+  // Hours until the next service, for a usage-strategy asset (0187).
+  //
+  // ⚠️ Computed here from the three columns rather than read from
+  // `asset_hours_to_service()`, deliberately: `select("*")` has already
+  // fetched all three, so calling the function would be a second round trip to
+  // recompute what is sitting in memory. The arithmetic is identical and the
+  // function remains the definition — anything that needs this in SQL (the
+  // register list, a report) uses it there.
+  const hoursToService =
+    asset.maintenance_strategy === "usage" &&
+    asset.service_interval_hours != null &&
+    asset.running_hours != null
+      ? Number(asset.service_interval_hours) -
+        (Number(asset.running_hours) - Number(asset.last_service_running_hours ?? 0))
+      : null;
+
   // The assembly this belongs to, and the components that belong to it (0121).
   // Both RLS-scoped: a component on a property the caller cannot see simply
   // does not come back, which is the same answer the register itself gives.
@@ -204,7 +220,38 @@ export default async function AssetDetailPage({
                 {asset.expected_life_years ? `${asset.expected_life_years} years` : null}
               </Field>
               <Field label="Last serviced">{fmtDate(asset.last_serviced_at)}</Field>
-              <Field label="Next service">{fmtDate(asset.next_service_due)}</Field>
+              {/* A usage-strategy asset states its next service in RUNNING
+                  HOURS, not a date (0187). Showing "—" against a date field
+                  for a generator that is 60 hours from a service is the
+                  register being confidently unhelpful. */}
+              <Field label="Next service">
+                {asset.maintenance_strategy === "usage"
+                  ? hoursToService == null
+                    ? null
+                    : hoursToService > 0
+                      ? `in ${hoursToService.toLocaleString("en-NG")} running hours`
+                      : `overdue by ${Math.abs(hoursToService).toLocaleString("en-NG")} running hours`
+                  : fmtDate(asset.next_service_due)}
+              </Field>
+              {asset.maintenance_strategy === "usage" && (
+                <>
+                  <Field label="Hour meter">
+                    {asset.running_hours != null
+                      ? `${Number(asset.running_hours).toLocaleString("en-NG")} h`
+                      : null}
+                    {asset.running_hours_at && (
+                      <span className="ml-1 text-xs text-muted-foreground">
+                        read {fmtDate(asset.running_hours_at)}
+                      </span>
+                    )}
+                  </Field>
+                  <Field label="Service interval">
+                    {asset.service_interval_hours != null
+                      ? `every ${Number(asset.service_interval_hours).toLocaleString("en-NG")} running hours`
+                      : null}
+                  </Field>
+                </>
+              )}
               <Field label="Purchase cost">
                 {asset.purchase_cost != null ? formatNaira(asset.purchase_cost) : null}
               </Field>

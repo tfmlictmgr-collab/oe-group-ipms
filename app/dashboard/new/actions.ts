@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { classifyMessageWithProvider } from "@/lib/triage";
 import { shortRef } from "@/lib/acknowledgement";
 import { ok, fail, type ActionResult } from "@/lib/action-result";
+import { FM_PM } from "@/lib/roles";
 
 // Raising a request from the portal.
 //
@@ -111,7 +112,7 @@ export async function raiseRequest(input: {
   // could have written into another brand's inbox.
   await supabase.rpc("notify_role", {
     p_org_id: me.org_id,
-    p_roles: ["admin", "facility_manager"],
+    p_roles: ["admin", ...FM_PM],
     p_kind: "request",
     p_title: `New ${ticket.urgency} request — ${shortRef(ticket.id)}`,
     p_body: ticket.summary ?? messageText.slice(0, 140),

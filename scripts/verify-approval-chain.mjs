@@ -457,14 +457,20 @@ console.log("\n9. Landlord payouts climb the same ladder (the gap 0151 closed)")
   if (!prop || !recip) {
     bad("could not build the landlord payout fixture");
   } else {
-    const { data: rem } = await svc.from("remittances").insert({
+    const { data: rem, error: remErr } = await svc.from("remittances").insert({
       org_id: org.id, party: "landlord", recipient_id: recip.id, property_id: prop.id,
       period: "2026-08", reference: `PROBE-REM-${S}`,
       gross_amount: 750000, management_fee: 0, admin_fee: 0, net_amount: 750000,
       status: "queued", created_by: finance.id,
     }).select("id, net_amount").single();
 
-    if (!rem) { bad("could not create the probe remittance"); }
+    // ⚠️ The error is REPORTED, not discarded. This read `const { data: rem }`
+    // and then failed with a bare "could not create the probe remittance",
+    // which says a remittance was not made and nothing about why -- the same
+    // class of finding 0180 recorded against sweepProbeVendors ("a routine
+    // that reports a count it never verified"). A suite that cannot say what
+    // refused it costs an hour every time it goes red.
+    if (!rem) { bad(`could not create the probe remittance: ${remErr?.message ?? "no error returned"}`); }
     else {
       eq("a freshly raised payout is NOT cleared to send", await cleared(rem.id, 750000, "landlord_payout"), false);
 
