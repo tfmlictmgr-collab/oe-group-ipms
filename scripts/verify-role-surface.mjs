@@ -322,6 +322,10 @@ console.log("\nE. Every role has somewhere to land");
     admin: "/dashboard",
     executive: "/dashboard",
     facility_manager: "/dashboard",
+    // The OEA-side twin (0182). Lands on the same staff dashboard as its peer
+    // — and now, like the facility manager, on the "Assigned to me" view of it
+    // rather than the whole queue (0184).
+    property_manager: "/dashboard",
     finance_approver: "/dashboard",
     regional_manager: "/dashboard",
     // The approval-chain roles (0151). They land on the staff dashboard, whose

@@ -210,11 +210,19 @@ console.log("\nF. The client arrived with the standard hierarchy");
   const regions = (nodes ?? []).filter((n) => n.level === "region");
   const locations = (nodes ?? []).filter((n) => n.level === "location");
 
+  // ⚠️ STATES, not cities, since 0186. A city is not a jurisdiction — Nigerian
+  // property is titled, let and reported by state — and 25 cities was a
+  // SAMPLE, so a manager in Gombe had to invent their own row. Port Harcourt
+  // was a seeded city and is now Rivers; Lagos was both a city and a state, so
+  // it survived under its own name.
   ok("the three regions exist", regions.length === 3, `got ${regions.length}`);
-  ok("Nigeria's cities are seeded as locations", locations.length >= 25,
-    `got ${locations.length}`);
+  ok("Nigeria's 36 states and the FCT are seeded as locations",
+    locations.length >= 37, `got ${locations.length}`);
   ok("Lagos is one of them", locations.some((l) => l.name === "Lagos"));
-  ok("Port Harcourt is one of them", locations.some((l) => l.name === "Port Harcourt"));
+  ok("Rivers is one of them (Port Harcourt's state)",
+    locations.some((l) => l.name === "Rivers"));
+  ok("the Federal Capital Territory is one of them",
+    locations.some((l) => l.name === "Federal Capital Territory"));
 
   // Idempotence is the property the whole design rests on: an FM may already have
   // created "Lagos" by hand before anyone runs this.

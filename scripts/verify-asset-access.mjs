@@ -162,6 +162,65 @@ if (createdId) {
   else bad("ALLOWED — a tenant archived an asset");
 }
 
+console.log("\nG2. An hour meter only counts up (0187)");
+{
+  // A generator is serviced on running hours, not a calendar — a 500-hour
+  // interval is six weeks of grid instability or nine months of standby duty.
+  // That only holds if the reading is trustworthy, and the way it stops being
+  // trustworthy is a typo: 12000 for 1200 marks the machine 10,500 hours
+  // overdue and it is never serviced again.
+  //
+  // Driven by a SIGNED-IN administrator, deliberately. The same checks under
+  // the service-role client pass vacuously, because the function resolves the
+  // caller's org from auth.uid() and refuses "you are not signed in" long
+  // before it ever looks at the number.
+  const onProp = managed[0] ?? allProps[0]?.id;
+  const { data: mtr } = await svc.from("assets").insert({
+    org_id: orgId, property_id: onProp,
+    asset_tag: `METER-${stamp}`, name: "Probe Generator (hours)",
+    category: "power_generation",
+    maintenance_strategy: "usage", service_interval_hours: 500,
+  }).select("id").single();
+
+  if (!mtr) { bad("could not create the probe generator"); }
+  else {
+    const { error: e1 } = await admin.rpc("log_asset_running_hours",
+      { p_asset_id: mtr.id, p_hours: 400 });
+    e1 ? bad(`a first reading was refused: ${e1.message}`)
+       : ok("an administrator records a 400-hour reading");
+
+    const { data: due } = await svc.from("assets")
+      .select("running_hours").eq("id", mtr.id).single();
+    Number(due?.running_hours) === 400
+      ? ok("the reading is stored — 100 running hours to its next service")
+      : bad(`the reading did not stick: ${due?.running_hours}`);
+
+    const { error: back } = await admin.rpc("log_asset_running_hours",
+      { p_asset_id: mtr.id, p_hours: 100 });
+    back && /only counts up/i.test(back.message)
+      ? ok("a reading BELOW the last is refused, and says why")
+      : bad(`!!! an hour meter ran backwards: ${back?.message ?? "accepted"}`);
+
+    const { error: repl } = await admin.rpc("log_asset_running_hours",
+      { p_asset_id: mtr.id, p_hours: 100, p_meter_replaced: true });
+    repl ? bad(`a declared meter replacement was refused: ${repl.message}`)
+         : ok("...unless the meter is declared replaced, which restarts the count");
+
+    const { data: after } = await svc.from("assets")
+      .select("last_service_running_hours").eq("id", mtr.id).single();
+    Number(after?.last_service_running_hours) === 0
+      ? ok("a replaced meter rebases the baseline to zero, not the old machine's life")
+      : bad(`the baseline did not rebase: ${after?.last_service_running_hours}`);
+
+    const { error: denied } = await tenant.rpc("log_asset_running_hours",
+      { p_asset_id: mtr.id, p_hours: 900 });
+    denied ? ok("a tenant cannot record a reading (assets.write)")
+           : bad("!!! a tenant recorded an hour-meter reading");
+
+    await svc.from("assets").delete().eq("id", mtr.id);
+  }
+}
+
 console.log("\nH. Every write was audited");
 {
   const { data } = await svc

@@ -199,13 +199,32 @@ console.log("\nF. Maintenance strategy");
     .update({ service_interval_days: 0 }).eq("id", a);
   zero ? ok("a zero-day interval is refused") : bad("a zero-day service interval was accepted");
 
-  // `usage` stays reachable at the database so the column never needs
-  // widening when the meter tables land — but nothing should set it yet.
-  const { error: usageErr } = await svc.from("assets")
-    .update({ maintenance_strategy: "usage", service_interval_days: null }).eq("id", a);
-  !usageErr
-    ? ok("'usage' is accepted by the constraint — the Phase-2 seam is open, and the UI simply does not offer it")
-    : bad(`the Phase-2 value was rejected, so the column WILL need widening later: ${usageErr.message}`);
+  // ⚠️ REWRITTEN, 21 Aug 2026. This used to assert that `usage` saved with NO
+  // interval — the seam being open while "nothing should set it yet". 0187
+  // builds it, and `assets_usage_needs_interval` now mirrors the calendar rule
+  // exactly: a strategy that names how servicing is triggered but not when is
+  // a label, whichever unit it counts in.
+  const { error: usageNoInterval } = await svc.from("assets")
+    .update({ maintenance_strategy: "usage", service_interval_days: null,
+              service_interval_hours: null }).eq("id", a);
+  usageNoInterval
+    ? ok("usage with no hour interval is refused — the same rule calendar has")
+    : bad("!!! a usage asset was saved with no service interval");
+
+  const { error: usageOk } = await svc.from("assets")
+    .update({ maintenance_strategy: "usage", service_interval_days: null,
+              service_interval_hours: 500 }).eq("id", a);
+  usageOk
+    ? bad(`a valid usage strategy was refused: ${usageOk.message}`)
+    : ok("usage with a 500-hour interval saves — a generator is serviced by its meter");
+
+  // ⚠️ The MONOTONICITY rule is proved in verify-asset-access, not here. This
+  // suite holds only a service-role client, and `log_asset_running_hours`
+  // resolves the caller's org from `auth.uid()` — null by definition under
+  // service_role (0142: "both create_*_remittance functions stamp auth.uid()
+  // and both are called through the service-role client"). Asserted here it
+  // passed VACUOUSLY: the refusal it checked for was "you are not signed in",
+  // not "that reading is below the last one".
 }
 
 console.log("\nG. An asset states what it serves (decision 8)");
@@ -270,9 +289,14 @@ console.log("\nH. Phase 2 really is still Phase 2");
     const { error } = await svc.from(t).select("*").limit(1);
     if (!error) present.push(t);
   }
+  // 📌 'usage' is no longer gated on these tables (0187). A Shelly EM reporting
+  // itself is an INTEGRATION and still Phase 2; the number painted on the front
+  // of the generator is a FIELD, and making the field wait for the integration
+  // is how a register stays honest about nothing. So their absence is still
+  // reported, but it no longer implies anything about usage-based servicing.
   present.length === 0
-    ? ok("meters/sensor_readings/ml_features still absent — 'usage' is correctly unreachable")
-    : note(`${present.join(", ")} now exist — usage-based maintenance can be built`);
+    ? ok("meters/sensor_readings/ml_features still absent — telemetry is still Phase 2, as documented")
+    : note(`${present.join(", ")} now exist — automatic meter capture can replace manual readings`);
 }
 
 console.log("\nI. A parent cannot leave its components behind on relocation (0806-M1, 0143)");

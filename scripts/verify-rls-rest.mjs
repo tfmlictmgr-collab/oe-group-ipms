@@ -40,9 +40,26 @@ const fmBudgets = await fm.count("sc_budgets");
 fmTickets > 0 && fmTickets < adminTickets ? ok(`FM sees ${fmTickets} tickets (managed) < admin ${adminTickets}`) : bad(`FM tickets ${fmTickets}`);
 fmBudgets === 2 ? ok(`FM sees 2 budgets... wait, 2 cycles × 2 props = 4`) : ok(`FM sees ${fmBudgets} budgets (2 props × 2 cycles)`);
 
+// ⚠️ INVERTED, 21 Aug 2026 — the same stale assertion verify-access-matrix
+// carried. This required a landlord to see SOME tickets, and so asserted the
+// leak as a feature: `current_user_property_ids()` does not distinguish an
+// owner from a manager, so the unguarded place branch of `tickets_select`
+// handed every landlord every tenant complaint on every building they own.
+// B7's Service-requests cell for `property_owner` has always read "—". 0184
+// gates that branch to `fm_roles()`.
+//
+// Bounded by what they RAISED rather than pinned at zero: a landlord may
+// report a problem themselves and follow it, and that is the whole of their
+// access.
 const owner = await asUser("oe-group-foundation-poc.propertyowner@oegroup.test");
 const ownerTickets = await owner.count("tickets");
-ownerTickets > 0 && ownerTickets < fmTickets ? ok(`owner sees ${ownerTickets} tickets (owned) < FM ${fmTickets}`) : bad(`owner tickets ${ownerTickets}`);
+const { data: { user: ownerUser } } = await owner.c.auth.getUser();
+const ownerRaised =
+  (await owner.c.from("tickets").select("*", { count: "exact", head: true })
+     .eq("sender_id", ownerUser.id)).count ?? 0;
+ownerTickets <= ownerRaised
+  ? ok(`owner sees ${ownerTickets} tickets — all self-raised (B7: no tenant requests)`)
+  : bad(`owner sees ${ownerTickets} but raised only ${ownerRaised} — reading tenants' requests`);
 
 console.log("\nRestricted roles:");
 const tenant = await asUser("oe-group-foundation-poc.tenant@oegroup.test");
