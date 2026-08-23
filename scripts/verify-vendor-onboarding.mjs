@@ -138,6 +138,11 @@ console.log("\nD. One row, three surfaces — the list, the dispatch picker, My 
   // And genuinely assignable, not merely listed.
   const { data: reachable } = await f.from("tickets")
     .select("id, property_id").not("property_id", "is", null).limit(1).maybeSingle();
+  if (!reachable?.id) {
+    // Said out loud. Skipping in silence is how this block sat unexecuted
+    // across a migration that would have failed it.
+    bad("SKIPPED the dispatch check — the FM reaches no filed request, so the fixture is wrong");
+  }
   if (reachable?.id) {
     const { data: t } = await svc.from("tickets").insert({
       org_id: poc.id, channel: "portal", message_text: `${MARK}-${S} assignment probe`,
@@ -146,13 +151,26 @@ console.log("\nD. One row, three surfaces — the list, the dispatch picker, My 
     }).select("id").single();
     made.tickets.push(t.id);
 
+    // ⚠️ A fresh request must be REVIEWED before it can be dispatched (0178).
+    // This step was missing and the suite passed anyway, because the block is
+    // guarded on `reachable` — and `reachable` came back empty whenever the FM
+    // held no property assignments, silently skipping the whole check. The
+    // moment those assignments were restored the block ran for the first time
+    // since 0178 landed, and failed correctly.
+    //
+    // 📌 A guarded block that quietly skips is a check that reports PASS for a
+    // suite it never executed — the same shape as an error nobody reads.
+    const { error: rErr } = await f.from("tickets")
+      .update({ reviewed_at: new Date().toISOString() }).eq("id", t.id);
+    rErr && bad(`the FM could not review the request: ${rErr.message}`);
+
     const { data: assigned, error: aErr } = await f
       .from("tickets")
       .update({ assigned_vendor_id: vendorId, status: "assigned" })
       .eq("id", t.id)
       .select("assigned_vendor_id");
     !aErr && assigned?.[0]?.assigned_vendor_id === vendorId
-      ? ok("and a real request is actually dispatched to them")
+      ? ok("and a real request is actually dispatched to them, once reviewed")
       : bad(`could not dispatch to the new vendor: ${aErr?.message ?? "no rows updated"}`);
   } else {
     console.log("  (skipped dispatch — no property-scoped ticket reachable by this FM)");
