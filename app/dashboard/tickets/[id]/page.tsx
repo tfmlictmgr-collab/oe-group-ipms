@@ -19,7 +19,7 @@ import EvaluationChecklist, { type ChecklistCriterion } from "./EvaluationCheckl
 import TicketMedia, { type TicketAttachment } from "./TicketMedia";
 import { ChatWithUs } from "@/components/patterns/chat-with-us";
 import { shortRef } from "@/lib/acknowledgement";
-import { FM_PM } from "@/lib/roles";
+import { FM_PM, roleLabel } from "@/lib/roles";
 
 type AssignableTicket = Ticket & {
   assigned_vendor_id: string | null;
@@ -28,6 +28,7 @@ type AssignableTicket = Ticket & {
   acknowledged_at: string | null;
   reviewed_at: string | null;
   sender_id: string | null;
+  property_id: string | null;
 };
 
 const DONE_STATES = ["resolved", "closed"];
@@ -70,7 +71,7 @@ export default async function TicketDetailPage({
   const { data: ticket } = await supabase
     .from("tickets")
     .select(
-      "id, channel, message_text, category, urgency, summary, property_or_unit, requires_human_review, status, created_at, assigned_vendor_id, assigned_to_user_id, assigned_at, acknowledged_at, reviewed_at, sender_id"
+      "id, channel, message_text, category, urgency, summary, property_or_unit, requires_human_review, status, created_at, assigned_vendor_id, assigned_to_user_id, assigned_at, acknowledged_at, reviewed_at, sender_id, property_id"
     )
     .eq("id", id)
     .single();
@@ -97,6 +98,22 @@ export default async function TicketDetailPage({
     id: o.id,
     label: o.full_name ?? o.email ?? "Ops staff",
   }));
+
+  // Does this place already have an operational owner?
+  //
+  // Asked ONLY for an administrator, because it only changes what an
+  // administrator is shown: an FM/PM looking at their own property IS the
+  // owner, and telling them "this is yours" would be noise. Everyone else
+  // never reaches this control at all.
+  const placeOwners =
+    session.profile?.role === "admin" && t.property_id
+      ? ((
+          await supabase.rpc("property_managers", { p_property_id: t.property_id })
+        ).data ?? []).map((o: { full_name: string | null; email: string | null; role: string }) => ({
+          name: o.full_name ?? o.email ?? "a manager",
+          roleName: roleLabel(o.role, session.org?.delivery_brand),
+        }))
+      : [];
 
   // Is the current viewer the assignee (and the job still needs acknowledging)?
   const myVendors = (myVendorRes.data ?? []) as { id: string; name: string }[];
@@ -354,6 +371,7 @@ export default async function TicketDetailPage({
                     opsStaff={opsStaff}
                     currentVendorId={t.assigned_vendor_id}
                     currentOpsUserId={t.assigned_to_user_id}
+                    placeOwners={placeOwners}
                   />
                 )}
                 <Separator />
