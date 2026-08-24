@@ -14,7 +14,7 @@ export default async function MembersPage() {
   const supabase = await createClient();
   const { data } = await supabase
     .from("users")
-    .select("id, full_name, email, role, deactivated_at")
+    .select("id, full_name, email, role, deactivated_at, approval_tier")
     .order("full_name");
 
   const members = ((data as Member[]) ?? []).map((m) => ({

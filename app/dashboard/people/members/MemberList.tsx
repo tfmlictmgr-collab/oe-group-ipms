@@ -17,6 +17,23 @@ export type Member = {
   role: string;
   deactivated_at: string | null;
   roleName?: string;
+  /** Stage-3 band, for `payment_approver` only. Null on every other role. */
+  approval_tier: number | null;
+};
+
+/**
+ * ⚠️ Only a `payment_approver` carries an editable tier.
+ *
+ * An executive is tier 3 and an administrator tier 2 BY ROLE
+ * (`effective_approval_tier`, decisions 9 and 16) — non-delegable controls
+ * under decision 7, which "are what an auditor checks; they are not
+ * preferences". They must never appear as a field, so this offers one for
+ * exactly one role and `set_user_approval_tier` refuses the rest regardless.
+ */
+const TIER_HINT: Record<number, string> = {
+  1: "clears up to the tier 1 limit",
+  2: "clears up to the tier 2 limit",
+  3: "clears any amount",
 };
 
 export default function MemberList({
@@ -45,6 +62,28 @@ export default function MemberList({
   }, [members, query, showInactive]);
 
   const inactiveCount = members.filter((m) => m.deactivated_at).length;
+
+  async function setTier(id: string, tier: number, name: string) {
+    setBusy(id);
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.rpc("set_user_approval_tier", {
+        p_user_id: id,
+        p_tier: tier,
+      });
+      if (error) throw new Error(error.message.replace(/^.*?:\s*/, ""));
+      toast.success(`${name} is now a tier ${tier} approver`, {
+        description: `They ${TIER_HINT[tier]} at final approval. The change is on the audit trail.`,
+      });
+      router.refresh();
+    } catch (e) {
+      toast.error("Could not set that tier", {
+        description: e instanceof Error ? e.message : "Unexpected error.",
+      });
+    } finally {
+      setBusy(null);
+    }
+  }
 
   async function setActive(id: string, active: boolean, name: string) {
     setBusy(id);
@@ -125,6 +164,36 @@ export default function MemberList({
                 <div className="flex flex-shrink-0 items-center gap-2">
                   {inactive && <Badge variant="muted">Deactivated</Badge>}
                   <Badge variant="outline">{m.roleName ?? m.role}</Badge>
+
+                  {/* The band this approver may clear at stage 3. Written only
+                      at invitation until now (0153), so an approver invited at
+                      the wrong tier — or with none at all, which refuses them
+                      every payment — could be corrected only by someone with
+                      database access. */}
+                  {m.role === "payment_approver" && !inactive && (
+                    isAdmin && m.id !== currentUserId ? (
+                      <select
+                        aria-label={`Approval tier for ${name}`}
+                        value={m.approval_tier ?? ""}
+                        disabled={busy === m.id}
+                        onChange={(e) => setTier(m.id, Number(e.target.value), name)}
+                        className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                      >
+                        <option value="" disabled>
+                          No tier — cannot approve
+                        </option>
+                        {[1, 2, 3].map((t) => (
+                          <option key={t} value={t}>
+                            Tier {t} — {TIER_HINT[t]}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <Badge variant={m.approval_tier ? "outline" : "warning"}>
+                        {m.approval_tier ? `Tier ${m.approval_tier}` : "No tier"}
+                      </Badge>
+                    )
+                  )}
                   {/* Never offer an admin the button that would lock them out. */}
                   {isAdmin && m.id !== currentUserId && (
                     <Button
