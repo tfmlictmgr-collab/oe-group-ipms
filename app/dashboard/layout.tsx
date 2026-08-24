@@ -185,6 +185,7 @@ export default async function DashboardLayout({
     seesAssets:
       can("assets.read") || can("assets.write") || can("assets.import") || role === "property_owner",
     seesVendors: can("vendors.read") || can("vendors.write"),
+    reviewsVendorRegistrations: can("vendors.write"),
     seesLettings: can("leases.write") || can("applications.review_all") || can("applications.recommend"),
     seesServiceCharges: can("sc.read_all") || can("sc.manage"),
     // Vendor payments: FM/PM verifies delivery, finance and oversight decide.

@@ -21,6 +21,7 @@ import {
   Wrench,
   Landmark,
   type LucideIcon,
+  ClipboardCheck,
 } from "lucide-react";
 
 // Role/permission context computed on the server (from the B7 matrix) and passed
@@ -93,6 +94,13 @@ export type NavContext = {
   seesProperties: boolean;
   seesAssets: boolean;
   seesVendors: boolean;
+  /**
+   * May VERIFY a contractor's registration pack, not merely read the vendor
+   * list. `vendors.write` — the same capability that governs adding a vendor at
+   * all — so this is deliberately narrower than `seesVendors`, which is
+   * satisfied by read alone.
+   */
+  reviewsVendorRegistrations: boolean;
   seesLettings: boolean;
   seesServiceCharges: boolean;
   /** Vendor payments. Not capability-derived: approval is non-delegable. */
@@ -153,6 +161,16 @@ export const NAV_GROUPS: NavGroup[] = [
         show: (c) => c.isVendor,
       },
       {
+        // The contractor's own company: registration, documents, and who at
+        // the company may do what (decision 17). Shown to every vendor login —
+        // the page itself distinguishes an owner from a colleague, because
+        // reading is company-wide and only ACTING needs a capability.
+        label: "My Company",
+        href: "/dashboard/my-company",
+        icon: Building2,
+        show: (c) => c.isVendor,
+      },
+      {
         label: "My Jobs",
         href: "/dashboard/my-jobs",
         icon: Wrench,
@@ -208,6 +226,16 @@ export const NAV_GROUPS: NavGroup[] = [
         href: "/dashboard/vendors",
         icon: Building2,
         show: (c) => c.seesVendors,
+      },
+      {
+        // The staff side of decision 17: packs a contractor has sent in.
+        // `vendors.write` is what governs verifying one — the same capability
+        // that governs adding a vendor at all — so this appears for the people
+        // who would be doing the verifying and nobody else.
+        label: "Registrations",
+        href: "/dashboard/vendors/registrations",
+        icon: ClipboardCheck,
+        show: (c) => c.reviewsVendorRegistrations,
       },
       {
         label: "Leases & Rent",
