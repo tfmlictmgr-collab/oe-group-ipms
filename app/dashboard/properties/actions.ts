@@ -365,3 +365,55 @@ export async function setPropertyStakeholder(
   revalidatePath(`/dashboard/properties/${propertyId}`);
   return ok();
 }
+
+/**
+ * Which contractors work this property — `vendor_properties` (0012).
+ *
+ * ⚠️ Built while answering "how do we attach a vendor to a property": nothing
+ * wrote to this table before now, not even an insert triggered by dispatching
+ * a job. Since 0012, `current_user_scoped_vendor_ids()` reads it to decide
+ * which vendors' PAYMENTS AND EVALUATIONS an FM/PM may see — sensitive money
+ * data, not the vendor directory (0012's own comment: "the vendor DIRECTORY
+ * stays org-visible... the sensitive money/performance data is what gets
+ * scoped"). An FM/PM dispatching a job to a vendor could always see that
+ * vendor's payments through `payments_select`'s other branches; what an empty
+ * table meant in practice is that scoping never actually narrowed anything —
+ * every FM/PM saw every vendor's money for want of a row here.
+ *
+ * `vendor_properties_write` already governs this correctly (admin, FM, PM,
+ * regional manager) — 0183's mechanical rewrite reached it along with
+ * everything else that named the role literally, so this needed no policy
+ * change, only a screen.
+ */
+export async function setVendorProperty(
+  propertyId: string,
+  vendorId: string,
+  attached: boolean
+): Promise<ActionResult> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return fail("Your session expired. Please sign in again.");
+
+  const { data: me } = await supabase
+    .from("users").select("org_id").eq("id", user.id).single();
+  if (!me) return fail("Could not resolve your profile.");
+
+  if (attached) {
+    const { error } = await supabase.from("vendor_properties").insert({
+      org_id: me.org_id, property_id: propertyId, vendor_id: vendorId,
+    });
+    if (error && !error.message.includes("duplicate key")) {
+      return failFromDb(error, "attach that contractor to this property");
+    }
+  } else {
+    const { error } = await supabase
+      .from("vendor_properties")
+      .delete()
+      .eq("property_id", propertyId)
+      .eq("vendor_id", vendorId);
+    if (error) return failFromDb(error, "detach that contractor");
+  }
+
+  revalidatePath(`/dashboard/properties/${propertyId}`);
+  return ok();
+}

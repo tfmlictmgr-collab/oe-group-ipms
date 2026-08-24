@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import UnitsPanel from "./UnitsPanel";
 import StakeholderPanel from "./StakeholderPanel";
+import VendorPropertiesPanel from "./VendorPropertiesPanel";
 
 export default async function PropertyDetailPage({
   params,
@@ -37,6 +38,8 @@ export default async function PropertyDetailPage({
     { data: stakeholders },
     { count: assetCount },
     { data: canWrite },
+    { data: vendors },
+    { data: vendorProperties },
   ] = await Promise.all([
     supabase.from("units")
       .select("id, label, apportionment_factor, occupant_user_id")
@@ -53,6 +56,10 @@ export default async function PropertyDetailPage({
       .select("id", { count: "exact", head: true })
       .eq("property_id", id),
     supabase.rpc("has_permission", { p_capability: "properties.write" }),
+    // The directory stays org-visible to whoever may dispatch work (0012) —
+    // this is the standing list to pick FROM, not what is already attached.
+    supabase.from("vendors").select("id, name").order("name"),
+    supabase.from("vendor_properties").select("vendor_id").eq("property_id", id),
   ]);
 
   const allMembers = (members ?? []) as {
@@ -126,6 +133,24 @@ export default async function PropertyDetailPage({
             attached={(stakeholders ?? []).map((s) => ({
               userId: s.user_id, relation: s.relation as "manager" | "owner",
             }))}
+            canWrite={Boolean(canWrite)}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Contractors working this property</CardTitle>
+          <CardDescription>
+            A standing association, separate from any one job — it decides which
+            vendors&apos; payments and evaluations this property&apos;s FM/PM may see.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <VendorPropertiesPanel
+            propertyId={id}
+            vendors={(vendors ?? []) as { id: string; name: string }[]}
+            attachedVendorIds={(vendorProperties ?? []).map((v) => v.vendor_id)}
             canWrite={Boolean(canWrite)}
           />
         </CardContent>
