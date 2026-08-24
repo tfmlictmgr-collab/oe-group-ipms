@@ -20,12 +20,14 @@ export type Landlord = {
 export default function LettingsForm({
   managementFeePct,
   adminFeeFlat,
+  adminFeeBasis,
   renewalNoticeDays,
   rentDemandLeadDays,
   landlords,
 }: {
   managementFeePct: number;
   adminFeeFlat: number;
+  adminFeeBasis: "per_tenancy" | "per_demand";
   renewalNoticeDays: number[];
   rentDemandLeadDays: number;
   landlords: Landlord[];
@@ -35,6 +37,7 @@ export default function LettingsForm({
   const [form, setForm] = React.useState({
     managementFeePct: String(managementFeePct),
     adminFeeFlat: String(adminFeeFlat),
+    adminFeeBasis,
     renewalNoticeDays: renewalNoticeDays.join(", "),
     rentDemandLeadDays: String(rentDemandLeadDays),
   });
@@ -82,8 +85,25 @@ export default function LettingsForm({
               onChange={(e) => set("adminFeeFlat", e.target.value)}
             />
             <p className="text-xs text-muted-foreground">
-              A placeholder until its shape is agreed — whether it is an ongoing
-              percentage or a one-time charge per tenancy.
+              Charged in full on the demand it applies to, then frozen onto that
+              demand — a later change never rewrites a statement already issued.
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="s-admin-basis">How often the admin fee is charged</Label>
+            <select
+              id="s-admin-basis"
+              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              value={form.adminFeeBasis}
+              onChange={(e) => set("adminFeeBasis", e.target.value)}
+            >
+              <option value="per_tenancy">Once per tenancy</option>
+              <option value="per_demand">On every rent demand</option>
+            </select>
+            <p className="text-xs text-muted-foreground">
+              A renewal continues the same tenancy, so it is not charged again.
+              An individual tenancy can depart from this on its own lease.
             </p>
           </div>
 

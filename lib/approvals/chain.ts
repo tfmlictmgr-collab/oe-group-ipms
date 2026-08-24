@@ -25,8 +25,13 @@ export const CHAIN_STAGES = [
     stageOrder: 1 as const,
     requiredRoles: [...FM_PM, "regional_manager"],
     tierResolved: false,
-    label: "Job sign-off and approval for payment",
-    short: "Job sign-off",
+    // ⚠️ NOT an approval (board, 22 Aug 2026). An FM/PM confirms the work was
+    // DONE — they have been to the building and the job card matches. They
+    // hold no spending limit and no tier. The approval tiers are stages 2 and
+    // 3; calling this one an approval made "Requires Tier 2" appear above a
+    // stage no tier applies to.
+    label: "Work completed and signed off",
+    short: "Work signed off",
   },
   {
     stageOrder: 2 as const,

@@ -15,7 +15,7 @@ export default async function LettingsSettingsPage() {
   const [orgRes, moduleRes, landlordsRes, termsRes] = await Promise.all([
     supabase
       .from("orgs")
-      .select("management_fee_pct, admin_fee_flat, renewal_notice_days, rent_demand_lead_days")
+      .select("management_fee_pct, admin_fee_flat, admin_fee_basis, renewal_notice_days, rent_demand_lead_days")
       .eq("id", profile.org_id)
       .single(),
     supabase.rpc("org_has_module", { p_org_id: profile.org_id, p_module: "lettings" }),
@@ -69,6 +69,7 @@ export default async function LettingsSettingsPage() {
         <LettingsForm
           managementFeePct={Number(orgRes.data?.management_fee_pct ?? 0)}
           adminFeeFlat={Number(orgRes.data?.admin_fee_flat ?? 0)}
+          adminFeeBasis={(orgRes.data?.admin_fee_basis ?? "per_tenancy") as "per_tenancy" | "per_demand"}
           renewalNoticeDays={(orgRes.data?.renewal_notice_days ?? [90, 60, 30]) as number[]}
           rentDemandLeadDays={Number(orgRes.data?.rent_demand_lead_days ?? 30)}
           landlords={landlords}

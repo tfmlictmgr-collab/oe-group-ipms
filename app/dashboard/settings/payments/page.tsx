@@ -21,7 +21,7 @@ export default async function PaymentSettingsPage() {
   const [{ data: settings }, { data: org }, { data: isOperator }] = await Promise.all([
     supabase
       .from("payment_settings")
-      .select("min_performance_score, approval_threshold_amount, admin_fee_percent")
+      .select("min_performance_score, approval_threshold_amount, admin_fee_percent, tier1_threshold_amount")
       .eq("org_id", session.profile.org_id)
       .single(),
     supabase
@@ -38,6 +38,7 @@ export default async function PaymentSettingsPage() {
 
   const minScore = Number(settings?.min_performance_score ?? 70);
   const threshold = Number(settings?.approval_threshold_amount ?? 1000000);
+  const tier1Threshold = Number(settings?.tier1_threshold_amount ?? 100000);
 
   return (
     <div className="space-y-4">
@@ -55,6 +56,7 @@ export default async function PaymentSettingsPage() {
               orgId={session.profile.org_id}
               initialMinScore={minScore}
               initialThreshold={threshold}
+              initialTier1Threshold={tier1Threshold}
             />
           ) : (
             <div className="space-y-4">
@@ -69,9 +71,15 @@ export default async function PaymentSettingsPage() {
                   for a change.
                 </p>
               </div>
-              <dl className="grid gap-4 sm:grid-cols-2">
+              <dl className="grid gap-4 sm:grid-cols-3">
                 <div className="rounded-lg border px-4 py-3">
-                  <dt className="text-sm text-muted-foreground">Approval limit</dt>
+                  <dt className="text-sm text-muted-foreground">Tier 1 limit</dt>
+                  <dd className="mt-1 text-lg font-medium tabular-nums">
+                    ₦{tier1Threshold.toLocaleString()}
+                  </dd>
+                </div>
+                <div className="rounded-lg border px-4 py-3">
+                  <dt className="text-sm text-muted-foreground">Tier 2 limit</dt>
                   <dd className="mt-1 text-lg font-medium tabular-nums">
                     ₦{threshold.toLocaleString()}
                   </dd>

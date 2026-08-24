@@ -17,6 +17,7 @@ import { ok, fail, failFromDb, type ActionResult } from "@/lib/action-result";
 export async function saveLettingsSettings(input: {
   managementFeePct: string;
   adminFeeFlat: string;
+  adminFeeBasis: string;
   renewalNoticeDays: string;
   rentDemandLeadDays: string;
 }): Promise<ActionResult> {
@@ -37,6 +38,14 @@ export async function saveLettingsSettings(input: {
   const adminFee = Number(input.adminFeeFlat.replace(/[,\s₦]/g, "") || "0");
   if (!Number.isFinite(adminFee) || adminFee < 0) {
     return fail("The admin fee cannot be negative.");
+  }
+
+  // Refused rather than defaulted. A value this does not recognise means the
+  // form and the enum have drifted, and quietly writing "once per tenancy" over
+  // an administrator's actual choice is how a fee changes without anyone
+  // deciding it did.
+  if (!["per_tenancy", "per_demand"].includes(input.adminFeeBasis)) {
+    return fail("Choose whether the admin fee is charged once per tenancy or on every demand.");
   }
 
   // "90, 60, 30" — parsed permissively because someone will type it with
@@ -70,6 +79,7 @@ export async function saveLettingsSettings(input: {
     .update({
       management_fee_pct: fee,
       admin_fee_flat: adminFee,
+      admin_fee_basis: input.adminFeeBasis,
       renewal_notice_days: days.sort((a, b) => b - a),
       rent_demand_lead_days: lead,
     })

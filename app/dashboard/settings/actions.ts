@@ -17,14 +17,32 @@ import { normalizeTelegramUsername } from "@/lib/telegram-link";
  * (`enforce_payment_gate_config_authority`); this refuses it a layer earlier so
  * the caller gets a sentence rather than a trigger's exception.
  *
- * Operator administrators do not come through here at all — they use
- * `operator_set_payment_gate`, which requires a stated reason and records the
- * before/after where the affected org can read it.
+ * ⚠️ This now goes through `operator_set_payment_gate` (0151), which is what
+ * the paragraph above CLAIMED it did while the code underneath upserted
+ * `payment_settings` directly. That claim had been false since the RPC landed,
+ * and the direct write skipped three things the RPC does:
+ *
+ *   1. **The reason.** The RPC refuses a change with fewer than 10 characters
+ *      of explanation, "because it is the record an auditor reads". The direct
+ *      upsert asked for none, so every threshold change made through this
+ *      screen went unexplained.
+ *   2. **The operator audit row.** `operator_actions` gets the before/after of
+ *      all three numbers, readable by the affected org. The direct write left
+ *      nothing but a bumped `updated_at`.
+ *   3. **The ladder guard.** The RPC refuses `tier1 >= threshold` — a ladder
+ *      whose rungs cross has no middle band, so every payment above tier 1
+ *      would silently jump to needing an executive.
+ *
+ * `enforce_payment_gate_config_authority` meant the direct path was never an
+ * authority hole; it was an ACCOUNTABILITY hole, which is the thing decision 7
+ * calls "what an auditor checks".
  */
 export async function updatePaymentSettings(
   orgId: string,
   minPerformanceScore: number,
-  approvalThresholdAmount: number
+  approvalThresholdAmount: number,
+  tier1ThresholdAmount: number,
+  reason: string
 ): Promise<ActionResult> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -38,11 +56,30 @@ export async function updatePaymentSettings(
     );
   }
 
-  const { error } = await supabase.from("payment_settings").upsert({
-    org_id: orgId,
-    min_performance_score: minPerformanceScore,
-    approval_threshold_amount: approvalThresholdAmount,
-    updated_at: new Date().toISOString(),
+  // Said here so the person gets a sentence before the RPC's exception. The
+  // RPC re-checks every one of these and remains the enforcement.
+  if (reason.trim().length < 10) {
+    return fail(
+      "Say why this limit is changing.",
+      "At least a short sentence — it is the record an auditor reads when they ask why the ladder moved."
+    );
+  }
+  if (!Number.isFinite(tier1ThresholdAmount) || tier1ThresholdAmount <= 0) {
+    return fail("The tier 1 limit must be greater than zero.");
+  }
+  if (tier1ThresholdAmount >= approvalThresholdAmount) {
+    return fail(
+      "The tier 1 limit must be below the tier 2 limit.",
+      "Otherwise there is no tier 2 band at all — every payment above tier 1 would jump straight to requiring an executive."
+    );
+  }
+
+  const { error } = await supabase.rpc("operator_set_payment_gate", {
+    p_org_id: orgId,
+    p_threshold: approvalThresholdAmount,
+    p_min_score: minPerformanceScore,
+    p_reason: reason.trim(),
+    p_tier1: tier1ThresholdAmount,
   });
   if (error) return failFromDb(error, "save these payment settings");
   revalidatePath("/dashboard/settings");

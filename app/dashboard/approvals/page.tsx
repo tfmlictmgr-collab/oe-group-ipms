@@ -8,6 +8,7 @@ import {
 import ChainTrail from "@/components/approvals/ChainTrail";
 import StageActions from "@/components/approvals/StageActions";
 import {
+  CHAIN_STAGES,
   getChainState, canActorAction, whyNotActionable, formatNaira, effectiveTier,
   tierLabel, type PayableType, type ChainState, type StageOrder,
 } from "@/lib/approvals/chain";
@@ -29,9 +30,15 @@ type QueueRow = {
  * ⚠️ Scoped by what the viewer can ACTUALLY ACTION, not by what exists. A tier-1
  * approver shown a queue of ₦5m payments they cannot clear learns only that the
  * screen is lying to them, and the useful signal — the three they can action
- * today — is buried. Rows they cannot action still appear under "Waiting on
- * someone else", because knowing a payment is moving is different from being
- * able to move it.
+ * today — is buried.
+ *
+ * Rows they cannot action appear under "Waiting on someone else", because
+ * knowing a payment is moving is different from being able to move it — but
+ * only for someone who is IN THE CHAIN (board, 22 Aug 2026). A person who
+ * appears at no stage has no reason to watch other people's payments queue up,
+ * and showing them the whole outbound pipeline is a disclosure nobody asked
+ * for. Finance is included despite holding no stage: they disburse what the
+ * chain clears (decision 16), so what is climbing toward them is their work.
  */
 export default async function ApprovalsPage() {
   const session = await getSessionProfile();
@@ -128,7 +135,21 @@ export default async function ApprovalsPage() {
   );
 
   const mine = rows.filter((r) => canActorAction(actor, r.state));
-  const others = rows.filter((r) => !canActorAction(actor, r.state));
+
+  // Every role named at any stage, read from CHAIN_STAGES rather than retyped —
+  // so a role added to a stage reaches this automatically and cannot be
+  // forgotten here. Plus finance, who releases what the chain clears.
+  const chainRoles = new Set<string>([
+    ...CHAIN_STAGES.flatMap((st) => st.requiredRoles as readonly string[]),
+    "finance_approver",
+  ]);
+  const inChain = chainRoles.has(role);
+
+  // Visible to the chain, actionable only by whoever owns the CURRENT stage —
+  // `canActorAction` above is the second half of that and is unchanged.
+  const others = inChain
+    ? rows.filter((r) => !canActorAction(actor, r.state))
+    : [];
 
   return (
     <div className="space-y-6">

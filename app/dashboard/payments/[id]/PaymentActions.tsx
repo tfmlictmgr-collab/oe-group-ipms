@@ -200,10 +200,25 @@ export default function PaymentActions({
     );
   }
 
+  // ⚠️ `recommended` HAS NO BUTTON HERE, deliberately (22 Aug 2026).
+  //
+  // It used to offer "Approve payment", which called the pre-chain
+  // `approvePayment` action — and that button could never succeed. Since 0151
+  // approval is the CHAIN's outcome: `apply_chain_outcome_to_payment()` moves
+  // the payment to `approved` the instant stage 3 clears, and
+  // `enforce_payment_transition` refuses the status change outright while the
+  // chain is incomplete. So the button had exactly two outcomes — refused
+  // because the chain was unfinished, or refused because the trigger had
+  // already approved it — and it emitted the app layer's own stale message
+  // ("Only finance, an administrator or an executive may approve payments")
+  // to a payment approver, the one role that exists to action stage 3.
+  //
+  // The chain card above this one is the approval surface. Two surfaces for
+  // one decision is how a person ends up believing the system is broken when
+  // it is working.
   const config: Record<string, { action: Action; label: string; icon: React.ReactNode }> = {
     pending_verification: { action: "verify", label: "Verify service", icon: <ShieldCheck /> },
     verified: { action: "performance", label: "Run performance check", icon: <Gauge /> },
-    recommended: { action: "approve", label: "Approve payment", icon: <BadgeCheck /> },
     approved: { action: "remit", label: "Send payment", icon: <Send /> },
   };
 
