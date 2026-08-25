@@ -22,6 +22,7 @@ import {
   Landmark,
   type LucideIcon,
   ClipboardCheck,
+  BookOpen,
 } from "lucide-react";
 
 // Role/permission context computed on the server (from the B7 matrix) and passed
@@ -334,6 +335,16 @@ export const NAV_GROUPS: NavGroup[] = [
         href: "/dashboard/people",
         icon: UserPlus,
         show: (c) => c.canEnroll,
+      },
+      {
+        // Every role, without exception. The guide is written per role and is
+        // resolved from the reader's own profile, so "show it to everyone" here
+        // does not mean everyone sees the same document — a tenant cannot reach
+        // the administrator's handbook by finding this link.
+        label: "Guide",
+        href: "/dashboard/guide",
+        icon: BookOpen,
+        show: () => true,
       },
       {
         // Open to everyone: personal notification preferences live here. The
