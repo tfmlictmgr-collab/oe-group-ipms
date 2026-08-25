@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { getSessionProfile } from "@/lib/auth";
 import { roleLabel } from "@/lib/roles";
@@ -19,7 +19,9 @@ import { RoleGuideDocument } from "@/lib/pdf/role-guide";
 // longer exists, and no stale file sits in a bucket contradicting the screen.
 export const runtime = "nodejs";
 
-export async function GET(_request: NextRequest) {
+// No parameter: the route reads nothing off the request — the guide is chosen
+// by who is signed in, not by anything the caller may state.
+export async function GET() {
   const session = await getSessionProfile();
   if (!session?.profile || !session.org) {
     return new NextResponse("Sign in required", { status: 401 });

@@ -1,21 +1,68 @@
 // Migration runner: applies every .sql file in supabase/migrations in filename
 // order, skipping any already recorded in the _migrations ledger. Idempotent —
-// safe to re-run. Usage: node scripts/migrate.mjs
-import { readdirSync, readFileSync } from "node:fs";
+// safe to re-run.
+//
+//   node scripts/migrate.mjs                    → whatever .env.local points at
+//   node scripts/migrate.mjs --world staging    → .env.staging.local, directly
+//
+// ⚠️ **Prefer `--world`.** `use-env.mjs` migrates a different world by REWRITING
+// `.env.local`, and that file is not this script's private property — a running
+// `next dev` reads it too. On 25 Aug 2026 switching it to staging mid-session
+// redirected a live dev server there for four minutes and wrote ~18 audit rows
+// into a world nobody meant to touch. That is the third stale-environment
+// incident in this repo (see INCIDENT_2026-08-05_PROD_ALIAS and
+// INCIDENT_2026-08-06_DEMO_DB_MIGRATED).
+//
+// 📌 The lesson is not "be careful with use-env". It is that **a tool needing a
+// different world should read that world's file, not edit the shared one.**
+// Mutating global state to parameterise one command is the mechanism at fault,
+// and `--world` removes the need for it.
+import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { config } from "dotenv";
 import pg from "pg";
 
 const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-config({ path: path.join(rootDir, ".env.local") });
+
+const worldFlag = process.argv.indexOf("--world");
+const world = worldFlag === -1 ? null : process.argv[worldFlag + 1];
+
+if (worldFlag !== -1 && !world) {
+  console.error("--world needs a value: demo | dev | staging | prod");
+  process.exit(1);
+}
+
+const envFile = world ? `.env.${world}.local` : ".env.local";
+const envPath = path.join(rootDir, envFile);
+
+if (!existsSync(envPath)) {
+  console.error(
+    `Missing ${envFile}.\n` +
+    (world
+      ? "  It holds that world's secrets and is gitignored — create it from that " +
+        "project's own dashboard, never by copying another world's file."
+      : "  Point it at a world first:  npm run use-env dev")
+  );
+  process.exit(1);
+}
+
+// ⚠️ Read into a private object rather than process.env when a world is named.
+// dotenv does not overwrite variables that are already set, so a `--world`
+// run inside a shell that happens to carry SUPABASE_DB_* would silently apply
+// to whatever those name — the 6 Aug failure in a new costume.
+const env = {};
+config({ path: envPath, processEnv: world ? env : process.env });
+if (!world) Object.assign(env, process.env);
+
+console.log(`Migrating: ${envFile}\n`);
 
 const client = new pg.Client({
-  host: process.env.SUPABASE_DB_HOST,
-  port: Number(process.env.SUPABASE_DB_PORT || 5432),
-  database: process.env.SUPABASE_DB_NAME,
-  user: process.env.SUPABASE_DB_USER,
-  password: process.env.SUPABASE_DB_PASSWORD,
+  host: env.SUPABASE_DB_HOST,
+  port: Number(env.SUPABASE_DB_PORT || 5432),
+  database: env.SUPABASE_DB_NAME,
+  user: env.SUPABASE_DB_USER,
+  password: env.SUPABASE_DB_PASSWORD,
   ssl: { rejectUnauthorized: false },
 });
 
@@ -73,11 +120,11 @@ const files = readdirSync(migrationsDir)
 // proceeds — the check exists to catch a mismatch it can actually prove, not
 // to insist on one topology.
 {
-  const restRef = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "")
+  const restRef = (env.NEXT_PUBLIC_SUPABASE_URL ?? "")
     .match(/^https:\/\/([a-z0-9]{20})\.supabase\.co/i)?.[1];
 
-  const dbHost = process.env.SUPABASE_DB_HOST ?? "";
-  const dbUser = process.env.SUPABASE_DB_USER ?? "";
+  const dbHost = env.SUPABASE_DB_HOST ?? "";
+  const dbUser = env.SUPABASE_DB_USER ?? "";
   const dbRef =
     dbHost.match(/^db\.([a-z0-9]{20})\.supabase\.co$/i)?.[1] ??
     dbUser.match(/^postgres\.([a-z0-9]{20})$/i)?.[1];
