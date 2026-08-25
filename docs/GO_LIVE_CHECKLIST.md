@@ -82,19 +82,30 @@ everything around them but cannot execute them.
       account" flow is how it goes live — no further code change. Decide
       before cutover whether FX collections are in scope for go-live or a
       fast-follow; nothing currently depends on it being ready.
-- [ ] **Confirm the 360dialog account tier** for both numbers (TFML
-      `+234 703 689 1329`, OEA `+234 708 471 4148`) — direct-client tier has no
-      request signature at all (see `WHATSAPP_360DIALOG_MIGRATION.md`); if that
-      changes, the webhook auth path changes with it.
-- [ ] **Create the two Telegram bots** (TFML, OEA) in @BotFather — a personal
-      Telegram-account action, same category as the Meta/360dialog business
-      accounts above. **Not done yet** as of 2026-08-05. Full field-by-field
-      guide (display name, username + fallbacks, `/setdescription`,
-      `/setabouttext`, `/setuserpic`, `/setcommands`, `/setjoingroups`,
-      `/setprivacy`) is in `docs/TELEGRAM_BOT_SETUP.md` — don't duplicate it
-      here, follow it exactly, then hand the two tokens to whoever runs
-      `scripts/register-telegram-bot.mjs` (§1 below, "Actions I execute" —
-      registration itself is mechanical once the tokens exist).
+- [x] **Confirm the 360dialog account tier** for both numbers — **confirmed
+      2026-08-25: direct-client tier, both numbers** (TFML `+234 703 689 1329`,
+      OEA `+234 708 471 4148`), verified against the 360dialog dashboard and a
+      support-ticket reply. No request signature is available on this tier —
+      the token-in-webhook-URL auth path in `WHATSAPP_360DIALOG_MIGRATION.md`
+      stays the permanent design, not a stopgap; `verifyWhatsAppInbound()`'s
+      HMAC path remains dormant. Nothing code-side changes.
+- [x] **Create the two Telegram bots** (TFML, OEA) in @BotFather — **done and
+      registered, confirmed 2026-08-25.** Both firing correctly: `@tfml_support_bot`
+      (TFML) and `@oea_properties_bot` (OEA). Confirmed live against
+      `channel_routes` on `staging` — TFML registered 2026-08-19 as
+      `@tfml_support_bot`, OEA registered 2026-08-19 as `@oea_properties_bot`,
+      alongside both orgs' WhatsApp routes (`+234 703 689 1329` / `+234 708 471
+      4148`) registered 2026-08-20. Matches `docs/TELEGRAM_BOT_SETUP.md` §0's
+      record of the actual usernames in use.
+      ⚠️ **Housekeeping, not a blocker:** `dev`'s stored Telegram route for TFML
+      still carries the pre-rename label `@tfml_facilities_bot` (registered
+      2026-07-28, before the username settled) — cosmetic only if the
+      underlying bot/token is unchanged and just renamed in Telegram, since
+      `register-telegram-bot.mjs` stores the label at registration time and
+      doesn't re-read it later. Worth a `getMe` check and, if it really is
+      stale, a re-run of `register-telegram-bot.mjs TFML <token>` against
+      `dev` — not required before cutover since `staging` (the environment
+      that matters for rehearsal) is already correct.
 - [x] **Provision a STAGING Supabase project and Vercel project** — done
       2026-08-19. Supabase `tjboghjzbalxwhhatogl` (eu-west-2), migrated to
       `0175` (schema only, zero synthetic rows). Vercel project
