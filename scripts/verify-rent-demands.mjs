@@ -15,6 +15,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
+import { fixtureUser } from "./lib/org-lookup.mjs";
 
 const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 config({ path: path.join(rootDir, ".env.local") });
@@ -42,7 +43,8 @@ const prop = (await svc.from("properties")
 made.properties.push(prop.id);
 
 const { data: tenant } = await svc.from("users").select("id").eq("email", "oea.tenant@oegroup.test").single();
-const { data: landlord } = await svc.from("users").select("id").eq("email", "oea.propertyowner@oegroup.test").single();
+const landlord = await fixtureUser(svc, oea.id, "property_owner",
+  ["oea.owner@oegroup.test", "oea.propertyowner@oegroup.test"]);
 await svc.from("property_stakeholders")
   .insert({ org_id: oea.id, property_id: prop.id, user_id: landlord.id, relation: "owner" });
 
@@ -220,6 +222,87 @@ console.log("\nG. The job endpoint refuses without the secret");
   } catch {
     console.log("  \x1b[33mSKIP\x1b[0m the dev server is not running");
   }
+}
+
+// ── The admin fee is charged once per tenancy (0181) ───────────────────────
+//
+// The claim decision 14 finally resolved: a flat admin fee is a letting charge,
+// not an annual one. Before 0181 it was deducted from EVERY demand, which on an
+// annual cadence means charging a once-per-tenancy fee once a year.
+console.log("\nH. The admin fee lands once per tenancy, not once per demand");
+{
+  const ADMIN_FEE = 25_000;
+  const { data: orgBefore } = await svc.from("orgs")
+    .select("admin_fee_flat, admin_fee_basis").eq("id", oea.id).single();
+
+  await svc.from("orgs")
+    .update({ admin_fee_flat: ADMIN_FEE, admin_fee_basis: "per_tenancy" }).eq("id", oea.id);
+
+  const feeOf = async (chargeId) => {
+    const { data } = await svc.from("rent_charges")
+      .select("admin_fee_amount").eq("id", chargeId).single();
+    return Number(data.admin_fee_amount);
+  };
+
+  const start = day(-400);
+  const leaseId = await mkLease(`FEE-${S}`, start, day(330));
+
+  // Year one — the letting itself. The fee belongs here.
+  const { data: first } = await svc.rpc("raise_rent_charge", {
+    p_lease_id: leaseId, p_period_start: start, p_period_end: day(-35),
+  });
+  (await feeOf(first)) === ADMIN_FEE
+    ? ok(`the first demand of a tenancy carries the fee (₦${ADMIN_FEE.toLocaleString()})`)
+    : bad(`the first demand took ₦${await feeOf(first)}, expected ₦${ADMIN_FEE}`);
+
+  // Year two, same term. Same tenancy — the fee has already been taken.
+  const { data: second } = await svc.rpc("raise_rent_charge", {
+    p_lease_id: leaseId, p_period_start: day(-35), p_period_end: day(330),
+  });
+  (await feeOf(second)) === 0
+    ? ok("the next demand on the same tenancy takes none")
+    : bad(`the second demand took ₦${await feeOf(second)} — the fee was charged twice`);
+
+  // A RENEWAL is the same tenancy continuing, not a new letting. This is the
+  // case a per-lease check would get wrong: the new term is a different row.
+  const { data: renewedId } = await svc.rpc("renew_lease", { p_lease_id: leaseId, p_months: 12 });
+  made.leases.push(renewedId);
+  const { data: renewalCharge } = await svc.rpc("raise_rent_charge", {
+    p_lease_id: renewedId, p_period_start: day(330), p_period_end: day(695),
+  });
+  (await feeOf(renewalCharge)) === 0
+    ? ok("and a RENEWED term takes none either — a renewal is the same tenancy")
+    : bad(`the renewal took ₦${await feeOf(renewalCharge)} — it was treated as a fresh letting`);
+
+  // The setting is the org's, and a lease may depart from it — decision 14's
+  // default-plus-override, reused rather than reinvented.
+  await svc.from("orgs").update({ admin_fee_basis: "per_demand" }).eq("id", oea.id);
+  const perDemandLease = await mkLease(`FEEPD-${S}`, day(-400), day(330));
+  const { data: pd1 } = await svc.rpc("raise_rent_charge", {
+    p_lease_id: perDemandLease, p_period_start: day(-400), p_period_end: day(-35),
+  });
+  const { data: pd2 } = await svc.rpc("raise_rent_charge", {
+    p_lease_id: perDemandLease, p_period_start: day(-35), p_period_end: day(330),
+  });
+  (await feeOf(pd1)) === ADMIN_FEE && (await feeOf(pd2)) === ADMIN_FEE
+    ? ok("switching the org to per_demand charges it every time — the setting is honoured")
+    : bad(`per_demand took ₦${await feeOf(pd1)} then ₦${await feeOf(pd2)}`);
+
+  const overrideLease = await mkLease(`FEEOV-${S}`, day(-400), day(330));
+  await svc.from("leases").update({ admin_fee_basis: "per_tenancy" }).eq("id", overrideLease);
+  const { data: ov1 } = await svc.rpc("raise_rent_charge", {
+    p_lease_id: overrideLease, p_period_start: day(-400), p_period_end: day(-35),
+  });
+  const { data: ov2 } = await svc.rpc("raise_rent_charge", {
+    p_lease_id: overrideLease, p_period_start: day(-35), p_period_end: day(330),
+  });
+  (await feeOf(ov1)) === ADMIN_FEE && (await feeOf(ov2)) === 0
+    ? ok("and one lease can depart from the org default, case by case")
+    : bad(`the per-lease override took ₦${await feeOf(ov1)} then ₦${await feeOf(ov2)}`);
+
+  await svc.from("orgs").update({
+    admin_fee_flat: orgBefore.admin_fee_flat, admin_fee_basis: orgBefore.admin_fee_basis,
+  }).eq("id", oea.id);
 }
 
 // ── Cleanup ────────────────────────────────────────────────────────────────

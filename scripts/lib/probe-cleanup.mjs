@@ -114,7 +114,12 @@ export async function sweepProbeVendors(svc, prefixes = ["Perm probe", "PROBE", 
 
     for (const id of ids) {
       const { error } = await svc.from("vendors").delete().eq("id", id);
-      if (!error) removed++;
+      if (!error) { removed++; continue; }
+      // ⚠️ Never swallow this. Between 0163 and 0180 EVERY vendor delete was
+      // refused by the last-owner trigger, and this loop reported `0` — which
+      // reads identically to "there was nothing to remove". A probe contractor
+      // sat in the analytics filter for weeks behind that silence.
+      console.warn(`  probe-cleanup: vendor ${id} NOT removed — ${error.message}`);
     }
   }
   return removed;

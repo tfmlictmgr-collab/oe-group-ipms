@@ -103,3 +103,40 @@ export async function liveOrgBySlug(svc, slug) {
   if (!data) return { error: `No live organisation has the slug "${slug}".` };
   return { org: data };
 }
+
+/**
+ * A seeded fixture account, found by ROLE rather than by a spelling of its email.
+ *
+ * ⚠️ Why this exists. Four suites resolved OEA's landlord as
+ * `oea.propertyowner@oegroup.test` and then used `landlord.id` on the next
+ * line. `seed-brand-roles.mjs` seeds the brand portals with the shorter
+ * `oea.owner@oegroup.test`, while `seed.mjs` uses `<slug>.propertyowner@` — so
+ * on any world seeded by the former, all four crashed with
+ * `Cannot read properties of null (reading 'id')` before reaching a single
+ * assertion. A red suite that never states a claim is worse than a failing one:
+ * it looks like the code under test is broken when the fixture is.
+ *
+ * The role is the durable fact; the email is a seeding convention that has
+ * legitimately changed twice. Hints are tried first so an intentionally
+ * specific account still wins, then the role within the org.
+ */
+export async function fixtureUser(svc, orgId, role, hints = []) {
+  for (const email of hints) {
+    const { data } = await svc.from("users")
+      .select("id, email, role").eq("email", email).maybeSingle();
+    if (data) return data;
+  }
+  const { data, error } = await svc.from("users")
+    .select("id, email, role")
+    .eq("org_id", orgId).eq("role", role).is("deactivated_at", null)
+    .order("created_at", { ascending: true });
+  if (error) throw new Error(`could not read users for ${role} — ${error.message}`);
+  if (!data?.length) {
+    throw new Error(
+      `No live "${role}" exists in org ${orgId}.\n` +
+      `  Tried: ${hints.join(", ") || "(no email hints)"}\n` +
+      `  Seed one with: node scripts/seed-brand-roles.mjs`
+    );
+  }
+  return data[0];
+}

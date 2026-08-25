@@ -31,15 +31,35 @@ const tfml = orgs.find(o => o.delivery_brand === "TFML");
 const unset = orgs.find(o => !o.support_email && !o.finance_email);
 
 console.log("Reply-To routing\n");
-console.log("A. TFML routes each category to its own inbox");
-[["account","info@tfmlconsultant.com"],
- ["finance","accounts@tfmlconsultant.com"],
- ["it","admin@projects.tfmlconsultant.com"],
- ["operations","info@tfmlconsultant.com"]].forEach(([cat, want]) => {
-  const got = resolve(cat, tfml);
-  got === want ? ok(`${cat.padEnd(10)} -> ${got}`) : bad(`${cat}: expected ${want}, got ${got}`);
-});
-
+console.log("A. Each category routes to its OWN inbox, not to a shared one");
+// This asserted four literal addresses, and broke the day TFML's IT inbox
+// legitimately moved from `admin@projects.` to `it@`. That is the same fault
+// section E already carries a comment about — asserting what the config
+// currently SAYS rather than what it must be TRUE of — committed twice in one
+// file. Which mailbox IT uses is a business decision; that finance and IT each
+// resolve to their own configured inbox, and never silently to support, is the
+// control. So assert the mapping, not the addresses.
+{
+  const cases = [
+    ["account",    "support_email"],
+    ["finance",    "finance_email"],
+    ["it",         "it_email"],
+    ["operations", "support_email"],
+  ];
+  for (const [cat, column] of cases) {
+    const got = resolve(cat, tfml);
+    got && got === tfml[column]
+      ? ok(`${cat.padEnd(10)} -> ${column.padEnd(14)} (${got})`)
+      : bad(`${cat}: expected the org's ${column} (${tfml[column]}), got ${got}`);
+  }
+  // A fully-configured brand routes its three categories to three DIFFERENT
+  // inboxes — otherwise the mapping above passes while every message lands in
+  // one mailbox, the outcome the split exists to prevent.
+  const boxes = [tfml.support_email, tfml.finance_email, tfml.it_email];
+  boxes.every(Boolean) && new Set(boxes).size === 3
+    ? ok("the three inboxes are distinct")
+    : bad(`expected three distinct configured inboxes, got ${JSON.stringify(boxes)}`);
+}
 console.log("\nB. An unset category falls back to support, never to nothing");
 {
   const partial = { support_email: "info@x.test", finance_email: null, it_email: null };

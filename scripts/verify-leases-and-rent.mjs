@@ -17,6 +17,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
+import { fixtureUser } from "./lib/org-lookup.mjs";
 
 const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 config({ path: path.join(rootDir, ".env.local") });
@@ -55,8 +56,8 @@ made.units.push(unit.id);
 
 const { data: tenant } = await svc.from("users")
   .select("id").eq("email", "oea.tenant@oegroup.test").single();
-const { data: landlord } = await svc.from("users")
-  .select("id").eq("email", "oea.propertyowner@oegroup.test").single();
+const landlord = await fixtureUser(svc, oea.id, "property_owner",
+  ["oea.owner@oegroup.test", "oea.propertyowner@oegroup.test"]);
 
 // The landlord owns this property, which is how the fee resolves.
 await svc.from("property_stakeholders").insert({

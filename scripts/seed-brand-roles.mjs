@@ -73,6 +73,13 @@ const BRANDS = [
     vendor: "Apex Facilities Cleaning",
     lettings: false,          // facilities brand — no tenancy/rent journey
     people: {
+      // ⚠️ `property_manager` is a role in its own right as of 0182, not a
+      // brand-aware label on `facility_manager`. Seeded for BOTH brands: the
+      // split exists because one organisation can employ both disciplines, and
+      // a UAT that must exercise "every role" cannot do it with one login
+      // covering two. TFML's own facility managers were untouched by 0182's
+      // migration, so this account is genuinely new here rather than a rename.
+      property_manager:       ["tfml.pm@oegroup.test",            "Ifeanyi Obiora (TFML)"],
       fm_ops_staff:           ["tfml.ops@oegroup.test",           "Musa Danjuma (TFML)"],
       property_owner:         ["tfml.owner@oegroup.test",         "Adaeze Obi (TFML)"],
       tenant:                 ["tfml.tenant@oegroup.test",        "Segun Adeyemi (TFML)"],
@@ -90,6 +97,14 @@ const BRANDS = [
     vendor: "GreenLeaf Landscaping",
     lettings: true,           // property brand — gets a tenancy and a rent demand
     people: {
+      // OEA is the org 0182 was written for. Its existing `facility_manager`
+      // rows were migrated to `property_manager`, so `oea.fm@` — seeded as an
+      // FM by seed-brand-demo-content.mjs — now signs in as a Properties
+      // Manager, and OEA has NO facilities-manager login at all. Both are
+      // named explicitly here so the two disciplines are two accounts, which
+      // is the whole point of the split.
+      property_manager:       ["oea.pm@oegroup.test",            "Ngozi Chukwu (OEA)"],
+      facility_manager:       ["oea.fmgr@oegroup.test",          "Chika Eze (OEA)"],
       fm_ops_staff:           ["oea.ops@oegroup.test",           "Yusuf Garba (OEA)"],
       property_owner:         ["oea.owner@oegroup.test",         "Ifeoma Duru (OEA)"],
       tenant:                 ["oea.tenant@oegroup.test",        "Kelechi Umeh (OEA)"],

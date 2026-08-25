@@ -55,7 +55,8 @@ const { data: me } = await admin.from("users").select("org_id, role").eq("id", u
 
 // Snapshot, so this suite restores whatever the org actually had rather than
 // leaving the demo on values it invented.
-const LETTINGS = ["management_fee_pct", "admin_fee_flat", "renewal_notice_days", "rent_demand_lead_days"];
+const LETTINGS = ["management_fee_pct", "admin_fee_flat", "admin_fee_basis",
+  "renewal_notice_days", "rent_demand_lead_days"];
 const { data: original } = await svc.from("orgs")
   .select(LETTINGS.join(", ")).eq("id", me.org_id).single();
 
@@ -66,6 +67,7 @@ console.log("A. Lettings settings save from an administrator's own session");
   const { error } = await admin.from("orgs").update({
     management_fee_pct: 7.5,
     admin_fee_flat: 25000,
+    admin_fee_basis: "per_demand",   // 0181 — deliberately off its default, so a no-op cannot pass
     renewal_notice_days: [120, 90, 60, 30],
     rent_demand_lead_days: 45,
   }).eq("id", me.org_id);
@@ -73,10 +75,11 @@ console.log("A. Lettings settings save from an administrator's own session");
   if (error) {
     bad(`SETTINGS → LETTINGS CANNOT BE SAVED — ${error.message.slice(0, 70)}`);
   } else {
-    ok("an administrator can write all four lettings columns");
+    ok("an administrator can write every lettings column");
     const { data: after } = await svc.from("orgs")
       .select(LETTINGS.join(", ")).eq("id", me.org_id).single();
     Number(after.management_fee_pct) === 7.5 && Number(after.rent_demand_lead_days) === 45
+      && after.admin_fee_basis === "per_demand"
       ? ok("and the values actually landed")
       : bad(`the write reported success but stored ${JSON.stringify(after)}`);
   }
@@ -119,6 +122,7 @@ console.log("\nC. Every orgs column is either allowed or deliberately excluded")
     "management_fee_pct", "admin_fee_flat", "renewal_notice_days", "rent_demand_lead_days",
     "whatsapp_number", "telegram_bot_username",   // 0146a/0147, granted by 0158
     "vendor_enhanced_kyc_threshold",              // 0164, vendor self-service tiering
+    "admin_fee_basis",                            // 0181, decision 14's resolution
   ]);
   const EXCLUDED = new Set([
     "id", "created_at",              // identity, never in an UPDATE payload

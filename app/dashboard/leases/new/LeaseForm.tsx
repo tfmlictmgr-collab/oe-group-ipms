@@ -47,6 +47,11 @@ export default function LeaseForm({
     rentAmount: "",
     rentFrequency: "annual" as "annual" | "quarterly" | "monthly",
     escalationPct: "0",
+    // "" means follow the org default (decision 14's default-plus-override,
+    // reused for the admin fee by 0181). An empty string rather than a repeat
+    // of the org's current value, so a later change to the default still
+    // reaches every lease that never departed from it.
+    adminFeeBasis: "" as "" | "per_tenancy" | "per_demand",
     depositAmount: "",
     notes: "",
   });
@@ -210,6 +215,25 @@ export default function LeaseForm({
           />
           <p className="text-xs text-muted-foreground">
             Applied when the tenancy renews — never to the term you are creating.
+          </p>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="l-adminfee">
+            Admin fee <span className="font-normal text-muted-foreground">(this tenancy)</span>
+          </Label>
+          <Select
+            id="l-adminfee" value={form.adminFeeBasis}
+            onChange={(e) => set("adminFeeBasis", e.target.value as typeof form.adminFeeBasis)}
+          >
+            <option value="">Follow the organisation default</option>
+            <option value="per_tenancy">Once, on the first demand</option>
+            <option value="per_demand">On every rent demand</option>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            Leave on the default unless this letting was negotiated otherwise.
+            The amount is set in Settings → Lettings; this is only how often it
+            is charged.
           </p>
         </div>
 

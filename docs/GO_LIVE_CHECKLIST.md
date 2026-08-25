@@ -126,27 +126,29 @@ everything around them but cannot execute them.
       being rehearsed on.
 - [ ] **Board go/no-go** after UAT (Day 12) — a person decision, not a technical
       one.
-- [ ] **Decide the admin-fee shape** — flagged as an open decision since Day 9
-      (ongoing % vs one-time per-tenancy charge). The column exists
-      (`orgs.admin_fee_flat`) as a flat placeholder; it is not built out further
-      until this is decided.
-      **⚠️ Found 10 Aug 2026: it is not actually inert.** `raise_rent_charge`
-      (`0091`) and the rent-collection ledger split (`0092`) have deducted
-      `admin_fee_flat` from every real rent collection since Day 9 — "placeholder"
-      described the DECISION, not the code, which was fully wired the whole
-      time. OEA's is currently `25000` (default `0`), live on the shared dev
-      database — deducting an extra ₦25,000 from every ₦10M rent collection —
-      almost certainly set by manual testing of Settings → Payments/Lettings and
-      never reset. `verify-rent-demands`/`verify-rent-money` (2 suites, 6 checks)
-      fail as a result: their own expected-value math never accounted for this
-      column, so it went unnoticed until the value left `0`. Neither the config
-      nor the tests have been touched — deliberately, since this is live state
-      another session may be mid-test with, and reversing someone else's
-      in-progress work without asking is worse than a red suite. **Needs a
-      decision:** reset OEA to `0` (tests pass, matches "not built out yet"), or
-      update the two tests to account for a real nonzero value (matches what the
-      code actually does today). Either is a five-minute fix once decided —
-      recorded here so it isn't rediscovered as a mystery later.
+- [x] **Decide the admin-fee shape** — **decided 21 Aug 2026: one-time, per
+      tenancy.** Implemented in `0181`, and made configurable rather than
+      compiled in, on the same reasoning decision 15 gives for notice periods:
+      `orgs.admin_fee_basis` (`per_tenancy` — the default — or `per_demand`) in
+      Settings → Lettings, with `leases.admin_fee_basis` as the per-case
+      override on the lease form. A renewal continues the same tenancy, so it is
+      not charged again; the chain is walked through `renewed_from_lease_id`.
+      Five checks in `verify-rent-demands` §H hold the behaviour, including the
+      renewal case a per-lease check would get wrong.
+      **The history, kept because it is the point.** Flagged as open since Day 9
+      (ongoing % vs one-time per-tenancy) with `orgs.admin_fee_flat` standing as
+      "a flat placeholder, not built out further until decided" — and found on
+      10 Aug 2026 to be nothing of the kind: `raise_rent_charge` (`0091`) and
+      the rent-collection split (`0092`) had deducted it from every demand since
+      Day 9. "Placeholder" described the DECISION; the code was fully wired the
+      whole time, and on an annual cadence that meant charging a
+      once-per-tenancy fee once a year. 📌 **A decision recorded as pending does
+      not make the code that implements it pending.** Confirmed 21 Aug 2026 that
+      no row was ever affected — `admin_fee_amount > 0` matches zero
+      `rent_charges` on dev and staging alike — which is the only reason this
+      closes as a change rather than a correction with restitution attached.
+      Dev's OEA org still carries the `25000` left by manual testing; it is now
+      a legitimate value under a decided rule rather than a stray one.
 
 ### Actions I (Claude) execute
 Everything mechanical once the accounts above exist.

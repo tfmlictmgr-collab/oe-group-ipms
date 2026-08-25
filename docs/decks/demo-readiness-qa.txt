@@ -1,0 +1,203 @@
+--- Slide 1 ---
+OE GROUP · INTEGRATED FM & PROPERTY MANAGEMENT
+Demo Readiness
+Staging rehearsal — dry run confirmed end to end
+20 August 2026  ·  oe-group-ipms-staging
+Classifier
+Checkout
+Email
+Telegram
+WhatsApp
+--- Slide 2 ---
+AGENDA
+What this covers
+01
+01
+Environment
+The staging world — an isolated production preview, migrated clean.
+02
+02
+Status at a glance
+Every headline capability, confirmed working today.
+03
+03
+The golden path & logins
+One request, five roles — and who to sign in as for each.
+04
+04
+Live channels
+WhatsApp and Telegram, wired and confirmed.
+05
+05
+Brand isolation
+One platform, two identities, neither sees the other.
+06
+06
+What's next
+The short list still ahead of production go-live.
+02
+--- Slide 3 ---
+01 · ENVIRONMENT
+A true production preview
+Its own Supabase project, its own Vercel deployment, migrated to the current schema and reset freely — separate from dev, and separate from the production environment that hasn't been provisioned yet on purpose.
+SUPABASE PROJECT
+tjboghjzbalxwhhatogl · eu-west-2
+VERCEL PROJECT
+oe-group-ipms-staging
+SCHEMA
+Migrated to 0178, zero synthetic rows at provisioning
+SEED DATA
+Standard demo dataset + brand-specific content for TFML and OEA
+Access points
+oe-group-ipms-staging.vercel.app
+Generic door · POC content
+oeaportal.com
+OEA branded
+tfmlportal.com
+TFML branded
+portal.tfmlconsultant.com
+Operator sign-in
+03
+--- Slide 4 ---
+02 · STATUS AT A GLANCE
+Confirmed, not assumed
+Every headline capability checked live against staging today — not a plan, a result.
+AI classifier
+Live Anthropic calls verified against a real critical-priority request
+Paystack checkout
+Test-mode banner confirmed, live authorization URL created
+Resend email
+Key validated, verified sending domain in place
+Telegram · TFML + OEA
+Both bots registered, routing confirmed per brand
+WhatsApp · TFML + OEA
+Both numbers registered, inbound routing and classification confirmed
+Live org creation
+Operator can provision a new client organisation end to end
+04
+--- Slide 5 ---
+03 · THE GOLDEN PATH
+One request, start to finish
+1
+TENANT
+Raises a request
+Classified live — category, urgency, AI summary
+2
+FM / PM
+Dispatches it
+Assigned to a vendor from the property queue
+3
+VENDOR
+Completes & invoices
+Evidence logged, invoice submitted
+4
+FINANCE
+Verifies & remits
+Gated: verify → performance → approve → send
+5
+ADMIN
+Sees the whole trail
+Ledger, BI dashboard, audit — one place
+05
+--- Slide 6 ---
+03 · LOGINS
+Signing in, role by role
+Every login below uses the same password:  OEGroupDemo2026!
+The walkthrough — POC organisation
+at oe-group-ipms-staging.vercel.app
+Tenant
+oe-group-foundation-poc.tenant@oegroup.test
+Facility manager
+oe-group-foundation-poc.facilitymanager@oegroup.test
+FM ops staff
+oe-group-foundation-poc.fmopsstaff@oegroup.test
+Vendor
+oe-group-foundation-poc.vendor@oegroup.test
+Finance approver
+oe-group-foundation-poc.financeapprover@oegroup.test
+Admin
+oe-group-foundation-poc.admin@oegroup.test
+Property owner
+oe-group-foundation-poc.propertyowner@oegroup.test
+Brands & operator
+at their own branded addresses
+TFML · Admin
+tfml.admin@oegroup.test
+TFML · Facility manager
+tfml.fm@oegroup.test
+TFML · Finance
+tfml.finance@oegroup.test
+OEA · Admin
+oea.admin@oegroup.test
+OEA · Facility manager
+oea.fm@oegroup.test
+OEA · Finance
+oea.finance@oegroup.test
+Operator (all orgs)
+operator.admin@oegroup.test
+Demo accounts on staging, against synthetic data — none of these reach a production system.
+06
+--- Slide 7 ---
+04 · LIVE CHANNELS
+Reachable today, on real numbers
+Both channels route per brand — the same platform, answering as two distinct businesses.
+WhatsApp
+360dialog · direct client
+TFML
++234 703 689 1329
+OEA
++234 708 471 4148
+First message must come from the sender — WhatsApp opens the reply window on inbound contact.
+Telegram
+Bot API · no session window
+TFML
+@tfml_facilities_bot
+OEA
+@oea_properties_bot
+Open to anyone who finds it — no approval step. Publish deliberately, not by obscurity.
+07
+--- Slide 8 ---
+05 · BRAND ISOLATION
+One platform. Two identities. No overlap.
+TFML
+Total Facilities Management Limited
+tfmlportal.com
+· Marina Business Park · 5 units
+· 2 vendors under evaluation
+· 6 requests, mixed channels & states
+· +234 703 689 1329 · WhatsApp
+OEA
+Ora Egbunike & Associates
+oeaportal.com
+· Parkview Terraces · 4 units
+· 2 vendors under evaluation
+· 6 requests, mixed channels & states
+· +234 708 471 4148 · WhatsApp
+08
+--- Slide 9 ---
+06 · NEW TODAY
+Real onboarding, not a fixture
+The operator can provision a brand-new organisation live — name, brand, first admin — and a genuine invitation email goes out through Resend on submit. That admin can then invite their own FM, vendor, and tenant, each with a real email.
+Operator creates the org
+/orgs — name, brand, first administrator's email
+Invitation sends for real
+Resend delivers — no seeded fixture, no shortcut
+They invite their own people
+Settings → People → Invitations, any role
+“
+The core walkthrough runs on seeded logins — fast, reliable. This is the one moment worth calling out live.
+09
+--- Slide 10 ---
+WHAT'S NEXT
+Between here and go-live
+Done
+DPO designated · staging provisioned · DPA & privacy drafts ready
+In progress
+Paystack & Flutterwave business verification underway
+Outstanding
+Telegram bots to be created · 360dialog tier to confirm · production Supabase + Vercel provisioning
+10
+--- Slide 11 ---
+Ready for the live run.
+Staging — confirmed end to end. Questions welcome.
+OE Group IPMS  ·  oe-group-ipms-staging.vercel.app

@@ -21,6 +21,8 @@ export type LeaseInput = {
   rentAmount: string;
   rentFrequency: "annual" | "quarterly" | "monthly";
   escalationPct: string;
+  /** "" follows the organisation default; a value departs from it (0181). */
+  adminFeeBasis: "" | "per_tenancy" | "per_demand";
   depositAmount: string;
   notes: string;
 };
@@ -47,6 +49,13 @@ export async function createLease(input: LeaseInput): Promise<ActionResult<{ id:
     return fail("The tenancy has to end after it starts.");
   }
 
+  // Refused rather than coerced: an unrecognised value means the form and the
+  // enum have drifted, and silently falling back to the org default would be a
+  // fee decision made by a typo.
+  if (!["", "per_tenancy", "per_demand"].includes(input.adminFeeBasis)) {
+    return fail("That is not a valid admin-fee basis for this tenancy.");
+  }
+
   const { data, error } = await supabase.from("leases").insert({
     org_id: me.org_id,
     property_id: input.propertyId,
@@ -57,6 +66,7 @@ export async function createLease(input: LeaseInput): Promise<ActionResult<{ id:
     rent_amount: rent,
     rent_frequency: input.rentFrequency,
     escalation_pct: escalation,
+    admin_fee_basis: input.adminFeeBasis || null,
     deposit_amount: deposit,
     notes: input.notes.trim() || null,
     created_by: user.id,

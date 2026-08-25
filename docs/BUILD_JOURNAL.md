@@ -5229,3 +5229,136 @@ never independently re-verified after its original seed either, though dev's
 tickets predate 0117 and were very likely inserted before the constraint
 existed to violate. Worth a five-minute check on dev too, next time someone's
 in there.
+
+---
+
+## The admin fee was charged every year against a decision that said once
+
+Decision 14 left the admin fee's shape open — "ongoing % vs one-time
+per-tenancy charge" — and `orgs.admin_fee_flat` stood as what this journal and
+`GO_LIVE_CHECKLIST.md` both called a flat placeholder, "not built out further
+until this is decided." The 10 Aug entry already recorded that it was nothing
+of the kind: `raise_rent_charge` had been deducting it from every demand since
+Day 9. What that entry stopped short of saying is what the combination meant.
+Rent is billed **annually in advance** (decision 15). A fee the board described
+as one-time per tenancy was therefore being charged **once a year, every year,
+for the life of the tenancy** — not by anyone's decision, but because the
+decision was recorded as pending while the code implementing it was not.
+
+📌 **A decision recorded as pending does not make the code that implements it
+pending.** "Placeholder" described the state of the argument, and everyone
+reading it — including two sessions of mine — took it to describe the state of
+the software. The only reliable version of that sentence names which one it
+means.
+
+Resolved 21 Aug 2026: **one-time, per tenancy**, in `0181`. Confirmed first
+that no row was ever affected — `admin_fee_amount > 0` matches zero
+`rent_charges` on both dev and staging — so this closes as a change rather
+than a correction with money to give back. Dev's OEA org still carries the
+`25000` a manual test left behind months ago; under a decided rule that is now
+an ordinary value rather than a stray one.
+
+🟢 Built configurable rather than compiled in, because the answer to "can this
+be set case by case from the dashboard" is the same answer decision 15 gave for
+notice periods. `orgs.admin_fee_basis` is the organisation's default in
+Settings → Lettings; `leases.admin_fee_basis` is NULL for "follow the org" and
+set only where a letting was negotiated otherwise — decision 14's own
+default-plus-override, reused rather than reinvented for the second fee in the
+same statement.
+
+The subtlety worth keeping: **a renewal is the same tenancy, and a different
+row.** `renew_lease` closes one term and opens the next linked by
+`renewed_from_lease_id`, so a rule keyed on `lease_id` would charge the fee
+again at every renewal while passing every test that only ever billed one term.
+`lease_tenancy_chain()` walks upwards from the lease being billed — upwards
+only, since a renewal is always created after the term it replaces, and
+searching downwards would make the answer depend on rows that do not exist yet.
+`verify-rent-demands` §H asserts the renewal case explicitly for that reason.
+
+---
+
+## A vendor company could never be deleted, and its cleanup said so by saying nothing
+
+`vendor_users_keep_an_owner` (0163) stops a living contractor company being
+left unadministrable: its last owner cannot be removed or demoted. Right rule.
+But `vendor_users.vendor_id` cascades from `vendors`, so deleting the **company**
+deletes its members, the trigger sees the last owner going, and refuses —
+naming a remedy ("appoint another owner") that cannot possibly help, because
+the next owner blocks the delete exactly the same way. A vendor company has
+been undeletable since 0163 landed.
+
+It surfaced from the other end. `sweepProbeVendors` reported `0` removed while
+a probe contractor sat in the analytics contractor filter — the precise defect
+that helper exists to prevent. The helper counts successes and discards the
+error, so "refused every time" and "there was nothing to remove" print
+identically.
+
+📌 **Fifth appearance in this build of a routine reporting a count it never
+verified** (0151/0152's approval-chain suite, `verify-remittance-race`'s admin
+fee, `seed.mjs`'s twenty tickets, `seed-brand-demo-content.mjs`, now this).
+The standing rule from the seed.mjs entry — *a script that prints "N done" is
+not evidence N were done* — has now been earned five times and is worth
+applying to the swallowed-error half as well: a loop that counts successes must
+say something about its failures.
+
+🟢 `0180`: the trigger returns early when `vendors` no longer holds the row.
+A cascade deletes the parent before its children, so an absent parent is the
+exact, flag-free signal that the company itself is going. Removing a member
+from a company that still exists is refused as before. The helper now warns on
+every refusal instead of absorbing it.
+
+---
+
+## What the audit trail refuses to let you tidy away
+
+Sweeping probe residue across dev and staging (`scripts/sweep-probe-residue.mjs`,
+new — the broom for everything at once, since `probe-cleanup.mjs`'s per-suite
+sweep only runs when that suite runs again, and a retired suite's fixtures
+therefore live forever). Properties, hierarchy nodes, applications and vendors
+went. Two categories would not, and should not have:
+
+- **Probe orgs** hold 273 `audit_log` rows on staging. `audit_log.org_id`
+  references `orgs(id)` with **no cascade**, so the delete is refused outright.
+- **Probe users who acted** are held the same way by `audit_log.actor_id`.
+
+That is A3's immutable-audit guardrail enforced by the schema rather than by a
+document, and it is worth recording that it was found by trying. The fallback
+is the one the app already uses everywhere: soft-delete the org (every query
+filters `deleted_at is null`, so it appears in no directory, picker or login)
+and deactivate the user with the login banned. 25 users on staging and 486 on
+dev took that path; 3 dev vendors were likewise held by `payments` and
+`payout_recipients` and were left where the ledger wants them.
+
+📌 **A refusal is not always an obstacle.** The instinct on hitting a foreign
+key mid-cleanup is to delete what holds it; here that would have meant deleting
+audit rows to tidy test data, which is the one thing A3 says never happens.
+
+Found while there: **dev was five migrations behind** (0176–0180) — the drift
+`migrate-all.mjs` exists to prevent, and evidence that it only prevents drift
+when someone remembers to name more than one world.
+
+---
+
+## Four suites crashed on a fixture email before stating a single claim
+
+`verify-rent-demands`, `verify-rent-money`, `verify-remittance-race` and
+`verify-leases-and-rent` each resolved OEA's landlord as
+`oea.propertyowner@oegroup.test` and used `landlord.id` on the next line. The
+brand-portal seeding introduced the previous day writes the shorter
+`oea.owner@oegroup.test`, so on staging all four died with
+`Cannot read properties of null (reading 'id')` before reaching an assertion.
+
+🔎 Worth separating from the admin-fee finding recorded above, which the
+checklist blamed for two of these being red. On dev they failed on fee
+arithmetic; on staging they never got that far. **One red suite, two unrelated
+causes, and the recorded diagnosis was only ever true of one world.**
+
+📌 A red suite that never states a claim is worse than a failing one: it reads
+as the code being broken when the fixture is. `fixtureUser()` in
+`scripts/lib/org-lookup.mjs` resolves by **role within the org**, taking email
+spellings only as hints, and raises a sentence naming the seed command when
+nothing matches. The role is the durable fact; the email is a seeding
+convention that has now legitimately changed twice.
+
+The same file's existing warning — *refuse and list, never pick* — applies
+unchanged; this is the fixture-shaped version of it.
