@@ -16,9 +16,16 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
+import { requireNonProductionTarget } from "./lib/target-env.mjs";
 
 const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 config({ path: path.join(rootDir, ".env.local") });
+
+const world = requireNonProductionTarget(
+  rootDir,
+  "This clears deactivated_at and lifts auth bans on the documented demo logins, which all share one hardcoded password."
+);
+console.log(`Seeding org logins into ${world}\n`);
 
 const svc = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -227,16 +234,36 @@ async function ensureLogin(email, orgId, role, fullName, brand, approvalTier = n
   } else {
     // Reset the password so a documented credential always actually works, and
     // refresh the claim so it can never drift from the profile it describes.
+    // `ban_duration: "none"` LIFTS a ban. The probe sweep below sets 876000h,
+    // and a profile row saying "active" beside an auth record saying "banned"
+    // is a documented credential that fails for no visible reason.
     await svc.auth.admin.updateUserById(authUser.id, {
-      password: PASSWORD, app_metadata: appMetadata,
+      password: PASSWORD, app_metadata: appMetadata, ban_duration: "none",
     });
   }
 
+  // ⚠️ `deactivated_at: null` is part of what "one documented login per role"
+  // MEANS. `resident@oegroup.test` — the POC's only unit occupant — had been
+  // deactivated since 2026-08-01 by something that never put it back, and this
+  // script kept reporting it as seeded because the row was present. Nobody
+  // noticed until 0195 made deactivation bite: `verify-chat-request-visibility`
+  // then read a correct refusal as a broken resolver.
+  //
+  // Since 0194/0195 a deactivated account resolves no role, no org and no
+  // WhatsApp sender, so a documented credential that is deactivated is not a
+  // credential at all. Assert the login WORKS, not merely that a row bearing
+  // that address exists.
+  //
+  // Safe because every address here is one of this file's own hardcoded
+  // @oegroup.test fixtures. It never resolves a real staff account and so
+  // cannot reverse a deliberate deactivation of one — and the probe sweep
+  // below, which deactivates on purpose, only ever touches `probe%`.
+  //
   // `approval_tier` is REQUIRED for payment_approver and must be null for
   // everyone else — `users_approval_tier_check` (0151) refuses both mistakes.
   const { error } = await svc.from("users").upsert({
     id: authUser.id, org_id: orgId, role, full_name: fullName, email,
-    approval_tier: approvalTier,
+    approval_tier: approvalTier, deactivated_at: null,
   });
   return { email, ok: !error, why: error?.message.slice(0, 60) };
 }

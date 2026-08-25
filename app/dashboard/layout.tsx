@@ -50,15 +50,27 @@ export default async function DashboardLayout({
   const session = await getSessionProfile();
   if (!session) redirect("/login");
 
-  // ⚠️ Deactivated (0194). The session is real and the account reaches nothing,
-  // so every panel below would render empty and read as a broken portal rather
-  // than a closed account. End the session for the same reason the wrong-org
-  // check below does — a redirect that leaves the session standing is a bounce,
-  // not a boundary — and say why at the door.
-  if (session.deactivated) {
-    const supabaseAuth = await createClient();
-    await supabaseAuth.auth.signOut();
-    redirect("/login?deactivated=1");
+  // ⚠️ A session with no profile row (0194, 0196). It is real, and it reaches
+  // nothing: `current_user_org_id()` is null for a deactivated account, so
+  // `users_select` no longer matches even the caller's own row. Every panel
+  // below would render empty and read as a broken portal.
+  //
+  // Deactivated is the case worth naming. End the session for the same reason
+  // the wrong-org check below does — a redirect that leaves the session
+  // standing is a bounce, not a boundary — and say why at the door.
+  //
+  // ⚠️ Every OTHER reason the profile can be missing keeps its session and gets
+  // the ordinary sign-in screen: a half-finished invitation, an applicant
+  // purged under the 90-day rule, or an RPC that simply could not be reached.
+  // None of those is a deactivation, and signing someone out over a transient
+  // database error is a worse failure than the empty dashboard it prevents.
+  if (!session.profile) {
+    if (session.accountState === "deactivated") {
+      const supabaseAuth = await createClient();
+      await supabaseAuth.auth.signOut();
+      redirect("/login?deactivated=1");
+    }
+    redirect("/login");
   }
 
   const { profile, org, theme } = session;

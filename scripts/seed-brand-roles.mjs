@@ -21,16 +21,24 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
+import { requireNonProductionTarget } from "./lib/target-env.mjs";
 
 const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 config({ path: path.join(rootDir, ".env.local") });
+
+const PASSWORD = "OEGroupDemo2026!";
+
+const world = requireNonProductionTarget(
+  rootDir,
+  "This clears deactivated_at and lifts auth bans on 22 fixture accounts that all share one hardcoded password."
+);
+console.log(`Seeding brand role logins into ${world}\n`);
 
 const svc = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY,
   { auth: { persistSession: false } }
 );
-const PASSWORD = "OEGroupDemo2026!";
 
 // ⚠️ `current_user_role()` reads the `users` row, not the JWT (0001), but the
 // brand middleware and the org claim read `app_metadata`. Both are written, and

@@ -2,6 +2,18 @@ import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { getBrandTheme } from "@/lib/brands";
 
+/**
+ * Why a session has no profile row (0196). `unavailable` is ours, not the
+ * database's: it means the question could not be asked, which is different
+ * again from every answer it could have given.
+ */
+export type AccountState =
+  | "active"
+  | "deactivated"
+  | "unknown"
+  | "anonymous"
+  | "unavailable";
+
 // Loads the logged-in user's profile row + org (both RLS-scoped to self).
 // Returns null if there's no session.
 //
@@ -36,13 +48,34 @@ export const getSessionProfile = cache(async function getSessionProfile() {
   // above comes back null.
   //
   // That fails closed, which is the important half. But an empty dashboard is
-  // a bug report waiting to be filed, so ask the one question a deactivated
-  // caller is still allowed to ask about themselves and let the caller say so
-  // plainly. Only asked when the profile is missing — no cost on the ordinary
-  // path, which is every request by an active user.
+  // a bug report waiting to be filed, so ask the one question a caller with no
+  // profile is still allowed to ask about themselves. Only asked when the
+  // profile is missing — no cost on the ordinary path, which is every request
+  // by an active user.
+  //
+  // ⚠️ `current_user_account_state()` (0196), not `current_user_is_active()`.
+  // The latter is false for a deactivated account AND for one that has no
+  // `users` row at all — a half-finished invitation, a purged applicant — and
+  // telling those people their account was deactivated sends them to an
+  // administrator who will find nothing.
+  //
+  // The error is not discarded. A transient RPC failure must not be reported as
+  // a deactivation, so it resolves to `unavailable` and the caller shows the
+  // ordinary sign-in screen rather than accusing the account of anything.
   if (!profile) {
-    const { data: active } = await supabase.rpc("current_user_is_active");
-    return { user, profile: null, org: null, theme: getBrandTheme(null, null), deactivated: active === false };
+    const { data: state, error: stateError } = await supabase.rpc(
+      "current_user_account_state"
+    );
+    if (stateError) {
+      console.error("current_user_account_state failed:", stateError.message);
+    }
+    return {
+      user,
+      profile: null,
+      org: null,
+      theme: getBrandTheme(null, null),
+      accountState: (stateError ? "unavailable" : state) as AccountState,
+    };
   }
 
   const { data: org } = await supabase
@@ -58,6 +91,6 @@ export const getSessionProfile = cache(async function getSessionProfile() {
     profile,
     org,
     theme: getBrandTheme(org?.delivery_brand, org),
-    deactivated: false,
+    accountState: "active" as AccountState,
   };
 });

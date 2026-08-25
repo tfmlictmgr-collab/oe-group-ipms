@@ -55,21 +55,85 @@ const made = [];
 console.log("Chat requests reaching the dashboard\n");
 
 // A tenant in the POC org who occupies a unit — the resolvable case.
-const { data: occupied } = await svc
+//
+// ⚠️ The occupant must be LIVE. Since 0195, `resolve_chat_sender` answers
+// "nobody" for a deactivated account — deliberately, because that path runs
+// service-role from the webhook and is the one way a removed person kept
+// reaching the organisation. This suite's first occupied unit still named
+// `resident@oegroup.test`, deactivated on 2026-08-01 and never unnamed from the
+// flat, so section A read a correct refusal as a broken resolver.
+//
+// 📌 A fixture that is dead in a way the code now cares about does not fail
+// honestly: it fails as the feature. Filter for what the test actually needs —
+// a resolvable sender — rather than for the first row that looks like one.
+const { data: occupiedUnits } = await svc
   .from("units")
   .select("id, property_id, occupant_user_id, org_id")
   .eq("org_id", poc.id)
   .not("occupant_user_id", "is", null)
   .not("property_id", "is", null)
-  .limit(1)
-  .maybeSingle();
+  .limit(50);
 
+const { data: liveOccupants } = await svc
+  .from("users")
+  .select("id, email, phone")
+  .in("id", (occupiedUnits ?? []).map((u) => u.occupant_user_id))
+  .is("deactivated_at", null);
+
+const liveIds = new Set((liveOccupants ?? []).map((u) => u.id));
+let occupied = (occupiedUnits ?? []).find((u) => liveIds.has(u.occupant_user_id));
+let tenant = occupied
+  ? (liveOccupants ?? []).find((u) => u.id === occupied.occupant_user_id)
+  : null;
+
+// ⚠️ Nothing in the POC is guaranteed to be occupied by a live person, and on
+// dev nothing is: its one occupied unit names `resident@oegroup.test`, one of
+// the eleven flat-pool accounts deliberately retired when org-scoped
+// credentials replaced them (see seed-org-logins.mjs). So borrow a tenancy for
+// the duration, exactly as this suite already borrows a phone number — a test
+// that needs a tenant in a flat should put one there rather than hope the demo
+// data still has one.
+let borrowedUnit = null;
 if (!occupied) {
-  console.error("No occupied unit in the POC org — cannot exercise resolution.");
-  process.exit(1);
+  const { data: vacant } = await svc
+    .from("units")
+    .select("id, property_id, occupant_user_id, org_id")
+    .eq("org_id", poc.id)
+    .is("occupant_user_id", null)
+    .not("property_id", "is", null)
+    .limit(1)
+    .maybeSingle();
+
+  const { data: liveTenant } = await svc
+    .from("users")
+    .select("id, email, phone")
+    .eq("org_id", poc.id)
+    .eq("role", "tenant")
+    .is("deactivated_at", null)
+    .limit(1)
+    .maybeSingle();
+
+  if (!vacant || !liveTenant) {
+    console.error(
+      "Cannot assemble a resolvable sender in the POC org:\n" +
+      `  vacant unit with a property: ${vacant ? "yes" : "NO"}\n` +
+      `  live tenant account:         ${liveTenant ? liveTenant.email : "NO"}\n\n` +
+      "  Seed them with: node scripts/seed-org-logins.mjs"
+    );
+    process.exit(1);
+  }
+
+  const { error: occErr } = await svc
+    .from("units").update({ occupant_user_id: liveTenant.id }).eq("id", vacant.id);
+  if (occErr) {
+    console.error(`Could not place a tenant in ${vacant.id}: ${occErr.message}`);
+    process.exit(1);
+  }
+  borrowedUnit = vacant.id;
+  occupied = { ...vacant, occupant_user_id: liveTenant.id };
+  tenant = liveTenant;
+  console.log(`  (borrowed a tenancy: ${liveTenant.email} in a vacant POC unit)`);
 }
-const { data: tenant } = await svc
-  .from("users").select("id, email, phone").eq("id", occupied.occupant_user_id).single();
 
 // Give that tenant a phone for the duration, and put it back afterwards.
 const originalPhone = tenant.phone;
@@ -244,7 +308,18 @@ console.log("\nF. The capability defaults are the restrictive ones");
 // ── Cleanup ────────────────────────────────────────────────────────────────
 await svc.from("tickets").delete().in("id", made);
 await svc.from("users").update({ phone: originalPhone }).eq("id", tenant.id);
-console.log("\n(cleaned up; the tenant's phone restored)");
+
+// Give the flat back. `units.occupant_user_id` is an access grant and has been
+// audited since 0193, so a borrowed tenancy left behind is not merely untidy —
+// it is a standing grant with a trail saying somebody made it.
+if (borrowedUnit) {
+  const { error } = await svc
+    .from("units").update({ occupant_user_id: null }).eq("id", borrowedUnit);
+  if (error) console.error(`  ⚠️ could not release the borrowed unit: ${error.message}`);
+}
+console.log(
+  `\n(cleaned up; the tenant's phone restored${borrowedUnit ? " and the borrowed tenancy released" : ""})`
+);
 
 console.log(
   failures === 0
