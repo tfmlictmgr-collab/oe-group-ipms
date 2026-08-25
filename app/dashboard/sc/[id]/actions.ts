@@ -29,7 +29,7 @@ export async function generateInvoices(budgetId: string): Promise<ActionResult> 
 
   const { data: units, error: uErr } = await supabase
     .from("units")
-    .select("id, label, apportionment_factor, occupant_user_id")
+    .select("id, label, apportionment_factor, unit_quantity, occupant_user_id")
     .eq("property_id", budget.property_id);
   if (uErr) return failFromDb(uErr, "read the units for this property");
   if (!units || units.length === 0) {
@@ -45,6 +45,8 @@ export async function generateInvoices(budgetId: string): Promise<ActionResult> 
       id: u.id,
       label: u.label,
       factor: Number(u.apportionment_factor),
+      // 0198: the area is PER unit, so a row of 12 stalls weighs 12x it.
+      quantity: Number(u.unit_quantity ?? 1),
       occupant_user_id: u.occupant_user_id,
     }))
   );

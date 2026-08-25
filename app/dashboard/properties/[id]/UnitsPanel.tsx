@@ -19,31 +19,45 @@ import { runAction, describeError } from "@/lib/run-action";
 import {
   validateUnitCsv, buildUnitTemplateCsv, previewShares, type ValidatedUnit,
 } from "@/lib/unit-import";
+import { effectiveFactor } from "@/lib/apportionment";
 import {
   saveUnit, retireUnit, commitUnitImport, unitImportContext, assignUnitOccupant,
+  addUnitType,
 } from "../actions";
 
 export type UnitRow = {
   id: string;
   label: string;
   apportionment_factor: number | string;
+  unit_quantity: number | string | null;
+  description: string | null;
   occupant_user_id: string | null;
 };
+
+/** The offered descriptions, grouped as the board asked (0198). */
+export type UnitType = { id: string; label: string; category: "residential" | "commercial" };
 
 export type Member = { id: string; full_name: string | null; email: string | null };
 
 export default function UnitsPanel({
-  propertyId, units, members, canWrite,
+  propertyId, units, members, unitTypes, canWrite,
 }: {
   propertyId: string;
   units: UnitRow[];
   members: Member[];
+  unitTypes: UnitType[];
   canWrite: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState<string | null>(null);
   const [adding, setAdding] = React.useState(false);
-  const [form, setForm] = React.useState({ label: "", factor: "", occupant: "" });
+  const [form, setForm] = React.useState({
+    label: "", factor: "", quantity: "1", description: "", occupant: "",
+  });
+  // "" is the ordinary state; ADD_NEW opens the free-text box. Kept separate
+  // from `form.label` so choosing "Something else…" does not momentarily file a
+  // unit literally called that.
+  const [newType, setNewType] = React.useState<string | null>(null);
 
   // Import
   const fileRef = React.useRef<HTMLInputElement>(null);
@@ -51,9 +65,37 @@ export default function UnitsPanel({
   const [rows, setRows] = React.useState<ValidatedUnit[]>([]);
   const [headerIssues, setHeaderIssues] = React.useState<string[]>([]);
 
-  const totalFactor = units.reduce((s, u) => s + Number(u.apportionment_factor), 0);
+  // ⚠️ Weighted through `effectiveFactor` — the function the actual
+  // apportionment uses — so this panel and the invoice cannot disagree about
+  // what a row weighs. A row of 12 stalls at 20 m² counts 240, not 20.
+  const weightOf = (u: UnitRow) =>
+    effectiveFactor({ factor: Number(u.apportionment_factor), quantity: Number(u.unit_quantity ?? 1) });
+  const totalFactor = units.reduce((s, u) => s + weightOf(u), 0);
+  const totalUnits = units.reduce((s, u) => s + Number(u.unit_quantity ?? 1), 0);
   const nameOf = (id: string | null) =>
     id ? members.find((m) => m.id === id)?.full_name ?? "Assigned" : null;
+
+  // Adds a description to THIS org's list and selects it, so the person filing
+  // the first boat shed in the register is not sent to a settings screen to do
+  // it. The category is asked rather than guessed — a "Lounge" is residential
+  // in one portfolio and commercial in another, and guessing wrong puts it in
+  // the wrong half of every future dropdown.
+  async function addType(category: "residential" | "commercial") {
+    const label = (newType ?? "").trim();
+    if (!label) return;
+    setBusy("type");
+    try {
+      await runAction(addUnitType(label, category));
+      setForm((f) => ({ ...f, label }));
+      setNewType(null);
+      toast.success(`"${label}" added to your list`);
+      router.refresh();
+    } catch (e) {
+      toast.error(describeError(e));
+    } finally {
+      setBusy(null);
+    }
+  }
 
   async function addUnit() {
     setBusy("add");
@@ -61,10 +103,13 @@ export default function UnitsPanel({
       await runAction(saveUnit({
         propertyId, label: form.label,
         apportionmentFactor: form.factor,
+        unitQuantity: form.quantity,
+        description: form.description,
         occupantUserId: form.occupant || null,
       }));
       toast.success("Unit added");
-      setForm({ label: "", factor: "", occupant: "" });
+      setForm({ label: "", factor: "", quantity: "1", description: "", occupant: "" });
+      setNewType(null);
       setAdding(false);
       router.refresh();
     } catch (e) {
@@ -152,9 +197,11 @@ export default function UnitsPanel({
             <div>
               <CardTitle className="text-base">Units</CardTitle>
               <CardDescription>
-                The apportionment factor decides each unit&apos;s share of a
-                service-charge budget — usually floor area.
-                {totalFactor > 0 && ` Total across this property: ${totalFactor.toLocaleString()}.`}
+                Occupied space — floor area in square metres, per unit —
+                decides each unit&apos;s share of a service-charge budget. One
+                row can stand for several units; the space is multiplied by how
+                many.
+                {totalFactor > 0 && ` ${totalUnits.toLocaleString()} unit${totalUnits === 1 ? "" : "s"}, ${totalFactor.toLocaleString()} m² across this property.`}
               </CardDescription>
             </div>
             {canWrite && (
@@ -175,17 +222,7 @@ export default function UnitsPanel({
         </CardHeader>
         <CardContent className="space-y-4">
           {adding && (
-            <div className="grid gap-3 rounded-md border border-border p-3 sm:grid-cols-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="u-label">Label</Label>
-                <Input id="u-label" value={form.label} placeholder="Flat 2"
-                       onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))} />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="u-factor">Factor</Label>
-                <Input id="u-factor" inputMode="decimal" value={form.factor} placeholder="85.5"
-                       onChange={(e) => setForm((f) => ({ ...f, factor: e.target.value }))} />
-              </div>
+            <div className="grid gap-3 rounded-md border border-border p-3 sm:grid-cols-3 lg:grid-cols-6">
               <div className="space-y-1.5">
                 <Label htmlFor="u-occ">Occupant</Label>
                 <Select id="u-occ" value={form.occupant}
@@ -195,6 +232,84 @@ export default function UnitsPanel({
                     <option key={m.id} value={m.id}>{m.full_name ?? m.email}</option>
                   ))}
                 </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="u-label">Label</Label>
+                {newType === null ? (
+                  <Select
+                    id="u-label"
+                    value={form.label}
+                    onChange={(e) => {
+                      if (e.target.value === "__add__") { setNewType(""); setForm((f) => ({ ...f, label: "" })); }
+                      else setForm((f) => ({ ...f, label: e.target.value }));
+                    }}
+                  >
+                    <option value="">— choose —</option>
+                    <optgroup label="Residential">
+                      {unitTypes.filter((t) => t.category === "residential").map((t) => (
+                        <option key={t.id} value={t.label}>{t.label}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Commercial">
+                      {unitTypes.filter((t) => t.category === "commercial").map((t) => (
+                        <option key={t.id} value={t.label}>{t.label}</option>
+                      ))}
+                    </optgroup>
+                    <option value="__add__">Something else…</option>
+                  </Select>
+                ) : (
+                  <div className="space-y-1">
+                    <Input
+                      autoFocus value={newType} placeholder="e.g. Boat Shed"
+                      onChange={(e) => setNewType(e.target.value)}
+                    />
+                    <div className="flex gap-1">
+                      <Button
+                        size="sm" variant="outline" className="h-7 px-2 text-xs"
+                        disabled={!newType.trim() || busy === "type"}
+                        onClick={() => void addType("residential")}
+                      >
+                        Residential
+                      </Button>
+                      <Button
+                        size="sm" variant="outline" className="h-7 px-2 text-xs"
+                        disabled={!newType.trim() || busy === "type"}
+                        onClick={() => void addType("commercial")}
+                      >
+                        Commercial
+                      </Button>
+                      <Button
+                        size="sm" variant="ghost" className="h-7 px-2 text-xs"
+                        onClick={() => setNewType(null)}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="u-qty">Unit</Label>
+                <Input id="u-qty" inputMode="numeric" value={form.quantity} placeholder="1"
+                       onChange={(e) => setForm((f) => ({ ...f, quantity: e.target.value }))} />
+                <p className="text-[11px] text-muted-foreground">How many of this type.</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="u-factor">Occupied Space</Label>
+                <div className="relative">
+                  <Input id="u-factor" inputMode="decimal" value={form.factor} placeholder="85.5"
+                         className="pr-9"
+                         onChange={(e) => setForm((f) => ({ ...f, factor: e.target.value }))} />
+                  <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                    m²
+                  </span>
+                </div>
+                <p className="text-[11px] text-muted-foreground">Per unit, not the total.</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="u-desc">Description</Label>
+                <Input id="u-desc" value={form.description} placeholder="Block A, ground floor"
+                       onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
               </div>
               <div className="flex items-end">
                 <Button size="sm" variant="brand" disabled={busy === "add"} onClick={addUnit}>
@@ -214,23 +329,22 @@ export default function UnitsPanel({
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Unit</TableHead>
-                    <TableHead className="text-right">Factor</TableHead>
-                    <TableHead className="text-right">Share</TableHead>
                     <TableHead>Occupant</TableHead>
+                    <TableHead>Label</TableHead>
+                    <TableHead className="text-right">Unit</TableHead>
+                    <TableHead className="text-right">Occupied Space</TableHead>
+                    <TableHead>Description</TableHead>
+                    <TableHead className="text-right">Share</TableHead>
                     {canWrite && <TableHead />}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {units.map((u) => {
                     const f = Number(u.apportionment_factor);
+                    const qty = Number(u.unit_quantity ?? 1);
+                    const weight = weightOf(u);
                     return (
                       <TableRow key={u.id}>
-                        <TableCell className="font-medium">{u.label}</TableCell>
-                        <TableCell className="text-right tabular-nums">{f.toLocaleString()}</TableCell>
-                        <TableCell className="text-right tabular-nums text-muted-foreground">
-                          {totalFactor > 0 ? `${((f / totalFactor) * 100).toFixed(1)}%` : "—"}
-                        </TableCell>
                         <TableCell>
                           {canWrite ? (
                             <Select
@@ -249,6 +363,24 @@ export default function UnitsPanel({
                           ) : (
                             <Badge variant="muted">Vacant</Badge>
                           )}
+                        </TableCell>
+                        <TableCell className="font-medium">{u.label}</TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {qty.toLocaleString()}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {f.toLocaleString()} m²
+                          {qty > 1 && (
+                            <span className="block text-[11px] text-muted-foreground">
+                              {weight.toLocaleString()} m² total
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell className="max-w-[16rem] truncate text-muted-foreground" title={u.description ?? ""}>
+                          {u.description || "—"}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums text-muted-foreground">
+                          {totalFactor > 0 ? `${((weight / totalFactor) * 100).toFixed(1)}%` : "—"}
                         </TableCell>
                         {canWrite && (
                           <TableCell className="text-right">
@@ -302,8 +434,8 @@ export default function UnitsPanel({
                     <TableHeader>
                       <TableRow>
                         <TableHead className="w-14">Row</TableHead>
-                        <TableHead>Unit</TableHead>
-                        <TableHead className="text-right">Factor</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead className="text-right">Weighted space</TableHead>
                         <TableHead className="text-right">Share</TableHead>
                         <TableHead>Status</TableHead>
                       </TableRow>

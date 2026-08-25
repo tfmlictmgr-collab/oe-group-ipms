@@ -1,4 +1,5 @@
 import { parseCsvLines } from "./asset-schema";
+import { effectiveFactor } from "./apportionment";
 
 // Bulk unit entry.
 //
@@ -19,6 +20,9 @@ export type ValidatedUnit = {
   values: {
     label: string;
     apportionment_factor: number;
+    /** 0198 — how many units this row stands for. Defaults to 1 when absent. */
+    unit_quantity: number;
+    description: string | null;
     occupant_email: string | null;
   } | null;
   issues: UnitIssue[];
@@ -30,17 +34,31 @@ export type ValidatedUnit = {
 export const UNIT_COLUMNS = [
   {
     key: "label",
-    label: "Unit",
+    label: "Type",
     required: true,
-    hint: "REQUIRED — how the unit is known: Flat 2, Suite 3B, Shop 14.",
-    example: "Flat 2",
+    hint: "REQUIRED — what this unit is: Terrace, Stall, Office Suite. Anything not already on the property's list is added to it.",
+    example: "Terrace",
   },
   {
     key: "apportionment_factor",
-    label: "Apportionment factor",
+    label: "Occupied space (m2)",
     required: true,
-    hint: "REQUIRED — the unit's share weighting. Floor area in sqm is the usual choice. Must be greater than zero.",
+    hint: "REQUIRED — occupied space in square metres, PER unit. Decides this unit's share of the service charge. Must be greater than zero.",
     example: "85.5",
+  },
+  {
+    key: "unit_quantity",
+    label: "Units",
+    required: false,
+    hint: "optional — how many units this row stands for (12 stalls). Leave blank for 1. The space above is PER unit.",
+    example: "1",
+  },
+  {
+    key: "description",
+    label: "Description",
+    required: false,
+    hint: "optional — a note to tell two rows of the same type apart: Block A, ground floor.",
+    example: "",
   },
   {
     key: "occupant_email",
@@ -106,6 +124,26 @@ export function validateUnitCsv(
       });
     }
 
+    // Quantity: blank means 1, which is the ordinary single flat. Rejected
+    // rather than rounded when it is fractional — half a stall is a typo, and
+    // guessing which way it was meant is how a bill goes wrong quietly.
+    const rawQty = (raw.unit_quantity ?? "").replace(/[,\s]/g, "");
+    let quantity = 1;
+    if (rawQty) {
+      const n = Number(rawQty);
+      if (!Number.isFinite(n)) {
+        issues.push({ column: "unit_quantity", message: `"${raw.unit_quantity}" is not a number.` });
+      } else if (!Number.isInteger(n)) {
+        issues.push({ column: "unit_quantity", message: "Must be a whole number — you cannot let a third of a stall." });
+      } else if (n < 1) {
+        issues.push({ column: "unit_quantity", message: "Must be at least 1." });
+      } else {
+        quantity = n;
+      }
+    }
+
+    const description = (raw.description ?? "") || null;
+
     const email = (raw.occupant_email ?? "").toLowerCase();
     if (email && !ctx.memberEmails.has(email)) {
       issues.push({
@@ -114,24 +152,30 @@ export function validateUnitCsv(
       });
     }
 
-    const key = label.toLowerCase();
-    const duplicate = Boolean(key) && (seenInFile.has(key) || ctx.existingLabels.has(key));
+    // ⚠️ This key mirrors `units_property_label_desc_uidx` (0198) exactly:
+    // (property, lower(label), lower(coalesce(description,''))). If the two
+    // ever drift, the preview reports a clean import and the database refuses
+    // it — the failure this whole module exists to prevent, moved one step
+    // later. Two rows of the same type are legitimate; two IDENTICAL ones are
+    // what silently doubles a property's share.
+    const key = `${label.toLowerCase()}|${(description ?? "").toLowerCase()}`;
+    const duplicate = Boolean(label) && (seenInFile.has(key) || ctx.existingLabels.has(key));
     if (duplicate) {
       issues.push({
         column: "label",
         message: seenInFile.has(key)
-          ? "This label appears twice in the file."
-          : "A unit with this label already exists on the property.",
+          ? "This type and description appear twice in the file — give one of them a description that tells them apart."
+          : "A unit of this type and description already exists on the property.",
       });
     }
-    if (key) seenInFile.add(key);
+    if (label) seenInFile.add(key);
 
     const valid = issues.length === 0;
     rows.push({
       rowNumber: line,
       raw,
       values: valid
-        ? { label, apportionment_factor: factor, occupant_email: email || null }
+        ? { label, apportionment_factor: factor, unit_quantity: quantity, description, occupant_email: email || null }
         : null,
       issues,
       duplicate,
@@ -153,11 +197,16 @@ export function previewShares(
   rows: ValidatedUnit[]
 ): { label: string; factor: number; pct: number }[] {
   const usable = rows.filter((r) => r.valid && r.values);
-  const total = usable.reduce((s, r) => s + r.values!.apportionment_factor, 0);
+  // ⚠️ Weighted through the SAME `effectiveFactor` the real apportionment uses
+  // (0198), imported rather than restated. A preview that computes its own
+  // version of the rule is a preview that will one day disagree with the bill.
+  const weigh = (r: ValidatedUnit) =>
+    effectiveFactor({ factor: r.values!.apportionment_factor, quantity: r.values!.unit_quantity });
+  const total = usable.reduce((s, r) => s + weigh(r), 0);
   if (total <= 0) return [];
   return usable.map((r) => ({
     label: r.values!.label,
-    factor: r.values!.apportionment_factor,
-    pct: (r.values!.apportionment_factor / total) * 100,
+    factor: weigh(r),
+    pct: (weigh(r) / total) * 100,
   }));
 }

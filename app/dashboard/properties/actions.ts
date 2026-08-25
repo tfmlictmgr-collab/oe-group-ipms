@@ -99,6 +99,9 @@ export type UnitInput = {
   propertyId: string;
   label: string;
   apportionmentFactor: string;
+  /** 0198 — how many units this row stands for. "" or absent means 1. */
+  unitQuantity: string;
+  description: string;
   occupantUserId: string | null;
 };
 
@@ -112,12 +115,27 @@ export async function saveUnit(input: UnitInput): Promise<ActionResult<{ id: str
   if (!me) return fail("Could not resolve your profile.");
 
   const label = input.label.trim();
-  if (!label) return fail("Give the unit a label.");
+  if (!label) return fail("Choose what kind of unit this is.");
+
+  // Blank means one, which is the ordinary single flat and every row written
+  // before 0198. Refused rather than rounded when fractional: a third of a
+  // stall is a typo, and picking a direction for someone is how a bill goes
+  // wrong without anyone noticing.
+  const rawQty = (input.unitQuantity ?? "").replace(/[,\s]/g, "");
+  const quantity = rawQty ? Number(rawQty) : 1;
+  if (!Number.isFinite(quantity) || !Number.isInteger(quantity) || quantity < 1) {
+    return fail(
+      "The number of units must be a whole number, at least 1.",
+      "One row can stand for many units — 12 stalls — but not for a fraction of one."
+    );
+  }
+
+  const description = input.description.trim() || null;
 
   const factor = Number(input.apportionmentFactor.replace(/[,\s]/g, ""));
   if (!Number.isFinite(factor) || factor <= 0) {
     return fail(
-      "The apportionment factor must be greater than zero.",
+      "The occupied space must be greater than zero.",
       "A zero-weighted unit pays nothing, and its share of the budget falls on its neighbours."
     );
   }
@@ -129,7 +147,7 @@ export async function saveUnit(input: UnitInput): Promise<ActionResult<{ id: str
   const { data, error } = input.id
     ? await supabase
         .from("units")
-        .update({ label, apportionment_factor: factor })
+        .update({ label, apportionment_factor: factor, unit_quantity: quantity, description })
         .eq("id", input.id)
         .eq("property_id", input.propertyId)   // and it must still be where we think
         .select("id")
@@ -141,16 +159,21 @@ export async function saveUnit(input: UnitInput): Promise<ActionResult<{ id: str
           property_id: input.propertyId,
           label,
           apportionment_factor: factor,
+          unit_quantity: quantity,
+          description,
           occupant_user_id: input.occupantUserId || null,
         })
         .select("id")
         .single();
 
   if (error) {
-    if (error.message.includes("units_property_label_uidx")) {
+    if (
+      error.message.includes("units_property_label_desc_uidx") ||
+      error.message.includes("units_property_label_uidx")   // pre-0198 name
+    ) {
       return fail(
-        `This property already has a unit called "${label}".`,
-        "Two units with one label make every invoice for it ambiguous."
+        `This property already has a "${label}"${description ? ` described as "${description}"` : ""}.`,
+        "Two identical rows make every invoice for them ambiguous and double that property's share. Give this one a description that tells it apart, or raise the number of units on the existing row."
       );
     }
     return failFromDb(error, "save this unit");
@@ -240,13 +263,59 @@ export async function retireUnit(
   return ok();
 }
 
+/**
+ * Adds a unit description to the calling org's own list (0198).
+ *
+ * ⚠️ Scoped to the org, never to the platform standards. A standard row carries
+ * `org_id is null` and is offered to every organisation; letting one client
+ * write into that set would put their vocabulary on another brand's screen,
+ * which is B1's "or existence" reached through a dropdown.
+ *
+ * The insert policy also requires `properties.write`, so this cannot become a
+ * way for a role without register access to write rows.
+ */
+export async function addUnitType(
+  label: string,
+  category: "residential" | "commercial"
+): Promise<ActionResult<{ id: string }>> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return fail("Your session expired. Please sign in again.");
+
+  const { data: me } = await supabase
+    .from("users").select("org_id").eq("id", user.id).single();
+  if (!me) return fail("Could not resolve your profile.");
+
+  const clean = label.trim();
+  if (!clean) return fail("Give the description a name.");
+  if (clean.length > 60) return fail("That description is too long — 60 characters at most.");
+  if (category !== "residential" && category !== "commercial") {
+    return fail("A description has to be residential or commercial.");
+  }
+
+  const { data, error } = await supabase
+    .from("unit_types")
+    .insert({ org_id: me.org_id, label: clean, category, created_by: user.id })
+    .select("id")
+    .single();
+
+  if (error) {
+    if (error.message.includes("unit_types_org_label_uidx")) {
+      return fail(`"${clean}" is already on your list.`);
+    }
+    return failFromDb(error, "add this description");
+  }
+
+  return ok({ id: data.id as string });
+}
+
 /** Context the importer validates against — existing labels and org members. */
 export async function unitImportContext(
   propertyId: string
 ): Promise<ActionResult<{ existingLabels: string[]; members: { id: string; email: string }[] }>> {
   const supabase = await createClient();
   const [unitsRes, membersRes] = await Promise.all([
-    supabase.from("units").select("label").eq("property_id", propertyId),
+    supabase.from("units").select("label, description").eq("property_id", propertyId),
     // Occupants must be tenants, so the manual picker and the importer agree
     // on who is eligible rather than diverging.
     supabase.from("users").select("id, email").eq("role", "tenant").is("deactivated_at", null),
@@ -261,7 +330,11 @@ export async function unitImportContext(
   const { data: units } = unitsRes;
   const { data: members } = membersRes;
   return ok({
-    existingLabels: (units ?? []).map((u) => String(u.label).toLowerCase()),
+    // ⚠️ The composite key `units_property_label_desc_uidx` (0198) enforces,
+    // not the label alone. Two terraces in one building are ordinary; two
+    // IDENTICAL rows are what doubles a property's share of a budget.
+    existingLabels: ((units ?? []) as { label: string; description: string | null }[])
+      .map((u) => `${String(u.label).toLowerCase()}|${String(u.description ?? "").toLowerCase()}`),
     members: ((members ?? []) as { id: string; email: string | null }[])
       .filter((m) => m.email)
       .map((m) => ({ id: m.id, email: m.email!.toLowerCase() })),
@@ -317,6 +390,8 @@ export async function commitUnitImport(
       property_id: propertyId,
       label: r.values!.label,
       apportionment_factor: r.values!.apportionment_factor,
+      unit_quantity: r.values!.unit_quantity,
+      description: r.values!.description,
       occupant_user_id: r.values!.occupant_email
         ? memberByEmail.get(r.values!.occupant_email) ?? null
         : null,

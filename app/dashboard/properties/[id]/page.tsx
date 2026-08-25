@@ -34,6 +34,7 @@ export default async function PropertyDetailPage({
 
   const [
     { data: units },
+    { data: unitTypes },
     { data: members },
     { data: stakeholders },
     { count: assetCount },
@@ -42,8 +43,15 @@ export default async function PropertyDetailPage({
     { data: vendorProperties },
   ] = await Promise.all([
     supabase.from("units")
-      .select("id, label, apportionment_factor, occupant_user_id")
+      .select("id, label, apportionment_factor, unit_quantity, description, occupant_user_id")
       .eq("property_id", id)
+      .order("label"),
+    // Platform standards plus this org's own additions — the RLS policy on
+    // unit_types (0198) decides which rows come back, so no org filter is
+    // needed or wanted here.
+    supabase.from("unit_types")
+      .select("id, label, category")
+      .is("deleted_at", null)
       .order("label"),
     supabase.from("users")
       .select("id, full_name, email, role")
@@ -103,8 +111,11 @@ export default async function PropertyDetailPage({
         units={(units ?? []).map((u) => ({
           id: u.id, label: u.label,
           apportionment_factor: u.apportionment_factor,
+          unit_quantity: u.unit_quantity,
+          description: u.description,
           occupant_user_id: u.occupant_user_id,
         }))}
+        unitTypes={(unitTypes ?? []) as { id: string; label: string; category: "residential" | "commercial" }[]}
         // Occupants are tenants; offering staff would create nonsense records.
         members={allMembers.filter((m) => m.role === "tenant")}
         canWrite={Boolean(canWrite)}
