@@ -36,12 +36,32 @@ const PASSWORD = "OEGroupDemo2026!";
 // brand middleware and the org claim read `app_metadata`. Both are written, and
 // app_metadata is refreshed on every run so a reused auth user can never drift
 // from the profile beside it.
-async function ensureUser({ email, orgId, brand, role, fullName, approvalTier = null }) {
-  const { data: list, error: listErr } = await svc.auth.admin.listUsers();
-  if (listErr) throw new Error(`listUsers: ${listErr.message}`);
+// ⚠️ `listUsers()` is PAGINATED — 50 per page by default. Called bare, it
+// answers "this user does not exist" for everyone from the 51st onwards, and
+// the script then tries to create an account that is already there and dies
+// with "A user with this email address has already been registered". That is
+// what it did on staging, where the auth table is well past one page.
+//
+// 📌 The same class of finding this build has now hit repeatedly: a result was
+// trusted without checking it was the WHOLE result. Read every page, once, and
+// cache it — this used to re-list on every single user, which was also O(n²).
+let _authIndex = null;
+async function authUserByEmail(email) {
+  if (_authIndex === null) {
+    _authIndex = new Map();
+    for (let page = 1; ; page++) {
+      const { data, error } = await svc.auth.admin.listUsers({ page, perPage: 200 });
+      if (error) throw new Error(`listUsers (page ${page}): ${error.message}`);
+      for (const u of data.users) _authIndex.set(u.email, u);
+      if (data.users.length < 200) break;
+    }
+  }
+  return _authIndex.get(email) ?? null;
+}
 
+async function ensureUser({ email, orgId, brand, role, fullName, approvalTier = null }) {
   const appMetadata = { org_id: orgId, delivery_brand: brand, role };
-  let u = list.users.find((x) => x.email === email);
+  let u = await authUserByEmail(email);
   let created = false;
   if (!u) {
     const { data, error } = await svc.auth.admin.createUser({
@@ -50,6 +70,7 @@ async function ensureUser({ email, orgId, brand, role, fullName, approvalTier = 
     if (error) throw new Error(`createUser ${email}: ${error.message}`);
     u = data.user;
     created = true;
+    _authIndex.set(email, u); // so a later lookup in the same run sees it too
   } else {
     const { error } = await svc.auth.admin.updateUserById(u.id, { app_metadata: appMetadata });
     if (error) throw new Error(`updateUser ${email}: ${error.message}`);
