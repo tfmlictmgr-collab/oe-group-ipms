@@ -72,14 +72,33 @@ async function ensureUser({ email, orgId, brand, role, fullName, approvalTier = 
     created = true;
     _authIndex.set(email, u); // so a later lookup in the same run sees it too
   } else {
-    const { error } = await svc.auth.admin.updateUserById(u.id, { app_metadata: appMetadata });
+    // `ban_duration: "none"` LIFTS a ban — the sweep in sweep-probe-residue.mjs
+    // sets 876000h, and a profile row that says "active" while auth still says
+    // "banned" is a login that fails for no visible reason.
+    const { error } = await svc.auth.admin.updateUserById(u.id, {
+      app_metadata: appMetadata, ban_duration: "none",
+    });
     if (error) throw new Error(`updateUser ${email}: ${error.message}`);
   }
 
+  // ⚠️ `deactivated_at: null` is part of what "ensure" MEANS. Without it this
+  // script reported `exists` for nine OEA fixtures on staging that were all
+  // deactivated and could not sign in — it upserted the profile beside a dead
+  // login and called that success. A seeding script whose whole purpose is "a
+  // working login for every role" must assert the login WORKS, not merely that
+  // a row bearing that address is present.
+  //
+  // Safe because this only ever touches its own hardcoded @oegroup.test
+  // fixtures. It never resolves a real staff account, and so cannot reverse a
+  // deliberate deactivation of one.
+  //
   // `approval_tier` is constrained: a payment_approver MUST carry 1-3 and every
   // other role MUST carry null (users_approval_tier_check, 0151).
   const { error: upErr } = await svc.from("users").upsert(
-    { id: u.id, org_id: orgId, role, full_name: fullName, email, approval_tier: approvalTier },
+    {
+      id: u.id, org_id: orgId, role, full_name: fullName, email,
+      approval_tier: approvalTier, deactivated_at: null,
+    },
     { onConflict: "id" }
   );
   if (upErr) throw new Error(`users upsert ${email}: ${upErr.message}`);
@@ -108,6 +127,14 @@ const BRANDS = [
       regional_manager:       ["tfml.regional@oegroup.test",      "Hauwa Bello (TFML)"],
       executive:              ["tfml.executive@oegroup.test",     "Olumide Falana (TFML MD)"],
       viewer:                 ["tfml.viewer@oegroup.test",        "Ngozi Eze (TFML)"],
+      // ⚠️ finance_approver is the ONE role that may execute a remittance
+      // (decision 16 — an admin approves, an executive authorises above the
+      // threshold, neither releases money). It was missing from both brands
+      // here, so the payment chain could be rehearsed only up to the point
+      // where money actually moves. OEA's `oea.finance@` existed from an
+      // older seed and had been deactivated, leaving no synthetic finance
+      // login at all.
+      finance_approver:       ["tfml.finance@oegroup.test",       "Zainab Yusuf (TFML)"],
       payment_approver:       ["tfml.approver@oegroup.test",      "Bashir Lawal (TFML)"],
       payment_audit_approver: ["tfml.auditapprover@oegroup.test", "Chioma Nnaji (TFML)"],
     },
@@ -133,6 +160,7 @@ const BRANDS = [
       regional_manager:       ["oea.regional@oegroup.test",      "Aisha Sani (OEA)"],
       executive:              ["oea.executive@oegroup.test",     "Emeka Ilo (OEA Managing Partner)"],
       viewer:                 ["oea.viewer@oegroup.test",        "Blessing Okoro (OEA)"],
+      finance_approver:       ["oea.finance@oegroup.test",       "Uche Nwosu (OEA)"],
       payment_approver:       ["oea.approver@oegroup.test",      "Tunde Salami (OEA)"],
       payment_audit_approver: ["oea.auditapprover@oegroup.test", "Grace Nwankwo (OEA)"],
     },

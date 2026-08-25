@@ -17,9 +17,9 @@ import SignInPanel from "@/components/auth/sign-in-panel";
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ wrong_org?: string }>;
+  searchParams: Promise<{ wrong_org?: string; deactivated?: string }>;
 }) {
-  const { wrong_org } = await searchParams;
+  const { wrong_org, deactivated } = await searchParams;
 
   // The root page (`/`) already sends a bound client hostname straight to its
   // own door and never lands here. But `/login` is a URL of its own — bookmarked,
@@ -53,7 +53,18 @@ export default async function LoginPage({
       // sends the operator's own hostname here instead, 0112). Says only that a
       // sign-in is needed — the same reason /o/[slug] keeps this generic rather
       // than naming the org the stale session belonged to.
-      notice={wrong_org ? "Please sign in to continue." : undefined}
+      // `deactivated` names the actual reason, because "please sign in" in
+      // front of an account that can never sign in again is a loop with no
+      // exit. It reveals nothing: the person holding this session already
+      // authenticated as themselves, so being told their own account is closed
+      // tells them only what they just experienced.
+      notice={
+        deactivated
+          ? "This account has been deactivated. Please contact your administrator."
+          : wrong_org
+            ? "Please sign in to continue."
+            : undefined
+      }
     />
   );
 }

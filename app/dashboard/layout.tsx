@@ -50,6 +50,17 @@ export default async function DashboardLayout({
   const session = await getSessionProfile();
   if (!session) redirect("/login");
 
+  // ⚠️ Deactivated (0194). The session is real and the account reaches nothing,
+  // so every panel below would render empty and read as a broken portal rather
+  // than a closed account. End the session for the same reason the wrong-org
+  // check below does — a redirect that leaves the session standing is a bounce,
+  // not a boundary — and say why at the door.
+  if (session.deactivated) {
+    const supabaseAuth = await createClient();
+    await supabaseAuth.auth.signOut();
+    redirect("/login?deactivated=1");
+  }
+
   const { profile, org, theme } = session;
 
   // ── A brand's hostname shows that brand's people, and nobody else ────────

@@ -29,6 +29,22 @@ export const getSessionProfile = cache(async function getSessionProfile() {
     .eq("id", user.id)
     .single();
 
+  // ⚠️ A deactivated account still holds a valid session — Supabase issues the
+  // JWT, because deactivation is our concept and not the auth provider's.
+  // Since 0194 it reaches nothing: `current_user_org_id()` returns null, so
+  // `users_select` no longer matches even the caller's OWN row and `profile`
+  // above comes back null.
+  //
+  // That fails closed, which is the important half. But an empty dashboard is
+  // a bug report waiting to be filed, so ask the one question a deactivated
+  // caller is still allowed to ask about themselves and let the caller say so
+  // plainly. Only asked when the profile is missing — no cost on the ordinary
+  // path, which is every request by an active user.
+  if (!profile) {
+    const { data: active } = await supabase.rpc("current_user_is_active");
+    return { user, profile: null, org: null, theme: getBrandTheme(null, null), deactivated: active === false };
+  }
+
   const { data: org } = await supabase
     .from("orgs")
     .select(
@@ -42,5 +58,6 @@ export const getSessionProfile = cache(async function getSessionProfile() {
     profile,
     org,
     theme: getBrandTheme(org?.delivery_brand, org),
+    deactivated: false,
   };
 });
