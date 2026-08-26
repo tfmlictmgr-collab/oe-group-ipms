@@ -32,6 +32,12 @@ export type UnitRow = {
   unit_quantity: number | string | null;
   description: string | null;
   occupant_user_id: string | null;
+  /**
+   * The database's own answer (0200), not `occupant_user_id === null`. A unit
+   * under a live tenancy that never recorded an occupant is not free, and this
+   * panel is where someone decides whether to let it.
+   */
+  is_vacant: boolean;
 };
 
 /** The offered descriptions, grouped as the board asked (0198). */
@@ -72,6 +78,7 @@ export default function UnitsPanel({
     effectiveFactor({ factor: Number(u.apportionment_factor), quantity: Number(u.unit_quantity ?? 1) });
   const totalFactor = units.reduce((s, u) => s + weightOf(u), 0);
   const totalUnits = units.reduce((s, u) => s + Number(u.unit_quantity ?? 1), 0);
+  const vacantUnits = units.filter((u) => u.is_vacant).length;
   const nameOf = (id: string | null) =>
     id ? members.find((m) => m.id === id)?.full_name ?? "Assigned" : null;
 
@@ -100,14 +107,16 @@ export default function UnitsPanel({
   async function addUnit() {
     setBusy("add");
     try {
-      await runAction(saveUnit({
+      const r = await runAction(saveUnit({
         propertyId, label: form.label,
         apportionmentFactor: form.factor,
         unitQuantity: form.quantity,
         description: form.description,
         occupantUserId: form.occupant || null,
       }));
-      toast.success("Unit added");
+      toast.success(
+        r.created === 1 ? "Unit added" : `${r.created} units added, numbered`
+      );
       setForm({ label: "", factor: "", quantity: "1", description: "", occupant: "" });
       setNewType(null);
       setAdding(false);
@@ -198,10 +207,10 @@ export default function UnitsPanel({
               <CardTitle className="text-base">Units</CardTitle>
               <CardDescription>
                 Occupied space — floor area in square metres, per unit —
-                decides each unit&apos;s share of a service-charge budget. One
-                row can stand for several units; the space is multiplied by how
-                many.
-                {totalFactor > 0 && ` ${totalUnits.toLocaleString()} unit${totalUnits === 1 ? "" : "s"}, ${totalFactor.toLocaleString()} m² across this property.`}
+                decides each unit&apos;s share of a service-charge budget.
+                Adding several of a type creates one row each, so every unit can
+                be let, billed and counted vacant on its own.
+                {totalFactor > 0 && ` ${totalUnits.toLocaleString()} unit${totalUnits === 1 ? "" : "s"}, ${vacantUnits.toLocaleString()} vacant, ${totalFactor.toLocaleString()} m² across this property.`}
               </CardDescription>
             </div>
             {canWrite && (
@@ -289,10 +298,14 @@ export default function UnitsPanel({
                 )}
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="u-qty">Unit</Label>
+                <Label htmlFor="u-qty">How many</Label>
                 <Input id="u-qty" inputMode="numeric" value={form.quantity} placeholder="1"
                        onChange={(e) => setForm((f) => ({ ...f, quantity: e.target.value }))} />
-                <p className="text-[11px] text-muted-foreground">How many of this type.</p>
+                <p className="text-[11px] text-muted-foreground">
+                  {Number(form.quantity) > 1
+                    ? `Creates ${Number(form.quantity)} rows, numbered — each can be let and go vacant on its own.`
+                    : "One row each, so each can be let separately."}
+                </p>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="u-factor">Occupied Space</Label>
@@ -331,7 +344,7 @@ export default function UnitsPanel({
                   <TableRow>
                     <TableHead>Occupant</TableHead>
                     <TableHead>Label</TableHead>
-                    <TableHead className="text-right">Unit</TableHead>
+                    <TableHead>Status</TableHead>
                     <TableHead className="text-right">Occupied Space</TableHead>
                     <TableHead>Description</TableHead>
                     <TableHead className="text-right">Share</TableHead>
@@ -341,7 +354,6 @@ export default function UnitsPanel({
                 <TableBody>
                   {units.map((u) => {
                     const f = Number(u.apportionment_factor);
-                    const qty = Number(u.unit_quantity ?? 1);
                     const weight = weightOf(u);
                     return (
                       <TableRow key={u.id}>
@@ -361,20 +373,21 @@ export default function UnitsPanel({
                           ) : u.occupant_user_id ? (
                             <Badge variant="success">{nameOf(u.occupant_user_id)}</Badge>
                           ) : (
-                            <Badge variant="muted">Vacant</Badge>
+                            <Badge variant="muted">{u.is_vacant ? "Vacant" : "Let"}</Badge>
                           )}
                         </TableCell>
                         <TableCell className="font-medium">{u.label}</TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {qty.toLocaleString()}
+                        {/* The database's rule, not this column's own reading of
+                            the occupant dropdown. "Let" is a unit under a live
+                            tenancy that recorded no occupant — free to the eye,
+                            not free to let. */}
+                        <TableCell>
+                          <Badge variant={u.is_vacant ? "muted" : "success"}>
+                            {u.is_vacant ? "Vacant" : "Occupied"}
+                          </Badge>
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
                           {f.toLocaleString()} m²
-                          {qty > 1 && (
-                            <span className="block text-[11px] text-muted-foreground">
-                              {weight.toLocaleString()} m² total
-                            </span>
-                          )}
                         </TableCell>
                         <TableCell className="max-w-[16rem] truncate text-muted-foreground" title={u.description ?? ""}>
                           {u.description || "—"}

@@ -141,19 +141,58 @@ export async function billRent(
   return ok();
 }
 
-/** Units with no active tenancy on the given property — what can actually be let. */
+/**
+ * Ends a live tenancy and hands the unit back to the vacancy count.
+ *
+ * The act `createLease`'s own error copy has been telling letting agents to
+ * perform since 0090 — "End or terminate the existing tenancy first" — while no
+ * function in the schema set a lease to `expired` or `terminated` and nothing
+ * anywhere cleared `occupant_user_id`. Vacancy could only ever fall.
+ *
+ * Whether this reads as an expiry or a termination is decided by the database
+ * from the lease's own end date, not offered as a choice here: the two words
+ * mean different things to a landlord, and a dropdown is how a renewal history
+ * becomes a string of evictions.
+ */
+export async function endTenancy(
+  leaseId: string,
+  reason: string
+): Promise<ActionResult> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("end_tenancy", {
+    p_lease_id: leaseId,
+    p_reason: reason.trim() || null,
+  });
+  if (error) return fail(error.message.replace(/^.*?:\s*/, ""));
+  revalidatePath("/dashboard/leases");
+  revalidatePath("/dashboard/properties");
+  return ok();
+}
+
+/** Units with no live tenancy and no occupant — what can actually be let (0200). */
 export async function vacantUnitsFor(
   propertyId: string
 ): Promise<ActionResult<{ units: { id: string; label: string }[] }>> {
   const supabase = await createClient();
-  const [unitsRes, leasesRes] = await Promise.all([
-    supabase.from("units").select("id, label").eq("property_id", propertyId)
-      .is("deleted_at", null).order("label"),
-    supabase.from("leases").select("unit_id").eq("property_id", propertyId)
-      .in("status", ["active", "renewed"]).is("deleted_at", null),
-  ]);
-  if (unitsRes.error) return failFromDb(unitsRes.error, "read this property's units");
 
-  const taken = new Set((leasesRes.data ?? []).map((l) => l.unit_id));
-  return ok({ units: (unitsRes.data ?? []).filter((u) => !taken.has(u.id)) });
+  // ⚠️ The vacancy test is the database's, not this file's (0200). This used to
+  // ask "has no active or renewed lease", while the property counters and the
+  // `auto` intake window asked "has no occupant" — two questions, free to
+  // disagree, and they did: a unit assigned by invitation acceptance (which
+  // writes no lease) read as free here, and a lease activated for a tenant with
+  // no portal user read as free to the counters. `unit_is_vacant` is now the
+  // one answer all three read.
+  const { data, error } = await supabase.rpc("vacant_units_for_property", {
+    p_property_id: propertyId,
+  });
+  if (error) return failFromDb(error, "read this property's units");
+
+  // `display_label` carries the distinguisher — since 0198 the label alone is a
+  // TYPE, so twelve stalls would otherwise be twelve identical dropdown entries.
+  return ok({
+    units: (data ?? []).map((u: { id: string; display_label: string }) => ({
+      id: u.id,
+      label: u.display_label,
+    })),
+  });
 }

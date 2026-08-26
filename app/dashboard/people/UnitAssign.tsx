@@ -13,6 +13,12 @@ type Unit = {
   property: string;
   occupantId: string | null;
   occupantName: string | null;
+  /**
+   * The database's answer (0200), not `occupantId == null`. A unit can be let
+   * with no occupant recorded — a company tenancy with no portal user — and
+   * without this the select would read "— vacant —" over an occupied flat.
+   */
+  isVacant: boolean;
 };
 
 export default function UnitAssign({
@@ -53,7 +59,10 @@ export default function UnitAssign({
         >
           <div className="min-w-0">
             <p className="truncate text-sm font-medium">{u.label}</p>
-            <p className="truncate text-xs text-muted-foreground">{u.property}</p>
+            <p className="truncate text-xs text-muted-foreground">
+              {u.property}
+              {!u.isVacant && !u.occupantId && " · let — no occupant recorded"}
+            </p>
           </div>
           <Select
             aria-label={`Occupant of ${u.label}`}

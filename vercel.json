@@ -10,6 +10,10 @@
       "schedule": "30 8 * * *"
     },
     {
+      "path": "/api/jobs/expire-leases",
+      "schedule": "45 8 * * *"
+    },
+    {
       "path": "/api/jobs/purge-applications",
       "schedule": "0 3 * * *"
     },

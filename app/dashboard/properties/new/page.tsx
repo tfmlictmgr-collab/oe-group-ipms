@@ -14,11 +14,16 @@ export default async function NewPropertyPage() {
   // Asked of the database rather than inferred from the role, so this screen
   // agrees with what the write will actually permit.
   const supabase = await createClient();
-  const [{ data: canWrite }, { data: nodes }, { data: canBuildHierarchy }] = await Promise.all([
-    supabase.rpc("has_permission", { p_capability: "properties.write" }),
-    supabase.from("org_nodes").select("id, parent_id, level, name").order("name"),
-    supabase.rpc("has_permission", { p_capability: "hierarchy.write" }),
-  ]);
+  const [{ data: canWrite }, { data: nodes }, { data: canBuildHierarchy }, { data: unitTypes }] =
+    await Promise.all([
+      supabase.rpc("has_permission", { p_capability: "properties.write" }),
+      supabase.from("org_nodes").select("id, parent_id, level, name").order("name"),
+      supabase.rpc("has_permission", { p_capability: "hierarchy.write" }),
+      // Platform standards plus this org's own additions — the RLS policy on
+      // unit_types (0198) decides which rows come back.
+      supabase.from("unit_types").select("id, label, category")
+        .is("deleted_at", null).order("label"),
+    ]);
 
   if (!canWrite) {
     return (
@@ -37,11 +42,15 @@ export default async function NewPropertyPage() {
     <div className="space-y-6">
       <PageHeader
         title="Add property"
-        description="Units and their apportionment factors come next, once the property exists."
+        description="Record how many units it has here, and the vacancy count starts the moment it is filed."
       />
       <Card>
         <CardContent className="pt-6">
-          <PropertyForm nodes={nodes ?? []} canBuildHierarchy={Boolean(canBuildHierarchy)} />
+          <PropertyForm
+            nodes={nodes ?? []}
+            canBuildHierarchy={Boolean(canBuildHierarchy)}
+            unitTypes={(unitTypes ?? []) as { id: string; label: string; category: "residential" | "commercial" }[]}
+          />
         </CardContent>
       </Card>
     </div>

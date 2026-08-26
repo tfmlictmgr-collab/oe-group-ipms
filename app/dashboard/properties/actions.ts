@@ -99,13 +99,19 @@ export type UnitInput = {
   propertyId: string;
   label: string;
   apportionmentFactor: string;
-  /** 0198 — how many units this row stands for. "" or absent means 1. */
+  /**
+   * How many units to create (0200). Ignored on an edit: raising this on a row
+   * that already exists would spawn units from a form that reads like it is
+   * correcting one. "" or absent means 1.
+   */
   unitQuantity: string;
   description: string;
   occupantUserId: string | null;
 };
 
-export async function saveUnit(input: UnitInput): Promise<ActionResult<{ id: string }>> {
+export async function saveUnit(
+  input: UnitInput
+): Promise<ActionResult<{ created: number }>> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return fail("Your session expired. Please sign in again.");
@@ -117,10 +123,9 @@ export async function saveUnit(input: UnitInput): Promise<ActionResult<{ id: str
   const label = input.label.trim();
   if (!label) return fail("Choose what kind of unit this is.");
 
-  // Blank means one, which is the ordinary single flat and every row written
-  // before 0198. Refused rather than rounded when fractional: a third of a
-  // stall is a typo, and picking a direction for someone is how a bill goes
-  // wrong without anyone noticing.
+  // Blank means one, which is the ordinary single flat. Refused rather than
+  // rounded when fractional: a third of a stall is a typo, and picking a
+  // direction for someone is how a bill goes wrong without anyone noticing.
   const rawQty = (input.unitQuantity ?? "").replace(/[,\s]/g, "");
   const quantity = rawQty ? Number(rawQty) : 1;
   if (!Number.isFinite(quantity) || !Number.isInteger(quantity) || quantity < 1) {
@@ -144,27 +149,33 @@ export async function saveUnit(input: UnitInput): Promise<ActionResult<{ id: str
   // client-supplied parent while matching only on `id` would let a unit be
   // moved between properties, silently shrinking the original property's
   // apportionment base and inflating every remaining unit's share.
+  // ⚠️ CREATE goes through `create_units` (0200), not a direct insert, because
+  // "how many" now means "create that many rows" and the numbering that keeps
+  // them apart has to be the same on every path into the register — this form,
+  // the enrolment form and the CSV import. A count carried on one row cannot be
+  // let, invoiced or counted vacant per unit; the database enforces that with
+  // `units_quantity_is_one`, so a direct insert of 12 would simply be refused.
+  //
+  // UPDATE stays a direct write: the row exists, is already in scope, and
+  // `unit_quantity` is deliberately not among the columns it may touch.
   const { data, error } = input.id
     ? await supabase
         .from("units")
-        .update({ label, apportionment_factor: factor, unit_quantity: quantity, description })
+        .update({ label, apportionment_factor: factor, description })
         .eq("id", input.id)
         .eq("property_id", input.propertyId)   // and it must still be where we think
         .select("id")
         .single()
-    : await supabase
-        .from("units")
-        .insert({
-          org_id: me.org_id,
-          property_id: input.propertyId,
+    : await supabase.rpc("create_units", {
+        p_property_id: input.propertyId,
+        p_rows: [{
           label,
-          apportionment_factor: factor,
-          unit_quantity: quantity,
+          factor,
+          quantity,
           description,
           occupant_user_id: input.occupantUserId || null,
-        })
-        .select("id")
-        .single();
+        }],
+      });
 
   if (error) {
     if (
@@ -173,14 +184,25 @@ export async function saveUnit(input: UnitInput): Promise<ActionResult<{ id: str
     ) {
       return fail(
         `This property already has a "${label}"${description ? ` described as "${description}"` : ""}.`,
-        "Two identical rows make every invoice for them ambiguous and double that property's share. Give this one a description that tells it apart, or raise the number of units on the existing row."
+        "Two identical rows make every invoice for them ambiguous and double that property's share. Give this one a description that tells it apart."
       );
     }
     return failFromDb(error, "save this unit");
   }
 
+  // `create_units` returns how many rows it wrote; the update path returns the
+  // row. Both are checked, because a write that matched nothing reports no
+  // error at all — the silent no-op this build keeps meeting.
+  const created = input.id ? (data ? 1 : 0) : Number(data ?? 0);
+  if (created < 1) {
+    return fail(
+      input.id ? "That unit could not be saved." : "No units were created.",
+      "It may have been retired, or you may not have permission to change this property's register."
+    );
+  }
+
   revalidatePath(`/dashboard/properties/${input.propertyId}`);
-  return ok({ id: data.id as string });
+  return ok({ created });
 }
 
 /**
@@ -384,24 +406,31 @@ export async function commitUnitImport(
   }
   if (rows.length === 0) return fail("That file contains no unit rows.");
 
-  const { data, error } = await supabase.from("units").insert(
-    rows.map((r) => ({
-      org_id: me.org_id,
-      property_id: propertyId,
+  // One call, not one per row: `create_units` walks the array in a single
+  // statement, so a file that fails halfway leaves nothing behind. That matters
+  // more here than anywhere — the validator already refuses to import a partial
+  // block, "because a partly imported block would silently change what every
+  // other unit pays", and a per-row loop would reintroduce exactly that.
+  //
+  // A `unit_quantity` of 12 in the file now yields 12 numbered rows (0200)
+  // rather than one row claiming twelve.
+  const { data, error } = await supabase.rpc("create_units", {
+    p_property_id: propertyId,
+    p_rows: rows.map((r) => ({
       label: r.values!.label,
-      apportionment_factor: r.values!.apportionment_factor,
-      unit_quantity: r.values!.unit_quantity,
+      factor: r.values!.apportionment_factor,
+      quantity: r.values!.unit_quantity,
       description: r.values!.description,
       occupant_user_id: r.values!.occupant_email
         ? memberByEmail.get(r.values!.occupant_email) ?? null
         : null,
-    }))
-  ).select("id");
+    })),
+  });
 
   if (error) return failFromDb(error, "import these units");
 
   revalidatePath(`/dashboard/properties/${propertyId}`);
-  return ok({ inserted: data?.length ?? 0 });
+  return ok({ inserted: Number(data ?? 0) });
 }
 
 /** The attaché assignment — which FM/PM or owner is staked to this property. */

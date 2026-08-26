@@ -41,6 +41,7 @@ export default async function PropertyDetailPage({
     { data: canWrite },
     { data: vendors },
     { data: vendorProperties },
+    { data: vacantUnits },
   ] = await Promise.all([
     supabase.from("units")
       .select("id, label, apportionment_factor, unit_quantity, description, occupant_user_id")
@@ -68,11 +69,19 @@ export default async function PropertyDetailPage({
     // this is the standing list to pick FROM, not what is already attached.
     supabase.from("vendors").select("id, name").order("name"),
     supabase.from("vendor_properties").select("vendor_id").eq("property_id", id),
+    // Vacancy is asked of the database rather than inferred from the occupant
+    // column, because the occupant column is only half the rule (0200): a unit
+    // held by a live tenancy that never wrote an occupant is not free, and this
+    // panel is where someone decides whether to let it.
+    supabase.rpc("vacant_units_for_property", { p_property_id: id }),
   ]);
 
   const allMembers = (members ?? []) as {
     id: string; full_name: string | null; email: string | null; role: string;
   }[];
+  const vacantIds = new Set(
+    ((vacantUnits ?? []) as { id: string }[]).map((u) => u.id)
+  );
 
   return (
     <div className="space-y-6">
@@ -114,6 +123,7 @@ export default async function PropertyDetailPage({
           unit_quantity: u.unit_quantity,
           description: u.description,
           occupant_user_id: u.occupant_user_id,
+          is_vacant: vacantIds.has(u.id),
         }))}
         unitTypes={(unitTypes ?? []) as { id: string; label: string; category: "residential" | "commercial" }[]}
         // Occupants are tenants; offering staff would create nonsense records.

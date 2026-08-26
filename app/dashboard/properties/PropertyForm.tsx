@@ -7,16 +7,21 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { runAction, describeError } from "@/lib/run-action";
+import { Select } from "@/components/ui/input";
 import HierarchyPicker, { type OrgNode } from "@/components/patterns/hierarchy-picker";
-import { saveProperty } from "./actions";
+import { saveProperty, saveUnit } from "./actions";
 import { createNode } from "./hierarchy/actions";
 
 export type { OrgNode };
+
+/** The offered descriptions, grouped as the board asked (0198). */
+export type UnitType = { id: string; label: string; category: "residential" | "commercial" };
 
 export default function PropertyForm({
   property,
   nodes = [],
   canBuildHierarchy = false,
+  unitTypes = [],
 }: {
   property?: {
     id: string;
@@ -29,6 +34,8 @@ export default function PropertyForm({
   nodes?: OrgNode[];
   /** `hierarchy.write` — whether this person may add a location/project/site here. */
   canBuildHierarchy?: boolean;
+  /** Offered when enrolling a property. Empty on the edit form, which has none. */
+  unitTypes?: UnitType[];
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
@@ -40,6 +47,15 @@ export default function PropertyForm({
   });
   const [siteNodeId, setSiteNodeId] = React.useState(property?.site_node_id ?? "");
 
+  // How many units this property has, captured while it is being enrolled
+  // rather than left to a second visit. Offered only on CREATE: an existing
+  // property has a units panel of its own, and a "how many" box on the edit
+  // form would read like a correction while behaving like an addition.
+  const [units, setUnits] = React.useState({ type: "", count: "", space: "" });
+  const enrolling = !property;
+  const unitCount = Number(units.count.replace(/[,\s]/g, "") || "0");
+  const unitsGiven = enrolling && (units.type !== "" || units.count !== "" || units.space !== "");
+
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
 
@@ -48,7 +64,43 @@ export default function PropertyForm({
     setBusy(true);
     try {
       const r = await runAction(saveProperty({ id: property?.id, ...form, siteNodeId: siteNodeId || null }));
-      toast.success(property ? "Property updated" : "Property added");
+
+      // ⚠️ Two writes, deliberately not one transaction. If the units fail, the
+      // PROPERTY still exists and the person is standing on its own page with
+      // the units panel in front of them — an outcome they can finish. Rolling
+      // the property back to keep the pair atomic would throw away the part
+      // that worked and the address they just typed.
+      let created = 0;
+      if (unitsGiven) {
+        try {
+          const u = await runAction(saveUnit({
+            propertyId: r.id,
+            label: units.type,
+            apportionmentFactor: units.space,
+            unitQuantity: units.count || "1",
+            description: "",
+            occupantUserId: null,
+          }));
+          created = u.created;
+        } catch (unitErr) {
+          toast.warning("Property added, but its units were not", {
+            description: `${describeError(unitErr)} Add them below — the property itself is saved.`,
+            duration: Infinity,
+            closeButton: true,
+          });
+          router.push(`/dashboard/properties/${r.id}`);
+          router.refresh();
+          return;
+        }
+      }
+
+      toast.success(
+        property
+          ? "Property updated"
+          : created > 0
+            ? `Property added with ${created} unit${created === 1 ? "" : "s"} — ${created === 1 ? "it is" : "all of them are"} vacant`
+            : "Property added"
+      );
       router.push(`/dashboard/properties/${r.id}`);
       router.refresh();
     } catch (err) {
@@ -121,6 +173,68 @@ export default function PropertyForm({
           }
         />
       </div>
+
+      {enrolling && unitTypes.length > 0 && (
+        <div className="space-y-3 rounded-lg border p-4">
+          <div>
+            <Label>
+              Units <span className="font-normal text-muted-foreground">(optional)</span>
+            </Label>
+            <p className="mt-1 text-xs text-muted-foreground">
+              How many lettable units this property has. Each one is created as
+              its own row and starts vacant, so the vacancy count falls as they
+              are let and rises again as they are given up — and a property on
+              Auto intake takes applications for exactly as long as one is free.
+              You can add more, or a second type, from the property itself.
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="u-type">Type</Label>
+              <Select
+                id="u-type"
+                value={units.type}
+                onChange={(e) => setUnits((u) => ({ ...u, type: e.target.value }))}
+              >
+                <option value="">Choose…</option>
+                <optgroup label="Residential">
+                  {unitTypes.filter((t) => t.category === "residential").map((t) => (
+                    <option key={t.id} value={t.label}>{t.label}</option>
+                  ))}
+                </optgroup>
+                <optgroup label="Commercial">
+                  {unitTypes.filter((t) => t.category === "commercial").map((t) => (
+                    <option key={t.id} value={t.label}>{t.label}</option>
+                  ))}
+                </optgroup>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="u-count">How many</Label>
+              <Input id="u-count" inputMode="numeric" value={units.count} placeholder="e.g. 12"
+                     onChange={(e) => setUnits((u) => ({ ...u, count: e.target.value }))} />
+              <p className="text-[11px] text-muted-foreground">
+                {unitCount > 1 ? `${unitCount} rows, numbered 1–${unitCount}.` : "One row each."}
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="u-space">Occupied space, each</Label>
+              <div className="relative">
+                <Input id="u-space" inputMode="decimal" value={units.space} placeholder="85.5"
+                       className="pr-9"
+                       onChange={(e) => setUnits((u) => ({ ...u, space: e.target.value }))} />
+                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                  m²
+                </span>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Floor area per unit — it decides each one&apos;s share of a
+                service charge.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex gap-2">
         <Button type="submit" variant="brand" disabled={busy || form.name.trim().length < 2}>
