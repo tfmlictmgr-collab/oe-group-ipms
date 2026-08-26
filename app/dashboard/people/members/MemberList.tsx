@@ -3,7 +3,8 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { UserMinus, UserCheck, Search } from "lucide-react";
+import { releaseMemberEmail } from "../actions";
+import { UserMinus, UserCheck, Search, MailX } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +17,9 @@ export type Member = {
   email: string | null;
   role: string;
   deactivated_at: string | null;
+  /** 0199 — the address they held before it was released, if it has been. */
+  former_email: string | null;
+  email_released_at: string | null;
   roleName?: string;
   /** Stage-3 band, for `payment_approver` only. Null on every other role. */
   approval_tier: number | null;
@@ -78,6 +82,38 @@ export default function MemberList({
       router.refresh();
     } catch (e) {
       toast.error("Could not set that tier", {
+        description: e instanceof Error ? e.message : "Unexpected error.",
+      });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  // Releasing an address is not undoable, so it asks — the one destructive-ish
+  // act on this screen, among several that are all reversible. Deactivate,
+  // restore and tier changes can all be taken back; this cannot, because the
+  // moment it succeeds the address may be invited to somebody else.
+  async function releaseEmail(id: string, email: string, name: string) {
+    const confirmed = window.confirm(
+      `Free up ${email} so it can be invited again?\n\n` +
+        `${name}'s record, history and audit trail stay exactly as they are — ` +
+        `only the address is released.\n\n` +
+        `If ${name} ever returns they are invited as a NEW member, not restored ` +
+        `into this one. This cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setBusy(id);
+    try {
+      const res = await releaseMemberEmail(id);
+      if (!res.ok) throw new Error(res.message);
+      toast.success(`${res.data.formerEmail} is free to invite again`, {
+        description:
+          "Their record and everything they did stays. Inviting that address now creates a new member.",
+      });
+      router.refresh();
+    } catch (e) {
+      toast.error("Could not release the address", {
         description: e instanceof Error ? e.message : "Unexpected error.",
       });
     } finally {
@@ -159,7 +195,19 @@ export default function MemberList({
                       <span className="ml-2 text-xs font-normal text-muted-foreground">(you)</span>
                     )}
                   </p>
-                  <p className="truncate text-xs text-muted-foreground">{m.email}</p>
+                  {/* Once released, showing the tombstone would be useless —
+                      "released+<uuid>@invalid" tells a reader nothing about who
+                      this was. Show who they WERE, and say the address is gone. */}
+                  <p className="truncate text-xs text-muted-foreground">
+                    {m.email_released_at ? (
+                      <>
+                        <span className="line-through">{m.former_email}</span>
+                        <span className="ml-2">— address released</span>
+                      </>
+                    ) : (
+                      m.email
+                    )}
+                  </p>
                 </div>
                 <div className="flex flex-shrink-0 items-center gap-2">
                   {inactive && <Badge variant="muted">Deactivated</Badge>}
@@ -204,6 +252,23 @@ export default function MemberList({
                     >
                       {inactive ? <UserCheck /> : <UserMinus />}
                       {inactive ? "Restore" : "Deactivate"}
+                    </Button>
+                  )}
+
+                  {/* Deactivated only, and only once — offered beside Restore so
+                      the reversible option is the one nearest to hand. The
+                      database refuses this for a live account regardless of what
+                      the screen shows. */}
+                  {isAdmin && inactive && !m.email_released_at && m.id !== currentUserId && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={busy === m.id}
+                      onClick={() => releaseEmail(m.id, m.email ?? "this address", name)}
+                      title="Free this email address so it can be invited again"
+                    >
+                      <MailX />
+                      Free up email
                     </Button>
                   )}
                 </div>

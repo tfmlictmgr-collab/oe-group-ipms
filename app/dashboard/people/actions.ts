@@ -3,6 +3,7 @@
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
   generateInviteToken,
   hashInviteToken,
@@ -199,6 +200,77 @@ async function trySendInviteEmail(
       ].join("\n"),
   });
   return res.sent;
+}
+
+/**
+ * Frees a deactivated member's email address so it can be invited again.
+ *
+ * ⚠️ TWO stores hold that address and only one of them is ours.
+ * `public.users.email` is the profile; `auth.users.email` is what actually
+ * makes the address unavailable, because that is the unique column
+ * `provisionInviteAccount` collides with. Releasing only the profile would free
+ * the address in appearance and not in fact — the admin would be told it worked
+ * and the re-invitation would still fail.
+ *
+ * They cannot be written in one transaction: the auth store is the provider's,
+ * reached over its admin API, and it owns `auth.identities` alongside
+ * `auth.users` — which is exactly why this uses that API rather than reaching
+ * into the auth schema from SQL and updating half of what GoTrue reads.
+ *
+ * So the order is chosen for its FAILURE mode, not its success:
+ *   1. the database function authorises, tombstones the profile, and audits
+ *   2. the auth provider then releases the address for real
+ *
+ * If step 2 fails, the profile says released while the address is still taken —
+ * visibly wrong, and safely repeatable, because `release_member_email` is
+ * idempotent and returns the tombstone it already assigned. Doing it the other
+ * way round would free the address first and leave the profile still claiming
+ * it, which reads as "nothing happened" while the address is quietly gone.
+ */
+export async function releaseMemberEmail(
+  userId: string
+): Promise<ActionResult<{ formerEmail: string }>> {
+  const supabase = await createClient();
+
+  // Step 1. Every authorisation check lives in the function, not here — it
+  // verifies the caller is an ACTIVE admin, that the target is in the same org,
+  // that they are already deactivated, and that nobody is releasing themselves.
+  const { data: tombstone, error } = await supabase.rpc("release_member_email", {
+    p_user_id: userId,
+  });
+  if (error) return fail(error.message);
+
+  // Read back what the address used to be, for the message. Done after the
+  // call rather than before, so the value reported is the one actually
+  // recorded rather than one read a moment earlier and assumed unchanged.
+  const { data: row } = await supabase
+    .from("users")
+    .select("former_email")
+    .eq("id", userId)
+    .maybeSingle();
+  const formerEmail = (row?.former_email as string | null) ?? "the address";
+
+  // Step 2. The half that actually frees it.
+  const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+    email: String(tombstone),
+    // Confirmed so the provider does not sit waiting on a verification email
+    // sent to a .invalid address that can never be delivered or clicked.
+    email_confirm: true,
+    // The login is closed as well as renamed. The account already reaches
+    // nothing (0194-0197), but leaving a signable credential attached to a
+    // released identity is a loose end, not a control.
+    ban_duration: "876000h",
+  });
+
+  if (authError) {
+    return fail(
+      `${formerEmail} was released on the member's record, but the sign-in provider refused: ${authError.message}`,
+      "The address is not yet free to re-invite. Running this again is safe and will finish the job."
+    );
+  }
+
+  revalidatePath("/dashboard/people/members");
+  return ok({ formerEmail });
 }
 
 export async function revokeInvitation(invitationId: string): Promise<ActionResult> {
