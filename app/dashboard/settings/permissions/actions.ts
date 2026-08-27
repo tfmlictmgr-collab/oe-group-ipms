@@ -97,6 +97,9 @@ function b7Grants(role: string, capability: string): boolean {
   // it — an operator turns this on per org, for the exceptional case it exists
   // for (0178).
   if (capability === "tickets.assign_without_review") return false;
+  // 0203: off for every role, including admin, until an operator turns it on
+  // per org — same shape as the line above, same reason.
+  if (capability === "training.read") return false;
   if (role === "admin") return true;
   if (role in B7_BY_ROLE) return B7_BY_ROLE[role].includes(capability);
   return (B7[capability] ?? []).includes(role);

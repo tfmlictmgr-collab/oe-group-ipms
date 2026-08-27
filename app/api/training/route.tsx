@@ -21,6 +21,11 @@ import { TrainingGuideDocument } from "@/lib/pdf/training-guide";
 // edition-filtered catalogue before anything is rendered — never trusted to
 // pick an operator-only process for a brand admin, or a lettings process for
 // an org without the module.
+//
+// AND gated behind `training.read` (0203) — off for every role in every org,
+// admin included, until an OE Group operator turns it on per org. Checked
+// here independently of the screen: a direct request to this route must not
+// be a way around the same rollout gate the page enforces.
 export const runtime = "nodejs";
 
 export async function GET(req: Request) {
@@ -33,15 +38,21 @@ export async function GET(req: Request) {
     return new NextResponse("Administrator access required", { status: 403 });
   }
 
+  const supabase = await createClient();
+  const [{ data: canRead }, { data: moduleRows }] = await Promise.all([
+    supabase.rpc("has_permission", { p_capability: "training.read" }),
+    supabase.from("org_modules").select("module").eq("org_id", profile.org_id).eq("enabled", true),
+  ]);
+  if (!canRead) {
+    return new NextResponse(
+      "The training handbook isn't turned on for your organisation yet.",
+      { status: 403 }
+    );
+  }
+
   const isOperator = Boolean(org.is_platform_operator);
   const edition: Edition = isOperator ? "operator" : org.delivery_brand === "OEA" ? "OEA" : "TFML";
 
-  const supabase = await createClient();
-  const { data: moduleRows } = await supabase
-    .from("org_modules")
-    .select("module")
-    .eq("org_id", profile.org_id)
-    .eq("enabled", true);
   const orgFeatures = new Set((moduleRows ?? []).map((r) => r.module as string));
 
   const { searchParams } = new URL(req.url);

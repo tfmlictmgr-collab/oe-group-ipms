@@ -105,6 +105,14 @@ export type NavContext = {
   reviewsVendorRegistrations: boolean;
   seesLettings: boolean;
   seesServiceCharges: boolean;
+  /**
+   * `training.read` (0203) — off by default for every role, including admin,
+   * in every organisation. Deliberately unlike every other nav link on this
+   * screen: the handbook ships with the release, and an operator turns it on
+   * per org once that org's own content has been reviewed, rather than every
+   * client seeing it appear unannounced on deploy day.
+   */
+  seesTraining: boolean;
   /** Vendor payments. Not capability-derived: approval is non-delegable. */
   seesPayments: boolean;
   /** The approval queue for outbound payments (0151). Non-delegable likewise. */
@@ -348,17 +356,15 @@ export const NAV_GROUPS: NavGroup[] = [
         show: () => true,
       },
       {
-        // The trainer's handbook, not the learner's. Admin-only (`isAdmin`
-        // covers a brand's own administrator AND a platform-operator admin
-        // alike) because it names thresholds, refusal reasons and — for the
-        // operator edition only — that other organisations exist at all. The
-        // page itself re-derives which edition to render from `org`; this
-        // link is presentation, not the boundary (same pattern as `isOperator`
-        // above).
+        // The trainer's handbook, not the learner's. Gated on `training.read`
+        // (0203) rather than `isAdmin` alone — it ships OFF for every
+        // organisation, including the operator's own, until OE Group turns it
+        // on per org. The page and the API route both re-check the same
+        // capability server-side; this is presentation, not the boundary.
         label: "Training",
         href: "/dashboard/training",
         icon: GraduationCap,
-        show: (c) => c.isAdmin,
+        show: (c) => c.seesTraining,
       },
       {
         // Open to everyone: personal notification preferences live here. The

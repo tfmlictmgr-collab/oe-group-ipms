@@ -1100,13 +1100,27 @@ export const PROCESS_CATALOGUE: Process[] = [
       "The reader can answer \"what can I do here\" without asking anyone; " +
       "an admin can run a training session straight from the same source the " +
       "screen itself is built from.",
+    refusals: [
+      {
+        trigger:
+          "An admin opens Training and sees \"Not turned on for your " +
+          "organisation yet\".",
+        explanation:
+          "The handbook is a rollout switch, not a permission — it ships " +
+          "off for every role in every organisation, admin included, and an " +
+          "OE Group operator turns it on per organisation once that " +
+          "organisation's own content has been reviewed (same shape as " +
+          "`tickets.assign_without_review`, 0178). Ask OE Group, not your " +
+          "own administrator settings.",
+      },
+    ],
     trainer: {
       demo:
         "Download your own role guide's PDF live, then switch Training to " +
         "Trainer view and show the same process with its demo notes attached.",
       exercise: "Download your own guide as whichever demo login you are currently using.",
     },
-    capabilities: [],
+    capabilities: ["training.read"],
     routes: ["/dashboard/guide", "/dashboard/training"],
     roles: ["tenant", "vendor", "admin"],
   },

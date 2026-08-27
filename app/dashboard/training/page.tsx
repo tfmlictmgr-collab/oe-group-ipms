@@ -1,12 +1,13 @@
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
-import { Download } from "lucide-react";
+import { Download, GraduationCap } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
 import { roleLabel } from "@/lib/roles";
 import { processesForEdition, type Edition } from "@/lib/guides/processes";
 import { PageHeader } from "@/components/patterns/page-header";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/patterns/empty-state";
 import AdminOnly from "../settings/AdminOnly";
 import TrainingBrowser from "./TrainingBrowser";
 
@@ -14,11 +15,15 @@ import TrainingBrowser from "./TrainingBrowser";
 // to train an org admin with, and for an org admin to train their own team
 // with in turn.
 //
-// ⚠️ Admin-only, same boundary `settings/permissions` already draws — this
-// screen names approval thresholds and refusal reasons, and for the operator
-// edition, that other organisations exist at all (B1). It is not a capability
-// in the B7 matrix because it governs nothing; it is governed the way
-// `/dashboard/guide` is, by who is signed in, never by a parameter.
+// ⚠️ Admin-only (same boundary `settings/permissions` draws — this screen
+// names approval thresholds, refusal reasons and, for the operator edition,
+// that other organisations exist at all) AND gated behind `training.read`
+// (0203), which is off for every role in every org, including admin, until
+// an OE Group operator turns it on. That second gate is deliberate and
+// unlike this screen's other cousins: the handbook ships with the release,
+// and a client should not see it appear unannounced on deploy day. The nav
+// link and this page both re-check the same capability server-side — the
+// link is presentation, this check is the boundary.
 //
 // One source, filtered, never a second copy: `lib/guides/processes.ts` is the
 // same catalogue `verify-training-guide.mjs` checks against the live database.
@@ -33,6 +38,25 @@ export default async function TrainingPage() {
   const { profile, org } = session;
   if (profile.role !== "admin") return <AdminOnly what="the training handbook" />;
 
+  const supabase = await createClient();
+  const [{ data: canRead }, { data: moduleRows }] = await Promise.all([
+    supabase.rpc("has_permission", { p_capability: "training.read" }),
+    supabase.from("org_modules").select("module").eq("org_id", profile.org_id).eq("enabled", true),
+  ]);
+
+  if (!canRead) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Training" />
+        <EmptyState
+          icon={<GraduationCap />}
+          title="Not turned on for your organisation yet"
+          description="The training handbook is rolling out organisation by organisation. Ask your OE Group contact to enable it."
+        />
+      </div>
+    );
+  }
+
   // Same derivation as `isOperator` in the dashboard layout: an operator
   // admin's edition is allowed to say other organisations exist; a brand
   // admin's is not, and never sees the operator-only journeys at all.
@@ -43,12 +67,6 @@ export default async function TrainingPage() {
       ? "OEA"
       : "TFML";
 
-  const supabase = await createClient();
-  const { data: moduleRows } = await supabase
-    .from("org_modules")
-    .select("module")
-    .eq("org_id", profile.org_id)
-    .eq("enabled", true);
   const orgFeatures = new Set((moduleRows ?? []).map((r) => r.module as string));
 
   const processes = processesForEdition(edition, orgFeatures);

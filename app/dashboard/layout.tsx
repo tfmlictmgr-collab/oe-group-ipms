@@ -228,6 +228,9 @@ export default async function DashboardLayout({
       "payment_approver", "payment_audit_approver", "finance_approver",
     ].includes(role),
     canEnroll: can("people.invite"),
+    // Off everywhere until an operator turns it on per org (0203) — an admin
+    // alone is not enough, unlike every other admin-only screen.
+    seesTraining: can("training.read"),
 
     // B7 "Exec / BI dashboard" column — one definition, shared with the pages
     // themselves so the link and the page can never disagree about who may look.
