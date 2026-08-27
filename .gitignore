@@ -12,6 +12,9 @@ node_modules/
 .DS_Store
 Thumbs.db
 
+# Generated per-org artifacts (own thresholds/branding — never a source file)
+/docs/generated/
+
 # Next.js
 /.next/
 /out/

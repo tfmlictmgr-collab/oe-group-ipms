@@ -23,6 +23,7 @@ import {
   type LucideIcon,
   ClipboardCheck,
   BookOpen,
+  GraduationCap,
 } from "lucide-react";
 
 // Role/permission context computed on the server (from the B7 matrix) and passed
@@ -345,6 +346,19 @@ export const NAV_GROUPS: NavGroup[] = [
         href: "/dashboard/guide",
         icon: BookOpen,
         show: () => true,
+      },
+      {
+        // The trainer's handbook, not the learner's. Admin-only (`isAdmin`
+        // covers a brand's own administrator AND a platform-operator admin
+        // alike) because it names thresholds, refusal reasons and — for the
+        // operator edition only — that other organisations exist at all. The
+        // page itself re-derives which edition to render from `org`; this
+        // link is presentation, not the boundary (same pattern as `isOperator`
+        // above).
+        label: "Training",
+        href: "/dashboard/training",
+        icon: GraduationCap,
+        show: (c) => c.isAdmin,
       },
       {
         // Open to everyone: personal notification preferences live here. The
