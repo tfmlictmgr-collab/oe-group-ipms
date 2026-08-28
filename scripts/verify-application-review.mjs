@@ -389,6 +389,32 @@ const infoApp = await mkApp(propA, "individual", "info");
 
   const anon = createClient(URL_, ANON);
 
+  // ⚠️ THE STEP THIS SECTION USED TO SKIP, and the one a real applicant takes
+  // first. J went straight from the info request to `record_application_attachment`
+  // — so it exercised everything DOWNSTREAM of the door and never the door.
+  // `resume_application` matched `status = 'draft'` alone, so the link in the
+  // "we need more information" email resolved to nothing and every applicant
+  // ever asked for more was told "this link no longer works". Proven against a
+  // real OEA applicant's own unexpired token before it was fixed (0219).
+  const { data: reopened } = await anon
+    .rpc("resume_application", { p_token_hash: hash(newToken) })
+    .maybeSingle();
+  reopened?.id === infoApp
+    ? ok("the emailed link actually opens the form again")
+    : bad("THE INFO-REQUEST LINK IS DEAD — the applicant cannot answer at all");
+  /clearer copy of the guarantor/i.test(reopened?.info_request_reason ?? "")
+    ? ok("and shows the applicant what was asked, in the reviewer's own words")
+    : bad(`the request reason is not shown to the applicant: ${reopened?.info_request_reason ?? "null"}`);
+
+  // And an edit has somewhere to go. `save_application_draft` was draft-only
+  // too, so an answer typed into the reopened form could not be kept.
+  const { data: savedEdit } = await anon.rpc("save_application_draft", {
+    p_token_hash: hash(newToken), p_form: { note: "answering the request" }, p_sensitive: {},
+  });
+  savedEdit === true
+    ? ok("and an edit made while answering saves")
+    : bad("an applicant answering a request cannot save their edit");
+
   // The Day 7 document-completeness gate applies to a resubmission exactly as it
   // does to the first one — proven here rather than assumed, by attaching the
   // three required documents under the NEW token before resubmitting.
@@ -405,6 +431,16 @@ const infoApp = await mkApp(propA, "individual", "info");
   });
   !subErr && resub === infoApp ? ok("the applicant resubmits through the new link")
                                 : bad(`resubmit failed — ${subErr?.message.slice(0, 70)}`);
+
+  // ⚠️ The return path. `submit_tenant_application` had NO notification of any
+  // kind — first submission or resubmission — so the reviewer asked, the
+  // applicant answered, and nobody was told the answer had arrived. The vendor
+  // twin has notified its review desk since 0164.
+  const { data: notes } = await svc.from("user_notifications")
+    .select("title").eq("entity_id", infoApp).eq("entity_type", "tenant_application");
+  (notes ?? []).some((n) => /answered/i.test(n.title))
+    ? ok("and the reviewer is told the answer arrived")
+    : bad("NOBODY WAS TOLD the applicant answered — the loop has no return path");
 
   const { data: post } = await svc.from("tenant_applications")
     .select("status, recommendation, recommended_by, resume_token_hash").eq("id", infoApp).single();

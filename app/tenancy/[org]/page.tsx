@@ -135,6 +135,11 @@ export default async function ApplyPage({
         org_id: string;
         type: "individual" | "corporate";
         form: Record<string, unknown> | null;
+        // What the reviewer actually asked for, in their own words. Null unless
+        // this application was reopened by an info request (0219). Until then
+        // it existed only in the email, so an applicant opening the link on a
+        // different device saw their own answers with no idea which was wrong.
+        info_request_reason: string | null;
       }>();
 
     // `org_id` is re-checked against the URL: a token is for one application in
@@ -167,6 +172,7 @@ export default async function ApplyPage({
           type={draft.type}
           orgName={brandName}
           initialValues={(draft.form ?? {}) as Record<string, unknown>}
+          infoRequestReason={draft.info_request_reason}
           supabaseUrl={process.env.NEXT_PUBLIC_SUPABASE_URL!}
           anonKey={process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!}
         />

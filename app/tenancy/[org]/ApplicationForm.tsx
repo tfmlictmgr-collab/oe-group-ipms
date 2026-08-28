@@ -3,7 +3,7 @@
 import * as React from "react";
 import { toast } from "sonner";
 import {
-  ChevronLeft, ChevronRight, Save, Upload, Check, ShieldCheck, FileText, Lock,
+  ChevronLeft, ChevronRight, Save, Upload, Check, ShieldCheck, FileText, Lock, CircleAlert,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -21,12 +21,15 @@ type Kind = "individual" | "corporate";
 
 export default function ApplicationForm({
   applicationId, resumeToken, type, orgName, initialValues, supabaseUrl, anonKey,
+  infoRequestReason,
 }: {
   applicationId: string;
   resumeToken: string;
   type: Kind;
   orgName: string;
   initialValues: Record<string, unknown>;
+  /** The reviewer's own words, when this was reopened by an info request. */
+  infoRequestReason?: string | null;
   supabaseUrl: string;
   anonKey: string;
 }) {
@@ -122,6 +125,29 @@ export default function ApplicationForm({
 
   return (
     <div className="space-y-6">
+      {/* What the reviewer asked for, on every step of the form.
+          ⚠️ This existed only in the email until 0219. An applicant who opened
+          the link on another device, or lost the mail, was looking at their own
+          answers with nothing saying which one was wrong — and the likeliest
+          outcome is resubmitting unchanged, which sends it back having answered
+          nothing. Shown on all steps because the thing being asked for may live
+          on any of them. */}
+      {infoRequestReason && (
+        <div className="space-y-1 rounded-xl border border-warning/40 bg-warning/5 p-4">
+          <p className="flex items-center gap-2 text-sm font-medium">
+            <CircleAlert className="size-4 text-warning" />
+            {orgName} asked for a little more
+          </p>
+          <p className="whitespace-pre-line text-sm text-muted-foreground">
+            {infoRequestReason}
+          </p>
+          <p className="pt-1 text-xs text-muted-foreground">
+            Update whatever they asked about, then send it back at the end. Your
+            answers so far are kept as you go.
+          </p>
+        </div>
+      )}
+
       {/* Progress — a long form on a phone needs to say how much is left. */}
       <div className="space-y-2">
         <div className="flex items-center justify-between text-xs text-muted-foreground">
