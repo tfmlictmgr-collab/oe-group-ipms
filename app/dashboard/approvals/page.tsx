@@ -75,7 +75,7 @@ export default async function ApprovalsPage() {
       .limit(100),
     supabase
       .from("ops_requisitions")
-      .select("id, total_amount, reference, status, tickets(summary)")
+      .select("id, total_amount, reference, status, invoice_attachment_path, tickets(summary)")
       .eq("status", "pending_approval")
       .order("created_at", { ascending: true })
       .limit(100),
@@ -118,11 +118,19 @@ export default async function ApprovalsPage() {
     ...(requisitions ?? []).map(async (q) => {
       const state = await getChainState(supabase, "ops_requisition", q.id);
       const job = (q.tickets as { summary?: string } | null)?.summary;
+      // Say whether there is evidence to open. The auditor's stage is a check
+      // of the invoice against the job card, and a queue that does not
+      // distinguish "nothing attached" from "an invoice is waiting for you"
+      // makes them open every row to find out.
+      const hasInvoice = Boolean(q.invoice_attachment_path);
       return {
         payableType: "ops_requisition" as const,
         payableId: q.id,
         title: `${q.reference} — ${formatNaira(state.amount)}`,
-        subtitle: job ? `Requisition for: ${job}` : "Standalone requisition",
+        subtitle: [
+          job ? `Requisition for: ${job}` : "Standalone requisition",
+          hasInvoice ? "invoice attached" : "no invoice attached",
+        ].join(" · "),
         href: `/dashboard/approvals/requisitions/${q.id}`,
         state,
       };

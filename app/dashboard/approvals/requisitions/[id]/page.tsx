@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, CircleAlert, Paperclip } from "lucide-react";
 import { getSessionProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/patterns/page-header";
@@ -39,7 +39,7 @@ export default async function RequisitionDetailPage({
   const { data: req } = await supabase
     .from("ops_requisitions")
     .select(
-      "id, org_id, reference, total_amount, status, raised_by, rejected_reason, invoice_attachment_path, tickets(id, summary), users!ops_requisitions_raised_by_fkey(full_name)"
+      "id, org_id, reference, total_amount, status, raised_by, created_at, rejected_reason, invoice_attachment_path, tickets(id, summary, category, urgency, property_or_unit), users!ops_requisitions_raised_by_fkey(full_name)"
     )
     .eq("id", id)
     .maybeSingle();
@@ -61,6 +61,26 @@ export default async function RequisitionDetailPage({
     role: me?.role ?? session.profile.role,
     approvalTier: me?.approval_tier ?? null,
   };
+
+  // ⚠️ The evidence the chain is being asked to approve AGAINST.
+  //
+  // `raise_ops_requisition` has accepted an attachment since 0170 and the
+  // FM/PM form has uploaded one since — into the same bucket a vendor invoice
+  // scan uses. 0140's read policy on that bucket joined `payments` and nothing
+  // else, so a requisition's invoice was unreadable by every role, and this
+  // page selected the column and never rendered it. Both halves are fixed:
+  // 0217 for the policy, this for the screen.
+  //
+  // The path never came from the client — it is read off a row RLS already
+  // admitted — so signing it here needs no second authorisation check.
+  let invoiceUrl: string | null = null;
+  if (req.invoice_attachment_path) {
+    const { data: signed } = await supabase.storage
+      .from("invoice-attachments")
+      .createSignedUrl(req.invoice_attachment_path, 300);
+    invoiceUrl = signed?.signedUrl ?? null;
+  }
+  const isImage = /\.(png|jpe?g|webp|gif)$/i.test(req.invoice_attachment_path ?? "");
 
   const state = await getChainState(supabase, "ops_requisition", req.id);
   const canAction = canActorAction(actor, state);
@@ -88,7 +108,13 @@ export default async function RequisitionDetailPage({
     }
   }
 
-  const ticket = req.tickets as unknown as { id: string; summary: string | null } | null;
+  const ticket = req.tickets as unknown as {
+    id: string;
+    summary: string | null;
+    category: string | null;
+    urgency: string | null;
+    property_or_unit: string | null;
+  } | null;
   const raiser = (req.users as unknown as { full_name: string | null } | null)?.full_name;
 
   return (
@@ -111,6 +137,81 @@ export default async function RequisitionDetailPage({
           </CardContent>
         </Card>
       )}
+
+      {/* Everything the chain needs in order to judge this, on the page they
+          land on — the invoice, the job it was raised against, and who raised
+          it when. The auditor's stage exists to check an invoice AGAINST the
+          job card and the evidence; before this they had neither on screen. */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">The requisition as raised</CardTitle>
+          <CardDescription>
+            {formatNaira(req.total_amount)} · raised by {raiser ?? "someone no longer listed"}
+            {req.created_at
+              ? ` on ${new Date(req.created_at).toLocaleDateString("en-NG", {
+                  day: "numeric", month: "long", year: "numeric",
+                })}`
+              : ""}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {ticket ? (
+            <div className="space-y-1 rounded-md border border-border p-3">
+              <p className="text-xs font-medium text-muted-foreground">Raised for this job</p>
+              <Link
+                href={`/dashboard/tickets/${ticket.id}`}
+                className="text-sm font-medium hover:underline"
+              >
+                {ticket.summary ?? "Service request"}
+              </Link>
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {ticket.category && <Badge variant="outline" className="text-[10px]">{ticket.category}</Badge>}
+                {ticket.urgency && <Badge variant="muted" className="text-[10px]">{ticket.urgency}</Badge>}
+                {ticket.property_or_unit && (
+                  <Badge variant="muted" className="text-[10px]">{ticket.property_or_unit}</Badge>
+                )}
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Standalone — not raised against a specific job.
+            </p>
+          )}
+
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-muted-foreground">Invoice / quotation</p>
+            {invoiceUrl ? (
+              <div className="space-y-2">
+                {isImage && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={invoiceUrl}
+                    alt="The invoice attached to this requisition"
+                    className="max-h-96 w-auto rounded-md border border-border"
+                  />
+                )}
+                <Button asChild variant="outline" size="sm" className="w-fit">
+                  <a href={invoiceUrl} target="_blank" rel="noopener noreferrer">
+                    <Paperclip /> Open the attached invoice
+                  </a>
+                </Button>
+              </div>
+            ) : req.invoice_attachment_path ? (
+              // The path is on the row but storage would not sign it. Said
+              // plainly rather than rendered as an absence — "no invoice" and
+              // "an invoice you cannot open" need different actions.
+              <p className="flex items-center gap-1.5 text-sm text-destructive">
+                <CircleAlert className="size-4" />
+                An invoice is attached but could not be opened. Tell whoever raised it.
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Nothing was attached when this was raised.
+              </p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
