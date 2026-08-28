@@ -75,7 +75,10 @@ export default async function MyCompanyPage() {
         .order("sort_order"),
       supabase
         .from("vendor_users")
-        .select("id, user_id, is_owner, capabilities, users(full_name, email)")
+        // `vendor_users` has TWO FKs to `users` — `user_id` (the member) and
+        // `invited_by` (who added them) — so the embed must name which one it
+        // means or PostgREST refuses as ambiguous (PGRST201).
+        .select("id, user_id, is_owner, capabilities, users!vendor_users_user_id_fkey(full_name, email)")
         .eq("vendor_id", vendorId),
     ]);
 
