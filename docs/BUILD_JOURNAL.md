@@ -5596,3 +5596,95 @@ refused. Same shape as `submit_vendor_registration` and
 again). Walked end to end through the real UI on 28 Aug 2026 for the first time:
 details saved, declaration ticked, four documents attached, checklist empty,
 Send for review enabled, status `submitted`.
+
+---
+
+## Four reports, one shape: the consumer written for the first case
+
+The demo produced four complaints. Each turned out to be a reader that was
+written when there was one kind of thing, stayed correct for that kind, and was
+silently wrong for the second kind added later.
+
+### The auditor could not open the invoice (0217)
+
+`raise_ops_requisition` has taken an attachment since 0170, and the FM/PM form
+uploads it into the same `invoice-attachments` bucket a vendor invoice scan
+uses. 0140's read policy on that bucket is one EXISTS against **`payments`**.
+A requisition's invoice matched no policy at all, so it was readable by nobody.
+
+Measured on the real demo requisition — OEA, ₦632,200, 94,070 bytes genuinely
+in the bucket — signing in as each role: all four saw the requisition, its
+lines and the job card; none could open the invoice. ⚠️ Storage answers a
+hidden object as **"Object not found"**, so on screen it looked like a missing
+file rather than a refusal, which is why it read as "the details didn't
+surface" rather than "I am not allowed".
+
+The detail page also *selected* `invoice_attachment_path` and never rendered
+it. Both halves were broken, in the same direction, independently.
+
+### An FM could not find the work they raised (0218)
+
+`raise_work_order` inserted `sender_id` as NULL — explicitly, with a comment.
+`tickets_select` returns a request to `sender_id = auth.uid()` and the "Raised
+by me" view filters on it, so work raised through *Raise Work* belonged to
+nobody and the view was permanently empty for the one path that should fill it.
+
+0120's reasoning was that planned work "has no reporter". True of a TENANT,
+false of a raiser — and `New Request` has always stamped whoever submitted the
+form, an FM included, so the two intake paths already disagreed.
+
+📌 The consequence had to move with it, and it was **already wrong**:
+`isTenant` on the ticket page was `sender_id === me`, so an FM who raised
+through New Request was handed the tenant's *satisfaction* form and their rating
+filed as `source = 'tenant'`. 0220 states the invariant directly in the
+database — a tenant-source rating requires the caller to be a tenant — so an FM
+cannot score the satisfaction half for a contractor they hired, on a composite
+that gates payment.
+
+⚠️ `verify-fm-journey` asserted `sender_id is null` and gave that exact reason.
+**The assertion was defending a real invariant through an incidental fact**, and
+the fact cost the FM the ability to find their own work. The invariant is kept
+and stated; the fact is no longer carrying it.
+
+### The applicant asked for more could never answer (0219)
+
+The worst of the four. `record_application_info_request` reopens an application
+as `status = 'info_requested'`. `resume_application` matched `status = 'draft'`
+and nothing else. With the real OEA applicant's own unexpired token:
+
+    application b1d4da73…  status=info_requested  token live=true
+    resume_application(<their own token>)  ->  0 rows
+
+They see *"This link no longer works"*. There is no other way in.
+
+📌 **0082d fixed the two functions downstream of that door.** Its header says an
+applicant "asked to upload a clearer document could not upload one" — and it
+widened the upload, correctly, noting submit was already widened. Neither is
+reachable. Asking the catalogue which functions key on `resume_token_hash` and
+what status each accepts found **two** shut doors, not one: `save_application_draft`
+was draft-only too, so an answer could not have been kept even if they got in.
+
+And `submit_tenant_application` had no notification of any kind — first
+submission or resubmission — where `submit_vendor_registration` has notified its
+review desk since 0164. So the loop had no return path either: the reviewer
+asks, the applicant answers, nobody is told.
+
+### The shape
+
+A payable type that is not a payment. A sender who is not a tenant. An
+application status that is not `draft`. In each case the writer was taught the
+new case and the readers were not.
+
+**Adding a second case is not finished when the writer accepts it. It is
+finished when every reader of the first has been re-read.** The catalogue will
+answer that question — `prosrc like '%resume_token_hash%'`, `invoice_attachment_path`
+across policies — and guessing will not.
+
+### And one on myself
+
+Verifying 0219 I called `save_application_draft` against the **real** applicant's
+row to prove an edit saves, and overwrote 37 answered fields with
+`{"probe":"edit"}`. Restored in full from `audit_log.before_state`, which is
+exactly what `log_audit` captures it for — but the probe should have run inside
+a transaction that rolled back, the way every suite here does it. A write probe
+against live data is a write, however short its life was meant to be.
