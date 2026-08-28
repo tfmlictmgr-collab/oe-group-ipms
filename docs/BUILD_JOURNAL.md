@@ -5522,3 +5522,77 @@ configured* rather than *I cannot tell*. That is the fourth entry in this repo's
 stale-environment sequence and the only one where the failure was a **silent
 absence of an answer** rather than a wrong one. It now distinguishes "missing or
 empty" from "exists but unparseable", and accepts quotes.
+
+---
+
+## The vendor KYC form never ended, and a vendor could end it themselves
+
+A screenshot from a live OEA contractor: four brand-red pills — Manage people,
+Manage company details, Manage work, Manage contracts — circled, with "couldn't
+click on the buttons". Chasing that produced one presentation fix and three
+defects underneath it, only one of which anybody had noticed.
+
+### The screenshot: a disabled button is still a button
+
+`editable = canManageUsers && !m.isOwner`, so an owner's own chips render
+`disabled` — correctly. An owner holds all four implicitly and
+`vendor_users_keep_an_owner` means the database would refuse to take them away.
+
+But they rendered as `<button>` in `bg-[var(--brand)]`, which on OEA is red.
+Four primary-coloured, button-shaped, inert controls with no explanation. The
+vendor read that as broken, which is precisely what it looked like. When they
+are not editable they are no longer buttons: they are `<span>`s in a success
+tone, with a line underneath — *"An owner holds all four permanently."*
+
+📌 The rule worth keeping: **if a control cannot be operated, do not render a
+control.** `disabled` is a state for something that will become operable, not a
+way to display a fact.
+
+### The pack could never be submitted, by anyone
+
+⚠️ `vendor_registration_missing()` has required `compliance_declared_at` since
+`0164`. **Nothing in the product ever wrote it.** There was no compliance
+control on any screen, so a vendor who filled every field and attached every
+document was still told *"still outstanding: the compliance declaration"*, with
+nothing anywhere able to satisfy it. The KYC form was unsubmittable by
+construction, and had been since the day the UI shipped.
+
+The contractor in the screenshot had **all six documents attached and no
+registration row at all** — so their checklist read *"the registration has not
+been started"*: one item, naming no action, hiding the ten requirements behind
+it. They had done the effortful part first and nothing told them to press Save.
+
+### And a vendor could approve their own registration
+
+`vendor_registrations_insert` checks the row's org and the caller's capability
+and says **nothing about `status`**. Confirmed by attempting it as a real
+signed-in vendor: the row landed `approved`, `reviewed_at` set, 13 items
+outstanding. `review_vendor_registration` then refuses to act on an
+already-approved pack — so the vendor leaves the review queue having been
+reviewed by nobody. Decision 10's rubber stamp, reached from the subject's side.
+
+Beside it: an UPDATE **policy** with no UPDATE **grant**, so a vendor could save
+their details once and never correct them. The client's `upsert` hid that
+completely, because the branch that fails is the one that never runs on a first
+save.
+
+📌 **The suite was watching the door beside the open one.** D6 already asserted
+*"a vendor cannot PATCH their own pack to approved"* — and passed, for a reason
+that had nothing to do with intent: there was no UPDATE grant, so nothing a
+vendor PATCHed ever landed. INSERT was granted and untested. A green check on
+the wrong verb reads exactly like a green check on the right one.
+
+The fix is one write path, not a narrower grant. `authenticated` holds SELECT
+and nothing else on `vendor_registrations`; `save_vendor_registration` resolves
+the org from the vendor row, writes only profile columns, and never takes
+`status` from a caller — so the self-approval is unreachable rather than merely
+refused. Same shape as `submit_vendor_registration` and
+`supersede_vendor_document`, for the same reason.
+
+### Where the form actually ends
+
+`draft` → **Send for review** → `submitted` → the organisation reviews →
+`approved` (terminal) or `changes_requested` (back to the vendor, editable
+again). Walked end to end through the real UI on 28 Aug 2026 for the first time:
+details saved, declaration ticked, four documents attached, checklist empty,
+Send for review enabled, status `submitted`.

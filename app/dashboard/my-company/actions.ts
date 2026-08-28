@@ -38,6 +38,9 @@ export type RegistrationInput = {
   bankName: string;
   accountName: string;
   accountNumberLast4: string;
+  /** The declaration text AS SHOWN on screen, stored verbatim. */
+  complianceStatement: string;
+  declareCompliance: boolean;
 };
 
 export async function saveRegistration(
@@ -45,50 +48,43 @@ export async function saveRegistration(
   input: RegistrationInput
 ): Promise<ActionResult> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return fail("Your session expired. Please sign in again.");
 
-  const { data: me } = await supabase
-    .from("users")
-    .select("org_id")
-    .eq("id", user.id)
-    .single();
-  if (!me) return fail("Could not resolve your profile.");
-
-  const last4 = input.accountNumberLast4.replace(/\D/g, "");
-  if (last4 && last4.length !== 4) {
-    return fail(
-      "Enter only the LAST FOUR digits of the account number.",
-      "We never store the full number — finance reads it off the bank document you attach."
-    );
-  }
-
-  const row = {
-    org_id: me.org_id,
-    vendor_id: vendorId,
-    legal_name: input.legalName.trim() || null,
-    trading_name: input.tradingName.trim() || null,
-    cac_number: input.cacNumber.trim() || null,
-    tin: input.tin.trim() || null,
-    business_type: input.businessType.trim() || null,
-    address: input.address.trim() || null,
-    city: input.city.trim() || null,
-    state: input.state.trim() || null,
-    phone: input.phone.trim() || null,
-    email: input.email.trim() || null,
-    website: input.website.trim() || null,
-    bank_name: input.bankName.trim() || null,
-    account_name: input.accountName.trim() || null,
-    account_number_last4: last4 || null,
-    updated_at: new Date().toISOString(),
-  };
-
-  const { error } = await supabase
-    .from("vendor_registrations")
-    .upsert(row, { onConflict: "vendor_id" });
-  if (error) return failFromDb(error, "save your company details");
+  // ⚠️ Through an RPC, not a table upsert.
+  //
+  // The upsert this replaced could only ever INSERT. `authenticated` held
+  // `select, insert` on `vendor_registrations` and no UPDATE grant, while a
+  // `vendor_registrations_update` POLICY existed — Postgres needs both — so the
+  // first save worked and every later one died on "permission denied for table
+  // vendor_registrations". A vendor could enter their details once and never
+  // correct a typo.
+  //
+  // ⚠️ And the insert policy constrained the row's ORG but not its STATUS, so a
+  // vendor could file their own registration as `approved`. Confirmed by
+  // attempting it. `save_vendor_registration` (0216) never takes status from a
+  // caller at all, which is why the table write is gone rather than widened.
+  const { error } = await supabase.rpc("save_vendor_registration", {
+    p_vendor_id: vendorId,
+    p_legal_name: input.legalName,
+    p_trading_name: input.tradingName,
+    p_cac_number: input.cacNumber,
+    p_tin: input.tin,
+    p_business_type: input.businessType,
+    p_address: input.address,
+    p_city: input.city,
+    p_state: input.state,
+    p_phone: input.phone,
+    p_email: input.email,
+    p_website: input.website,
+    p_bank_name: input.bankName,
+    p_account_name: input.accountName,
+    p_account_number_last4: input.accountNumberLast4,
+    // Stored verbatim per vendor, so a later change to the wording never
+    // rewrites what somebody actually agreed to (decision 10's rule for
+    // consent copy).
+    p_compliance_statement: input.complianceStatement,
+    p_declare_compliance: input.declareCompliance,
+  });
+  if (error) return fail(error.message.replace(/^.*?:\s*/, ""));
 
   revalidatePath("/dashboard/my-company");
   return ok();

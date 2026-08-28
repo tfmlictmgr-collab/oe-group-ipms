@@ -145,7 +145,7 @@ never complete. It is not set in `.env.local`, which is why the local check belo
 
 ## 5. Verification
 
-`scripts/verify-vendor-self-service.mjs` — 54 checks, all passing (section G added 28 Aug 2026, §5a). Each refusal is verified by
+`scripts/verify-vendor-self-service.mjs` — 56 checks, all passing (section G added 28 Aug 2026, §5a). Each refusal is verified by
 **attempting** the operation as a real signed-in user, never by reading a policy or grant table.
 Section F stages real objects in the bucket and moves them across a brand boundary — a transfer
 suite that never moves a byte proves only that two tables agree with each other.
@@ -200,6 +200,56 @@ neither — and the client additionally offered `image/heic`, which the bucket h
 an iPhone photo passed the browser and was refused by storage with a message written for a
 developer. The rules are stated **before** the picker opens, the refusal names the actual file size,
 and HEIC gets the Settings → Camera → Formats instruction rather than a generic error.
+
+## 5b. Why the pack could never be submitted (28 Aug 2026 — `0216`)
+
+§5a fixed why a document would not **attach**. This is why the pack could not be
+**submitted**, which is a different wall and the one behind it.
+
+**`vendor_registration_missing()` has required a compliance declaration since
+`0164`, and nothing in the product ever wrote one.** There was no compliance
+control on any screen. A vendor could fill every field and attach every document
+and still be told *"still outstanding: the compliance declaration"* — with
+nothing anywhere able to satisfy it. The pack was unsubmittable by construction.
+
+Observed live: one OEA contractor had all six documents attached and no
+registration row at all, so the checklist read **"the registration has not been
+started"** — one item, and a dead end. That message names no action and hides
+the ten other requirements behind it, so the vendor had done the visibly
+effortful part first and had nothing telling them to press **Save details**.
+
+Two more defects in the same table, found while fixing it:
+
+- ⚠️ **A vendor could file their own registration as `approved`.**
+  `vendor_registrations_insert` checks the row's org and the caller's
+  capability, and says nothing about `status`. Confirmed by attempting it as a
+  real signed-in vendor: the row landed `approved` with `reviewed_at` set and 13
+  items outstanding. `review_vendor_registration` then refuses to act on an
+  already-approved pack, so the vendor leaves the review queue having been
+  reviewed by nobody — decision 10's rubber stamp, reached from the subject's
+  side. Nothing gates a payment on this (decision 17 is unchanged); what it
+  forges is the record of a human decision.
+  📌 **The suite watched the door beside it.** D6 already asserted a vendor
+  cannot PATCH their pack to approved — and passed because there was no UPDATE
+  *grant*, not because anyone had thought about INSERT. D6b now attempts it.
+- **Details could be saved once and never corrected.** A
+  `vendor_registrations_update` POLICY exists; the table grant was
+  `select, insert`. Postgres needs both, so every save after the first died on
+  `permission denied for table vendor_registrations` — and the client's `upsert`
+  hid it, because the ON CONFLICT branch is the one that never runs on a first
+  save.
+
+**The fix is one write path.** `authenticated` now holds **SELECT and nothing
+else** on `vendor_registrations`. `save_vendor_registration()` resolves the org
+from the vendor row, writes only profile columns, records the declaration
+verbatim, and never takes `status` / `reviewed_*` / `submitted_*` from a caller
+— so the self-approval is not narrowed, it is unreachable.
+
+**Where the form actually ends:** `draft` → *Send for review* → `submitted` →
+the organisation reviews → `approved` (terminal) or `changes_requested` (back to
+the vendor, editable again). Verified end to end through the real UI on
+28 Aug 2026: details saved, declaration ticked, four documents attached,
+checklist empty, **Send for review** enabled, status `submitted`.
 
 ## 6. Still owed
 

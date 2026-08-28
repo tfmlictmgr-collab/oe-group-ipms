@@ -302,8 +302,12 @@ console.log("\nC. The membership itself is not self-service");
 console.log("\nD. The registration pack");
 // ---------------------------------------------------------------------------
 {
-  const { error: startErr } = await ownerC.from("vendor_registrations")
-    .insert({ org_id: org.id, vendor_id: vendorA, legal_name: `Probe VSS Alpha ${S} Ltd` });
+  // ⚠️ Through the RPC. `authenticated` lost INSERT and UPDATE on this table in
+  // 0216 — see D6b for the reason — so save_vendor_registration is now the only
+  // way a vendor writes their own pack.
+  const { error: startErr } = await ownerC.rpc("save_vendor_registration", {
+    p_vendor_id: vendorA, p_legal_name: `Probe VSS Alpha ${S} Ltd`,
+  });
   !startErr ? ok("D1 the vendor starts their own pack") : bad(`D1 — ${startErr.message}`);
 
   const { data: missing } = await ownerC.rpc("vendor_registration_missing", { p_vendor_id: vendorA });
@@ -317,14 +321,25 @@ console.log("\nD. The registration pack");
     ? ok("D4 the refusal says what is outstanding rather than just 'invalid'")
     : bad(`D4 unhelpful refusal: ${earlySubmit?.message ?? "none"}`);
 
-  // Fill it, as the vendor.
-  await ownerC.from("vendor_registrations").update({
-    legal_name: `Probe VSS Alpha ${S} Ltd`, cac_number: `RC-${S}`, tin: `TIN-${S}`,
-    address: "1 Probe Close, Ikeja", phone: "+2348000000000", email: `probevss.${S}@example.com`,
-    bank_name: "Probe Bank", account_name: `Probe VSS Alpha ${S} Ltd`, account_number_last4: "1234",
-    compliance_statement: "Probe declaration recorded verbatim for the suite.",
-    compliance_declared_at: new Date().toISOString(),
-  }).eq("vendor_id", vendorA);
+  // Fill it, as the vendor. A SECOND call to the same function, which is itself
+  // the regression test for the grant gap: `vendor_registrations` had an UPDATE
+  // POLICY and no UPDATE GRANT, so before 0216 a vendor could save once and
+  // every later save died on "permission denied for table
+  // vendor_registrations" — the client's upsert hid it, because the branch that
+  // failed was the one that never ran on the first save.
+  const { error: fillErr } = await ownerC.rpc("save_vendor_registration", {
+    p_vendor_id: vendorA,
+    p_legal_name: `Probe VSS Alpha ${S} Ltd`, p_cac_number: `RC-${S}`, p_tin: `TIN-${S}`,
+    p_address: "1 Probe Close, Ikeja", p_phone: "+2348000000000",
+    p_email: `probevss.${S}@example.com`,
+    p_bank_name: "Probe Bank", p_account_name: `Probe VSS Alpha ${S} Ltd`,
+    p_account_number_last4: "1234",
+    p_compliance_statement: "Probe declaration recorded verbatim for the suite.",
+    p_declare_compliance: true,
+  });
+  !fillErr
+    ? ok("D1b a SECOND save succeeds — details can be corrected, not just entered once")
+    : bad(`D1b the vendor could not edit their own pack — ${fillErr.message}`);
 
   // Documents — with REAL objects in the bucket, not metadata alone. Section F
   // copies these across a brand boundary, and a transfer suite that never moves
@@ -356,6 +371,30 @@ console.log("\nD. The registration pack");
     .eq("vendor_id", vendorA).single()).data?.status !== "approved"
     ? ok("D6 a vendor cannot PATCH their own pack to approved")
     : bad("D6 A VENDOR APPROVED THEIR OWN REGISTRATION");
+
+  // ⚠️ D6b — THE DOOR BESIDE THE ONE D6 WAS WATCHING.
+  //
+  // D6 tested the UPDATE route and passed for a reason that had nothing to do
+  // with intent: there was no UPDATE grant, so nothing a vendor PATCHed ever
+  // landed. INSERT was granted, and `vendor_registrations_insert` constrained
+  // the row's ORG but never its STATUS — so a vendor could file a brand-new row
+  // already marked `approved`, with `reviewed_at` set, and leave the review
+  // queue having been reviewed by nobody. Confirmed against the live database
+  // before it was closed (0216).
+  //
+  // Tested on a SECOND vendor, because vendorA already holds a pack and the
+  // one-per-vendor constraint would refuse the insert for the wrong reason.
+  const vendorSelf = await makeVendor(org.id, `SelfApprove ${S}`);
+  const { error: selfApprove } = await ownerC.from("vendor_registrations").insert({
+    org_id: org.id, vendor_id: vendorSelf,
+    legal_name: "Self Approved Ltd", status: "approved",
+    reviewed_at: new Date().toISOString(),
+  });
+  const { data: landed } = await svc.from("vendor_registrations")
+    .select("status").eq("vendor_id", vendorSelf).maybeSingle();
+  selfApprove && !landed
+    ? ok("D6b nor INSERT one that is already approved — the table takes no writes from a vendor at all")
+    : bad(`D6b A VENDOR FILED THEIR OWN REGISTRATION AS ${landed?.status ?? "approved"}`);
 
   const { error: submitErr } = await ownerC.rpc("submit_vendor_registration");
   !submitErr ? ok("D7 a complete pack submits") : bad(`D7 — ${submitErr.message}`);

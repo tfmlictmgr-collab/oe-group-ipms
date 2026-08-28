@@ -112,6 +112,25 @@ const CAPABILITIES: { key: string; label: string; hint: string }[] = [
   { key: "manage_contracts", label: "Manage contracts", hint: "Act on contracts and introductions." },
 ];
 
+/**
+ * The compliance declaration, shown verbatim and stored verbatim.
+ *
+ * ⚠️ `vendor_registration_missing()` has required `compliance_declared_at`
+ * since 0164 and NOTHING IN THE PRODUCT EVER WROTE IT — so a vendor who filled
+ * every field and attached every document was still told "still outstanding:
+ * the compliance declaration", with no control anywhere that could satisfy it.
+ * That is the dead end the 28 Aug demo hit. This is the control.
+ *
+ * Changing this wording does not rewrite what anyone already agreed to: the
+ * text is saved onto the vendor's own row (decision 10's rule for consent copy).
+ */
+const COMPLIANCE_STATEMENT =
+  "I confirm that the information given here is true and complete, that the " +
+  "documents attached are genuine and current, and that this company complies " +
+  "with its tax, statutory and regulatory obligations. I understand that this " +
+  "organisation will verify these details, and I will tell them promptly if " +
+  "anything here changes.";
+
 const STATUS_COPY: Record<string, { label: string; tone: "muted" | "warning" | "success" }> = {
   draft: { label: "Not yet submitted", tone: "muted" },
   submitted: { label: "With the organisation for review", tone: "warning" },
@@ -160,11 +179,15 @@ export default function CompanyClient({
     accountName: r.account_name ?? "",
     accountNumberLast4: r.account_number_last4 ?? "",
   });
+  // Ticked iff a declaration is already on file. Unticking retracts it.
+  const [declared, setDeclared] = React.useState(Boolean(r.compliance_declared_at));
 
   // Locked once the pack is with the organisation: editing underneath a
   // reviewer is how they approve something other than what they read.
   const locked = !canManageProfile || status === "submitted" || status === "approved";
   const st = STATUS_COPY[status] ?? STATUS_COPY.draft;
+  /** No registration row yet — the one blocker whose message names no action. */
+  const notStarted = missing.length === 1 && /has not been started/.test(missing[0] ?? "");
   const byType = new Map(documents.map((d) => [d.doc_type, d]));
 
   function set(k: keyof typeof form, v: string) {
@@ -174,7 +197,13 @@ export default function CompanyClient({
   async function save() {
     setBusy(true);
     try {
-      await runAction(saveRegistration(vendorId, form));
+      await runAction(
+        saveRegistration(vendorId, {
+          ...form,
+          complianceStatement: COMPLIANCE_STATEMENT,
+          declareCompliance: declared,
+        })
+      );
       toast.success("Saved");
       router.refresh();
     } catch (e) {
@@ -311,11 +340,26 @@ export default function CompanyClient({
             <div className="space-y-1.5">
               <p className="flex items-center gap-2 text-sm font-medium">
                 <CircleAlert className="size-4 text-warning" />
-                Still needed ({missing.length})
+                Still needed ({notStarted ? "start here" : missing.length})
               </p>
-              <ul className="ml-6 list-disc space-y-0.5 text-sm text-muted-foreground">
-                {missing.map((m) => <li key={m}>{m}</li>)}
-              </ul>
+              {/* ⚠️ `vendor_registration_missing()` returns ONE item and stops
+                  when there is no registration row — "the registration has not
+                  been started". True, and a dead end: it names no action and
+                  hides the ten other things that will be needed. A vendor can
+                  attach every document (the visibly effortful part) and still
+                  be looking at this. Say what to press instead. */}
+              {notStarted ? (
+                <p className="ml-6 text-sm text-muted-foreground">
+                  Fill in <span className="font-medium text-foreground">Company details</span> below
+                  and press <span className="font-medium text-foreground">Save details</span>. That
+                  starts your registration — the rest of the checklist appears here once it exists,
+                  and your attached documents are already kept against it.
+                </p>
+              ) : (
+                <ul className="ml-6 list-disc space-y-0.5 text-sm text-muted-foreground">
+                  {missing.map((m) => <li key={m}>{m}</li>)}
+                </ul>
+              )}
             </div>
           ) : (
             <p className="flex items-center gap-2 text-sm text-success">
@@ -387,6 +431,42 @@ export default function CompanyClient({
               <Field id="accountName" label="Account name" value={form.accountName} onChange={set} disabled={locked} />
               <Field id="accountNumberLast4" label="Last 4 digits" value={form.accountNumberLast4} onChange={set} disabled={locked} maxLength={4} />
             </div>
+          </div>
+
+          <Separator />
+
+          {/* ⚠️ The control that did not exist. `vendor_registration_missing()`
+              has required a compliance declaration since 0164 and nothing in
+              the product ever wrote one, so the pack could never reach
+              complete however much a vendor filled in. */}
+          <div className="space-y-2">
+            <p className="text-sm font-medium">Declaration</p>
+            <label
+              className={cn(
+                "flex gap-2.5 rounded-md border border-border p-3",
+                locked ? "opacity-70" : "cursor-pointer hover:bg-accent/40"
+              )}
+            >
+              <input
+                type="checkbox"
+                className="mt-0.5 size-4 shrink-0 accent-[var(--brand)]"
+                checked={declared}
+                disabled={locked}
+                onChange={(e) => setDeclared(e.target.checked)}
+              />
+              <span className="text-xs leading-relaxed text-muted-foreground">
+                {COMPLIANCE_STATEMENT}
+              </span>
+            </label>
+            {r.compliance_declared_at && (
+              <p className="text-xs text-muted-foreground">
+                Declared on{" "}
+                {new Date(r.compliance_declared_at).toLocaleDateString("en-NG", {
+                  day: "numeric", month: "long", year: "numeric",
+                })}
+                .
+              </p>
+            )}
           </div>
 
           {!locked && (
@@ -525,27 +605,53 @@ export default function CompanyClient({
                   )}
                 </div>
               </div>
+              {/* ⚠️ A DISABLED BUTTON IS STILL A BUTTON.
+                  These rendered as four brand-coloured pills against an owner's
+                  own row — on OEA, four red ones — and did nothing when
+                  pressed, because `editable` is false for an owner by design.
+                  A vendor reported them as broken, which is exactly what they
+                  looked like: primary-coloured, button-shaped, inert, unexplained.
+
+                  An owner genuinely cannot have these toggled (they hold all
+                  four implicitly, and `vendor_users_keep_an_owner` means the
+                  database would refuse). So when they are not editable they are
+                  no longer BUTTONS — they are state, rendered as state, with a
+                  line underneath saying why. */}
               <div className="flex flex-wrap gap-1.5">
                 {CAPABILITIES.map((c) => {
-                  // An owner holds everything by definition; showing togglable
-                  // chips against them would imply a permission that could be
-                  // taken away and then be refused by the database.
                   const on = m.isOwner || m.capabilities.includes(c.key);
                   const editable = canManageUsers && !m.isOwner;
+
+                  if (!editable) {
+                    return (
+                      <span
+                        key={c.key}
+                        title={c.hint}
+                        className={cn(
+                          "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium",
+                          on
+                            ? "border-success/30 bg-success/10 text-success"
+                            : "border-border bg-muted/40 text-muted-foreground"
+                        )}
+                      >
+                        {on && <CheckCircle2 className="size-3" />}
+                        {c.label}
+                      </span>
+                    );
+                  }
+
                   return (
                     <button
                       key={c.key}
                       type="button"
                       title={c.hint}
-                      disabled={!editable}
                       aria-pressed={on}
-                      onClick={() => editable && toggleCapability(m, c.key)}
+                      onClick={() => toggleCapability(m, c.key)}
                       className={cn(
-                        "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                        "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors hover:opacity-90",
                         on
                           ? "border-transparent bg-[var(--brand)] text-[var(--brand-fg)]"
-                          : "border-border bg-card text-muted-foreground",
-                        editable ? "hover:opacity-90" : "cursor-default opacity-80"
+                          : "border-border bg-card text-muted-foreground"
                       )}
                     >
                       {c.label}
@@ -553,6 +659,17 @@ export default function CompanyClient({
                   );
                 })}
               </div>
+              {/* Said once per row, rather than left for the reader to infer
+                  from four controls that decline to respond. */}
+              <p className="text-xs text-muted-foreground">
+                {m.isOwner
+                  ? `An owner holds all four permanently — these cannot be changed${
+                      m.id === myVendorUserId ? ", including your own" : ""
+                    }.`
+                  : canManageUsers
+                    ? "Tap to grant or remove."
+                    : "Only someone who can manage people may change these."}
+              </p>
             </div>
           ))}
         </CardContent>
