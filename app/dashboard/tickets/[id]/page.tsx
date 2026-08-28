@@ -140,7 +140,20 @@ export default async function TicketDetailPage({
   // fetched for someone who could conceivably submit one — the same person
   // this page would show a checklist to below. Everyone else pays no query for
   // a section they will never see.
-  const isTenant = Boolean(t.sender_id) && t.sender_id === session.user.id;
+  // ⚠️ "The reporter, who is NOT staff" — not merely "the reporter".
+  //
+  // This gates which half of 0104's rubric the page offers: `satisfaction` for
+  // a tenant, `quality`/`compliance` for whoever manages the work. An FM who
+  // raises a request through `New Request` has always been its `sender_id`
+  // (and, since 0218, so is one who uses `Raise Work`) — so without the
+  // `!canManage` guard an FM was handed the TENANT's satisfaction form and
+  // their rating was filed as `source = 'tenant'`. A live mislabel of who said
+  // what about a contractor, on the record that feeds their score.
+  //
+  // `canEvaluate` below is unchanged: both still evaluate, and a tenant who
+  // somehow held management authority is staff for this purpose.
+  const isTenant =
+    Boolean(t.sender_id) && t.sender_id === session.user.id && !canManage;
   const isDone = DONE_STATES.includes(t.status);
   const canEvaluate = t.assigned_vendor_id != null && isDone && (isTenant || canManage);
 

@@ -137,9 +137,17 @@ for (const o of tenantOrgs) {
       ? ok("RAISES work of their own — planned maintenance now has somewhere to go")
       : bad(`cannot raise work: ${raised.err}`);
 
-    // sender_id must stay null: there is no reporter, and a non-null one would
-    // make planned work look like a complaint AND wrongly arm the tenant
-    // satisfaction prompt on resolve (0104).
+    // ⚠️ REVERSED BY 0218. This asserted `sender_id is null`, on the reasoning
+    // that a non-null sender "would wrongly arm the tenant satisfaction prompt".
+    // That defended a real invariant through an incidental fact — and the fact
+    // cost the FM the ability to find their own work at all: `tickets_select`
+    // returns a request to `sender_id = auth.uid()` and the board's "Raised by
+    // me" view filters on it, so a work order with no sender belonged to nobody.
+    //
+    // The invariant is now stated directly instead: a tenant-source rating
+    // requires the caller to BE a tenant (0220), and the ticket page offers an
+    // FM the quality/compliance half rather than satisfaction. Both are checked
+    // below rather than assumed.
     const shape = await tryAsSteps(fm.id, [
       `create temp table _job on commit drop as
          select raise_work_order('${propId}', 'Probe planned work') as id`,
@@ -147,9 +155,38 @@ for (const o of tenantOrgs) {
          from tickets t where t.id = (select id from _job)`,
     ]);
     const row = shape.ok ? shape.steps[1][0] : undefined;
-    row && row.sender_id === null && row.property_id === propId
-      ? ok("with no reporter and filed against the property — not a complaint about themselves")
+    row && row.sender_id === fm.id && row.property_id === propId
+      ? ok("recorded as raised BY THEM and filed against the property — so they can find it again")
       : bad(`wrong shape: ${JSON.stringify(row)}`);
+
+    // The guard that replaces the null. An FM may rate the work they
+    // commissioned on quality; they may not file the tenant's satisfaction
+    // score for a contractor they hired.
+    // ONE transaction: the fixture and the attempt together, because
+    // `tryAsSteps` rolls back and a ticket raised in a previous call is gone by
+    // the time the next one looks for it. Resolved, with a vendor on it, so the
+    // earlier guards in `submit_vendor_evaluation` pass and the one under test
+    // is the one that answers.
+    const selfRate = await tryAsSteps(fm.id, [
+      `create temp table _rate on commit drop as
+         select raise_work_order('${propId}', 'Probe self-rated work', null,
+                                 'maintenance', 'normal', null,
+                                 (select v.id from vendors v
+                                   where v.id in (select current_user_scoped_vendor_ids())
+                                   limit 1)) as id`,
+      `update tickets set status = 'resolved' where id = (select id from _rate)`,
+      `select submit_vendor_evaluation((select id from _rate), 'tenant', '[]'::jsonb)`,
+    ]);
+    if (/no vendor assigned/i.test(selfRate.err ?? "")) {
+      // This FM manages no vendor in this org, so the fixture cannot be built
+      // and an earlier guard answers first. Not a product failure — the same
+      // allowance the payment-verification check below already makes.
+      note("no vendor in this FM's scope — the tenant-rating guard is not exercisable here");
+    } else {
+      !selfRate.ok && /satisfaction rating belongs to the tenant/i.test(selfRate.err ?? "")
+        ? ok("and cannot file the TENANT's satisfaction score on their own work order")
+        : bad(`an FM filed a tenant-source rating on work they raised: ${selfRate.err ?? "ALLOWED"}`);
+    }
     row && row.requires_human_review === false && row.status === "open"
       ? ok("open and not flagged for triage — a person wrote it deliberately")
       : bad(`unexpected status/review flag: ${JSON.stringify(row)}`);
