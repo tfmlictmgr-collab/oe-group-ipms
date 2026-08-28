@@ -8,7 +8,7 @@ import {
 import ChainTrail from "@/components/approvals/ChainTrail";
 import StageActions from "@/components/approvals/StageActions";
 import {
-  CHAIN_STAGES,
+  ALL_CHAIN_ROLES,
   getChainState, canActorAction, whyNotActionable, formatNaira, effectiveTier,
   tierLabel, type PayableType, type ChainState, type StageOrder,
 } from "@/lib/approvals/chain";
@@ -136,14 +136,11 @@ export default async function ApprovalsPage() {
 
   const mine = rows.filter((r) => canActorAction(actor, r.state));
 
-  // Every role named at any stage, read from CHAIN_STAGES rather than retyped —
-  // so a role added to a stage reaches this automatically and cannot be
-  // forgotten here. Plus finance, who releases what the chain clears.
-  const chainRoles = new Set<string>([
-    ...CHAIN_STAGES.flatMap((st) => st.requiredRoles as readonly string[]),
-    "finance_approver",
-  ]);
-  const inChain = chainRoles.has(role);
+  // Every role named at any stage of EITHER ladder, read from the shapes rather
+  // than retyped — so a role added to a stage reaches this automatically and
+  // cannot be forgotten here. Plus the payment officer, who releases what the
+  // chain clears.
+  const inChain = ALL_CHAIN_ROLES.has(role);
 
   // Visible to the chain, actionable only by whoever owns the CURRENT stage —
   // `canActorAction` above is the second half of that and is unchanged.
@@ -158,7 +155,7 @@ export default async function ApprovalsPage() {
         <p className="text-sm text-muted-foreground">
           Every payment leaving the organisation — vendor invoices, landlord
           payouts and ops requisitions alike — passes three pairs of hands
-          before finance sends it.
+          before the payment officer sends it.
           {myTier ? ` You approve up to ${tierLabel(myTier).toLowerCase()}.` : ""}
         </p>
       </div>

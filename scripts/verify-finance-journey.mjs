@@ -196,8 +196,28 @@ for (const o of tenantOrgs) {
   // stops the amount and the actor disagreeing.
   const band = approver2?.approval_tier === 1 ? tier1 : threshold;
   const overBand = band + 500000;
-  const fmUser = await pick("facility_manager");
-  const auditUser = await pick("payment_audit_approver");
+  // ⚠️ The first two stages are NOT the same two roles on every organisation.
+  // Decision 23 gave OEA its own ladder (audit → MP → payment approver), so a
+  // fixture that hardcodes "FM at stage 1, auditor at stage 2" pre-records a
+  // chain OEA refuses — and every assertion downstream of it then fails for a
+  // reason that has nothing to do with what it was testing. Read the stages the
+  // organisation actually has and find somebody who holds each.
+  const { data: chainRows } = await svc.rpc("payment_chain_stages", { p_org_id: o.id });
+  const rolesForStage = (n) =>
+    (chainRows ?? []).find((s) => s.stage_order === n)?.required_roles ?? [];
+  const pickForStage = async (n) => {
+    for (const role of rolesForStage(n)) {
+      const u = await pick(role);
+      if (u) return u;
+    }
+    return null;
+  };
+  const stage1User = await pickForStage(1);
+  const stage2User = await pickForStage(2);
+  // Kept under their old names so the rest of the file reads unchanged; what
+  // they now hold is "whoever actions this stage HERE", not a fixed role.
+  const fmUser = stage1User;
+  const auditUser = stage2User;
 
   // Stages 1–2 for every row in `_p` except the one that is deliberately not at
   // `recommended`. org_id, actor_role, actor_tier and amount are placeholders:
@@ -304,22 +324,40 @@ for (const o of tenantOrgs) {
       ? ok("an executive is above the threshold — decision 9, and the app used to say otherwise")
       : bad(`the executive is not exempt: ${JSON.stringify(el.rows?.[0] ?? el.err)}`);
 
+    // ⚠️ WHICH stage is the executive's is not the same on both ladders. On the
+    // standard chain they are stage 3, the tier-resolved one. On OEA (decision
+    // 23) they are stage 2, and stage 3 belongs to the payment approver alone.
+    // What is being tested either way is that a large AMOUNT does not block the
+    // MD — so every stage before theirs is pre-recorded, and they action their
+    // own.
+    const execStage =
+      (chainRows ?? []).find((s) => (s.required_roles ?? []).includes("executive"))?.stage_order ?? 3;
+
+    const preStagesBefore = (table) => {
+      const pairs = [];
+      for (let s = 1; s < execStage; s++) {
+        const u = s === 1 ? stage1User : stage2User;
+        if (!u) return `select 1`;
+        pairs.push(`(${s}::smallint, '${u.id}'::uuid)`);
+      }
+      if (pairs.length === 0) return `select 1`;
+      return `insert into payment_approvals (org_id, payable_type, payable_id, stage_order,
+                                             actor_id, actor_role, actor_tier, amount, decision)
+              select '${o.id}', 'vendor_payment', e.id, s.stage_order, s.actor,
+                     'viewer', null, 1, 'approved'
+                from ${table} e cross join (values ${pairs.join(", ")}) s(stage_order, actor)`;
+    };
+
     const bigExec = await steps([
       { service: true, sql: `create temp table _e (id uuid, tag text) on commit drop` },
       { service: true, sql: `with n as (${mk(threshold + 900000, "recommended", "execbig")}) insert into _e select id, 'execbig' from n` },
-      // Stages 1–2 first: the escalation is about WHO clears the top band, not
-      // about skipping the two pairs of hands before it.
-      { service: true, sql: (!fmUser || !auditUser) ? `select 1` :
-        `insert into payment_approvals (org_id, payable_type, payable_id, stage_order,
-                                        actor_id, actor_role, actor_tier, amount, decision)
-         select '${o.id}', 'vendor_payment', e.id, s.stage_order,
-                case s.stage_order when 1 then '${fmUser?.id}'::uuid else '${auditUser?.id}'::uuid end,
-                'viewer', null, 1, 'approved'
-           from _e e cross join (values (1::smallint), (2::smallint)) s(stage_order)` },
+      // Every stage before the executive's: the escalation is about WHO clears
+      // the top band, not about skipping the hands before it.
+      { service: true, sql: preStagesBefore("_e") },
       { as: exec.id, sql: `select approved, reason from approve_payments(array(select id from _e))` },
     ]);
     bigExec.ok && bigExec.steps[3][0]?.approved === true
-      ? ok("and can approve above it — the MD is who the escalation was for")
+      ? ok(`and can approve above it at stage ${execStage} — the MD is who the escalation was for`)
       : bad(`the executive was refused: ${JSON.stringify(bigExec.steps?.[3]?.[0] ?? bigExec.err)}`);
 
     // Oversight authorises; finance disburses. This must never soften.
@@ -338,8 +376,12 @@ for (const o of tenantOrgs) {
     // this suite's first run, as a screaming false alarm.
     if (remit.ok) {
       bad("!!! AN EXECUTIVE REMITTED A PAYMENT");
-    } else if (/only finance or an administrator may remit/i.test(remit.err ?? "")) {
-      ok("and still cannot remit — oversight authorises, finance disburses");
+    } else if (/may remit payments|only finance or an administrator may remit/i.test(remit.err ?? "")) {
+      // Decision 23 reworded this and narrowed it: the `remitted` transition is
+      // the payment officer alone, where 0151 also allowed an administrator.
+      // Both spellings are matched so the check does not depend on which
+      // migration a given world has reached.
+      ok("and still cannot remit — oversight authorises, the payment officer disburses");
     } else {
       bad(`the remit attempt failed for an unrelated reason, so nothing was proven: ${remit.err}`);
     }

@@ -19,7 +19,13 @@ const BASE_LABELS: Record<string, string> = {
   fm_ops_staff: "Operations Staff",
   facility_manager: "Facilities Manager",
   property_manager: "Properties Manager",
-  finance_approver: "Finance / Approver",
+  // ⚠️ The IDENTIFIER stays `finance_approver` (decision 23: "label renamed").
+  // The enum value is named in 123 files including `enforce_payment_transition`,
+  // `submit_vendor_invoice`, `assert_may_disburse` and `oversight_roles()`;
+  // renaming it is a mechanical rewrite of every money-path function body for a
+  // display change, and 0183's lesson is that those rewrites are where a clause
+  // gets lost. What the board renamed is what a person reads, and that is here.
+  finance_approver: "Payment Officer",
   property_owner: "Property Owner",
   admin: "Administrator",
   viewer: "Read-only Observer",
@@ -144,21 +150,21 @@ export const ROLE_HINTS: Partial<Record<string, string>> = {
   viewer:
     "Read-only, organisation-wide. Sees properties, assets, vendors and request volumes — never money, personal contact details, or the audit trail. Intended for someone outside the organisation.",
   finance_approver:
-    "Sees and approves money: the client-funds ledger, collections, remittances and reconciliation.",
+    "Releases money the approval chain has cleared: the client-funds ledger, collections, remittances and daily reconciliation. Does not approve — approval belongs to the chain, and the person who approved a payment may never also send it.",
   fm_ops_staff: "Works the jobs dispatched to them. No financial access.",
   facility_manager:
     "Maintenance, plant and services on the properties assigned to them — and on OEA, that is now a distinct job from the property manager's. Sees requests on their properties, dispatches them, and signs off the work.",
   property_manager:
     "Lettings, tenancies and owner relations on the properties assigned to them. Identical authority to a facilities manager over a different discipline; both sign off their own work only.",
   payment_audit_approver:
-    "Stage 2 of the payment chain: checks an invoice against the job card and the evidence before it reaches anyone with a spending limit. Sees payments and vendors, nothing operational and nothing in the ledger.",
+    "The audit check on the payment chain — on OEA it is the first stage, elsewhere the second. Checks an invoice against the job card, the evidence and the attachments before it reaches anyone with a spending limit, and sees every service request in order to do it. Nothing in the ledger.",
   payment_approver:
-    "Stage 3 of the payment chain: final approval, bounded by an amount rather than by a place. Give them a tier — 1 approves up to the tier-1 limit, 2 up to the approval limit, 3 without limit.",
+    "The last stage of the payment chain: final approval, bounded by an amount rather than by a place. Give them a tier — 1 approves up to the tier-1 limit, 2 up to the approval limit, 3 without limit. On OEA they are the only role at this stage, so the organisation needs one whose tier covers its largest payment.",
   property_owner: "Their own portfolio only — summary, statements and vendor performance.",
   regional_manager:
     "Runs a region. Everything a facilities/properties manager does, plus inviting operational staff — all of it bounded to the region, project or site they are assigned to. No financial access.",
   executive:
-    "Oversight for the Managing Director / Managing Partner. Sees everything finance sees and co-approves payments, including above the threshold. Cannot execute a remittance, change the approval threshold, or write to the ledger — authorising and disbursing stay in different hands.",
+    "Oversight for the Managing Director / Managing Partner. Sees everything the payment officer sees and approves payments — on OEA, every outbound payment passes them, at every amount. Cannot execute a remittance, change the approval threshold, or write to the ledger: authorising and disbursing stay in different hands.",
 };
 
 export function roleLabel(

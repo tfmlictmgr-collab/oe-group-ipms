@@ -22,7 +22,7 @@ async function guard(): Promise<Guard> {
     .from("users").select("role, org_id").eq("id", user.id).single();
   if (!me || me.role !== "finance_approver") {
     return fail(
-      "Only a finance approver can send a payment.",
+      "Only the payment officer can send a payment.",
       "Oversight authorises; finance disburses."
     );
   }

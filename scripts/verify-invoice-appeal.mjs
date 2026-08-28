@@ -97,23 +97,32 @@ async function scenario(orgId, vendorId, status, actorId, sql, extra = "") {
       if (step === "CLEAR CHAIN") {
         await db.query("reset role");
         await db.query("set local request.jwt.claims = '{}'");
+        // ⚠️ The stages are read from `payment_chain_stages(org)`, NOT hardcoded.
+        // They used to be the literal triple (facility_manager,
+        // payment_audit_approver, payment_approver), which is the TFML ladder —
+        // decision 23 gave OEA its own (audit → MP → payment approver), so on
+        // that org the fixture pre-recorded a chain the database refuses and
+        // every assertion downstream failed for a reason unrelated to what it
+        // was testing.
+        //
+        // `unnest(required_roles)` because a stage may accept several roles;
+        // any holder of any of them satisfies the fixture. `distinct on
+        // (stage_order)` keeps exactly one actor per stage, and `id <> actorId`
+        // keeps separation of duties met rather than dodged.
         await db.query(
           `insert into payment_approvals (org_id, payable_type, payable_id, stage_order,
                                           actor_id, actor_role, actor_tier, amount, decision)
-           select $1::uuid, 'vendor_payment', $2::uuid, s.stage_order, u.id,
+           select distinct on (s.stage_order)
+                  $1::uuid, 'vendor_payment', $2::uuid, s.stage_order, u.id,
                   'viewer', null, 1, 'approved'
-             from (values (1::smallint, 'facility_manager'::user_role),
-                          (2::smallint, 'payment_audit_approver'::user_role),
-                          (3::smallint, 'payment_approver'::user_role)) s(stage_order, want)
-             cross join lateral (
-               select id from users
-                where org_id = $1::uuid and role = s.want
-                  and deactivated_at is null and id <> $3::uuid
-                -- Highest tier first, so stage 3 is cleared by someone whose
-                -- band covers the fixture amount whatever it happens to be.
-                order by approval_tier desc nulls last
-                limit 1
-             ) u`,
+             from payment_chain_stages($1::uuid) s
+             cross join lateral unnest(s.required_roles) as want
+             join users u
+               on u.org_id = $1::uuid and u.role = want
+              and u.deactivated_at is null and u.id <> $3::uuid
+            -- Highest tier first, so the tier-resolved stage is cleared by
+            -- someone whose band covers the fixture amount whatever it is.
+            order by s.stage_order, u.approval_tier desc nulls last`,
           [orgId, id, actorId]
         );
         await db.query("set local role authenticated");
@@ -249,8 +258,11 @@ for (const org of (orgs ?? []).filter((o) => !o.is_platform_operator)) {
         `update payments set status='approved', approved_by='${who.executive}', approved_at=now() where id=$ID`,
         `update payments set status='remitted' where id=$ID returning id`,
       ]);
-      !execRemit.ok && /only finance or an administrator may remit/i.test(execRemit.err ?? "")
-        ? ok("an executive approves and still cannot remit — oversight authorises, finance disburses")
+      // Decision 23 reworded this and narrowed it to the payment officer alone,
+      // where 0151 also allowed an administrator. Both spellings are matched so
+      // the check does not depend on which migration a world has reached.
+      !execRemit.ok && /may remit payments|only finance or an administrator may remit/i.test(execRemit.err ?? "")
+        ? ok("an executive approves and still cannot remit — oversight authorises, the payment officer disburses")
         : bad(`executive remittance: ${execRemit.err ?? "ALLOWED"}`);
     }
   }
@@ -287,7 +299,7 @@ for (const org of (orgs ?? []).filter((o) => !o.is_platform_operator)) {
         // A stronger refusal than the role check: this FM is not scoped to the
         // vendor, so RLS hid the invoice before the rule was ever reached.
         ok("an FM/PM cannot reopen a rejection — RLS hides an out-of-scope invoice entirely");
-      } else if (/only finance or an administrator may reopen/i.test(fmReopen.err ?? "")) {
+      } else if (/may reopen a rejected invoice/i.test(fmReopen.err ?? "")) {
         ok("an FM/PM cannot reopen their own rejection");
       } else {
         bad(`the FM reopen attempt failed for an unrelated reason, proving nothing: ${fmReopen.err}`);
@@ -304,7 +316,7 @@ for (const org of (orgs ?? []).filter((o) => !o.is_platform_operator)) {
         // A STRONGER refusal than the role check: RLS hid the row entirely, so
         // the vendor never reached the rule that would have refused them.
         ok("and neither can the vendor — RLS hides the invoice from them entirely");
-      } else if (/only finance or an administrator may reopen|permission|policy/i.test(vendorReopen.err ?? "")) {
+      } else if (/may reopen a rejected invoice|permission|policy/i.test(vendorReopen.err ?? "")) {
         ok("and neither can the vendor");
       } else {
         bad(`the vendor reopen attempt failed for an unrelated reason: ${vendorReopen.err}`);

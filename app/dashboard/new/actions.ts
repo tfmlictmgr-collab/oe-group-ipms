@@ -6,6 +6,7 @@ import { classifyMessageWithProvider } from "@/lib/triage";
 import { shortRef } from "@/lib/acknowledgement";
 import { ok, fail, type ActionResult } from "@/lib/action-result";
 import { FM_PM } from "@/lib/roles";
+import { notifyRoleWithCascade } from "@/lib/role-notify";
 
 // Raising a request from the portal.
 //
@@ -107,19 +108,34 @@ export async function raiseRequest(input: {
 
   if (error) return fail(error.message);
 
-  // Someone is now told. `notify_role` is org-bounded as of 0122 — before that
-  // it took the org as an argument and never checked it, so a tenant calling it
-  // could have written into another brand's inbox.
-  await supabase.rpc("notify_role", {
-    p_org_id: me.org_id,
-    p_roles: ["admin", ...FM_PM],
-    p_kind: "request",
-    p_title: `New ${ticket.urgency} request — ${shortRef(ticket.id)}`,
-    p_body: ticket.summary ?? messageText.slice(0, 140),
-    p_link: `/dashboard/tickets/${ticket.id}`,
-    p_entity_type: "ticket",
-    p_entity_id: ticket.id,
-  });
+  // Someone is now told — on the bell AND on the channels they actually watch.
+  //
+  // ⚠️ This was a bare `notify_role`, which writes the in-app bell entry and
+  // nothing else. The CHAT path has used `notifyRoleWithCascade` since it was
+  // written, so a request arriving on WhatsApp reached an FM's phone while the
+  // identical request raised on the portal — "the system of record" — reached
+  // only a badge they had to be looking at the page to see. The comment thirty
+  // lines above this one says "Nobody told" was one of the three defects the
+  // server action existed to fix; it was fixed for the bell and not for the
+  // person. Decision 23 asks for the FM to be reached "via all their preferred
+  // notification/communication channels", and this is the path that was not.
+  //
+  // Best-effort, exactly as the chat path is: a notification failure must never
+  // undo a ticket that has already been accepted and given a reference.
+  try {
+    await notifyRoleWithCascade({
+      orgId: me.org_id,
+      roles: ["admin", ...FM_PM],
+      kind: "request",
+      title: `New ${ticket.urgency} request — ${shortRef(ticket.id)}`,
+      body: ticket.summary ?? messageText.slice(0, 140),
+      link: `/dashboard/tickets/${ticket.id}`,
+      entityType: "ticket",
+      entityId: ticket.id,
+    });
+  } catch (e) {
+    console.error("Could not notify admin/FM of new portal request:", e);
+  }
 
   revalidatePath("/dashboard/my-requests");
   revalidatePath("/dashboard");

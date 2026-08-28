@@ -48,7 +48,7 @@ const PASSWORD = "OEGroupDemo2026!";
 const TENANT_ROLES = [
   ["admin", "Administrator"],
   ["executive", "Managing Director"],
-  ["finance_approver", "Finance Approver"],
+  ["finance_approver", "Payment Officer"],
   ["payment_audit_approver", "Payment Auditor"],
   ["payment_approver", "Payment Approver (tier 1)", 1],
   ["regional_manager", "Regional Manager"],

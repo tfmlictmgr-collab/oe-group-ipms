@@ -29,11 +29,31 @@ const HOSTS = {
 // can be switched to before its ref is known for display purposes.
 const WORLDS = ["demo", "dev", "staging", "prod"];
 
+// ⚠️ The value may be QUOTED — `NEXT_PUBLIC_SUPABASE_URL="https://…"` is valid
+// dotenv and is what `vercel env pull` writes. The original pattern required the
+// URL to follow `=` immediately, so a quoted file matched nothing and this
+// reported **"unknown (unset)"** — which reads as "no world is configured" when
+// the truth was "staging, and I could not tell you". On 28 Aug 2026 that cost a
+// session: `.env.local` was on staging while migrations were being applied to
+// dev with `--world dev`, and the one command whose entire job is to answer
+// "which world am I on" answered "unset".
+//
+// That is the same failure this repo has now written three incident notes about
+// (INCIDENT_2026-08-05_PROD_ALIAS, INCIDENT_2026-08-06_DEMO_DB_MIGRATED, and
+// migrate.mjs's own header) — not a wrong answer, but a **silent absence of
+// one** from the tool meant to prevent exactly that.
+//
+// Optional whitespace and optional single/double quotes.
 const active = () => {
   const cur = fs.existsSync(".env.local") ? fs.readFileSync(".env.local", "utf8") : "";
-  const m = cur.match(/NEXT_PUBLIC_SUPABASE_URL=https:\/\/([a-z0-9]+)\./);
+  const m = cur.match(/NEXT_PUBLIC_SUPABASE_URL\s*=\s*["']?https:\/\/([a-z0-9]+)\./);
   const ref = m?.[1];
-  return Object.entries(HOSTS).find(([, r]) => r === ref)?.[0] ?? `unknown (${ref ?? "unset"})`;
+  if (!ref) {
+    return cur.trim() === ""
+      ? "unset (.env.local is missing or empty)"
+      : "UNREADABLE — .env.local exists but names no Supabase URL this script can parse";
+  }
+  return Object.entries(HOSTS).find(([, r]) => r === ref)?.[0] ?? `unknown (${ref})`;
 };
 
 const target = process.argv[2];

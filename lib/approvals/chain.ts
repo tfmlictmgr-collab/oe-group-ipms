@@ -19,37 +19,102 @@ export type PayableType = "vendor_payment" | "landlord_payout" | "ops_requisitio
 export type ApprovalTier = 1 | 2 | 3;
 export type Decision = "approved" | "rejected";
 
-/** Mirrors `payment_chain_stages()`. Hardwired there, hardwired here. */
-export const CHAIN_STAGES = [
-  {
-    stageOrder: 1 as const,
-    requiredRoles: [...FM_PM, "regional_manager"],
-    tierResolved: false,
-    // ⚠️ NOT an approval (board, 22 Aug 2026). An FM/PM confirms the work was
-    // DONE — they have been to the building and the job card matches. They
-    // hold no spending limit and no tier. The approval tiers are stages 2 and
-    // 3; calling this one an approval made "Requires Tier 2" appear above a
-    // stage no tier applies to.
-    label: "Work completed and signed off",
-    short: "Work signed off",
-  },
-  {
-    stageOrder: 2 as const,
-    requiredRoles: ["payment_audit_approver"],
-    tierResolved: false,
-    label: "Audit verification",
-    short: "Audit check",
-  },
-  {
-    stageOrder: 3 as const,
-    requiredRoles: ["payment_approver", "executive", "admin"],
-    tierResolved: true,
-    label: "Final approval",
-    short: "Final approval",
-  },
-] as const;
+/**
+ * Which ladder an organisation climbs. Mirrors `org_payment_chain()` (0211).
+ *
+ * OEA runs the four-hand flow the board set on 28 Aug 2026 (decision 23):
+ * audit → Managing Partner → payment approver, then the payment officer
+ * disburses. Everyone else keeps the standard ladder, where the FM/PM sign-off
+ * is the first rung rather than the precondition.
+ */
+export type ChainShape = "standard" | "oea";
 
-export type StageOrder = (typeof CHAIN_STAGES)[number]["stageOrder"];
+/**
+ * Mirrors `payment_chain_stages(org_id)`. Hardwired there, hardwired here.
+ *
+ * ⚠️ Both shapes are THREE stages, exactly as the database has them — the
+ * stage_order check, the one-live-row-per-stage index and every "% of 3
+ * stages" message depend on that and none of them had to be re-reasoned.
+ */
+export const CHAIN_SHAPES = {
+  standard: [
+    {
+      stageOrder: 1 as const,
+      requiredRoles: [...FM_PM, "regional_manager"],
+      tierResolved: false,
+      // ⚠️ NOT an approval (board, 22 Aug 2026). An FM/PM confirms the work was
+      // DONE — they have been to the building and the job card matches. They
+      // hold no spending limit and no tier. The approval tiers are stages 2 and
+      // 3; calling this one an approval made "Requires Tier 2" appear above a
+      // stage no tier applies to.
+      label: "Work completed and signed off",
+      short: "Work signed off",
+    },
+    {
+      stageOrder: 2 as const,
+      requiredRoles: ["payment_audit_approver"],
+      tierResolved: false,
+      label: "Audit verification",
+      short: "Audit check",
+    },
+    {
+      stageOrder: 3 as const,
+      requiredRoles: ["payment_approver", "executive"],
+      tierResolved: true,
+      label: "Final approval",
+      short: "Final approval",
+    },
+  ],
+  oea: [
+    {
+      stageOrder: 1 as const,
+      requiredRoles: ["payment_audit_approver"],
+      tierResolved: false,
+      // The FM/PM sign-off is not here, and that is decision 23: it is the
+      // PRECONDITION that commences the chain, not a rung of it.
+      label: "Audit review and approval",
+      short: "Audit review",
+    },
+    {
+      stageOrder: 2 as const,
+      requiredRoles: ["executive"],
+      tierResolved: false,
+      label: "Managing Partner approval",
+      short: "MP approval",
+    },
+    {
+      stageOrder: 3 as const,
+      requiredRoles: ["payment_approver"],
+      tierResolved: true,
+      label: "Payment approval",
+      short: "Payment approval",
+    },
+  ],
+} as const;
+
+export type StageOrder = 1 | 2 | 3;
+
+export function chainStagesFor(
+  shape: ChainShape
+): (typeof CHAIN_SHAPES)[ChainShape] {
+  return CHAIN_SHAPES[shape] ?? CHAIN_SHAPES.standard;
+}
+
+/**
+ * Every role that appears at any stage of any ladder, plus the payment officer,
+ * who holds no stage but releases what the chain clears (decision 16).
+ *
+ * Read from `CHAIN_SHAPES` rather than retyped, so a role added to a stage
+ * reaches this automatically. The UNION of both shapes deliberately: this
+ * decides whether someone is shown the pipeline at all, and a person's own org
+ * shape is the wrong question — an executive is in the chain on both.
+ */
+export const ALL_CHAIN_ROLES: ReadonlySet<string> = new Set<string>([
+  ...Object.values(CHAIN_SHAPES).flatMap((stages) =>
+    stages.flatMap((s) => s.requiredRoles as readonly string[])
+  ),
+  "finance_approver",
+]);
 
 export interface StageState {
   stageOrder: StageOrder;
@@ -77,6 +142,8 @@ export interface StageState {
 
 export interface ChainState {
   orgId: string | null;
+  /** Which ladder this payable's organisation climbs (decision 23). */
+  shape: ChainShape;
   payableType: PayableType;
   payableId: string;
   /** Server-resolved from the payable record. */
@@ -92,12 +159,17 @@ export interface ChainState {
 }
 
 /**
- * The amount band a person may clear at stage 3.
+ * The amount band a person may clear at the tier-resolved stage.
  *
  * Mirrors `effective_approval_tier()`. `executive` is tier 3 by decision 9
- * ("co-holds payment approval, including above the threshold"); `admin` is
- * tier 2 by decision 16 ("an administrator approves within the threshold");
- * everyone else carries no limit and cannot action stage 3 at all.
+ * ("co-holds payment approval, including above the threshold"); everyone else
+ * carries no limit and cannot action that stage at all.
+ *
+ * ⚠️ `admin` is DELIBERATELY ABSENT. It returned 2 here under decision 16 ("an
+ * administrator approves within the threshold"); decision 23 removed the
+ * administrator from money approval altogether, on both ladders. They still
+ * administer the organisation — they no longer approve spending against a
+ * limit. Kept in step with 0211's `effective_approval_tier()`.
  */
 export function effectiveTier(
   role: string,
@@ -109,7 +181,6 @@ export function effectiveTier(
       : null;
   }
   if (role === "executive") return 3;
-  if (role === "admin") return 2;
   return null;
 }
 
@@ -242,11 +313,17 @@ export async function getChainState(
   const approvals = (rows ?? []) as unknown as ApprovalRow[];
   const byStage = new Map(approvals.map((a) => [a.stage_order, a]));
 
-  const { data: tier } = await supabase.rpc("resolve_required_tier", {
-    p_org_id: orgId,
-    p_amount: amount,
-  });
+  // Both in one round trip. The shape decides which ladder is rendered, so it
+  // is resolved from the SAME org the amount was, rather than from the viewer's
+  // own organisation — a payable is approved on its own org's chain and the
+  // reader may be an operator looking at someone else's.
+  const [{ data: tier }, { data: shapeRow }] = await Promise.all([
+    supabase.rpc("resolve_required_tier", { p_org_id: orgId, p_amount: amount }),
+    supabase.rpc("org_payment_chain", { p_org_id: orgId }),
+  ]);
   const requiredTier = (Number(tier) || 1) as ApprovalTier;
+  const shape: ChainShape = shapeRow === "oea" ? "oea" : "standard";
+  const stageSpec = chainStagesFor(shape);
 
   /**
    * ⚠️ An approval only COUNTS at the amount it was given for.
@@ -266,7 +343,7 @@ export async function getChainState(
   const counts = (a: ApprovalRow | undefined): boolean =>
     Boolean(a) && (a!.decision === "rejected" || Number(a!.amount) === amount);
 
-  const stages: StageState[] = CHAIN_STAGES.map((s) => {
+  const stages: StageState[] = stageSpec.map((s) => {
     const a = byStage.get(s.stageOrder);
     const live = counts(a);
     return {
@@ -300,6 +377,7 @@ export async function getChainState(
 
   return {
     orgId,
+    shape,
     payableType,
     payableId,
     amount,

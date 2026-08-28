@@ -108,7 +108,7 @@ export async function raiseLandlordPayout(input: {
     .from("users").select("role, org_id").eq("id", user.id).single();
   if (!me || me.role !== "finance_approver") {
     return fail(
-      "Only a finance approver can raise a payout.",
+      "Only the payment officer can raise a payout.",
       "Oversight authorises; finance disburses."
     );
   }
@@ -223,7 +223,7 @@ export async function sendApprovedPayout(
     .from("users").select("role").eq("id", user.id).single();
   if (!me || me.role !== "finance_approver") {
     return fail(
-      "Only a finance approver can send a payout.",
+      "Only the payment officer can send a payout.",
       "Oversight authorises; finance disburses."
     );
   }

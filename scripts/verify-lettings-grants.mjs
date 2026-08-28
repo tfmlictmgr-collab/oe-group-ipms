@@ -90,7 +90,7 @@ console.log("A. Lettings settings save from an administrator's own session");
 
 console.log("\nB. The deliberate exclusions still hold");
 {
-  // These four are off the allowlist ON PURPOSE (0083c, 0085, 0089). If a later
+  // These are off the allowlist ON PURPOSE (0083c, 0085, 0089, 0211). If a later
   // migration ever re-grants `update on orgs` at table level, every one of them
   // silently becomes writable again — which is exactly the fault 0083b had.
   const forbidden = {
@@ -98,6 +98,12 @@ console.log("\nB. The deliberate exclusions still hold");
     is_platform_operator: true,
     slug: `hijack-${Date.now()}`,
     custom_domain: "attacker.example.com",
+    // ⚠️ The newest and least obvious of them. `delivery_brand` selects the
+    // approval ladder (`org_payment_chain`, 0211), so an administrator who
+    // could write it could move their org off the OEA chain — whose whole
+    // point is that the administrator approves nothing — and onto one where
+    // they might. It reads like branding and behaves like a control.
+    delivery_brand: "TFML",
   };
   for (const [col, value] of Object.entries(forbidden)) {
     const { error } = await admin.from("orgs").update({ [col]: value }).eq("id", me.org_id);
@@ -114,7 +120,7 @@ console.log("\nC. Every orgs column is either allowed or deliberately excluded")
   // front of a user. Anything not on either list below is unclassified — a
   // column somebody added without deciding which side of the line it sits on.
   const ALLOWED = new Set([
-    "name", "delivery_brand", "parent_org_id",
+    "name", "parent_org_id",
     "theme_primary", "theme_accent", "theme_logo_text", "logo_url", "portal_name", "tagline",
     "support_email", "support_phone", "login_headline",
     "vendor_applications_open", "finance_email", "it_email",
@@ -130,6 +136,17 @@ console.log("\nC. Every orgs column is either allowed or deliberately excluded")
     "is_platform_operator",          // the org-isolation crossing (0050)
     "slug", "custom_domain",         // operator controls (0085, 0089)
     "gateway_tag",                   // DB-generated (0156), read-only everywhere it's used
+    // ⚠️ MOVED HERE FROM `ALLOWED` BY DECISION 23 (0211). It was a branding
+    // field and was writable by an org administrator, which was harmless right
+    // up until the approval ladder started reading it: `org_payment_chain()`
+    // resolves OEA to the audit → MP → payment-approver chain and everything
+    // else to the standard one, so an administrator who could edit this column
+    // could have moved their own organisation to TFML and walked straight back
+    // into the final-approval stage decision 23 removed them from.
+    //
+    // 📌 The column did not change. Its READERS did — which is what moved it
+    // across this line, and is the reason section C exists at all.
+    "delivery_brand",
   ]);
 
   // ⚠️ THE CALLER'S OWN ROW. Not `.limit(1)`.

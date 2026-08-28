@@ -5362,3 +5362,114 @@ convention that has now legitimately changed twice.
 
 The same file's existing warning — *refuse and list, never pick* — applies
 unchanged; this is the fixture-shaped version of it.
+
+---
+
+## Decision 23 — OEA's chain, and three writes that silently did nothing
+
+Board direction, 28 Aug 2026: OEA's outbound flow becomes **requester → audit →
+MP → payment approver → payment officer**; FM/PM/admin leave the finance
+approval flow, the FM/PM sign-off becoming the precondition that *commences* it;
+`finance_approver` is labelled **Payment Officer**; the auditor sees every
+detail; an FM sees their own requests and is notified on every channel they
+registered; and two things from the demo needed diagnosing rather than
+implementing.
+
+### The chain became per-organisation, which made a branding field a control
+
+`payment_chain_stages()` had been argument-less and `immutable` since `0151`,
+deliberately, because decision 7 lists payment approval among the controls that
+"stay hardwired and never appear as toggles". OEA-only meant giving it an org.
+
+The rule is kept — the ladder is still hardwired and configurable by nobody —
+but what it now reads is `orgs.delivery_brand`. ⚠️ **That column was in the
+`authenticated` UPDATE allowlist** (`0083c`). Harmless while it chose a colour
+palette; an escalation the moment it chooses an approval ladder, because an
+administrator could have moved their own organisation to TFML and walked
+straight back into stage 3 — through the theming form. It left the allowlist in
+the same migration that started reading it, and `verify-oea-payment-chain`
+section 6 signs in as a real administrator and tries.
+
+📌 The general shape: **a field's blast radius is set by its readers, not by its
+name.** Nothing about `delivery_brand` changed; what changed was who consults
+it.
+
+The zero-argument overload was **dropped rather than kept**. It would have had
+to guess the org from `current_user_org_id()`, which is null under the service
+role every suite and every job route uses, and would then have answered
+"standard" for an OEA payable — a missing approval, silently.
+
+### Why the payment officer saw nothing
+
+Reported as *"payment officer couldn't see fm's request for payment"*. Two
+causes in `current_user_payable_ticket_ids()` (`0184`), and the second is the
+one that bit: **it only ever looked at `payments`**. An FM/PM asking for money
+raises an **ops requisition** (`0170`), whose `ticket_id` is the same link — so
+the requisition was visible while the service request it named was not. `0184`
+was written three payables ago, when a payable meant a vendor invoice.
+
+The other cause was a judgement that has now been reversed: finance was gated
+behind `chain_cleared_before(…, 4)`, so the job appeared the instant before they
+released the money and never earlier. Under one continuous flow that is too
+late to query anything.
+
+### Three writes that silently did nothing
+
+The theme of the day, and worth recording as one pattern rather than three bugs:
+
+1. **The vendor KYC path.** The client wrote `<vendor>/…`; `0164`'s policy
+   requires `<org>/…`. Every attach in the product failed RLS, the pack never
+   completed, and "Send for review" stayed disabled with nothing on screen
+   saying why.
+2. **The document supersede.** A vendor holds no UPDATE policy on
+   `vendor_documents`, so `recordDocument`'s supersede matched no rows and
+   **returned no error** — "Replace" left two live rows and the reviewer saw
+   whichever the map kept.
+3. **The portal's notifications.** `app/dashboard/new/actions.ts` called
+   `notify_role` directly — the in-app bell only. The chat path had used the
+   full B8 cascade since it was written, so an identical request reached an FM's
+   phone on WhatsApp and reached only a badge from the web form. The comment
+   thirty lines above it already listed "Nobody told" as one of the three
+   defects that action existed to fix; it had been fixed for the bell and not
+   for the person.
+
+⚠️ **`verify-vendor-self-service` passed 47/47 on the day the demo could not
+upload a single file.** Every fixture in it writes through the **service role**,
+under the correct prefix. It proved the policy worked and never once sat in the
+vendor's seat. Section G does, and G1 asserts the old shape is still refused.
+
+📌 The lesson is `0157`'s, one turn further on: *a suite that tests a control
+with a key that ignores permissions cannot tell you the permissions are
+missing.* This is the same sentence about **paths** rather than rows — a fixture
+that constructs the correct path itself cannot tell you the product constructs
+the wrong one.
+
+### The 24-hour rescue, built without undoing 0178
+
+The board also asked that an administrator assign requests still unassigned
+after 24 hours. The easy reading — grant them `tickets.assign_without_review` —
+is permanent, org-wide, and would let them dispatch a request ninety seconds
+old, which is precisely what `0178` exists to stop.
+
+Instead the exception is per-ticket and **computed from `created_at` by the
+trigger itself**, so the cron only ever sends the nudge: if it never runs, an
+administrator can still rescue the request and nothing is lost but the
+notification. 24 hours is hardwired — it is not a cadence but the width of an
+exception to a separation-of-duties control, and an org that could set it to
+zero would have turned `0178` off through the settings form.
+
+### A test that could not tell a refusal from a no-op
+
+`verify-unassigned-escalation` first reported four roles as having defeated the
+rescue. They had not: `tickets_update` declined to match their rows, the UPDATE
+affected zero rows, and **no error was raised** — the suite read that as
+success. The same failure mode it was written to catch, in the test itself.
+`attemptDispatch` now asserts the row actually moved.
+
+And `verify-request-visibility` was failing with `sees 33 of 32` on roles that
+were correct: it took ground truth once under READ COMMITTED and compared it
+against per-user reads taken later, while staging's live WhatsApp intake kept
+adding requests. The counts climbed *within* a run — 28, then 29, then 31,
+against a total taken at 25. It now reads both inside one REPEATABLE READ
+snapshot. **A suite that fails when the product is being used is a suite that
+will be ignored the day it is right.**

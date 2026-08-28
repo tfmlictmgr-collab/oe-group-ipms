@@ -1,7 +1,8 @@
 # Vendor Self-Service: Sub-Users, Registration Pack & Cross-Brand Introduction
 
 **Status:** database layer built and verified (`0163`–`0167`, applied to the Phase-1 dev world).
-UI not yet built. Board decisions taken 17 Aug 2026 are recorded in §2.
+Vendor-facing UI built (`app/dashboard/my-company`); the upload defect that blocked the 28 Aug 2026
+demo is fixed in `0213`/`0215` and recorded in §5a. Board decisions of 17 Aug 2026 are in §2.
 
 **Trigger:** Afreximbank's own Vendor Management System (`vendors.afreximbank.net`), seen while
 TFML completed its own vendor onboarding there. Two patterns adapted: a vendor inviting their own
@@ -144,7 +145,7 @@ never complete. It is not set in `.env.local`, which is why the local check belo
 
 ## 5. Verification
 
-`scripts/verify-vendor-self-service.mjs` — 47 checks, all passing. Each refusal is verified by
+`scripts/verify-vendor-self-service.mjs` — 54 checks, all passing (section G added 28 Aug 2026, §5a). Each refusal is verified by
 **attempting** the operation as a real signed-in user, never by reading a policy or grant table.
 Section F stages real objects in the bucket and moves them across a brand boundary — a transfer
 suite that never moves a byte proves only that two tables agree with each other.
@@ -164,10 +165,47 @@ node scripts/verify-vendor-self-service.mjs
 
 ---
 
+## 5a. The upload defect (28 Aug 2026 — decision 23)
+
+The demo could not complete a vendor KYC registration: no file would attach and "Send for review"
+stayed disabled. **The cause was a path.**
+
+`CompanyClient.tsx` wrote its object to `` `${vendorId}/${docType}-<uuid>` ``, and `0164`'s INSERT
+policy requires the first path segment to be the **organisation**:
+
+```sql
+(storage.foldername(name))[1]::uuid = current_user_org_id()
+```
+
+A vendor id is not an org id, so **every attach in the product failed RLS**, the pack never reached
+complete, and `submit_vendor_registration` kept refusing — correctly, and with nothing on screen
+explaining why. `<org>/<vendor>/<doc>` is the convention `accept_vendor_introduction` already writes
+for the copies it makes (§3, `0165`): the one path a human actually used was the only one out of
+step.
+
+⚠️ **Every check in the suite passed on the day this was broken**, because every fixture in it
+writes through the **service role** and under the correct prefix. The suite proved the policy worked
+and never once sat in the vendor's seat. Section G now does, and G1 asserts the old shape is still
+refused — if that ever passes, one brand can write into another's evidence folder.
+
+**A second defect surfaced while proving the first was fixed.** A vendor holds no UPDATE policy on
+`vendor_documents` (verification is staff-only), so `recordDocument`'s supersede-then-insert matched
+no rows and **returned no error** — "Replace" left two live rows of the same type and the reviewer
+saw whichever the screen happened to keep. `supersede_vendor_document` (`0215`) is the fix; giving
+vendors an UPDATE policy would hand the subject of a verification the keys to their own evidence.
+
+**Limits, now stated once and enforced twice** (`0213`): **2 MB** and **PDF / JPG / PNG / WebP**.
+There had been three different answers — 15 MB in the bucket, 5 MB in the client, the board's 2 MB in
+neither — and the client additionally offered `image/heic`, which the bucket has never accepted, so
+an iPhone photo passed the browser and was refused by storage with a message written for a
+developer. The rules are stated **before** the picker opens, the refusal names the actual file size,
+and HEIC gets the Settings → Camera → Formats instruction rather than a generic error.
+
 ## 6. Still owed
 
-1. **UI** — vendor Users screen, the tiered registration wizard, the staff review queue, and the
-   introductions queue. None built. This is now the only thing standing between the feature and use.
+1. **UI** — the vendor Users screen and the registration/document wizard are **built**
+   (`app/dashboard/my-company`), including the upload guidance above. Still owed: the staff review
+   queue beyond `vendors/registrations`, and the introductions queue.
 2. **NDPA retention for `director_id`.** Enhanced-tier packs carry government ID for named
    individuals. There is no purge job; the tenant rule (decision 10(3)) is the obvious model. **Owed
    before enhanced onboarding opens to real vendors** — flagged in the migration itself, not left to

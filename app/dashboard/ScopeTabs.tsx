@@ -3,13 +3,17 @@ import { cn } from "@/lib/utils";
 import type { RequestScope } from "./request-scope";
 
 /**
- * The two desks a manager works from.
+ * The three desks a manager works from.
  *
  * Links rather than client state, so the view survives a refresh, is
  * shareable, and — the reason that actually matters — so the SERVER re-runs the
- * query. The "Assigned to me" narrowing happens in the database query, not in
- * the browser, because a 200-row page filtered after the fact can hide a
- * manager's own work behind other people's (see page.tsx).
+ * query. The narrowing happens in the database query, not in the browser,
+ * because a 200-row page filtered after the fact can hide a manager's own work
+ * behind other people's (see page.tsx).
+ *
+ * "Raised by me" is decision 23: an FM who logs a request was previously unable
+ * to follow it anywhere, because the only personal view filtered on
+ * `assigned_to_user_id` and a raiser is not an assignee.
  */
 export default function ScopeTabs({
   active,
@@ -25,6 +29,11 @@ export default function ScopeTabs({
       key: "mine",
       label: "Assigned to me",
       hint: "Work dispatched to you, which is what you sign off.",
+    },
+    {
+      key: "raised",
+      label: "Raised by me",
+      hint: "Requests you logged yourself, whoever they were passed to.",
     },
     {
       key: "properties",

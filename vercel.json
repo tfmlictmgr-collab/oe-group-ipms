@@ -24,6 +24,10 @@
     {
       "path": "/api/jobs/copy-vendor-documents",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/jobs/escalate-unassigned",
+      "schedule": "0 * * * *"
     }
   ]
 }

@@ -278,7 +278,7 @@ export async function executeRemittance(paymentId: string): Promise<RemittanceRe
     .from("users").select("role").eq("id", user.id).single();
   if (!me || me.role !== "finance_approver") {
     return fail(
-      "Only a finance approver can send a payment.",
+      "Only the payment officer can send a payment.",
       "Oversight authorises; finance disburses — approving against a limit you can lift yourself is not an approval."
     );
   }

@@ -535,6 +535,109 @@ if (!carriedVendorId) {
 }
 
 // ---------------------------------------------------------------------------
+console.log("\nG. A vendor can actually attach a document (the demo failure)");
+// ---------------------------------------------------------------------------
+//
+// ⚠️ THE GAP THIS SECTION EXISTS TO CLOSE. Every check above passed on the day
+// the vendor KYC demo could not complete a single upload, because every fixture
+// in this file writes its objects through the SERVICE ROLE and under the
+// correct `<org>/<vendor>/…` prefix. The product wrote `<vendor>/…` as the
+// signed-in vendor, which 0164's INSERT policy refuses — and no check here was
+// taken from the vendor's own seat, so the suite proved the policy worked while
+// the only path a human uses was broken.
+//
+// So this section signs in AS A VENDOR and uploads the way the screen does.
+{
+  const okPath = `${org.id}/${vendorA}/cac_certificate-${crypto.randomUUID()}.pdf`;
+  const badPath = `${vendorA}/cac_certificate-${crypto.randomUUID()}.pdf`;
+  const body = Buffer.from(`%PDF-1.4 probe upload ${S}`);
+
+  // The shape the product used to write. It must fail — if this ever succeeds,
+  // the org prefix has stopped being enforced and one brand can write into
+  // another's evidence folder.
+  const { error: wrongErr } = await ownerC.storage
+    .from("vendor-documents").upload(badPath, body, { contentType: "application/pdf" });
+  wrongErr
+    ? ok("G1 a vendor-id-first path is refused (the bug: the client wrote exactly this)")
+    : bad("G1 A PATH WITHOUT THE ORG PREFIX WAS ACCEPTED — storage isolation is gone");
+  if (!wrongErr) madeObjects.push(badPath);
+
+  // The shape the product writes now.
+  const { error: rightErr } = await ownerC.storage
+    .from("vendor-documents").upload(okPath, body, { contentType: "application/pdf" });
+  if (rightErr) {
+    bad(`G2 a vendor could not upload to their own org prefix — ${rightErr.message}`);
+  } else {
+    madeObjects.push(okPath);
+    ok("G2 a vendor uploads to <org>/<vendor>/… as their own signed-in user");
+
+    // And the row that indexes it, which is the half `recordDocument` does.
+    // `uploaded_by = auth.uid()` is required by the policy and supplied by the
+    // action — a row that does not say who attached it is refused.
+    const { error: rowErr } = await ownerC.from("vendor_documents").insert({
+      org_id: org.id, vendor_id: vendorA, doc_type: "cac_certificate",
+      storage_path: okPath, file_name: "cac.pdf", uploaded_by: ownerId,
+    });
+    rowErr
+      ? bad(`G3 the document row was refused — ${rowErr.message}`)
+      : ok("G3 and indexes it, so the pack can reach complete");
+
+    // ── Replacing one ─────────────────────────────────────────────────────
+    //
+    // ⚠️ `recordDocument` supersedes the previous document of the same type
+    // before inserting the new one — but a vendor holds no UPDATE policy on
+    // `vendor_documents` (verification is staff-only, 0164), so that UPDATE
+    // matches nothing and returns no error. Without `supersede_vendor_document`
+    // a "Replace" left TWO live rows of the same type, and the reviewer's
+    // screen showed whichever the map happened to keep.
+    const replacePath = `${org.id}/${vendorA}/cac_certificate-${crypto.randomUUID()}.pdf`;
+    const { error: repUpErr } = await ownerC.storage
+      .from("vendor-documents").upload(replacePath, body, { contentType: "application/pdf" });
+    if (!repUpErr) madeObjects.push(replacePath);
+
+    const { error: supErr } = await ownerC.rpc("supersede_vendor_document", {
+      p_vendor_id: vendorA, p_doc_type: "cac_certificate",
+    });
+    supErr && bad(`G7 superseding was refused — ${supErr.message}`);
+
+    await ownerC.from("vendor_documents").insert({
+      org_id: org.id, vendor_id: vendorA, doc_type: "cac_certificate",
+      storage_path: replacePath, file_name: "cac-v2.pdf", uploaded_by: ownerId,
+    });
+
+    const { data: live } = await svc.from("vendor_documents")
+      .select("id, file_name").eq("vendor_id", vendorA)
+      .eq("doc_type", "cac_certificate").is("superseded_at", null);
+    live?.length === 1 && live[0].file_name === "cac-v2.pdf"
+      ? ok("G7 replacing a document leaves exactly one live row, the new one")
+      : bad(`G7 replacing left ${live?.length ?? 0} live row(s) — a reviewer sees an ambiguous pack`);
+  }
+
+  // ── The three numbers that have to agree (0213) ─────────────────────────
+  //
+  // The browser refuses early so a 9 MB photo is not pushed up a Nigerian
+  // mobile connection first; the bucket refuses regardless of what any browser
+  // claimed. Neither is redundant, and they must not drift — they were 15 MB
+  // and 5 MB respectively when the demo ran, with the board's 2 MB in neither.
+  const { data: buckets } = await svc.storage.listBuckets();
+  const vb = (buckets ?? []).find((b) => b.id === "vendor-documents");
+  const clientMax = 2 * 1024 * 1024;
+  const clientTypes = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
+
+  eq("G4 the bucket's size limit is the 2 MB the screen states", vb?.file_size_limit, clientMax);
+
+  const bucketTypes = [...(vb?.allowed_mime_types ?? [])].sort();
+  eq("G5 the bucket's accepted types are exactly the ones the picker offers",
+     bucketTypes.join(","), [...clientTypes].sort().join(","));
+
+  // HEIC was offered by the client and never accepted by the bucket — an
+  // iPhone photo passed the browser and was refused by storage.
+  (vb?.allowed_mime_types ?? []).includes("image/heic")
+    ? bad("G6 the bucket accepts HEIC but the screen no longer offers it")
+    : ok("G6 HEIC is offered by neither — the screen says so before the picker opens");
+}
+
+// ---------------------------------------------------------------------------
 // Teardown
 // ---------------------------------------------------------------------------
 if (madeObjects.length > 0) {

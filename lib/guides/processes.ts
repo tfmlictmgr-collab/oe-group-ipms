@@ -147,11 +147,15 @@ export const PROCESS_CATALOGUE: Process[] = [
           "filter on ownership, and it has been closed.",
       },
       {
-        trigger: "Finance asks why a request isn't on their dashboard yet.",
+        trigger:
+          "The payment officer asks why a request isn't on their dashboard.",
         explanation:
-          "A payment role sees a request only once money attached to it (an " +
-          "invoice) reaches their desk — not the operational queue itself " +
-          "(decision 19).",
+          "A payment role sees a request once money attached to it has entered " +
+          "the approval chain — a vendor invoice OR an FM/PM's ops requisition " +
+          "— never the operational queue itself (decisions 19 and 23). If they " +
+          "see nothing at all, the usual cause is that no payable has been " +
+          "raised against that request yet: the job sign-off is what starts " +
+          "the chain.",
       },
       {
         trigger:
@@ -162,7 +166,11 @@ export const PROCESS_CATALOGUE: Process[] = [
           "operational has looked at cannot be assigned. The platform operator " +
           "can grant `tickets.assign_without_review` per org for a genuinely " +
           "urgent-escalation workflow, but it ships off, deliberately: the " +
-          "usual answer is to review it, not to switch the gate off.",
+          "usual answer is to review it, not to switch the gate off. Separately, " +
+          "an ADMINISTRATOR may dispatch a request that has sat unreviewed and " +
+          "unassigned for more than 24 hours (decision 23) — a per-ticket, " +
+          "time-bounded rescue that records them as the reviewer, not a standing " +
+          "permission.",
       },
     ],
     trainer: {
@@ -217,31 +225,43 @@ export const PROCESS_CATALOGUE: Process[] = [
       {
         role: "facility_manager",
         action:
-          "Stage 1. Payments → the invoice → Sign off, confirming the job or " +
-          "the period is actually done. (Property manager, identically.)",
+          "Payments → the invoice → Sign off, confirming the job or the period " +
+          "is actually done. (Property manager, identically.) On TFML this is " +
+          "stage 1 of the ladder; on OEA it is the PRECONDITION that starts the " +
+          "ladder rather than a rung of it (decision 23) — either way it is the " +
+          "same act, and nothing moves until it happens.",
       },
       {
         role: "payment_audit_approver",
         action:
-          "Stage 2. Payments → Audit, checking the invoice against the job " +
-          "card and the evidence attached to it.",
+          "Audit — checking the invoice against the job card and the evidence " +
+          "attached to it. Stage 2 on TFML, stage 1 on OEA.",
+      },
+      {
+        role: "executive",
+        action:
+          "OEA only: stage 2, the Managing Partner. EVERY outbound payment " +
+          "passes them, at every amount — not only those above the threshold " +
+          "(decision 23, amending decision 9). On TFML the executive instead " +
+          "sits at stage 3 as a tier-3 approver.",
       },
       {
         role: "payment_approver",
         action:
-          "Stage 3, final approval, bounded by amount. Approvals → approve, up " +
-          "to the band this person was invited with. A larger amount instead " +
-          "needs admin (tier 2, within their configured threshold) or " +
-          "executive (tier 3, including above it — decision 9's \"co-holds\", " +
-          "approval only).",
+          "Final approval, bounded by amount. Approvals → approve, up to the " +
+          "band this person was invited with. On OEA they are the ONLY role at " +
+          "this stage, so the organisation needs one whose tier covers its " +
+          "largest payment; on TFML an executive (tier 3) can stand in. An " +
+          "administrator can do neither — decision 23 removed them from money " +
+          "approval entirely.",
       },
       {
         role: "finance_approver",
         action:
-          "Stage 4, disbursement only — never an approval. Payments → Remit. " +
-          "This must be a different person from whoever actioned any earlier " +
-          "stage on this same payment (decision 16; enforced per payment, not " +
-          "per role). The screen records who actually executed it.",
+          "Disbursement only — never an approval. Payments → Remit. This must " +
+          "be a different person from whoever actioned any earlier stage on " +
+          "this same payment (decision 16; enforced per payment, not per role). " +
+          "The screen records who actually executed it.",
       },
       {
         role: "vendor",
@@ -264,19 +284,21 @@ export const PROCESS_CATALOGUE: Process[] = [
           "is the control working, not a fault to route around.",
       },
       {
-        trigger: "An admin who approved a payment tries to also release it.",
+        trigger: "An administrator tries to approve a payment at any amount.",
         explanation:
-          "Only `finance_approver` may execute a remittance at all. Admin " +
-          "actions stage 3 within their threshold and configures it; they " +
-          "never hold stage 4, so the concentration decision 16 targeted " +
-          "cannot recur through this role either.",
+          "Refused. Decision 23 removed the administrator from money approval " +
+          "on both ladders — they hold no approval tier at all, where decision " +
+          "16 had given them tier 2 within the threshold. They still configure " +
+          "the organisation, and the ladder's amounts have been operator-" +
+          "governed since 0149 regardless. They also cannot release money: only " +
+          "the payment officer executes a remittance.",
       },
       {
         trigger: "An executive tries to execute a remittance.",
         explanation:
-          "Decision 9: oversight authorises, finance disburses. An executive " +
-          "actions stage 3 — including above the threshold — and can never " +
-          "reach stage 4.",
+          "Decision 9: oversight authorises, the payment officer disburses. An " +
+          "executive approves — on OEA, every payment — and can never reach " +
+          "disbursement.",
       },
       {
         trigger: "Someone tries to skip straight to a later stage.",
@@ -297,11 +319,11 @@ export const PROCESS_CATALOGUE: Process[] = [
         "expect it to be able to pay a vendor directly — worth walking through " +
         "why that is deliberate, not a gap.",
       exercise:
-        "In the demo org, using four different demo logins: as the demo " +
-        "vendor, submit an invoice against a closed job card; as the demo FM, " +
-        "sign it off (stage 1); as the demo payment auditor, audit it (stage " +
-        "2); as the demo payment approver, approve it (stage 3); as the demo " +
-        "finance approver, remit it (stage 4).",
+        "In the demo org, using different demo logins: as the demo vendor, " +
+        "submit an invoice against a closed job card; as the demo FM, sign it " +
+        "off; as the demo payment auditor, audit it; on OEA, as the demo " +
+        "executive, give the Managing Partner's approval; as the demo payment " +
+        "approver, approve it; as the demo payment officer, remit it.",
     },
     capabilities: ["payment.approve", "payment.remit"],
     routes: [
@@ -919,7 +941,7 @@ export const PROCESS_CATALOGUE: Process[] = [
         "Treating a small mismatch as fine \"for now\" — every variance needs " +
         "a same-day reason logged, however small.",
       exercise:
-        "As the demo finance approver: open Client Funds and identify the " +
+        "As the demo payment officer: open Client Funds and identify the " +
         "seeded variance for the demo org.",
     },
     capabilities: ["ledger.read", "ledger.write"],
@@ -973,8 +995,10 @@ export const PROCESS_CATALOGUE: Process[] = [
     ],
     trainer: {
       demo:
-        "Set a threshold and then show an invoice above it escalate to the " +
-        "executive at stage 3.",
+        "Set a threshold and then show an invoice above it demand a tier-3 " +
+        "approver — the executive on TFML, a tier-3 payment approver on OEA, " +
+        "where the executive has already signed at stage 2 and cannot sign " +
+        "twice.",
       commonMistake:
         "Treating `bank.configure` as a way to redirect where one specific " +
         "payment goes — it sets the org's own disbursement account, not a " +

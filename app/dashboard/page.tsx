@@ -63,6 +63,11 @@ export default async function DashboardPage({
   // manager's own three off the end — and the page would say "no requests
   // assigned to you" while three sat waiting.
   if (scope === "mine" && user) q = q.eq("assigned_to_user_id", user.id);
+  // Decision 23. `sender_id` is already a clause of `tickets_select`, so this
+  // narrows what RLS returned rather than widening it — an FM sees the requests
+  // they raised because the policy has always allowed it, not because this line
+  // says so.
+  if (scope === "raised" && user) q = q.eq("sender_id", user.id);
 
   const { data: tickets, count } = await q
     .order("created_at", { ascending: false })
@@ -78,7 +83,9 @@ export default async function DashboardPage({
         description={
           scope === "mine"
             ? "The requests assigned to you, updating in real time."
-            : "Requests you have access to, updating in real time."
+            : scope === "raised"
+              ? "The requests you logged yourself, updating in real time."
+              : "Requests you have access to, updating in real time."
         }
         actions={
           <div className="flex flex-wrap gap-2">

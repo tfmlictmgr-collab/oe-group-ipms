@@ -43,14 +43,32 @@ const fail = (m) => {
   console.log(`  \x1b[31mFAIL\x1b[0m ${m}`);
 };
 
-async function asUser(uid, fn) {
-  await client.query("begin");
+/**
+ * Run `fn` as `uid`, with an optional `asOwner` step first — still unprivileged
+ * by RLS, so it can read ground truth — inside the SAME transaction.
+ *
+ * ⚠️ REPEATABLE READ, and that is the whole point. Under READ COMMITTED every
+ * statement takes a fresh snapshot, so the ground-truth count and the
+ * RLS-scoped count were taken at different moments. On any environment with
+ * live intake — staging has WhatsApp and Telegram webhooks pointed at it — new
+ * requests arrive between the two, and the suite reported
+ *
+ *     FAIL admin: sees 33 of 32 — should see all
+ *
+ * for a role that was seeing everything correctly. The counts climbed WITHIN a
+ * single run (28, then 29, then 31, against a total taken once at 25), which is
+ * the tell: three more requests had simply arrived. A suite that fails when the
+ * product is being used is a suite that will be ignored the day it is right.
+ */
+async function asUser(uid, fn, asOwner) {
+  await client.query("begin isolation level repeatable read");
   try {
+    const owned = asOwner ? await asOwner() : undefined;
     await client.query("set local role authenticated");
     await client.query(
       `set local request.jwt.claims = '${JSON.stringify({ sub: uid, role: "authenticated" })}'`
     );
-    return await fn();
+    return await fn(owned);
   } finally {
     await client.query("rollback");
   }
@@ -106,10 +124,12 @@ try {
 
   for (const u of users) {
     const label = `${u.org_name} / ${u.role}`;
-    const orgTotal = totalByOrg[u.org_id] ?? 0;
-    if (orgTotal === 0) continue; // nothing to prove in an empty org
+    // The snapshot taken above only decides whether this org is worth checking.
+    // Every number the assertions compare comes from the single transaction
+    // below, so none of them can disagree about how many requests exist.
+    if ((totalByOrg[u.org_id] ?? 0) === 0) continue; // nothing to prove in an empty org
 
-    const r = await asUser(u.id, async () => {
+    const r = await asUser(u.id, async (orgTotal) => {
       const { rows } = await client.query(
         `select
            (select count(*)::int from tickets)                            as visible,
@@ -129,11 +149,27 @@ try {
            -- place-scoping can narrow it. Whoever triages sees all of it, and
            -- that is 0064's deliberate design, not a leak.
            (select count(*)::int from tickets where property_id is null)   as unfiled,
-           (select has_permission('tickets.triage_unassigned'))            as may_triage`,
+           (select has_permission('tickets.triage_unassigned'))            as may_triage,
+           -- Both computed here, in the SAME snapshot as the visible count.
+           -- They were two further asUser() transactions taken moments later, which
+           -- is the same race one level down: a request arriving in between
+           -- made a correctly-scoped reader look like an unexplained one.
+           (select count(*)::int from current_user_payable_ticket_ids())   as via_payable,
+           (select count(*)::int from tickets
+             where property_id in (select current_user_property_ids()))    as in_scope`,
         [u.org_id, u.id]
       );
-      return rows[0];
+      return { ...rows[0], orgTotal };
+    }, async () => {
+      // Ground truth, read as the owner with RLS bypassed, inside the same
+      // REPEATABLE READ snapshot the assertions are made against.
+      const { rows } = await client.query(
+        `select count(*)::int as n from tickets where org_id = $1`,
+        [u.org_id]
+      );
+      return rows[0].n;
     });
+    const orgTotal = r.orgTotal;
 
     // ── 7. Isolation, on every role and every path ────────────────────────
     if (r.foreign > 0) {
@@ -171,12 +207,7 @@ try {
 
     // ── 2 & 3. The payment desks ──────────────────────────────────────────
     if (PAYMENT_DESK.has(u.role)) {
-      const viaPayable = await asUser(u.id, async () => {
-        const { rows } = await client.query(
-          `select count(*)::int as n from current_user_payable_ticket_ids()`
-        );
-        return rows[0].n;
-      });
+      const viaPayable = r.via_payable;
       if (r.visible <= explained + viaPayable) {
         pass(
           `${label}: ${r.visible} request(s) — ${viaPayable} at their desk, ${r.own} self-raised (not the ${orgTotal}-row queue)`
@@ -191,13 +222,7 @@ try {
 
     // ── 5. FM / PM / regional ─────────────────────────────────────────────
     if (PLACE_SCOPED.has(u.role)) {
-      const inScope = await asUser(u.id, async () => {
-        const { rows } = await client.query(
-          `select count(*)::int as n from tickets
-            where property_id in (select current_user_property_ids())`
-        );
-        return rows[0].n;
-      });
+      const inScope = r.in_scope;
       if (r.visible < inScope) {
         fail(
           `${label}: sees ${r.visible} but ${inScope} are on properties they manage — triage would break`

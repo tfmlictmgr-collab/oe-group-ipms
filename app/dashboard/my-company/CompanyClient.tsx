@@ -21,10 +21,62 @@ import {
 } from "./actions";
 
 const BUCKET = "vendor-documents";
-const MAX_BYTES = 5 * 1024 * 1024;
-const ACCEPTED = [
-  "image/jpeg", "image/png", "image/webp", "image/heic", "application/pdf",
-];
+
+/**
+ * ⚠️ THREE NUMBERS THAT HAVE TO AGREE, and did not.
+ *
+ * The bucket (0164) was created with a 15 MB limit and
+ * `image/jpeg,image/png,image/webp,application/pdf`. This file allowed 5 MB and
+ * additionally offered `image/heic` — so an iPhone photo passed the check here
+ * and was then refused by storage, with the bucket's own message. The board has
+ * set the limit at 2 MB (decision 23); 0213 moves the bucket to match, and HEIC
+ * is gone from this list because the bucket never accepted it.
+ *
+ * Anything changed here must change in 0213 too. They are stated in both places
+ * because the browser has to say "too big" BEFORE spending a minute of a
+ * Nigerian mobile connection uploading it, and the bucket has to refuse it
+ * regardless of what the browser said.
+ */
+const MAX_BYTES = 2 * 1024 * 1024;
+const MAX_LABEL = "2 MB";
+const ACCEPTED = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
+const ACCEPTED_LABEL = "PDF, JPG, PNG or WebP";
+
+function prettyBytes(n: number): string {
+  return n >= 1024 * 1024
+    ? `${(n / (1024 * 1024)).toFixed(1)} MB`
+    : `${Math.max(1, Math.round(n / 1024))} KB`;
+}
+
+/**
+ * Why this particular file cannot be attached, in words the person can act on.
+ * Returns null when it is fine.
+ *
+ * ⚠️ Some browsers report an empty `type` for files picked from certain sources
+ * (and always for HEIC on older Android WebViews), so an unknown type falls
+ * back to the extension rather than being refused outright — refusing a valid
+ * PDF because the browser declined to name it is the failure this whole
+ * function exists to stop.
+ */
+function rejectReason(file: File): string | null {
+  const ext = (file.name.split(".").pop() ?? "").toLowerCase();
+  const extOk = ["pdf", "jpg", "jpeg", "png", "webp"].includes(ext);
+  const typeKnown = Boolean(file.type);
+
+  if (/^hei[cf]$/.test(ext) || file.type === "image/heic" || file.type === "image/heif") {
+    return `iPhone HEIC photos are not accepted. In Settings → Camera → Formats choose "Most Compatible", or open the photo and share it as a JPEG.`;
+  }
+  if (typeKnown ? !ACCEPTED.includes(file.type) : !extOk) {
+    return `That is a ${ext ? `.${ext}` : "an unrecognised"} file. Attach ${ACCEPTED_LABEL}.`;
+  }
+  if (file.size === 0) {
+    return "That file is empty — it may not have finished downloading to your device.";
+  }
+  if (file.size > MAX_BYTES) {
+    return `That file is ${prettyBytes(file.size)}. The limit is ${MAX_LABEL} — photograph the document in your camera's normal quality rather than its highest, or scan it as a PDF.`;
+  }
+  return null;
+}
 
 export type Requirement = {
   tier: string;
@@ -68,10 +120,11 @@ const STATUS_COPY: Record<string, { label: string; tone: "muted" | "warning" | "
 };
 
 export default function CompanyClient({
-  vendorId, tier, status, missing, registration, documents, requirements,
+  vendorId, orgId, tier, status, missing, registration, documents, requirements,
   members, canManageProfile, canManageUsers, myVendorUserId,
 }: {
   vendorId: string;
+  orgId: string;
   tier: string;
   status: string;
   missing: string[];
@@ -85,6 +138,11 @@ export default function CompanyClient({
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
+  /** Which doc_type is mid-upload, so the row can say so rather than the page. */
+  const [uploading, setUploading] = React.useState<string | null>(null);
+  /** The last refusal per doc_type, kept ON THE ROW — a toast the person has
+   *  already dismissed is not an explanation they can still act on. */
+  const [rejected, setRejected] = React.useState<Record<string, string>>({});
   const r = registration ?? {};
   const [form, setForm] = React.useState({
     legalName: r.legal_name ?? "",
@@ -142,31 +200,60 @@ export default function CompanyClient({
   }
 
   async function upload(docType: string, file: File) {
-    if (!ACCEPTED.includes(file.type)) {
-      toast.error("Unsupported file type", { description: "Attach a photo (JPEG, PNG, WebP, HEIC) or a PDF." });
+    // Said before a byte is sent, and said specifically. "Could not attach that
+    // document" is what the demo saw, and it tells the person nothing about
+    // what to do differently.
+    const why = rejectReason(file);
+    if (why) {
+      setRejected((m) => ({ ...m, [docType]: why }));
+      toast.error("That file cannot be attached", { description: why });
       return;
     }
-    if (file.size > MAX_BYTES) {
-      toast.error("File too large", { description: "Documents must be under 5 MB." });
-      return;
-    }
+    setRejected((m) => {
+      const next = { ...m };
+      delete next[docType];
+      return next;
+    });
+
     setBusy(true);
+    setUploading(docType);
     try {
       const supabase = createClient();
-      const ext = file.name.split(".").pop() || "bin";
-      const path = `${vendorId}/${docType}-${crypto.randomUUID()}.${ext}`;
+      const ext = (file.name.split(".").pop() || "bin").toLowerCase();
+
+      // ⚠️ THE BUG THE DEMO HIT. This was `${vendorId}/${docType}-…`, and the
+      // storage policy (0164) requires the FIRST path segment to be the
+      // organisation:
+      //
+      //     (storage.foldername(name))[1]::uuid = current_user_org_id()
+      //
+      // So every single attach failed RLS, the pack never completed, and
+      // "Send for review" stayed disabled with no way for the vendor to
+      // discover why. `<org>/<vendor>/<doc>` is the convention
+      // `accept_vendor_introduction` (0165) already writes for the copies it
+      // makes — this brings the one path that a human actually uses into line
+      // with the one the transfer job was already using.
+      const path = `${orgId}/${vendorId}/${docType}-${crypto.randomUUID()}.${ext}`;
+
       const { error } = await supabase.storage.from(BUCKET).upload(path, file, {
-        contentType: file.type,
+        contentType: file.type || undefined,
       });
       if (error) throw new Error(error.message);
+
+      // Only after the bytes are actually there. `recordDocument` writing first
+      // would tell a reviewer a document is present when it is not — the same
+      // ordering rule the cross-brand transfer job states at length.
       await runAction(
         recordDocument({ vendorId, docType, storagePath: path, fileName: file.name, expiresOn: null })
       );
-      toast.success("Attached");
+      toast.success(`${file.name} attached`);
       router.refresh();
     } catch (e) {
-      toast.error("Could not attach that document", { description: describeError(e) });
+      const msg = describeError(e);
+      setRejected((m) => ({ ...m, [docType]: msg }));
+      toast.error("Could not attach that document", { description: msg });
     } finally {
+      setUploading(null);
       setBusy(false);
     }
   }
@@ -319,8 +406,23 @@ export default function CompanyClient({
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
+          {/* Stated ONCE, before the list, and again on every row — because the
+              demo failed at the file picker and the rules were nowhere near
+              it. */}
+          <div className="rounded-md border border-border bg-muted/40 px-3 py-2.5 text-xs">
+            <p className="font-medium">Before you attach anything</p>
+            <ul className="mt-1 space-y-0.5 text-muted-foreground">
+              <li>· {ACCEPTED_LABEL} only — one file per document.</li>
+              <li>· Up to {MAX_LABEL} each. A phone photo on normal quality is well under it; the highest quality setting is not.</li>
+              <li>· iPhone photos save as HEIC by default and are not accepted — Settings → Camera → Formats → &ldquo;Most Compatible&rdquo;.</li>
+              <li>· Make sure the whole page is in frame and the text is readable.</li>
+            </ul>
+          </div>
+
           {requirements.map((req) => {
             const doc = byType.get(req.doc_type);
+            const problem = rejected[req.doc_type];
+            const isUploading = uploading === req.doc_type;
             return (
               <div
                 key={req.doc_type}
@@ -341,10 +443,22 @@ export default function CompanyClient({
                   {req.help_text && (
                     <p className="mt-0.5 text-xs text-muted-foreground">{req.help_text}</p>
                   )}
-                  {doc && (
-                    <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                  {doc ? (
+                    <p className="mt-1 flex items-center gap-1.5 text-xs text-success">
                       <Paperclip className="size-3" />
                       {doc.file_name ?? "attached"}
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {ACCEPTED_LABEL} · up to {MAX_LABEL}
+                    </p>
+                  )}
+                  {/* Stays until they succeed. The toast is the alert; this is
+                      the instruction. */}
+                  {problem && (
+                    <p className="mt-1.5 flex items-start gap-1.5 text-xs text-destructive">
+                      <CircleAlert className="mt-px size-3 shrink-0" />
+                      <span>{problem}</span>
                     </p>
                   )}
                 </div>
@@ -355,12 +469,15 @@ export default function CompanyClient({
                       busy && "pointer-events-none opacity-60"
                     )}
                   >
-                    <Upload className="size-3.5" />
-                    {doc ? "Replace" : "Attach"}
+                    <Upload className={cn("size-3.5", isUploading && "animate-pulse")} />
+                    {isUploading ? "Uploading…" : doc ? "Replace" : "Attach"}
                     <input
                       type="file"
                       className="sr-only"
-                      accept={ACCEPTED.join(",")}
+                      // The picker offers extensions too: a browser that does
+                      // not know a file's MIME type filters on nothing at all
+                      // when given only MIME types.
+                      accept={`${ACCEPTED.join(",")},.pdf,.jpg,.jpeg,.png,.webp`}
                       onChange={(e) => {
                         const f = e.target.files?.[0];
                         e.target.value = "";

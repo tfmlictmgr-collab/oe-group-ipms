@@ -18,7 +18,7 @@ import { FM_PM } from "@/lib/roles";
  * managed properties because the policy allows it, not because this file said
  * so.
  */
-export const REQUEST_SCOPES = ["mine", "properties", "all"] as const;
+export const REQUEST_SCOPES = ["mine", "raised", "properties", "all"] as const;
 export type RequestScope = (typeof REQUEST_SCOPES)[number];
 
 /** Roles whose landing view is their own desk rather than the whole queue. */
@@ -44,6 +44,14 @@ export function showsScopeTabs(role: string | null | undefined): boolean {
 
 export function scopeLabel(scope: RequestScope, role: string | null | undefined): string {
   if (scope === "mine") return "Assigned to me";
+  // Board direction, 28 Aug 2026: *"fm should see their own requests on their
+  // dashboards"*. "Their own" turned out to mean two different things and the
+  // product only had one of them — an FM who RAISES a request (a job they
+  // logged, a fault they reported upward) then had nowhere to watch it, because
+  // "Assigned to me" filters on `assigned_to_user_id` and a raiser is not an
+  // assignee. `tickets_select` has always returned it to them via `sender_id`;
+  // there was simply no view that asked.
+  if (scope === "raised") return "Raised by me";
   if (scope === "properties") {
     return role === "regional_manager" ? "In my region" : "On my properties";
   }

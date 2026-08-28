@@ -21,8 +21,12 @@ import CompanyClient, {
  * the correct answer for someone whose company was never attached.
  */
 export default async function MyCompanyPage() {
+  // `profile`, not just `session`: the org id below is what every uploaded
+  // document is filed under and what the storage policy checks against, so a
+  // session without a profile row must not reach the form at all rather than
+  // reach it and write objects under `undefined/`.
   const session = await getSessionProfile();
-  if (!session) redirect("/login");
+  if (!session?.profile) redirect("/login");
 
   const supabase = await createClient();
 
@@ -119,6 +123,7 @@ export default async function MyCompanyPage() {
       />
       <CompanyClient
         vendorId={vendorId}
+        orgId={session.profile.org_id}
         tier={state.tier}
         status={state.status}
         missing={missing}

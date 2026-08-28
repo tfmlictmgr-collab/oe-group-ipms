@@ -261,7 +261,7 @@ console.log("\n4. Tier enforcement at final approval");
   const c = await mkPayment(T2 + 0.01);
   await decide(c, fm, 1); await decide(c, auditor, 2);
   (await decide(c, tier2, 3)) ? ok("tier 2 CANNOT approve above ₦1,000,000") : bad("TIER 2 APPROVED ABOVE ITS BAND");
-  (await decide(c, admin, 3)) ? ok("an administrator CANNOT approve above the threshold (decision 16)") : bad("ADMIN APPROVED ABOVE THE THRESHOLD");
+  (await decide(c, admin, 3)) ? ok("an administrator CANNOT approve above the threshold (decision 23)") : bad("ADMIN APPROVED ABOVE THE THRESHOLD");
   const e3 = await decide(c, md, 3);
   e3 ? bad(`the MD was refused — ${e3.message.slice(0, 60)}`) : ok("the MD approves above ₦1,000,000 (decision 9)");
 
@@ -272,12 +272,22 @@ console.log("\n4. Tier enforcement at final approval");
   e4 ? bad(`the MD could not approve a small amount — ${e4.message.slice(0, 60)}`)
      : ok("the MD may approve a small amount (>= not =)");
 
-  // An administrator within the threshold — decision 16, the other half.
+  // ⚠️ REVERSED BY DECISION 23 (28 Aug 2026). This check used to assert the
+  // other half of decision 16 — "an administrator approves within the
+  // threshold" — and it passed for as long as that was the rule.
+  //
+  // The board has removed the administrator from money approval entirely, at
+  // every amount and on both ladders: they configure the organisation and they
+  // approve none of its spending. `effective_approval_tier()` no longer returns
+  // a tier for them (0211), so the refusal now comes from the ROLE not being at
+  // the stage at all, which is the stronger of the two possible refusals — an
+  // administrator is not a person with too small a limit, they are a person
+  // with no place in the chain.
   const f = await mkPayment(500000);
   await decide(f, fm, 1); await decide(f, auditor, 2);
-  const e5 = await decide(f, admin, 3);
-  e5 ? bad(`an admin was refused within the threshold — ${e5.message.slice(0, 60)}`)
-     : ok("an administrator approves within the threshold");
+  (await decide(f, admin, 3))
+    ? ok("an administrator CANNOT approve within the threshold either (decision 23)")
+    : bad("ADMIN APPROVED A PAYMENT — decision 23 removed them from money approval");
 }
 
 // ---------------------------------------------------------------------------

@@ -295,8 +295,29 @@ try {
 
   const AWARE = /(deactivated_at\s+is\s+null|active_uid\(\)|current_user_is_active\(\)|current_user_account_state\(\)|current_user_org_id\(\)|current_user_role\(\)|current_user_property_ids\(\)|current_user_vendor_ids\(\))/;
 
+  /**
+   * A function that REFUSES every signed-in caller outright.
+   *
+   * ⚠️ Recognised as a RULE rather than added to `EXEMPT` as a name, because a
+   * list of exceptions only ever describes the functions that existed when
+   * somebody last edited it — 0185's lesson, which this suite's own header
+   * already cites about itself.
+   *
+   * The guarantee here is strictly STRONGER than deactivation-awareness, not
+   * weaker: a scheduled job that raises whenever `auth.uid()` is non-null
+   * cannot be reached by ANY user, active or deactivated. Asking it to also
+   * check `deactivated_at` would be asking it to check a row it has already
+   * refused to look up. `escalate_stale_unassigned_requests` (0212) is the
+   * first of these; the next one is covered without an edit here.
+   */
+  const SERVICE_ROLE_ONLY = /if\s+auth\.uid\(\)\s+is\s+not\s+null\s+then\s+raise/i;
+
   const unaware = fns
-    .filter((r) => r.ret !== "trigger" && !EXEMPT.has(r.proname) && !AWARE.test(r.def))
+    .filter((r) =>
+      r.ret !== "trigger" &&
+      !EXEMPT.has(r.proname) &&
+      !AWARE.test(r.def) &&
+      !SERVICE_ROLE_ONLY.test(r.def))
     .map((r) => r.proname);
 
   unaware.length === 0

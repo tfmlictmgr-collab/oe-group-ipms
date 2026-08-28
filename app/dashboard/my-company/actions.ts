@@ -133,12 +133,21 @@ export async function recordDocument(input: {
   // Supersede any previous document of this type rather than deleting it — a
   // document that has been looked at is evidence, and evidence that can vanish
   // is not evidence. `vendor_documents_select` still shows the current one.
-  await supabase
-    .from("vendor_documents")
-    .update({ superseded_at: new Date().toISOString() })
-    .eq("vendor_id", input.vendorId)
-    .eq("doc_type", input.docType)
-    .is("superseded_at", null);
+  //
+  // ⚠️ Through an RPC, not a direct UPDATE. A vendor holds no UPDATE policy on
+  // `vendor_documents` (verification is staff-only, 0164), so the direct
+  // statement this replaced matched no rows and returned NO ERROR — "Replace"
+  // left two live rows of the same type and the reviewer saw whichever one the
+  // screen happened to keep. `supersede_vendor_document` (0215) is SECURITY
+  // DEFINER, checks manage_profile, and supersedes and nothing else.
+  const { error: supErr } = await supabase.rpc("supersede_vendor_document", {
+    p_vendor_id: input.vendorId,
+    p_doc_type: input.docType,
+  });
+  // Refused means the replacement must not proceed either — otherwise the
+  // second row lands beside a first that is still live, which is the state this
+  // call exists to prevent.
+  if (supErr) return failFromDb(supErr, "replace that document");
 
   const { error } = await supabase.from("vendor_documents").insert({
     org_id: me.org_id,
