@@ -1,6 +1,6 @@
 // What is this person actually doing?
 //
-// Until now every inbound message became a new ticket. That is correct for a
+// Until 0075 every inbound message became a new ticket. That is correct for a
 // first message and wrong for every one after it: "it's worse now" opened a
 // second ticket, "no that IS urgent" opened a third, and the acknowledgement's
 // own invitation to "reply and we'll correct it" produced a fourth.
@@ -8,10 +8,28 @@
 // So intake needs one decision before it classifies anything: does this message
 // START something, or CONTINUE something?
 //
-// The router is deliberately narrow. It picks one of five intents and, for a
-// correction, one priority. It does not decide anything about the request itself
-// — the existing classifier still does that — and it cannot act: every intent is
-// carried out by a guarded RPC that re-checks the sender owns the ticket.
+// ── What 0075 did not cover, and 0210 does ────────────────────────────────
+//
+// The router had only TWO answers on a cold message — request, or noise. There
+// was no way to say "this is a question", so a question about their own
+// requests became a request, and a bare "1" arriving after the priority window
+// had lapsed became one too. And because nothing read a REFERENCE out of the
+// text, quoting one and asking after it opened a duplicate of the very ticket
+// being quoted.
+//
+// Three changes, in the order they matter:
+//   1. `list_requests` and `question` are real answers now, so a question can
+//      be answered rather than logged.
+//   2. Deterministic guards in front of the model for the messages that are
+//      obviously nothing ("test", "ok", a stray number) — no model call, no
+//      ticket, no chance of a bad guess on the cheapest possible input.
+//   3. ONE model call with the whole situation in it — the open thread, the
+//      recent exchange, AND what we ourselves last said. The old code had two
+//      separate prompts and the cold one was blind by construction: it was
+//      never shown that we had just asked the person a question.
+//
+// The router still cannot ACT: every intent is carried out by a guarded RPC
+// that re-checks the sender owns the ticket.
 
 import { QUICK_REPLY_OPTIONS } from "./acknowledgement";
 import { completeWithFailover } from "./llm";
@@ -21,7 +39,13 @@ export type InboundIntent =
   | "follow_up"
   | "correct_priority"
   | "ask_status"
-  | "pleasantry";
+  /** They want to know what they have open — answered, never logged. */
+  | "list_requests"
+  /** A real question we cannot answer from their own data; a person must. */
+  | "question"
+  | "pleasantry"
+  /** Something was said, but there is nothing in it to act on. */
+  | "unclear";
 
 export type Urgency = "critical" | "high" | "normal" | "low";
 
@@ -42,87 +66,97 @@ export type OpenThread = {
   awaiting: string | null;
   messageText: string | null;
   createdAt: string;
+  /** False when the ticket was found by a quoted reference and is closed. */
+  isOpen?: boolean;
+  /** True when this thread came from a reference the sender typed themselves. */
+  fromReference?: boolean;
   /**
    * The recent back-and-forth on this ticket, oldest first (0113).
    *
    * Before this existed the router was shown only `messageText` — the line
    * that OPENED the ticket — and asked whether a new message continues it.
    * So "it's worse now" was judged against something said three days and two
-   * exchanges ago, with everything in between invisible. That is the single
-   * biggest reason a reply got misread.
+   * exchanges ago, with everything in between invisible.
    */
   transcript?: { author: string; body: string; createdAt: string }[];
 };
 
 /**
- * With no open thread there is nothing to continue, so the answer is fixed and
- * no model call is made for the OBVIOUS cases below. Everything else on a
- * first contact still gets a real classification pass — see
- * `classifyFirstContact()`.
+ * What we last asked this sender, independent of any ticket (0210).
+ *
+ * ⚠️ This is the field that fixes the worst line in the live transcript. We
+ * said "tell us more about it, or describe something new", they answered, and
+ * we logged the answer as a new request — because nothing recorded that a
+ * question was outstanding. `conversation_context` could not carry it: it
+ * inner-joins `tickets`, so it returns nothing precisely when no ticket exists
+ * yet, which is when we most need to know we just asked something.
  */
-const NEW: RoutedMessage = { intent: "new_request", urgency: null, reasoning: "no open thread" };
+export type ConversationState = {
+  awaiting: string | null;
+  lastPrompt: string | null;
+  lastTicketId: string | null;
+};
 
-// Commands are a protocol, not prose. Answering them with a language model would
-// be slower, cost money, and occasionally get them wrong. Deliberately a SHORT
-// list of exact, unambiguous matches — this is a free fast-path, not the real
-// greeting detector. "Good morning", "you there?" and "test" are all just as
-// contentless as "hi" and none of them are in this list; they reach
-// `classifyFirstContact()` instead, which is what actually tells a pleasantry
-// apart from a request rather than pattern-matching a handful of strings.
+/** With no open thread there is nothing to continue. */
+const NEW: RoutedMessage = { intent: "new_request", urgency: null, reasoning: "nothing to continue" };
+
+// Commands and bare greetings are a protocol, not prose. Answering them with a
+// language model would be slower, cost money, and occasionally get them wrong.
+// Deliberately a SHORT list of exact, unambiguous matches — a free fast-path,
+// not the real greeting detector. "Good morning" and "you there?" are just as
+// contentless and are NOT here; the model decides those.
 const COMMANDS = new Set(["/start", "/help", "/menu", "hi", "hello", "hey"]);
 
-const FIRST_CONTACT_SYSTEM_PROMPT = `You triage the FIRST message from someone contacting a Nigerian facilities and property management company on WhatsApp, Telegram or the portal.
+/**
+ * Messages with nothing in them to act on.
+ *
+ * ⚠️ Not a nicety — every one of these produced a real ticket in the live
+ * transcript, or is one keystroke away from something that did. "This is a
+ * test" became 74BB9844. The model is instructed to be conservative and prefer
+ * a ticket on any doubt, which is right for a message that might be a problem
+ * and wrong for one that provably is not, so these never reach it.
+ *
+ * Matched on the whole message, lower-cased and stripped of trailing
+ * punctuation — a substring rule would swallow "the test rig is leaking".
+ */
+const NOISE = new Set([
+  "test", "tests", "testing", "this is a test", "just testing", "test message",
+  "ok", "okay", "k", "kk", "alright", "noted", "fine", "cool", "great", "nice",
+  "thanks", "thank you", "thanx", "tnx", "thx", "ty",
+  "?", "??", "???", ".", "..", "...",
+  "👍", "🙏", "👌", "✅",
+]);
 
-Decide whether this message describes an actual problem, question or request that needs staff action, or whether it has no actionable content at all.
-
-Reply with ONLY a JSON object:
-{"intent": "new_request" | "pleasantry", "reasoning": "one short sentence"}
-
-"new_request" — describes something wrong, asks a real question, or clearly wants something done, fixed, booked or answered (maintenance, billing, a complaint, an enquiry — anything actionable, however short).
-"pleasantry" — a greeting, thanks, small talk, a test message ("test", "??", a single emoji, "you there?"), or anything else with no discernible request in it.
-
-Judge in Nigerian context. "Light don go" is a power failure, not small talk. Pidgin,
-English and mixed messages are all normal.
-
-Be conservative: if a message COULD plausibly be describing a problem, prefer
-"new_request". A person with a real issue must never be brushed off as small
-talk — the cost of wrongly asking "pleasantry" to try again is much higher than
-the cost of a slightly premature ticket.`;
-
-function parseFirstContact(raw: string): RoutedMessage | null {
-  try {
-    const stripped = raw.trim().replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
-    const p = JSON.parse(stripped);
-    if (p.intent !== "new_request" && p.intent !== "pleasantry") return null;
-    return {
-      intent: p.intent,
-      urgency: null,
-      reasoning: String(p.reasoning ?? "").slice(0, 200),
-    };
-  } catch {
-    return null;
-  }
+function isNoise(text: string): boolean {
+  const t = text.toLowerCase().replace(/[.!?,\s]+$/g, "").trim();
+  return NOISE.has(t);
 }
 
 /**
- * Is a first-contact message actually a request, or just noise?
+ * The eight-character reference we print in every acknowledgement, found
+ * anywhere in a message.
  *
- * Kept separate from the main router's model call: the with-thread prompt
- * assumes an open request already exists and asks a five-way question
- * (new/follow-up/correction/status/pleasantry) — none of that context exists
- * yet on a first message, and asking it anyway would just confuse the model.
- * This asks the one question that actually applies here: request, or not.
+ * ⚠️ Requires at least one digit AND at least one A–F letter. Without the
+ * first, a date like "08112026" reads as a reference; without the second, an
+ * all-hex English word does. Both restrictions cost about 2% of genuine
+ * references, and a missed one simply falls back to the remembered thread —
+ * whereas a false match would attach a message to a ticket that was never
+ * mentioned. Cheap in one direction, expensive in the other.
+ *
+ * Nothing here grants access: `resolve_ticket_by_ref` (0210) still refuses a
+ * ticket the sender does not own, so a guessed reference resolves to nothing.
  */
-async function classifyFirstContact(text: string): Promise<RoutedMessage> {
-  const { value } = await completeWithFailover(
-    { system: FIRST_CONTACT_SYSTEM_PROMPT, user: text.slice(0, 1000), maxTokens: 120 },
-    parseFirstContact
-  );
-  // Same safe direction as the main router: on any doubt, a request. A
-  // duplicate or premature ticket is visible and closeable; a real problem
-  // brushed off as small talk is not. That holds whether the doubt came from
-  // an ambiguous message or from both providers being unreachable.
-  return value ?? NEW;
+export function extractTicketRef(text: string): string | null {
+  const matches = text.match(/(?:^|[^0-9A-Za-z])(?:ref[:.#\s-]*)?([0-9A-Fa-f]{8})(?![0-9A-Za-z])/g);
+  if (!matches) return null;
+  for (const raw of matches) {
+    const candidate = (raw.match(/([0-9A-Fa-f]{8})(?![0-9A-Za-z])/)?.[1] ?? "").toUpperCase();
+    if (candidate.length !== 8) continue;
+    if (!/[0-9]/.test(candidate)) continue;
+    if (!/[A-F]/.test(candidate)) continue;
+    return candidate;
+  }
+  return null;
 }
 
 /**
@@ -134,19 +168,19 @@ const QUICK_REPLIES: Record<string, Urgency> = Object.fromEntries(
   QUICK_REPLY_OPTIONS.map((o) => [o.key, o.urgency])
 ) as Record<string, Urgency>;
 
-const SYSTEM_PROMPT = `You route inbound messages for a Nigerian facilities and property management company.
+const SYSTEM_PROMPT = `You route inbound messages for a Nigerian facilities and property management company (TFML and OEA). Tenants, residents, landlords and contractors write in on WhatsApp and Telegram.
 
-The sender has ONE open request already. Decide what their new message is doing.
-
-Reply with ONLY a JSON object:
+Decide what the sender's NEW message is doing. Reply with ONLY a JSON object:
 {"intent": "...", "urgency": "critical|high|normal|low|null", "reasoning": "one short sentence"}
 
 intent must be exactly one of:
-- "new_request"      a DIFFERENT problem, unrelated to the open one
-- "follow_up"        more information, a chase, or a change about the SAME problem
-- "correct_priority" they are telling you the priority is wrong
-- "ask_status"       they are asking where their request has got to
-- "pleasantry"       a greeting, thanks, or something with no request in it
+- "new_request"      they are reporting a problem or asking for something to be DONE, and it is not the open request described below
+- "follow_up"        more information, a chase, or a change about a request already open
+- "correct_priority" they are telling you the priority you assigned is wrong
+- "ask_status"       they are asking where ONE specific request has got to
+- "list_requests"    they are asking what requests they have, what is outstanding, or for an overview of their own requests — plural or unspecified
+- "question"         they are asking for INFORMATION rather than for work to be done (how to pay, what a charge is, opening hours, who to speak to, what a process is)
+- "pleasantry"       a greeting, thanks, small talk, a test message, or anything with no discernible content
 
 Set "urgency" ONLY for correct_priority, to the priority THEY are asking for:
 - critical: danger, no water/power to a whole building, flooding, security, anything unsafe
@@ -155,21 +189,37 @@ Set "urgency" ONLY for correct_priority, to the priority THEY are asking for:
 - low:      cosmetic, or explicitly not urgent
 Otherwise "urgency" must be null.
 
-Judge in Nigerian context. "Light don go" is a power failure. "Dey worry me" means it is
-troubling them. Pidgin, English and mixed messages are all normal.
+Rules that decide the hard cases:
 
-Be conservative: if a message could be a new problem or a follow-up, prefer "follow_up"
-only when it clearly refers to the same thing. A wrongly merged request is worse than a
-duplicate, because the second problem then has no ticket of its own.`;
+1. A QUESTION ABOUT THEIR OWN REQUESTS IS NEVER A REQUEST. "Tell me about my raised requests", "what's outstanding?", "any update on my complaints?", "has this been assigned?" are "list_requests" or "ask_status" — never "new_request". Logging a question as a job is the single worst thing you can do here.
 
-function parse(raw: string): RoutedMessage | null {
+2. IF WE ASKED THEM SOMETHING, THEIR NEXT MESSAGE IS THE ANSWER. When the context below says a question is outstanding, read the message as a reply to that question first. If we asked them to say more about an open request and they describe a problem, that is "follow_up" — not a new request — unless it is plainly about a different place or a different system.
+
+3. NOTHING IS NOT SOMETHING. "test", "ok", "thanks", "hmm", a stray number or emoji is "pleasantry". Never open a request for a message with no problem in it.
+
+Judge in Nigerian context. "Light don go" is a power failure, not small talk. "Dey worry me" means it is troubling them. Pidgin, English and mixed messages are all normal.
+
+Where genuine doubt remains between "new_request" and "follow_up", prefer "new_request": a wrongly merged request leaves the second problem with no ticket of its own. But that tie-break applies only to two readings that are BOTH about work to be done — it is never a reason to turn a question into a request.`;
+
+const VALID_INTENTS: InboundIntent[] = [
+  "new_request", "follow_up", "correct_priority", "ask_status",
+  "list_requests", "question", "pleasantry",
+];
+
+function parse(raw: string, hasThread: boolean): RoutedMessage | null {
   try {
     const stripped = raw.trim().replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
     const p = JSON.parse(stripped);
     const intent = p.intent as InboundIntent;
-    if (!["new_request", "follow_up", "correct_priority", "ask_status", "pleasantry"].includes(intent)) {
-      return null;
+    if (!VALID_INTENTS.includes(intent)) return null;
+
+    // Two intents mean nothing without something to continue. A model that
+    // answers "follow_up" with no open thread has misread the situation, and
+    // acting on it would append to a ticket that does not exist.
+    if (!hasThread && (intent === "follow_up" || intent === "correct_priority")) {
+      return { intent: "new_request", urgency: null, reasoning: "continuation named, but nothing is open" };
     }
+
     const urgency =
       intent === "correct_priority" && ["critical", "high", "normal", "low"].includes(p.urgency)
         ? (p.urgency as Urgency)
@@ -185,48 +235,66 @@ function parse(raw: string): RoutedMessage | null {
   }
 }
 
+/** How the outstanding question is described to the model, in its own words. */
+const AWAITING_DESCRIPTION: Record<string, string> = {
+  urgency_confirmation: "We just asked them whether the priority we assigned is right.",
+  describe_problem:
+    "We just asked them to tell us what the problem is, or to say more about the request above. " +
+    "Their message is most likely the answer to that.",
+  disambiguate_ticket:
+    "We just listed their open requests and asked which one they mean. " +
+    "Their message is most likely naming one of them.",
+};
+
 export async function routeInboundMessage(
   messageText: string,
-  thread: OpenThread | null
+  thread: OpenThread | null,
+  state: ConversationState | null = null
 ): Promise<RoutedMessage> {
   const text = messageText.trim();
+  const awaiting = state?.awaiting ?? thread?.awaiting ?? null;
 
-  if (!thread) {
-    // A bare greeting with nothing open is not a request. Logging "hi" as a
-    // maintenance ticket is how the demo ended up with a `/start` ticket.
-    if (COMMANDS.has(text.toLowerCase())) {
-      return { intent: "pleasantry", urgency: null, reasoning: "greeting or command, nothing open" };
-    }
-    // Genuinely no text at all (handle-inbound.ts intercepts this before the
-    // router is even called — see the empty-content branch there — so this
-    // is a defensive fallback, not the primary guard). NEW would recreate
-    // exactly the blank-ticket bug that guard exists to prevent.
-    if (!text) return { intent: "pleasantry", urgency: null, reasoning: "no text content" };
-    // Everything else on a first contact — "good morning", "you there?",
-    // "test", a stray "?" — used to fall straight through to NEW with no
-    // classification at all, because it wasn't an exact match in COMMANDS.
-    // That is how a greeting a person happened to phrase differently became
-    // a ticket. Ask the model the one question that matters here: is this
-    // actually describing something, or is it noise.
-    return await classifyFirstContact(text);
+  // ── Deterministic, before any model call ────────────────────────────────
+
+  // Genuinely no text. `handle-inbound.ts` intercepts this before the router is
+  // called; NEW here would recreate the blank-ticket bug that guard prevents.
+  if (!text) {
+    return { intent: "unclear", urgency: null, reasoning: "no text content" };
   }
 
   // If we asked "is this the right priority?", a bare number is the answer.
-  if (thread.awaiting === "urgency_confirmation" && QUICK_REPLIES[text]) {
+  if (awaiting === "urgency_confirmation" && QUICK_REPLIES[text]) {
     return {
       intent: "correct_priority",
       urgency: QUICK_REPLIES[text],
       reasoning: "numbered reply to the priority question",
     };
   }
+
+  // ⚠️ And if we did NOT ask, a bare number answers nothing. This is ticket
+  // 1F2DBAB0 in the live transcript: a "1" sent after the previous question had
+  // already been answered was read as a fresh message and logged. It is not a
+  // request; it is a reply to something that is no longer on the table.
+  if (/^[1-4]$/.test(text)) {
+    return { intent: "unclear", urgency: null, reasoning: "a bare number with no question outstanding" };
+  }
+
   if (COMMANDS.has(text.toLowerCase())) {
     return { intent: "pleasantry", urgency: null, reasoning: "greeting or command" };
   }
 
-  // The conversation so far, when there is one (0113). Labelled by speaker so
-  // the model can tell the reporter's own words from what we told them —
-  // without that, our own acknowledgement reads as something the tenant said.
-  const transcript = (thread.transcript ?? [])
+  // "This is a test" became a real ticket. It never reaches the model again.
+  if (isNoise(text)) {
+    return { intent: "pleasantry", urgency: null, reasoning: "no actionable content" };
+  }
+
+  // ── One model call, with everything we know in it ───────────────────────
+  //
+  // The old code asked two different questions from two different prompts
+  // depending on whether a thread existed, and the no-thread one was never
+  // shown what we had just said. There is one situation here, described once.
+
+  const transcript = (thread?.transcript ?? [])
     .map((m) => {
       const who =
         m.author === "reporter" ? "Them" : m.author === "staff" ? "Our team" : "Us (automated)";
@@ -235,15 +303,24 @@ export async function routeInboundMessage(
     .join("\n");
 
   const context = [
-    `Their open request (ref ${thread.reference}, opened ${thread.createdAt}):`,
-    `  category: ${thread.category ?? "unclassified"}`,
-    `  priority: ${thread.urgency ?? "normal"}`,
-    `  status:   ${thread.status ?? "open"}`,
-    `  what they first said: ${(thread.messageText ?? "").slice(0, 400)}`,
-    transcript ? `\nThe conversation since, oldest first:\n${transcript}` : "",
-    thread.awaiting === "urgency_confirmation"
-      ? `\nWe just asked them whether that priority is right.`
+    thread
+      ? [
+          thread.fromReference
+            ? `They named this request by its reference in their message (ref ${thread.reference}):`
+            : `Their open request (ref ${thread.reference}, opened ${thread.createdAt}):`,
+          `  category: ${thread.category ?? "unclassified"}`,
+          `  priority: ${thread.urgency ?? "normal"}`,
+          `  status:   ${thread.status ?? "open"}`,
+          `  what they first said: ${(thread.messageText ?? "").slice(0, 400)}`,
+        ].join("\n")
+      : `They have NO request currently open. "follow_up" and "correct_priority" are therefore not available — but "list_requests", "question" and "pleasantry" still are.`,
+    transcript ? `\nThe conversation on that request, oldest first:\n${transcript}` : "",
+    // What WE last said. The single most useful line in this prompt for the
+    // messages that were being misread, and the one the router never had.
+    state?.lastPrompt
+      ? `\nThe last thing WE said to them:\n  "${state.lastPrompt.slice(0, 400)}"`
       : "",
+    awaiting && AWAITING_DESCRIPTION[awaiting] ? `\n${AWAITING_DESCRIPTION[awaiting]}` : "",
     ``,
     `Their new message: ${text.slice(0, 1000)}`,
   ]
@@ -252,10 +329,14 @@ export async function routeInboundMessage(
 
   const { value } = await completeWithFailover(
     { system: SYSTEM_PROMPT, user: context, maxTokens: 200 },
-    parse
+    (raw) => parse(raw, Boolean(thread))
   );
-  // Falling back to a NEW REQUEST is the safe direction. A duplicate ticket is
-  // visible and closeable; a message merged into the wrong thread, or dropped,
-  // is neither.
+
+  // Falling back to a NEW REQUEST is the safe direction when both providers are
+  // unreachable. A duplicate ticket is visible and closeable; a message merged
+  // into the wrong thread, or dropped, is neither. That holds even now that the
+  // router can say "question": guessing "question" on a message we could not
+  // read would brush off a real problem, which is the one outcome that must not
+  // happen quietly.
   return value ?? NEW;
 }

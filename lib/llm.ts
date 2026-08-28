@@ -41,14 +41,38 @@ export type Provider = {
 // ── Anthropic (primary) ────────────────────────────────────────────────────
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+// ⚠️ The model is the single largest lever on how well intake reads a message,
+// and it was pinned to `claude-sonnet-4-6` — a generation behind — while the
+// live WhatsApp transcript showed a question being filed as a work order. The
+// prompts and the guards in `inbound-router.ts` do most of the work, but they
+// are asking a model to make a judgement, and a better model makes it better.
+//
+// Overridable because the operator, not this file, should decide the
+// cost/latency trade for a hot webhook path: every inbound message pays for
+// this, and Meta retries anything slow. `ANTHROPIC_MODEL` takes any current id.
+const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL?.trim() || "claude-opus-5";
+
+// Low effort on purpose. These calls emit one small JSON object from a short
+// message — the work is judgement, not reasoning depth, and a classifier that
+// deliberates is a webhook that times out.
+const ANTHROPIC_EFFORT =
+  (process.env.ANTHROPIC_EFFORT?.trim() as "low" | "medium" | "high" | undefined) || "low";
+
 export const anthropicProvider: Provider = {
   name: "anthropic",
   configured: () => Boolean(process.env.ANTHROPIC_API_KEY),
   async complete({ system, user, maxTokens }) {
     try {
       const response = await anthropic.messages.create({
-        model: "claude-sonnet-4-6",
-        max_tokens: maxTokens,
+        model: ANTHROPIC_MODEL,
+        // ⚠️ Thinking tokens are charged to `max_tokens` on current models, and
+        // callers here ask for one short JSON object. A 200-token ceiling would
+        // be spent on reasoning and return a truncated `{` — which is exactly
+        // the failure already documented for Gemini below, where a 195/200
+        // split returned three characters. A floor, not a budget: the answer is
+        // still tiny, and an unspent ceiling costs nothing.
+        max_tokens: Math.max(maxTokens, 2048),
+        output_config: { effort: ANTHROPIC_EFFORT },
         system,
         messages: [{ role: "user", content: user }],
       });
