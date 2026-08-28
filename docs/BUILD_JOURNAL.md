@@ -5473,3 +5473,52 @@ adding requests. The counts climbed *within* a run — 28, then 29, then 31,
 against a total taken at 25. It now reads both inside one REPEATABLE READ
 snapshot. **A suite that fails when the product is being used is a suite that
 will be ignored the day it is right.**
+
+### What the full run then said
+
+`verify-all` reported 8 of 101 red. None of the eight was a defect in the
+product, and the breakdown is worth keeping because three different kinds of
+red look identical in the summary line:
+
+- **Four were suites asserting the OLD rule**, which is them working.
+  `verify-approval-chain` held decision 16's *"an administrator approves within
+  the threshold"*; `verify-invoice-appeal` (6 checks) and
+  `verify-finance-journey` both pre-recorded stages 1–2 with the hardcoded TFML
+  triple and matched on the old refusal wording; `verify-lettings-grants` listed
+  `delivery_brand` as an allowed `orgs` column. Each was rewritten to the new
+  rule — and, where the fixture was the problem, to read
+  `payment_chain_stages(org)` rather than a literal triple, so the next ladder
+  change does not break them again.
+- **Three were transport** — `Error: fetch failed` on
+  `verify-oea-payment-chain`, `verify-operator-governance` and
+  `verify-operator-separation`, all green standalone. 101 suites against one
+  Supabase project is enough to get rate-limited, and a runner that reports that
+  as a failed check teaches people to discount failed checks.
+- **One is environmental and says so itself.** `verify-checkout-e2e` needs a dev
+  server with the simulated gateway on :3000 and prints a paragraph explaining
+  that it is deliberately not part of the cutover run.
+
+⚠️ `verify-deactivation` caught the one thing genuinely worth catching:
+`escalate_stale_unassigned_requests` reaches `auth.uid()` and was neither
+deactivation-aware nor declared. The fix was **not** to add its name to the
+`EXEMPT` list. A scheduled job that raises whenever `auth.uid()` is non-null
+refuses *every* user, active or deactivated — a strictly stronger guarantee —
+so the suite now recognises that SHAPE. 📌 A list of exceptions only ever
+describes the functions that existed when somebody last edited it; the next
+service-role-only job is covered without an edit.
+
+### A tool that could not answer its own question
+
+`node scripts/use-env.mjs` reported **"Active world: unknown (unset)"** for this
+entire session. Its regex required the URL to follow `=` immediately, and
+`.env.local` had it quoted (`NEXT_PUBLIC_SUPABASE_URL="https://…"`), which is
+valid dotenv and what `vercel env pull` writes.
+
+The real answer was **staging** — while migrations were being applied to dev
+with `--world dev`. Nothing went wrong, because `--world` reads its own file and
+never touches `.env.local`; but the one command whose entire purpose is to
+answer "which world am I on" answered "unset", which reads as *no world is
+configured* rather than *I cannot tell*. That is the fourth entry in this repo's
+stale-environment sequence and the only one where the failure was a **silent
+absence of an answer** rather than a wrong one. It now distinguishes "missing or
+empty" from "exists but unparseable", and accepts quotes.
