@@ -41,16 +41,54 @@ export type Provider = {
 // ── Anthropic (primary) ────────────────────────────────────────────────────
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-// ⚠️ The model is the single largest lever on how well intake reads a message,
-// and it was pinned to `claude-sonnet-4-6` — a generation behind — while the
-// live WhatsApp transcript showed a question being filed as a work order. The
-// prompts and the guards in `inbound-router.ts` do most of the work, but they
-// are asking a model to make a judgement, and a better model makes it better.
+// The model is the single largest lever on how well intake reads a message, and
+// it was pinned to `claude-sonnet-4-6` — a generation behind — while the live
+// WhatsApp transcript showed a question being filed as a work order. The prompts
+// and the deterministic guards in `inbound-router.ts` do most of the work, but
+// they are asking a model to make a judgement, and a better model makes it
+// better.
 //
-// Overridable because the operator, not this file, should decide the
-// cost/latency trade for a hot webhook path: every inbound message pays for
-// this, and Meta retries anything slow. `ANTHROPIC_MODEL` takes any current id.
-const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL?.trim() || "claude-opus-5";
+// ── Which model, and why it is a chain rather than a name ──────────────────
+//
+// Measured, not asserted — 20 routing decisions taken from messages a tenant
+// actually sent, five runs each (`scripts/measure-router-accuracy.mjs`):
+//
+//   claude-opus-5 (low)   98/100  98%   median 3.35s   $5/$25 per MTok
+//   claude-sonnet-5      129/140  92%   median 2.33s   $2/$10 per MTok
+//   claude-haiku-4-5       57/60  95%   median 1.49s   $1/$5  per MTok
+//
+// ⚠️ **All three scored a perfect run on the checks that must never move** — a
+// real problem always opening a request. The safety line does not depend on the
+// model, which is the point of the deterministic guards in `inbound-router.ts`:
+// they, not the model, are what stops a leak being answered with "noted".
+//
+// What separates them is the continuation cases — is this more about the open
+// request, or a new one? — and that is precisely the defect this whole change
+// exists to fix (ticket 237A9C51: we asked a question and filed the answer as a
+// new request). Sonnet 5 costs 2.5x less and answers 30% faster, and on any
+// other axis would win; it loses six points exactly where this router is
+// load-bearing. Its failures are all in the tolerable direction — a duplicate
+// ticket, visible and closeable — so it is a legitimate choice, not a dangerous
+// one. But paying 2.5x on a message that costs fractions of a naira, to be
+// right more often on the one thing that prompted the work, is the trade worth
+// making. **Opus 5 at low effort leads.**
+//
+// Sonnet 5 and Haiku 4.5 are both in the chain below and both measured safe. An
+// operator who wants the cost or the latency back changes one environment
+// variable — and should re-run the harness first, because "cheaper model" is
+// not a change to make on trust.
+//
+// ⚠️ A hardcoded model id goes stale, and the failure is silent until the day it
+// matters — the whole of the Gemini block below is that lesson, learned the
+// expensive way. The same reasoning applies here, so the model is RESOLVED, not
+// declared:
+//   1. `ANTHROPIC_MODEL` if set — explicit configuration wins, and is tried alone.
+//   2. The chain below, cheapest-capable first.
+//   3. Discovery via the Models API, each candidate actually CALLED — because a
+//      model that is listed is not the same as a model that answers.
+// The winner is cached for the process, so a retired name is probed once rather
+// than on every webhook.
+const ANTHROPIC_CANDIDATES = ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"];
 
 // Low effort on purpose. These calls emit one small JSON object from a short
 // message — the work is judgement, not reasoning depth, and a classifier that
@@ -58,36 +96,154 @@ const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL?.trim() || "claude-opus-5";
 const ANTHROPIC_EFFORT =
   (process.env.ANTHROPIC_EFFORT?.trim() as "low" | "medium" | "high" | undefined) || "low";
 
+/** Cached across calls: the model that last answered, or null if unresolved. */
+let resolvedAnthropicModel: string | null = null;
+
+/**
+ * Models that rejected `output_config.effort`, so it is not sent to them again.
+ *
+ * ⚠️ Not a nicety. `claude-haiku-4-5` routes these prompts perfectly well and
+ * returns **HTTP 400 "This model does not support the effort parameter"** for
+ * the parameter alone. Probed live: with `effort` sent unconditionally, setting
+ * `ANTHROPIC_MODEL=claude-haiku-4-5` did not make intake cheaper — it disabled
+ * the primary provider outright and ran every message through Gemini, reporting
+ * nothing unusual anywhere. An operator dialling down cost would have silently
+ * switched vendors.
+ *
+ * So an unsupported PARAMETER retries the same model without it, and only an
+ * unsupported MODEL advances the chain. Conflating the two is what turns a
+ * configuration change into an outage.
+ */
+const effortUnsupported = new Set<string>();
+
+/**
+ * Does this failure mean "this model will not serve me", as opposed to "this
+ * request was wrong" or "the API is having a moment"?
+ *
+ * Deliberately narrow. A 429 is an ACCOUNT rate limit on Anthropic rather than a
+ * per-model one, and a 529 is the API overloaded as a whole — walking the chain
+ * against either just multiplies one outage by three. Only a model that is
+ * genuinely unknown or retired is worth replacing.
+ */
+function isUnknownAnthropicModel(status: number, message: string): boolean {
+  if (status === 404) return true;
+  return (
+    status === 400 &&
+    /model/i.test(message) &&
+    /not.{0,20}(found|exist|available|supported)|invalid/i.test(message)
+  );
+}
+
+function isEffortUnsupported(status: number, message: string): boolean {
+  return status === 400 && /effort/i.test(message);
+}
+
+/**
+ * Ask Anthropic what exists, and rank cheapest-capable first.
+ *
+ * Returns a LIST rather than a pick, for the same reason the Gemini path does:
+ * the caller has to try them. Sonnet and Haiku lead because this is a classifier
+ * emitting one small JSON object, and the cheapest capable thing is the right
+ * thing.
+ */
+async function discoverAnthropicModels(): Promise<string[]> {
+  try {
+    const page = await anthropic.models.list({ limit: 20 });
+    const ids = (page.data ?? []).map((m) => m.id).filter(Boolean);
+    const rank = (id: string) =>
+      /sonnet/i.test(id) ? 0 : /haiku/i.test(id) ? 1 : /opus/i.test(id) ? 2 : 3;
+    return [...ids].sort((a, b) => rank(a) - rank(b)).slice(0, 4);
+  } catch {
+    return [];
+  }
+}
+
 export const anthropicProvider: Provider = {
   name: "anthropic",
   configured: () => Boolean(process.env.ANTHROPIC_API_KEY),
   async complete({ system, user, maxTokens }) {
-    try {
-      const response = await anthropic.messages.create({
-        model: ANTHROPIC_MODEL,
+    const pinned = process.env.ANTHROPIC_MODEL?.trim();
+    // A pinned model is tried alone — an operator naming one is not asking for a
+    // second opinion. Otherwise start from whatever last answered.
+    const attempts = pinned
+      ? [pinned]
+      : resolvedAnthropicModel
+        ? [resolvedAnthropicModel, ...ANTHROPIC_CANDIDATES.filter((m) => m !== resolvedAnthropicModel)]
+        : [...ANTHROPIC_CANDIDATES];
+
+    let lastError = "no usable Anthropic model";
+
+    const ask = (model: string, withEffort: boolean) =>
+      anthropic.messages.create({
+        model,
         // ⚠️ Thinking tokens are charged to `max_tokens` on current models, and
-        // callers here ask for one short JSON object. A 200-token ceiling would
-        // be spent on reasoning and return a truncated `{` — which is exactly
-        // the failure already documented for Gemini below, where a 195/200
-        // split returned three characters. A floor, not a budget: the answer is
-        // still tiny, and an unspent ceiling costs nothing.
+        // callers here ask for one small JSON object. A 200-token ceiling would
+        // be spent on reasoning and return a truncated `{` — exactly the failure
+        // already documented for Gemini below, where a 195/200 split returned
+        // three characters. A floor, not a budget: the answer is still tiny, and
+        // an unspent ceiling costs nothing.
         max_tokens: Math.max(maxTokens, 2048),
-        output_config: { effort: ANTHROPIC_EFFORT },
+        ...(withEffort ? { output_config: { effort: ANTHROPIC_EFFORT } } : {}),
         system,
         messages: [{ role: "user", content: user }],
       });
-      const block = response.content.find((b) => b.type === "text");
-      if (!block || block.type !== "text") {
-        return { ok: false, provider: "anthropic", error: "no text block in response" };
+
+    /** Try each model in turn. Returns a result, or null to keep looking. */
+    const walk = async (models: string[]): Promise<LlmResult | null> => {
+      for (const model of models) {
+        // Two passes at most: with effort, then without if the model said no.
+        for (let pass = 0; pass < 2; pass++) {
+          const withEffort = pass === 0 && !effortUnsupported.has(model);
+          try {
+            const response = await ask(model, withEffort);
+            // A thinking block arrives first on models that reason; the answer
+            // is the text block, which is why this searches rather than indexes.
+            const block = response.content.find((b) => b.type === "text");
+            if (!block || block.type !== "text") {
+              lastError = `${model} answered with no text block`;
+              break;
+            }
+            resolvedAnthropicModel = model;
+            return { ok: true, text: block.text, provider: "anthropic" };
+          } catch (error) {
+            const status = error instanceof Anthropic.APIError ? (error.status ?? 0) : 0;
+            const message = error instanceof Error ? error.message : String(error);
+            lastError = status ? `${status} ${message.slice(0, 160)}` : message.slice(0, 160);
+
+            // The parameter, not the model. Remember, and retry the same model.
+            if (pass === 0 && withEffort && isEffortUnsupported(status, message)) {
+              effortUnsupported.add(model);
+              console.warn(`${model} does not accept output_config.effort — retrying without it.`);
+              continue;
+            }
+            // The model itself is gone. Next candidate.
+            if (isUnknownAnthropicModel(status, message)) {
+              if (resolvedAnthropicModel === model) resolvedAnthropicModel = null;
+              break;
+            }
+            // Anything else — a rate limit, an overload, a network fault — is
+            // not this model's fault, and proving that on two more names would
+            // spend the caller's whole budget. Hand it to the fallback provider.
+            return { ok: false, provider: "anthropic", error: lastError };
+          }
+        }
       }
-      return { ok: true, text: block.text, provider: "anthropic" };
-    } catch (error) {
-      return {
-        ok: false,
-        provider: "anthropic",
-        error: error instanceof Error ? error.message : String(error),
-      };
+      return null;
+    };
+
+    const first = await walk(attempts);
+    if (first) return first;
+
+    // Every candidate was refused as unknown. Ask what exists and TRY each.
+    // Skipped when a model was pinned: quietly using a different one is exactly
+    // what an explicit setting forbids.
+    if (!pinned) {
+      const discovered = await discoverAnthropicModels();
+      const second = await walk(discovered.filter((m) => !attempts.includes(m)));
+      if (second) return second;
     }
+
+    return { ok: false, provider: "anthropic", error: lastError };
   },
 };
 
