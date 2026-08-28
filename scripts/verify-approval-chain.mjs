@@ -85,6 +85,50 @@ const madeVendors = [];
     await svc.from("payments").delete().eq("vendor_id", v.id);
     await svc.from("vendors").delete().eq("id", v.id);
   }
+
+  // ⚠️ Section 9's fixture was never swept, by this block or by the teardown.
+  //
+  // It creates a `Probe Chain Property <S>` and a `Probe Landlord <S>` payout
+  // recipient on every run and removes neither, so they accumulate — seven of
+  // each had built up on staging by 27 Aug. Two suites away, that turned into
+  // failures nobody would connect to this file:
+  //
+  //   * `seed-org-logins.mjs` picks which property to withhold from the demo
+  //     manager out of the org's property list; seven phantom properties made
+  //     it pick one of those, the manager kept Victoria Court, and
+  //     `verify-access-matrix` reported three money-scoping failures.
+  //   * `verify-asset-import-e2e` looks for a property the manager does NOT
+  //     manage and found none.
+  //
+  // A remittance points at both, and `remittances` is a record of money
+  // moving, so nothing here deletes a row a remittance names — the recipient
+  // is DEACTIVATED instead, which frees the partial unique index on
+  // (org_id, user_id) while the payout keeps the destination it named.
+  const { data: staleR } = await svc.from("payout_recipients")
+    .select("id, active").like("recipient_code", "RCP_PROBE_%");
+  for (const r of staleR ?? []) {
+    const { count } = await svc.from("remittances")
+      .select("id", { count: "exact", head: true }).eq("recipient_id", r.id);
+    if ((count ?? 0) > 0) {
+      if (r.active) await svc.from("payout_recipients").update({ active: false }).eq("id", r.id);
+    } else {
+      await svc.from("payout_recipients").delete().eq("id", r.id);
+    }
+  }
+
+  const { data: staleP } = await svc.from("properties")
+    .select("id").like("name", "Probe Chain Property%");
+  for (const p of staleP ?? []) {
+    await svc.from("property_stakeholders").delete().eq("property_id", p.id);
+    const { error } = await svc.from("properties").delete().eq("id", p.id);
+    // A property a remittance names cannot go; soft-delete keeps it out of
+    // every picker and every list, which is all the sweep needs.
+    if (error) {
+      await svc.from("properties")
+        .update({ deleted_at: new Date().toISOString() })
+        .eq("id", p.id).is("deleted_at", null);
+    }
+  }
 }
 
 async function makeUser(orgId, role, tag, tier = null) {

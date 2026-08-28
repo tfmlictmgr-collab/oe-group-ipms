@@ -12,7 +12,10 @@
 //      open-redirect surface the favicon route created.
 //   D. L1 — retiring and superseding a rubric criterion are both audited.
 //   E. The classifier tells a greeting apart from a request, including
-//      phrasings that were never in the hardcoded COMMANDS list.
+//      phrasings that were never in the hardcoded COMMANDS list — AND which
+//      provider actually made that call, so a dead primary silently caught by
+//      Gemini reports as a loud NOTE rather than an indistinguishable PASS
+//      (added 28 Aug 2026, after exactly that happened un-noticed on staging).
 //
 // Usage: node scripts/verify-intake-intelligence.mjs
 import path from "node:path";
@@ -32,8 +35,30 @@ const svc = createClient(
 );
 
 let failures = 0;
+let degraded = 0;
 const ok = (m) => console.log(`  \x1b[32mPASS\x1b[0m ${m}`);
 const bad = (m) => { failures++; console.log(`  \x1b[31mFAIL\x1b[0m ${m}`); };
+const warn = (m) => { degraded++; console.log(`  \x1b[33mNOTE\x1b[0m ${m}`); };
+
+// ⚠️ Ticket counts alone cannot tell a healthy primary from a dead one caught
+// by fallback — both look identical from "did a ticket get created". This
+// asserts what actually answered, for every ticket in this run that carries a
+// real classification (0113's whole reason for existing). `none` means BOTH
+// providers were unreachable and the row is riding the safe human-review
+// default; `gemini` means the fallback is doing the primary's job, which is
+// working-as-designed but must never pass silently — that is exactly how a
+// dead Anthropic key went unnoticed on 28 Aug 2026 while this suite reported
+// ALL CHECKS PASSED.
+function checkProvider(label, row) {
+  if (!row) return;
+  if (row.classified_by === "anthropic") {
+    ok(`${label} classified by the primary (anthropic)`);
+  } else if (row.classified_by === "gemini") {
+    warn(`${label} classified by the FALLBACK (gemini) — the primary provider may be degraded or its key invalid; check Settings → AI & Classification`);
+  } else {
+    bad(`${label} classified by "${row.classified_by ?? "null"}" — both providers were unreachable, or this predates 0113`);
+  }
+}
 
 const stamp = Date.now().toString(36).toUpperCase().slice(-6);
 const senders = [];
@@ -75,7 +100,7 @@ async function sendWhatsApp(message, senderRef) {
 }
 
 const ticketsFor = async (senderRef) =>
-  (await svc.from("tickets").select("id, message_text").eq("channel_sender_ref", senderRef)).data ?? [];
+  (await svc.from("tickets").select("id, message_text, classified_by").eq("channel_sender_ref", senderRef)).data ?? [];
 
 console.log(`Intake intelligence — against ${TARGET}\n`);
 
@@ -118,6 +143,7 @@ console.log("A. A message with no words in it never becomes a ticket");
   captioned.length === 1 && captioned[0].message_text.includes("ceiling")
     ? ok("a photo WITH a caption still raises a real ticket — the caption is their words")
     : bad(`a captioned photo should raise exactly one ticket carrying the caption; got ${JSON.stringify(captioned)}`);
+  checkProvider("the captioned photo", captioned[0]);
 }
 
 console.log("\nB. M1 — two orgs' bots can share an update_id without dropping a message");
@@ -229,6 +255,7 @@ console.log("\nE. The classifier tells a greeting apart from a request");
   realTickets.length === 1
     ? ok("but a real problem still raises exactly one ticket — the safe direction is preserved")
     : bad(`!!! A REAL PROBLEM RAISED ${realTickets.length} TICKET(S) — a person reporting an issue was brushed off`);
+  checkProvider("the real problem", realTickets[0]);
 }
 
 // ── Cleanup ────────────────────────────────────────────────────────────────
@@ -236,9 +263,17 @@ for (const s of senders) await svc.from("tickets").delete().eq("channel_sender_r
 await svc.from("chat_webhook_events").delete().like("event_id", "wamid.INTEL-%");
 console.log("\n(cleaned up)");
 
-console.log(
-  failures === 0
-    ? "\n\x1b[32mALL CHECKS PASSED\x1b[0m — silence is not a request, a greeting is not a ticket, and one org's bot cannot mute another's."
-    : `\n\x1b[31m${failures} CHECK(S) FAILED\x1b[0m`
-);
+if (failures === 0 && degraded > 0) {
+  console.log(
+    `\n\x1b[33mALL CHECKS PASSED, BUT ${degraded} NOTE(S) ABOVE\x1b[0m — ` +
+    `the fallback answered at least once. Every check here can pass on Gemini ` +
+    `alone; a healthy PRIMARY is not something a green run guarantees by itself.`
+  );
+} else {
+  console.log(
+    failures === 0
+      ? "\n\x1b[32mALL CHECKS PASSED\x1b[0m — silence is not a request, a greeting is not a ticket, and one org's bot cannot mute another's."
+      : `\n\x1b[31m${failures} CHECK(S) FAILED\x1b[0m`
+  );
+}
 process.exit(failures === 0 ? 0 : 1);

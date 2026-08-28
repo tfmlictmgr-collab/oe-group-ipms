@@ -169,7 +169,19 @@ export async function commitAssetImport(csvText: string): Promise<
       org_id: me.org_id,
       created_by: user.id,
     }));
-    const { data, error } = await supabase.from("assets").insert(payload).select("id");
+    // `defaultToNull: false` — PostgREST takes the UNION of keys across a bulk
+    // insert and fills every row that lacks one with NULL, which quietly
+    // defeats the column default. The importer omits a key whenever the CSV
+    // cell is blank, so a file where one row states `compliance_required` and
+    // the next leaves it empty sent NULL into a `not null default false`
+    // column and Postgres refused the whole batch of 100 — reported to the FM
+    // as a raw constraint message against rows they had filled in correctly.
+    // `missing=default` makes an absent key mean "use the column default",
+    // which is what a blank cell has always meant here.
+    const { data, error } = await supabase
+      .from("assets")
+      .insert(payload, { defaultToNull: false })
+      .select("id");
     if (error) {
       // Report the batch honestly rather than claiming a partial success we
       // can't substantiate.

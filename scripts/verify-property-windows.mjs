@@ -75,8 +75,12 @@ console.log("A. `auto` follows occupancy");
 const vacantProp = await mkProperty(oea.id, `PROBE-Vacant-${S}`);
 const fullProp = await mkProperty(oea.id, `PROBE-Full-${S}`);
 {
+  // The SEEDED OEA tenant. `demo.tenant@oraegbunike.com` was an account
+  // created by hand on `dev` and exists on no other world, so the "occupied"
+  // half of this section had no occupant anywhere else and the check reported
+  // "no OEA demo tenant to occupy a unit with".
   const { data: tenant } = await svc.from("users")
-    .select("id").eq("email", "demo.tenant@oraegbunike.com").maybeSingle();
+    .select("id").eq("email", "oea.tenant@oegroup.test").maybeSingle();
 
   await mkUnit(oea.id, vacantProp, "Flat 1");                       // vacant
   await mkUnit(oea.id, fullProp, "Flat 1", tenant?.id ?? null);     // occupied

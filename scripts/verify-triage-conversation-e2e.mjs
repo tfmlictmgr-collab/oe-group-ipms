@@ -18,7 +18,28 @@ import { createClient } from "@supabase/supabase-js";
 const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 config({ path: path.join(rootDir, ".env.local") });
 
-const SITE = process.env.VERIFY_SITE_URL ?? "https://oe-group-ipms-dev.vercel.app";
+// ⚠️ The deployed app and the database must be the same world — see the longer
+// note in `verify-channel-routing.mjs`, which carried the identical defect. A
+// hardcoded dev host beside a Supabase client built from `.env.local` means a
+// staging run posts webhooks to dev, dev writes the tickets, and staging is
+// searched for them. `NEXT_PUBLIC_SITE_URL` sits in the same file as the
+// database credentials, so the two cannot drift apart.
+const SITE = process.env.VERIFY_SITE_URL ?? process.env.NEXT_PUBLIC_SITE_URL;
+if (!SITE) {
+  console.error(
+    "No target. Set NEXT_PUBLIC_SITE_URL in .env.local (the deployment that belongs\n" +
+    "to this database), or pass VERIFY_SITE_URL explicitly."
+  );
+  process.exit(1);
+}
+if (process.env.VERIFY_SITE_URL &&
+    process.env.NEXT_PUBLIC_SITE_URL &&
+    process.env.VERIFY_SITE_URL !== process.env.NEXT_PUBLIC_SITE_URL) {
+  console.log(
+    `  \x1b[33mNOTE\x1b[0m VERIFY_SITE_URL (${process.env.VERIFY_SITE_URL}) is not this\n` +
+    `       database's own deployment (${process.env.NEXT_PUBLIC_SITE_URL}).\n`
+  );
+}
 const APP_SECRET = process.env.WHATSAPP_APP_SECRET;
 const svc = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,

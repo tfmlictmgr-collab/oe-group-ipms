@@ -317,10 +317,14 @@ for (const org of orgs.filter((o) => !o.is_platform_operator)) {
 // manager and the owner are attached here.
 const SCOPED = { facility_manager: "manager", property_owner: "owner" };
 let attached = 0;
+let detached = 0;
 
 for (const org of orgs.filter((o) => !o.is_platform_operator)) {
+  // Ordered, because the fallback below indexes into this list and an
+  // unordered PostgREST read returns whatever the planner felt like.
   const { data: props } = await svc
-    .from("properties").select("id").eq("org_id", org.id).is("deleted_at", null);
+    .from("properties").select("id, name").eq("org_id", org.id)
+    .is("deleted_at", null).order("name");
   if (!props?.length) continue;
 
   for (const [role, relation] of Object.entries(SCOPED)) {
@@ -379,7 +383,30 @@ for (const org of orgs.filter((o) => !o.is_platform_operator)) {
         assetCount.set(a.property_id, (assetCount.get(a.property_id) ?? 0) + 1);
       }
 
+      // ⚠️ The fallback is the interesting case, and it used to be silent.
+      //
+      // It was `?? props[props.length - 1]` against an UNORDERED read — so when
+      // no property carried a vendor, the withheld one was whichever row the
+      // planner returned last. On staging that was a leftover probe property
+      // carrying nothing, which means the manager kept Victoria Court, where
+      // the out-of-scope vendors and their payouts live. The manager then saw
+      // all 39 payments and all 6 budgets, `verify-access-matrix` reported
+      // three money-scoping failures, and the scoping was perfectly correct —
+      // there was simply nothing outside the scope to exclude.
+      //
+      // That is the very thing the comment above warns about, arrived at
+      // through the branch the comment does not cover. So: deterministic by
+      // name, and when the fixture genuinely cannot demonstrate the boundary,
+      // it says so instead of producing one that proves nothing.
       const candidates = props.filter((p) => withVendors.has(p.id));
+      if (candidates.length === 0) {
+        console.log(
+          `  ⚠️  ${org.slug}: no property carries a vendor, so the money-side ` +
+          `boundary is not observable — link vendors to properties (seed-vendors.mjs) ` +
+          `and re-run, or verify-access-matrix will report a scoping failure that is ` +
+          `really an empty fixture.`
+        );
+      }
       const withheld =
         candidates.sort(
           (a, b) => (assetCount.get(a.id) ?? 0) - (assetCount.get(b.id) ?? 0)
@@ -398,6 +425,32 @@ for (const org of orgs.filter((o) => !o.is_platform_operator)) {
           : [withheld];
     }
 
+    // ⚠️ Converge on `targets`, do not merely add to what is there.
+    //
+    // This only ever inserted, treating "already attached" as the desired end
+    // state. It is — for a property that is still a target. For one that is
+    // not, the stale row stands: an earlier run that withheld a different
+    // property leaves the manager holding BOTH, and re-running the seeder to
+    // fix the fixture changes nothing, which is the worst possible behaviour
+    // for a script whose whole job is to establish a known state. Found after
+    // a run that withheld a leftover probe property and could not be corrected
+    // by re-running.
+    //
+    // Scoped strictly to this seeded person and this relation, so nothing a
+    // suite or a human attached to anyone else is touched.
+    const keep = new Set(targets.map((p) => p.id));
+    const { data: current } = await svc
+      .from("property_stakeholders").select("property_id")
+      .eq("org_id", org.id).eq("user_id", person.id).eq("relation", relation);
+    const stale = (current ?? []).filter((s) => !keep.has(s.property_id));
+    if (stale.length) {
+      const { error } = await svc.from("property_stakeholders")
+        .delete().eq("org_id", org.id).eq("user_id", person.id).eq("relation", relation)
+        .in("property_id", stale.map((s) => s.property_id));
+      if (error) failures.push(`${email} → detach: ${error.message.slice(0, 50)}`);
+      else detached += stale.length;
+    }
+
     for (const p of targets) {
       const { error } = await svc.from("property_stakeholders").insert({
         org_id: org.id, property_id: p.id, user_id: person.id, relation,
@@ -411,7 +464,12 @@ for (const org of orgs.filter((o) => !o.is_platform_operator)) {
   }
 }
 
-if (attached > 0) console.log(`Attached ${attached} property assignment(s) to scoped roles.\n`);
+if (attached > 0 || detached > 0) {
+  console.log(
+    `Attached ${attached} property assignment(s) to scoped roles` +
+    (detached > 0 ? `, detached ${detached} that no longer belong` : "") + ".\n"
+  );
+}
 
 // ── 5b. The contractor login IS a contractor ──────────────────────────────
 //

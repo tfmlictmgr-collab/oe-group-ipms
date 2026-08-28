@@ -74,6 +74,29 @@ const bankUnconfigured = (labelled ?? []).filter((b) =>
   !b.ledger_account_id && !b.opening_entry_id);
 const bankConfigured = (labelled ?? []).filter((b) => !bankUnconfigured.includes(b));
 
+// ⚠️ Payout recipients were the gap this broom did not cover, and the omission
+// had teeth. `payout_recipients_landlord_uidx` (0040b) allows ONE ACTIVE
+// landlord recipient per (org, user) — so a single row left behind by a suite
+// that crashed occupies that slot for every later run. On staging, seven of
+// them had accumulated since 20 Aug, and `verify-remittance-account` failed
+// with "Cannot read properties of null" for weeks because its insert was
+// hitting 23505 against litter, not because anything it tests was broken.
+//
+// The names are stated in full rather than folded into NAME_PREFIXES, because
+// two suites label theirs "Test …" and a blanket `%test%` over a table of
+// payment destinations is not a filter anyone should write.
+const RECIPIENT_NAMES = [
+  "Probe Landlord%", "PROBE%", "Test Landlord Payouts%",
+  "Test Vendor Payouts%", "Test Account-Naming Payouts%",
+];
+const recipients = new Map();
+for (const pattern of RECIPIENT_NAMES) {
+  const { data } = await svc.from("payout_recipients")
+    .select("id,display_name,party,active").ilike("display_name", pattern);
+  for (const r of data ?? []) recipients.set(r.id, r);
+}
+const probeRecipients = [...recipients.values()];
+
 const orgIds = new Set(orgs.map((o) => o.id));
 console.log(`  orgs                 ${orgs.length}  ${c.d(orgs.map((o) => o.name).join(", ").slice(0, 90))}`);
 console.log(`  properties           ${props.length}`);
@@ -81,6 +104,8 @@ console.log(`  vendors              ${vendors.length}`);
 console.log(`  org_nodes            ${nodes.length}`);
 console.log(`  tenant_applications  ${apps.length}`);
 console.log(`  users                ${(probeUsers ?? []).length}`);
+console.log(`  payout_recipients    ${probeRecipients.length}` +
+  (probeRecipients.some((r) => !r.active) ? c.d(`  (${probeRecipients.filter((r) => !r.active).length} already inactive)`) : ""));
 console.log(`  bank_accounts        ${bankUnconfigured.length}` +
   (bankConfigured.length ? c.r(`  (+${bankConfigured.length} LEFT — configured)`) : ""));
 for (const b of bankConfigured) {
@@ -105,6 +130,9 @@ if (!apply) {
 
 // ── Remove, children before parents ─────────────────────────────────────────
 console.log("\nDeleting:");
+// Anything the database refused, collected across every phase below and
+// reported together at the end rather than scrolling past mid-sweep.
+const problems = [];
 const appsGone = await sweepProbeApplications(svc, "Probe ");
 console.log(`  applications  ${appsGone}`);
 const propsGone = await sweepProbeProperties(svc, ["PROBE", "Probe Court", "Probe "]);
@@ -114,6 +142,30 @@ console.log(`  vendors       ${vendorsGone}`);
 let nodesGone = 0;
 for (const p of NAME_PREFIXES) nodesGone += await sweepProbeNodes(svc, p);
 console.log(`  org_nodes     ${nodesGone}`);
+
+// A recipient a remittance points at is DEACTIVATED, not deleted. The FK would
+// refuse the delete anyway, but deactivation is the better answer on its own
+// terms: the uniqueness index is partial on `active`, so switching the flag
+// frees the (org, user) slot for the next run while the payout history keeps
+// the destination it actually named. Deleting a payment destination out from
+// under a settled payout is the ledger equivalent of erasing an audit row.
+let recipientsGone = 0, recipientsDeactivated = 0;
+for (const r of probeRecipients) {
+  const { count } = await svc.from("remittances")
+    .select("id", { count: "exact", head: true }).eq("recipient_id", r.id);
+  if ((count ?? 0) === 0) {
+    const { error } = await svc.from("payout_recipients").delete().eq("id", r.id);
+    if (error) problems.push(`${r.display_name}: ${error.message}`);
+    else recipientsGone++;
+    continue;
+  }
+  if (!r.active) continue;
+  const { error } = await svc.from("payout_recipients")
+    .update({ active: false }).eq("id", r.id);
+  if (error) problems.push(`${r.display_name}: ${error.message}`);
+  else recipientsDeactivated++;
+}
+console.log(`  recipients    ${recipientsGone} deleted, ${recipientsDeactivated} deactivated (named by a remittance)`);
 
 // An unconfigured probe account still gets the same look a configured one would
 // — reconciliation lines cascade from it, and a statement line is a record of
@@ -147,7 +199,6 @@ console.log(`  bank_accounts ${banksGone}`);
 // route around: the fallback is deactivation, which takes the account out of
 // every picker and blocks the login while the trail keeps its actor.
 let usersGone = 0, usersDeactivated = 0;
-const problems = [];
 for (const u of probeUsers ?? []) {
   const { error: rowErr } = await svc.from("users").delete().eq("id", u.id);
   if (!rowErr) {

@@ -69,13 +69,39 @@ const { data: foreignBank } = await svc.from("bank_accounts")
   }
 }
 
-const { data: rec } = await svc.from("payout_recipients").insert({
-  org_id: orgId, party: "landlord", user_id: landlord.id,
-  display_name: "Test Account-Naming Payouts", bank_name: "Test Bank",
-  account_number_last4: "0003", recipient_code: `RCP_ACCT_${stamp}`,
-  verified_at: new Date().toISOString(), created_by: fin.id,
-}).select("id").single();
-made.recipients.push(rec.id);
+// ⚠️ Reuse before create, and never swallow the error.
+//
+// `payout_recipients_landlord_uidx` is unique on (org_id, user_id) where the
+// party is a landlord and the row is active — deliberately, since 0040b: a
+// landlord has one payout destination, or the payout is ambiguous. This block
+// used to insert unconditionally and destructure only `data`, so when another
+// suite left an active recipient on the same demo landlord (verify-approval-
+// chain does exactly that whenever it dies before its cleanup), the insert
+// failed with 23505, `rec` was null, and the file crashed on `rec.id` two lines
+// later with "Cannot read properties of null" — a message that says nothing
+// about a duplicate key. A fixture that cannot tolerate the row it needs
+// already existing reports other suites' litter as its own failure.
+const { data: preexisting } = await svc.from("payout_recipients")
+  .select("id").eq("org_id", orgId).eq("party", "landlord")
+  .eq("user_id", landlord.id).eq("active", true).maybeSingle();
+
+let rec = preexisting;
+if (!rec) {
+  const { data: fresh, error: recErr } = await svc.from("payout_recipients").insert({
+    org_id: orgId, party: "landlord", user_id: landlord.id,
+    display_name: "Test Account-Naming Payouts", bank_name: "Test Bank",
+    account_number_last4: "0003", recipient_code: `RCP_ACCT_${stamp}`,
+    verified_at: new Date().toISOString(), created_by: fin.id,
+  }).select("id").single();
+  if (recErr) {
+    console.error(`could not create the probe payout recipient: ${recErr.message}`);
+    process.exit(1);
+  }
+  rec = fresh;
+  // Only what THIS run created is removed at the end. Deleting a recipient we
+  // merely borrowed would be this suite littering in its turn.
+  made.recipients.push(rec.id);
+}
 
 /** A queued landlord remittance, built by hand so the TABLE is what is tested. */
 const newRemittance = (over = {}) => ({

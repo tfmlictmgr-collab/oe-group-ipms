@@ -25,7 +25,20 @@ const filter = process.argv[2] ?? "";
 // Suites that talk to the pooled Postgres connection are slow (minutes, not
 // seconds) because they impersonate every role against every table. Named so
 // the runner can give them room rather than appearing to hang.
-const SLOW = new Set(["verify-access-matrix", "verify-bi-scoping"]);
+//
+// `verify-finance-journey` joined them on 28 Aug 2026 and is a different shape
+// of slow, worth naming: it walks EVERY non-operator organisation, so its
+// runtime grows with the client list rather than with the code. Restoring the
+// service-charge client (0208) took it from three orgs to four, 150s standalone
+// — and past the 300s budget under the load of a full run, where it was killed
+// mid-suite and reported as a failure. The next client org added will do the
+// same again to whatever budget it has, which is an argument for the generous
+// one rather than for trimming the suite.
+const SLOW = new Set([
+  "verify-access-matrix",
+  "verify-bi-scoping",
+  "verify-finance-journey",
+]);
 
 const suites = readdirSync(here)
   .filter((f) => f.startsWith("verify-") && f.endsWith(".mjs") && f !== "verify-all.mjs")
@@ -83,8 +96,20 @@ const run = (file) =>
         ? `needs the dev server — run \`npm run dev\`, then retry`
         : demoOnly
           ? "demonstration only — asserts nothing"
-          : out.match(/ALL CHECKS PASSED[^\n]*/)?.[0] ??
-            out.match(/\d+ (?:CHECK\(S\) )?FAIL(?:URE\(S\))?[^\n]*/i)?.[0] ??
+          // ⚠️ Match on the SHAPE of a summary, not on one exact sentence.
+          //
+          // This looked only for the literal "ALL CHECKS PASSED", and eight
+          // suites sign off in their own words — "All ops requisition checks
+          // passed.", "All consent checks passed." — so a green run reported
+          // them as "(no summary line — the suite printed nothing
+          // recognisable)". Reading that beside a PASS teaches you to ignore
+          // the summary column, which is the column that tells you whether a
+          // suite asserted anything at all. Same argument as the DEMO marker
+          // below it.
+          : out.match(/ALL \d* ?CHECKS? PASSED[^\n]*/i)?.[0] ??
+            out.match(/^All [^\n]*checks? passed[^\n]*/im)?.[0] ??
+            out.match(/\d+ (?:CHECK\(S\) )?FAIL(?:URE\(S\)|ED)?[^\n]*/i)?.[0] ??
+            out.match(/\d+ check\(s\) failed[^\n]*/i)?.[0] ??
             out.match(/Error[^\n]*/)?.[0] ??
             "(no summary line — the suite printed nothing recognisable)";
       resolve({

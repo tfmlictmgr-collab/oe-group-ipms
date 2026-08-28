@@ -39,8 +39,22 @@ await pgc.query(`truncate table
   property_stakeholders, payment_settings, payments, service_charges, sc_budgets,
   units, properties, vendor_evaluations, vendors, tickets, users, orgs
   restart identity cascade;`);
+await pgc.query(`select ensure_platform_orgs();`);
 await pgc.end();
-console.log("Truncated all app tables.");
+console.log("Truncated all app tables; restored the operator org and the SC client.");
+
+// ⚠️ `ensure_platform_orgs()` above is not optional and not decoration.
+//
+// The truncate takes `orgs` with it, and TWO organisations in that table were
+// created by a MIGRATION rather than by this file: `oe-group`, the platform
+// operator (0088), and `sc-client`, the service-charge client the whole
+// engagement is about (0094). A migration runs once; truncating its rows
+// removes them for good. Section 2 below puts back three orgs, not five.
+//
+// This went unnoticed for eight days on staging: `verify-sc-client` stopped at
+// "the service-charge client org exists" and the B4 vendor-remittance chain had
+// no client to demonstrate it for, while every screen simply showed one fewer
+// organisation and looked entirely normal. See 0208.
 
 // ── 2. Orgs ────────────────────────────────────────────────────────────────
 await supabase.from("orgs").insert({ id: POC_ORG_ID, name: "OE Group — Foundation POC", delivery_brand: "direct" });

@@ -39,3 +39,6 @@ next-env.d.ts
 scratchpad/
 security/reports/
 PR_BODY.md
+
+# Supabase CLI's own local cache (just its own version pin, e.g. "v2.115.0")
+supabase/.temp/

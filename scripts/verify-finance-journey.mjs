@@ -165,12 +165,37 @@ for (const o of tenantOrgs) {
   const pick = async (role) => (await svc.from("users").select("id")
     .eq("org_id", o.id).eq("role", role).is("deactivated_at", null)
     .limit(1).maybeSingle()).data;
-  const approver2 = (await svc.from("users").select("id")
-    .eq("org_id", o.id).eq("role", "payment_approver").eq("approval_tier", 2)
-    .is("deactivated_at", null).limit(1).maybeSingle()).data
-    ?? (await svc.from("users").select("id")
-    .eq("org_id", o.id).eq("role", "payment_approver").is("deactivated_at", null)
-    .limit(1).maybeSingle()).data;
+  // ⚠️ The approver's TIER decides what "above the band" even means, so the
+  // fallback may not be "any payment_approver".
+  //
+  // It was: tier 2, else whichever `payment_approver` an unordered `.limit(1)`
+  // returned. `seed-org-logins.mjs` seeds tier 1 and tier 3 and no tier 2, so
+  // the fallback was a coin toss — and when it landed on the TIER 3 account,
+  // the "above the threshold" payment was correctly APPROVED (tier 3 has no
+  // ceiling) and the suite reported "the over-threshold payment was not
+  // refused correctly" against a ladder doing exactly its job. It failed on
+  // one org out of four, which is what a coin toss looks like.
+  //
+  // So: the lowest available tier, deterministically, and never tier 3 — an
+  // approver with no band above them cannot demonstrate a band being enforced.
+  const { data: approverPool } = await svc.from("users")
+    .select("id, approval_tier")
+    .eq("org_id", o.id).eq("role", "payment_approver")
+    .in("approval_tier", [1, 2])
+    .is("deactivated_at", null)
+    .order("approval_tier", { ascending: false })   // prefer tier 2, else tier 1
+    .order("id");
+  const approver2 = approverPool?.[0] ?? null;
+  if (!approver2) {
+    note("no tier-1 or tier-2 payment approver — the band cannot be exercised here");
+  }
+
+  // The ceiling this approver may not cross, and one naira past it. Tier 2's
+  // bound is `approval_threshold_amount`; tier 1's is `tier1_threshold_amount`
+  // (0151). Deriving it from the approver rather than assuming tier 2 is what
+  // stops the amount and the actor disagreeing.
+  const band = approver2?.approval_tier === 1 ? tier1 : threshold;
+  const overBand = band + 500000;
   const fmUser = await pick("facility_manager");
   const auditUser = await pick("payment_audit_approver");
 
@@ -197,8 +222,8 @@ for (const o of tenantOrgs) {
     { service: true, sql: `create temp table _p (id uuid, tag text) on commit drop` },
     { service: true, sql: `with n as (${mk(1000, "recommended", "small1")}) insert into _p select id, 'small1' from n` },
     { service: true, sql: `with n as (${mk(2000, "recommended", "small2")}) insert into _p select id, 'small2' from n` },
-    // Above the TIER-2 ceiling, so the batch must refuse it on the ladder.
-    { service: true, sql: `with n as (${mk(threshold + 500000, "recommended", "big")}) insert into _p select id, 'big' from n` },
+    // Above THIS approver's ceiling, so the batch must refuse it on the ladder.
+    { service: true, sql: `with n as (${mk(overBand, "recommended", "big")}) insert into _p select id, 'big' from n` },
     { service: true, sql: `with n as (${mk(3000, "verified", "notready")}) insert into _p select id, 'notready' from n` },
     // Stages 1–2 on the three that are at `recommended`; `notready` gets none,
     // so it still exercises the "not awaiting approval" skip.
@@ -414,8 +439,32 @@ for (const o of tenantOrgs) {
          values ('${o.id}', (select id from _l), current_date, current_date + 365,
                  current_date, 500000, ${amountPaid}, 'NGN',
                  '${amountPaid > 0 ? "paid" : "due"}', 10, 50000, 0, 450000)` },
+      // ⚠️ THIS property's row, not an org-wide sum.
+      //
+      // It was `sum(collected)` over every candidate the org has, which reads
+      // as "the total payable" and is not what the assertion below means. Two
+      // things inflate it and neither is a defect in what is being tested:
+      // any OTHER unremitted collected rent in the organisation, and — the one
+      // that actually bit — a property carrying two `owner` stakeholders.
+      // `landlord_payout_candidates()` groups by (property, owner), so a
+      // co-owned property yields one row PER OWNER, each showing the full
+      // collected share, and the sum doubles. TFML and OEA both hold two demo
+      // landlord accounts on one property (`*.owner@` from seed-brand-roles
+      // and `*.propertyowner@` from seed-org-logins), so both reported
+      // ₦900,000 against a fixture that collected ₦450,000, under the message
+      // "the fee is being paid away" — which was not happening at all.
+      //
+      // 📌 Worth stating separately, because narrowing this assertion does not
+      // change it: a genuinely co-owned property DOES show each owner the full
+      // collected amount in the payout preview. Finance cannot actually pay it
+      // twice — `create_rent_remittance` re-checks `remitted_at is null` in its
+      // closing update (0102) — but the preview overstates what is owed, and
+      // how a co-owned property should split a payout is a decision nobody has
+      // taken. Recorded here rather than silently absorbed into a test fix.
       { as: fin.id, sql:
-        `select coalesce(sum(collected),0)::numeric total from landlord_payout_candidates()` },
+        `select coalesce(max(collected),0)::numeric total
+           from landlord_payout_candidates()
+          where property_id = '${owned.property_id}'` },
     ];
 
     const demanded = await steps(build(0));

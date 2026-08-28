@@ -35,7 +35,27 @@ const [{ data: allProps }, { data: stakes }, { data: units }, { data: existing }
   ]);
 const staked = new Set(stakes.map((s) => s.property_id));
 const writable = allProps.filter((p) => staked.has(p.id));
-const unmanaged = allProps.find((p) => !staked.has(p.id));
+
+// -- Two fixtures this file used to borrow from the demo seed ---------------
+//
+// It asserted that a row naming a property the FM does not manage is blocked,
+// and that a row re-using an existing asset tag is blocked. Both depended on
+// the seed happening to contain an unstaked property and an asset tagged
+// GEN-IKJ-001. On staging neither held: `unmanaged` was undefined (so the row
+// named "Nowhere" and proved nothing) and the duplicate row VALIDATED, which
+// then cascaded into a NOT NULL failure two sections later. A check that only
+// fires on one database is not a check. Both are created here, and removed at
+// the end.
+const fixTag = Date.now().toString(36).toUpperCase().slice(-5);
+const { data: unmanaged } = await svc.from("properties").insert({
+  org_id: me.org_id, name: `E2E-UNMANAGED-${fixTag}`, address: "1 Not Yours Street",
+}).select("id, name").single();
+
+const { data: taken } = await svc.from("assets").insert({
+  org_id: me.org_id, property_id: writable[0].id, name: "Pre-existing Asset",
+  asset_tag: `E2E-TAKEN-${fixTag}`, category: "power_generation",
+}).select("id, asset_tag").single();
+existing.push({ asset_tag: taken.asset_tag });
 
 const ctx = {
   propertiesByName: new Map(writable.map((p) => [p.name.toLowerCase(), p.id])),
@@ -61,7 +81,7 @@ const csv = [
   // must be rejected: property the FM does not manage
   `E2E-${stamp}-C,Sump Pump,plumbing,${unmanaged?.name ?? "Nowhere"},low,good,,,,`,
   // must be rejected: duplicate of an asset already seeded
-  `GEN-IKJ-001,Duplicate Generator,power_generation,${writable[0].name},critical,good,,,,`,
+  `${taken.asset_tag},Duplicate Generator,power_generation,${writable[0].name},critical,good,,,,`,
   // must be rejected: bad enum
   `E2E-${stamp}-D,Access Barrier,securty,${writable[0].name},medium,good,,,,`,
 ].join("\n");
@@ -77,7 +97,13 @@ for (const r of invalid) console.log(`     row ${r.rowNumber}: ${r.issues.map(i 
 
 console.log("\nB. Only the valid rows are written, through RLS");
 const payload = valid.map((r) => ({ ...r.values, org_id: me.org_id, created_by: user.id }));
-const { data: inserted, error } = await fm.from("assets").insert(payload).select("id, asset_tag");
+// `defaultToNull: false` mirrors the server action. Without it PostgREST unions
+// the keys of a bulk insert and NULLs the ones a given row omits, so a blank
+// `compliance_required` cell became NULL in a `not null default false` column
+// and took the whole batch down with it.
+const { data: inserted, error } = await fm.from("assets")
+  .insert(payload, { defaultToNull: false })
+  .select("id, asset_tag");
 if (error) bad(`insert failed — ${error.message}`);
 else if (inserted.length === 2) ok(`inserted ${inserted.map((a) => a.asset_tag).join(", ")}`);
 else bad(`expected 2 inserts, got ${inserted.length}`);
@@ -113,7 +139,9 @@ console.log("\nE. The import is auditable");
 
 // Clean up everything this run created.
 await svc.from("assets").delete().ilike("asset_tag", `E2E-${stamp}-%`);
-console.log("\n(removed the E2E test assets)");
+await svc.from("assets").delete().eq("id", taken.id);
+await svc.from("properties").delete().eq("id", unmanaged.id);
+console.log("\n(removed the E2E test assets and fixtures)");
 
 console.log(
   failures === 0

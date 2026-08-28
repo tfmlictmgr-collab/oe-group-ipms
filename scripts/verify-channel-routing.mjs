@@ -15,7 +15,38 @@ import { createClient } from "@supabase/supabase-js";
 const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 config({ path: path.join(rootDir, ".env.local") });
 
-const TARGET = process.env.TARGET ?? "https://oe-group-ipms-dev.vercel.app";
+// ⚠️ The deployed app and the database MUST be the same world.
+//
+// This was `process.env.TARGET ?? "https://oe-group-ipms-dev.vercel.app"` — a
+// hardcoded host, beside a Supabase client built from whatever `.env.local`
+// happens to point at. Run with `.env.local` on staging, it posted signed
+// webhooks to the DEV deployment, which wrote its tickets into the DEV
+// database, and then looked for them in STAGING. Four checks failed reporting
+// "org none", which reads as a routing bug and is nothing of the kind — and
+// had it been the other way round, a staging run would have been writing
+// tickets into dev while reporting green.
+//
+// `NEXT_PUBLIC_SITE_URL` lives in the same file as the database credentials, so
+// taking the host from there makes the two impossible to separate. The explicit
+// override stays, because pointing a local checkout at a preview deployment is
+// a real thing to want — but it now has to be stated, and it says what it is
+// aiming at.
+const SITE = process.env.NEXT_PUBLIC_SITE_URL;
+const TARGET = process.env.TARGET ?? SITE;
+if (!TARGET) {
+  console.error(
+    "No target. Set NEXT_PUBLIC_SITE_URL in .env.local (it is the deployment that\n" +
+    "belongs to this database), or pass TARGET= explicitly."
+  );
+  process.exit(1);
+}
+if (process.env.TARGET && SITE && process.env.TARGET !== SITE) {
+  console.log(
+    `  \x1b[33mNOTE\x1b[0m TARGET (${process.env.TARGET}) is not this database's own\n` +
+    `       deployment (${SITE}). Tickets will be written where TARGET points and\n` +
+    `       read from where the database points. That is only correct if you meant it.\n`
+  );
+}
 const APP_SECRET = process.env.WHATSAPP_APP_SECRET;
 const TG_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET;
 const svc = createClient(

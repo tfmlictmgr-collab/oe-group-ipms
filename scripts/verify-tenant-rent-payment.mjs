@@ -40,7 +40,7 @@ async function login(email) {
 
 const MARK = "PROBERENT";
 const S = Date.now().toString(36).toUpperCase().slice(-5);
-const made = { leases: [], charges: [], intents: [], units: [], properties: [] };
+const made = { leases: [], charges: [], intents: [], units: [], properties: [], users: [] };
 
 // Start-of-run sweep.
 {
@@ -63,12 +63,57 @@ const made = { leases: [], charges: [], intents: [], units: [], properties: [] }
 }
 
 const { data: oea } = await svc.from("orgs").select("id").eq("slug", "oea").single();
-const { data: tenantA } = await svc.from("users").select("id, email")
-  .eq("org_id", oea.id).eq("role", "tenant").is("deactivated_at", null).limit(1).single();
-const { data: othersB } = await svc.from("users").select("id, email")
-  .eq("org_id", oea.id).eq("role", "tenant").is("deactivated_at", null)
-  .neq("id", tenantA.id).limit(1);
-const tenantB = othersB?.[0] ?? null;
+// ⚠️ Seeded fixtures only — `@oegroup.test`, never "whichever tenant is first".
+//
+// This was `.eq("role","tenant").limit(1).single()` with no ordering, and then
+// signed in as whatever came back using the seed password. On staging the row
+// it returned was `adikpelinda@oraegbunike.com` — a REAL account, created
+// through the product on 24 Aug — and the suite died on "Invalid login
+// credentials", which is the correct answer to asking a real person's account
+// for a shared demo password.
+//
+// The failure was the harmless end of the problem. This file signs in as the
+// account it picks, creates a lease naming them, and raises a rent demand
+// against them; `verify-account-recovery` in the same directory RESETS THE
+// PASSWORD of the account it picks. A verification suite must never be able to
+// select a real user, and the seeded fixtures are exactly the ones on the
+// `@oegroup.test` domain, which no real person ever holds.
+const seeded = (q) => q.eq("org_id", oea.id).eq("role", "tenant")
+  .is("deactivated_at", null).like("email", "%@oegroup.test").order("email");
+
+const { data: tenants, error: tenantErr } = await seeded(
+  svc.from("users").select("id, email")
+);
+if (tenantErr) throw new Error(`could not read tenants: ${tenantErr.message}`);
+if (!tenants?.length) {
+  throw new Error(
+    "no seeded OEA tenant (@oegroup.test) on this world — run scripts/seed-brand-roles.mjs"
+  );
+}
+const tenantA = tenants[0];
+
+// The second tenant is BUILT, not hoped for.
+//
+// Sections B, C and G — "another tenant sees nothing of it", "standing to open
+// a payment is checked", and the pre-fix proof that section C tests something
+// real — are the reason this file exists: `create_rent_payment_intent` checked
+// the caller's organisation and never that they were the tenant on the lease.
+// They all guarded on `if (tenantB)` and skipped in silence when the world
+// happened to hold only one seeded OEA tenant, which staging does. The file
+// then printed ALL CHECKS PASSED having tested none of the isolation it is
+// named for. A skipped check that reports as a pass is worse than a failure.
+const probeEmail = `probe-rent-tenant-${S}@oegroup.test`;
+const { data: madeAuth, error: authErr } = await svc.auth.admin.createUser({
+  email: probeEmail, password: "OEGroupDemo2026!", email_confirm: true,
+});
+if (authErr) throw new Error(`second tenant (auth): ${authErr.message}`);
+const { error: profErr } = await svc.from("users").insert({
+  id: madeAuth.user.id, org_id: oea.id, role: "tenant",
+  email: probeEmail, full_name: `Probe Rent Tenant ${S}`,
+});
+if (profErr) throw new Error(`second tenant (profile): ${profErr.message}`);
+const tenantB = { id: madeAuth.user.id, email: probeEmail };
+made.users.push(tenantB.id);
 
 // ── Fixture: a property, a unit, a lease for tenant A, one unpaid demand ───
 const { data: prop } = await svc.from("properties").insert({
@@ -303,6 +348,22 @@ console.log("\nG. THE PRE-FIX STATE — proving section C tests something real")
   await svc.from("leases").delete().in("id", made.leases);
   await svc.from("units").delete().in("id", made.units);
   await svc.from("properties").delete().in("id", made.properties);
+
+  // The probe tenant, from both places a user lives. Deleting only the profile
+  // would leave a login that still works and cannot be seen from the app —
+  // the trap `sweep-probe-residue.mjs` documents. This one has raised no
+  // audited action (its every call was refused, which is the point of it), so
+  // the delete is not held by `audit_log.actor_id`.
+  for (const id of made.users ?? []) {
+    const { error } = await svc.from("users").delete().eq("id", id);
+    if (error) {
+      await svc.from("users")
+        .update({ deactivated_at: new Date().toISOString() }).eq("id", id);
+      console.log(`  (probe tenant retained but deactivated: ${error.message})`);
+      continue;
+    }
+    await svc.auth.admin.deleteUser(id).catch(() => {});
+  }
 }
 console.log("\n(cleaned up)");
 

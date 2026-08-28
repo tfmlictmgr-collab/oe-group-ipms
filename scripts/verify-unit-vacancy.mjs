@@ -57,8 +57,16 @@ const mkProperty = async (name) => {
   return data.id;
 };
 
+// The SEEDED OEA tenant, not `demo.tenant@oraegbunike.com`.
+//
+// That address is an account somebody created by hand on `dev` while testing;
+// it is in no seed script and exists on no other world, so section D skipped
+// itself with "no OEA demo tenant to let a unit to" everywhere else — a
+// vacancy suite quietly not testing the letting half of vacancy.
+// `oea.tenant@oegroup.test` is `seed-brand-roles.mjs`'s own fixture and exists
+// wherever the demo dataset does.
 const { data: tenant } = await svc.from("users")
-  .select("id").eq("email", "demo.tenant@oraegbunike.com").maybeSingle();
+  .select("id").eq("email", "oea.tenant@oegroup.test").maybeSingle();
 
 console.log("A unit row is one unit, and vacancy is one rule\n");
 

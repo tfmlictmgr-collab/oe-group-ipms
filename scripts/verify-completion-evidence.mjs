@@ -1,10 +1,16 @@
 import { createClient } from "@supabase/supabase-js";
-import fs from "fs";
-const envFile = fs.readFileSync(".env.local", "utf8");
-for (const line of envFile.split("\n")) {
-  const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
-  if (m && !process.env[m[1]]) process.env[m[1]] = m[2].trim();
-}
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { config } from "dotenv";
+
+// dotenv, not a hand-rolled line parser. The previous one matched
+// /^([A-Z0-9_]+)=(.*)$/ against each line of a CRLF .env.local - and JS `.`
+// does not match a carriage return, so every line ending in one failed to
+// match and the file parsed as empty. The suite then died on "supabaseUrl is
+// required." as though the environment were unconfigured. Every other suite
+// here uses dotenv; these two were the only holdouts.
+const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+config({ path: path.join(rootDir, ".env.local") });
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL, anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const svc = createClient(url, process.env.SUPABASE_SERVICE_ROLE_KEY);
 const PW = "Probe-" + crypto.randomUUID();

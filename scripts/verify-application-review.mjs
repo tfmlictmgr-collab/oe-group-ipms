@@ -122,7 +122,23 @@ const fm2 = await makeUser("facility_manager", "fm2"); // deliberately NOT attac
 await svc.from("property_stakeholders").insert({ org_id: oea.id, user_id: fm1.id, property_id: propA, relation: "manager" });
 
 const { data: adminUser } = await svc.from("users").select("id, email").eq("email", "oea.admin@oegroup.test").single();
-const { data: financeUser } = await svc.from("users").select("id, email").eq("email", "oea.financeapprover@oegroup.test").single();
+// ⚠️ The executive, not the finance approver, is the second approver here.
+//
+// Both hold `applications.approve`. Only the executive also holds
+// `applications.review_all`, so only the executive can reach an application on
+// a property they are not attached to — `record_application_approval` scopes
+// on `review_all OR property_id in current_user_property_ids()`, exactly as
+// every other consumer does.
+//
+// This file used the finance approver and passed on `dev` alone, because dev's
+// two brand orgs still carry a `review_all → finance_approver` row from
+// `0062`'s original backfill, which no `seed_b7_permissions` since `0077` has
+// granted. Every org created since reads the way the function says, and the
+// second approval was refused. Asserting against a legacy row that the seed no
+// longer writes is asserting against one database, not against the rule —
+// and the rule is decision 9's: oversight sees everything finance sees, and
+// then some.
+const { data: execUser } = await svc.from("users").select("id, email").eq("email", "oea.executive@oegroup.test").single();
 
 console.log("A. Recommend — held capability and property scope");
 const indApp = await mkApp(propA, "individual", "ind");
@@ -293,7 +309,7 @@ const corpApp = await mkApp(propA, "corporate", "corp");
          : bad("ONE PERSON APPROVED A CORPORATE APPLICATION TWICE");
   await admin.auth.signOut();
 
-  const fin = await login(financeUser.email);
+  const fin = await login(execUser.email);
   const tok2 = crypto.randomBytes(24).toString("base64url");
   const { data: secondResult, error: e2 } = await fin.rpc("record_application_approval", {
     p_application_id: corpApp, p_reason: "independently verified, second and completing approval",
