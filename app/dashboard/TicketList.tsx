@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import { Inbox, Search, ChevronRight } from "lucide-react";
+import { Inbox, Search, ChevronRight, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -46,6 +46,19 @@ export default function TicketList({
 }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<(typeof FILTERS)[number]["key"]>("all");
+  /** Urgency narrowing, independent of status — "show me the critical ones"
+   *  is a different question from "show me the open ones". */
+  const [urgency, setUrgency] = useState<string>("any");
+  /**
+   * ⚠️ Sorting is a VIEW concern and stays in the browser, over the page the
+   * server already scoped. It deliberately does not re-query: a list that
+   * re-fetches on every sort would silently change WHICH 200 rows you are
+   * looking at, which is a different list rather than the same one reordered.
+   */
+  const [sort, setSort] = useState<"newest" | "oldest" | "urgency">("newest");
+  /** Which rows are expanded. Collapsed is the default — a queue nobody can
+   *  scroll is a queue nobody reads. */
+  const [openRows, setOpenRows] = useState<Record<string, boolean>>({});
 
   // Client-side narrowing only — RLS already scoped what arrived here, so a
   // filter can never widen visibility beyond the viewer's B7 row.
@@ -56,8 +69,12 @@ export default function TicketList({
     // pasted full UUID with its dashes. Reduced to bare hex on both sides so
     // all three are one query.
     const hex = raw.replace(/[^0-9a-fA-F]/g, "").toLowerCase();
-    return tickets.filter((t) => {
+    const URGENCY_RANK: Record<string, number> = {
+      critical: 0, high: 1, normal: 2, low: 3,
+    };
+    const matched = tickets.filter((t) => {
       if (filter !== "all" && t.status !== filter) return false;
+      if (urgency !== "any" && t.urgency !== urgency) return false;
       if (!q) return true;
       if (hex.length >= 4 && t.id.replace(/-/g, "").startsWith(hex)) return true;
       return (
@@ -67,7 +84,21 @@ export default function TicketList({
         (t.category ?? "").toLowerCase().includes(q)
       );
     });
-  }, [tickets, query, filter]);
+
+    const byNewest = (a: Ticket, b: Ticket) =>
+      new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+
+    return [...matched].sort((a, b) => {
+      if (sort === "oldest") return -byNewest(a, b);
+      if (sort === "urgency") {
+        const d = (URGENCY_RANK[a.urgency ?? ""] ?? 9) - (URGENCY_RANK[b.urgency ?? ""] ?? 9);
+        // Ties fall back to newest, so the order is total and stable rather
+        // than whatever the previous sort happened to leave behind.
+        return d !== 0 ? d : byNewest(a, b);
+      }
+      return byNewest(a, b);
+    });
+  }, [tickets, query, filter, urgency, sort]);
 
   // ⚠️ The page holds only the most recent slice. A reference older than that
   // matches nothing locally, and "No matching requests" would then read as
@@ -168,6 +199,48 @@ export default function TicketList({
         })}
       </div>
 
+      {/* Filter by urgency and choose an order. Both narrow or reorder the page
+          the server already scoped — neither can widen it. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          Urgency
+          <select
+            value={urgency}
+            onChange={(e) => setUrgency(e.target.value)}
+            aria-label="Filter by urgency"
+            className="rounded-md border border-input bg-background px-2 py-1 text-xs"
+          >
+            <option value="any">Any</option>
+            <option value="critical">Critical</option>
+            <option value="high">High</option>
+            <option value="normal">Normal</option>
+            <option value="low">Low</option>
+          </select>
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          Sort
+          <select
+            value={sort}
+            onChange={(e) => setSort(e.target.value as typeof sort)}
+            aria-label="Sort requests"
+            className="rounded-md border border-input bg-background px-2 py-1 text-xs"
+          >
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="urgency">Most urgent first</option>
+          </select>
+        </label>
+        {(urgency !== "any" || sort !== "newest" || filter !== "all") && (
+          <button
+            type="button"
+            onClick={() => { setUrgency("any"); setSort("newest"); setFilter("all"); }}
+            className="text-xs font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          >
+            Reset
+          </button>
+        )}
+      </div>
+
       {showingOlder && (
         <p className="text-xs text-muted-foreground">
           Found outside the most recent {tickets.length} — matched on reference.
@@ -238,6 +311,34 @@ export default function TicketList({
                 </div>
                 <ChevronRight className="size-4 flex-shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
               </Link>
+
+              {/* ⚠️ The expander sits OUTSIDE the link, not inside it. A button
+                  nested in an anchor is not valid markup and, more to the
+                  point, a click meant to peek at the message would navigate
+                  away instead. */}
+              <div className="mt-1 flex items-center gap-2 px-1">
+                <button
+                  type="button"
+                  aria-expanded={Boolean(openRows[ticket.id])}
+                  onClick={() =>
+                    setOpenRows((p) => ({ ...p, [ticket.id]: !p[ticket.id] }))
+                  }
+                  className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  <ChevronDown
+                    className={cn(
+                      "size-3.5 transition-transform",
+                      openRows[ticket.id] && "rotate-180"
+                    )}
+                  />
+                  {openRows[ticket.id] ? "Hide what was reported" : "What was reported"}
+                </button>
+              </div>
+              {openRows[ticket.id] && (
+                <p className="mt-1 whitespace-pre-wrap rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                  {ticket.message_text}
+                </p>
+              )}
             </li>
           ))}
         </ul>

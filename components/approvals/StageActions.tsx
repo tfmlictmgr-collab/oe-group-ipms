@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { toast } from "sonner";
-import { Check, X } from "lucide-react";
+import { Check, X, MessageSquarePlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { recordStageDecision } from "@/lib/approvals/actions";
@@ -21,15 +21,34 @@ export default function StageActions({
   payableId,
   stage,
   stageLabel,
+  verb = "Approve",
 }: {
   payableType: PayableType;
   payableId: string;
   stage: StageOrder;
   stageLabel: string;
+  /**
+   * What this actor actually does. The audit stage is a REVIEW AND
+   * RECOMMENDATION (board, 29 Aug 2026) — the money is authorised by the MP and
+   * the payment approver behind it — so a button reading "Approve" there put a
+   * fourth approver in a three-approver chain in the reader's head.
+   */
+  verb?: string;
 }) {
   const [busy, setBusy] = React.useState<"approve" | "reject" | null>(null);
   const [refusing, setRefusing] = React.useState(false);
   const [reason, setReason] = React.useState("");
+  /**
+   * An optional note carried with a POSITIVE decision.
+   *
+   * `record_payment_approval` has always accepted `p_reason` on an approval and
+   * required it only on a refusal — the column was there and no screen ever
+   * offered it, so every approval in the trail said nothing but who and when.
+   * The auditor in particular has a recommendation to make, not merely a verdict
+   * to register.
+   */
+  const [note, setNote] = React.useState("");
+  const [noting, setNoting] = React.useState(false);
 
   async function submit(decision: "approved" | "rejected") {
     setBusy(decision === "approved" ? "approve" : "reject");
@@ -38,7 +57,9 @@ export default function StageActions({
       payableId,
       stage,
       decision,
-      reason: decision === "rejected" ? reason : null,
+      // A refusal must say why; an approval may. Both land in the same column
+      // and both show on the trail.
+      reason: decision === "rejected" ? reason : (note.trim() || null),
     });
     setBusy(null);
 
@@ -51,6 +72,8 @@ export default function StageActions({
     );
     setRefusing(false);
     setReason("");
+    setNote("");
+    setNoting(false);
   }
 
   if (refusing) {
@@ -96,20 +119,50 @@ export default function StageActions({
   }
 
   return (
-    <div className="flex flex-wrap gap-2">
-      <Button size="sm" disabled={busy !== null} onClick={() => submit("approved")}>
-        <Check className="mr-1.5 size-4" />
-        {busy === "approve" ? "Recording…" : `Approve — ${stageLabel}`}
-      </Button>
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={busy !== null}
-        onClick={() => setRefusing(true)}
-      >
-        <X className="mr-1.5 size-4" />
-        Refuse
-      </Button>
+    <div className="space-y-3">
+      {noting ? (
+        <div className="space-y-1.5">
+          <Label htmlFor={`note-${stage}`}>
+            Your note <span className="font-normal text-muted-foreground">(optional)</span>
+          </Label>
+          <textarea
+            id={`note-${stage}`}
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            rows={3}
+            className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+            placeholder="e.g. Checked against the signed job card and the meter reading — figures agree."
+          />
+          <p className="text-xs text-muted-foreground">
+            Recorded on the approval trail beside your name, and read by everyone
+            further along the chain.
+          </p>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setNoting(true)}
+          className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+        >
+          <MessageSquarePlus className="size-3.5" /> Add a note (optional)
+        </button>
+      )}
+
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" disabled={busy !== null} onClick={() => submit("approved")}>
+          <Check className="mr-1.5 size-4" />
+          {busy === "approve" ? "Recording…" : `${verb} — ${stageLabel}`}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={busy !== null}
+          onClick={() => setRefusing(true)}
+        >
+          <X className="mr-1.5 size-4" />
+          Refuse
+        </Button>
+      </div>
     </div>
   );
 }

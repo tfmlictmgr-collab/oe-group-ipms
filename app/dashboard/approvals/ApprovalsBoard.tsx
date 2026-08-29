@@ -245,6 +245,7 @@ export default function ApprovalsBoard({
                       payableId={r.payableId}
                       stage={r.state.nextStage.stageOrder as StageOrder}
                       stageLabel={r.state.nextStage.short}
+                      verb={r.state.nextStage.verb}
                     />
                   )}
                 </CardContent>

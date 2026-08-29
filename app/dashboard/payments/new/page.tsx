@@ -6,10 +6,22 @@ import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/patterns/page-header";
 import { Button } from "@/components/ui/button";
 import SubmitInvoiceForm from "./SubmitInvoiceForm";
+import RoleGate, { roleAllowed } from "../../RoleGate";
+import { FM_PM } from "@/lib/roles";
 
 export default async function NewPaymentPage() {
   const session = await getSessionProfile();
   if (!session) redirect("/login");
+
+  // ⚠️ Gated to match `payments_insert` exactly. The page was open to anyone
+  // signed in, so an auditor, a payment approver, the payment officer, a tenant
+  // or a vendor could pick a contractor, attach an invoice, press Submit and be
+  // told "Could not submit invoice" by a 403 — a whole form that could never
+  // succeed. The policy is the authority; this is the same list, so the form is
+  // offered only to people it will accept.
+  if (!roleAllowed(session.profile?.role, ["admin", ...FM_PM, "regional_manager"])) {
+    return <RoleGate title="Submit Vendor Invoice" />;
+  }
 
   const supabase = await createClient();
 

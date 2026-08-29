@@ -5916,3 +5916,71 @@ no counter to keep, and identical in every screen that mentions it. The queue
 searches it, and the human reference somebody typed ("Job101-M") stays as a
 label beside it rather than as the key: it is not unique, not present on older
 rows, and not what anyone else can guess.
+
+---
+
+## The audit stage recommends, the staff invoice form had no invoice
+
+Five things from the promoted portal, four of them small and one a dead end of
+the same family as the last two.
+
+### "Audit review and RECOMMENDATION"
+
+The auditor checks the invoice against the job card and says whether it stands
+up; the money is authorised after them, by the MP and then the payment approver.
+Calling their stage an approval put a fourth approver into a three-approver
+chain — in the reader's head if nowhere else. That is `0189`'s correction to the
+FM/PM sign-off, made again one stage along.
+
+The button now says the ACT rather than a generic verb: each stage carries its
+own `verb` (`Sign off` / `Review` / `Approve`), so it reads **"Review — Audit
+review"**. `0223` renames the label in the database too, because
+`enforce_approval_rules` puts that string into its refusal and a person refused
+at this stage reads the stage's name in the message — the two disagreeing in
+exactly the place a confused person looks would be worse than either wording.
+
+### A note on every decision, not only refusals
+
+`record_payment_approval` has always accepted `p_reason` on an approval and
+required it only on a refusal. **No screen ever offered it**, so every approval
+in the trail said nothing but who and when — and the auditor in particular has a
+recommendation to make, not merely a verdict to register. Optional note box on
+all three stages; it lands in the same column a refusal does and shows on the
+trail.
+
+### ⚠️ The staff invoice form could not attach an invoice
+
+`my-work/SubmitInvoice.tsx` — the VENDOR's own form — has uploaded to
+`invoice-attachments` since it was written. `payments/new/SubmitInvoiceForm.tsx`
+— the staff-side twin, used when somebody files a paper invoice on a
+contractor's behalf — never did. So an invoice raised there reached the chain
+with nothing attached, and the auditor whose entire stage is a check AGAINST the
+evidence had none to check.
+
+Bytes go up before the row is written, for the reason `0217` exists: indexing a
+path storage refused would tell the chain an invoice is attached and hand them a
+404 when they open it.
+
+### 📌 And the form was open to people it would always refuse
+
+Found while testing the upload as the auditor: `payments_insert` admits `admin`,
+`facility_manager`, `property_manager`, `regional_manager` — and the PAGE was
+open to anyone signed in. An auditor, a payment approver, the payment officer, a
+tenant or a vendor could pick a contractor, attach a file, press Submit and be
+told "Could not submit invoice" by a 403. A whole form that could never succeed,
+for most of the people who could reach it.
+
+Gated to the same four roles the policy names. **The policy is the authority and
+the page should offer what it will accept** — this is the third dead end in two
+days of the same shape: a control the database refuses and a screen that offers
+it anyway.
+
+### The service request dashboard
+
+Collapsible (each row expands to the reported text, collapsed by default),
+filterable (status chips as before, plus urgency), sortable (newest / oldest /
+most urgent, with a stable tiebreak so the order is total) and searchable as it
+already was. All of it narrows or reorders the page the server already scoped —
+none of it re-queries, because a list that re-fetches on sort silently changes
+WHICH 200 rows you are looking at, which is a different list rather than the
+same one reordered.

@@ -256,6 +256,7 @@ export default async function RequisitionDetailPage({
               payableId={req.id}
               stage={state.nextStage.stageOrder}
               stageLabel={state.nextStage.short}
+                verb={state.nextStage.verb}
             />
           )}
         </CardContent>

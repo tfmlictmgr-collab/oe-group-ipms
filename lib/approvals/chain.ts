@@ -49,6 +49,7 @@ export const CHAIN_SHAPES = {
       // stage no tier applies to.
       label: "Work completed and signed off",
       short: "Work signed off",
+      verb: "Sign off",
     },
     {
       stageOrder: 2 as const,
@@ -56,6 +57,7 @@ export const CHAIN_SHAPES = {
       tierResolved: false,
       label: "Audit verification",
       short: "Audit check",
+      verb: "Review",
     },
     {
       stageOrder: 3 as const,
@@ -63,6 +65,7 @@ export const CHAIN_SHAPES = {
       tierResolved: true,
       label: "Final approval",
       short: "Final approval",
+      verb: "Approve",
     },
   ],
   oea: [
@@ -72,8 +75,16 @@ export const CHAIN_SHAPES = {
       tierResolved: false,
       // The FM/PM sign-off is not here, and that is decision 23: it is the
       // PRECONDITION that commences the chain, not a rung of it.
-      label: "Audit review and approval",
+      //
+      // ⚠️ "and RECOMMENDATION", not "and approval" (board, 29 Aug 2026). The
+      // auditor checks the invoice against the job card and the evidence and
+      // says whether it stands up; the money is authorised by the MP and the
+      // payment approver behind them. Calling it an approval put a fourth
+      // approver in a three-approver chain, in the reader's head if nowhere
+      // else — the same correction 0189 made to the FM/PM sign-off.
+      label: "Audit review and recommendation",
       short: "Audit review",
+      verb: "Review",
     },
     {
       stageOrder: 2 as const,
@@ -81,6 +92,7 @@ export const CHAIN_SHAPES = {
       tierResolved: false,
       label: "Managing Partner approval",
       short: "MP approval",
+      verb: "Approve",
     },
     {
       stageOrder: 3 as const,
@@ -88,6 +100,7 @@ export const CHAIN_SHAPES = {
       tierResolved: true,
       label: "Payment approval",
       short: "Payment approval",
+      verb: "Approve",
     },
   ],
 } as const;
@@ -122,6 +135,10 @@ export interface StageState {
   short: string;
   requiredRoles: readonly string[];
   tierResolved: boolean;
+  /** What this actor DOES — "Review" for the audit stage, "Approve" for the
+   *  ones that authorise money, "Sign off" for the FM/PM work check. The button
+   *  says the act, not a generic verb for all three. */
+  verb: string;
   decision: Decision | null;
   actorId: string | null;
   actorName: string | null;
@@ -388,6 +405,7 @@ export async function getChainState(
       short: s.short,
       requiredRoles: s.requiredRoles,
       tierResolved: s.tierResolved,
+      verb: s.verb,
       decision: live ? (a!.decision ?? null) : null,
       // The actor and the trail are kept even for a stale row: who signed the
       // old figure off, and at what, is the whole explanation of why this is
