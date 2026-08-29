@@ -1,10 +1,11 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
-  CheckCircle2, CircleAlert, Paperclip, Send, Upload, Users,
+  ArrowRight, CheckCircle2, CircleAlert, Paperclip, Send, Upload, Users,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -111,6 +112,22 @@ const CAPABILITIES: { key: string; label: string; hint: string }[] = [
   { key: "manage_work", label: "Manage work", hint: "Accept, decline and complete jobs; submit invoices." },
   { key: "manage_contracts", label: "Manage contracts", hint: "Act on contracts and introductions." },
 ];
+
+/**
+ * Where each capability is actually exercised — "manage_users" and
+ * "manage_profile" are sections further down THIS page; "manage_work" is a
+ * different screen entirely.
+ *
+ * ⚠️ `manage_contracts` has no href. It is a real, database-held capability
+ * (decision 17) with nothing behind it yet — no contracts/introductions
+ * screen exists anywhere in the vendor's own nav. Rather than link it
+ * somewhere misleading, its pill stays plain state until that screen exists.
+ */
+const CAPABILITY_HREF: Record<string, string> = {
+  manage_users: "#company-people",
+  manage_profile: "#company-details",
+  manage_work: "/dashboard/my-work",
+};
 
 /**
  * The compliance declaration, shown verbatim and stored verbatim.
@@ -383,7 +400,7 @@ export default function CompanyClient({
       </Card>
 
       {/* ── The company itself ────────────────────────────────────────── */}
-      <Card>
+      <Card id="company-details" className="scroll-mt-4">
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Company details</CardTitle>
           <CardDescription>
@@ -573,7 +590,7 @@ export default function CompanyClient({
       </Card>
 
       {/* ── Who in the company may do what ────────────────────────────── */}
-      <Card>
+      <Card id="company-people" className="scroll-mt-4">
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
             <Users className="size-4" /> People at {members.length === 1 ? "this company" : "this company"}
@@ -623,19 +640,36 @@ export default function CompanyClient({
                   const editable = canManageUsers && !m.isOwner;
 
                   if (!editable) {
-                    return (
-                      <span
-                        key={c.key}
-                        title={c.hint}
-                        className={cn(
-                          "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium",
-                          on
-                            ? "border-success/30 bg-success/10 text-success"
-                            : "border-border bg-muted/40 text-muted-foreground"
-                        )}
-                      >
+                    // A capability I hold MYSELF, with somewhere real to use
+                    // it, becomes a shortcut there rather than staying a pill
+                    // that only describes itself — someone else's row (or a
+                    // capability with no screen behind it yet, manage_contracts)
+                    // stays plain state, since a click there would take ME
+                    // somewhere about THEIR access, which is not a shortcut.
+                    const href = m.id === myVendorUserId && on ? CAPABILITY_HREF[c.key] : undefined;
+
+                    const pillClass = cn(
+                      "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium",
+                      on
+                        ? "border-success/30 bg-success/10 text-success"
+                        : "border-border bg-muted/40 text-muted-foreground",
+                      href && "transition-colors hover:border-success/50 hover:bg-success/15"
+                    );
+                    const content = (
+                      <>
                         {on && <CheckCircle2 className="size-3" />}
                         {c.label}
+                        {href && <ArrowRight className="size-3" />}
+                      </>
+                    );
+
+                    return href ? (
+                      <Link key={c.key} href={href} title={c.hint} className={pillClass}>
+                        {content}
+                      </Link>
+                    ) : (
+                      <span key={c.key} title={c.hint} className={pillClass}>
+                        {content}
                       </span>
                     );
                   }
@@ -665,10 +699,12 @@ export default function CompanyClient({
                 {m.isOwner
                   ? `An owner holds all four permanently — these cannot be changed${
                       m.id === myVendorUserId ? ", including your own" : ""
-                    }.`
+                    }.${m.id === myVendorUserId ? " Tap one to go there." : ""}`
                   : canManageUsers
                     ? "Tap to grant or remove."
-                    : "Only someone who can manage people may change these."}
+                    : m.id === myVendorUserId
+                      ? "Tap one you hold to go there."
+                      : "Only someone who can manage people may change these."}
               </p>
             </div>
           ))}

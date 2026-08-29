@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { Pencil, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +20,11 @@ import { Label } from "@/components/ui/label";
  * Email and role are shown but not editable, and that is the point: a person
  * should be able to SEE what the system thinks they are, and ask if it is
  * wrong, without being able to change it themselves.
+ *
+ * The name itself is view-first: once a name is already on file, it renders
+ * as plain text with a pencil to open editing, rather than an open text field
+ * sitting there permanently. Someone who has never set a name (a fresh
+ * account) has nothing to view, so editing opens straight away.
  */
 export default function ProfileForm({
   initial,
@@ -33,9 +39,15 @@ export default function ProfileForm({
 }) {
   const router = useRouter();
   const [fullName, setFullName] = React.useState(initial.fullName);
+  const [editing, setEditing] = React.useState(!initial.fullName.trim());
   const [saving, setSaving] = React.useState(false);
 
   const dirty = fullName.trim() !== initial.fullName.trim();
+
+  function cancel() {
+    setFullName(initial.fullName);
+    setEditing(false);
+  }
 
   async function save() {
     setSaving(true);
@@ -46,6 +58,7 @@ export default function ProfileForm({
       });
       if (error) throw new Error(error.message.replace(/^.*?:\s*/, ""));
       toast.success("Your name has been updated");
+      setEditing(false);
       router.refresh();
     } catch (e) {
       toast.error("Could not save your profile", {
@@ -59,17 +72,35 @@ export default function ProfileForm({
   return (
     <div className="space-y-5">
       <div className="space-y-1.5">
-        <Label htmlFor="full-name">Your name</Label>
-        <Input
-          id="full-name"
-          value={fullName}
-          onChange={(e) => setFullName(e.target.value)}
-          placeholder="e.g. Amaka Obi"
-          maxLength={120}
-        />
-        <p className="text-xs text-muted-foreground">
-          How you appear to your property manager and on anything you raise.
-        </p>
+        <Label htmlFor={editing ? "full-name" : undefined}>Your name</Label>
+        {editing ? (
+          <>
+            <Input
+              id="full-name"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              placeholder="e.g. Amaka Obi"
+              maxLength={120}
+              autoFocus={Boolean(initial.fullName.trim())}
+            />
+            <p className="text-xs text-muted-foreground">
+              How you appear to your property manager and on anything you raise.
+            </p>
+          </>
+        ) : (
+          <div className="flex items-center gap-2">
+            <p className="text-sm">{initial.fullName}</p>
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              aria-label="Edit your name"
+              title="Edit"
+              className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <Pencil className="size-3.5" />
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
@@ -101,9 +132,18 @@ export default function ProfileForm({
         it cannot be changed from here.
       </p>
 
-      <Button variant="brand" onClick={save} disabled={saving || !dirty || !fullName.trim()}>
-        {saving ? "Saving…" : "Save"}
-      </Button>
+      {editing && (
+        <div className="flex gap-2">
+          <Button variant="brand" onClick={save} disabled={saving || !dirty || !fullName.trim()}>
+            {saving ? "Saving…" : "Save"}
+          </Button>
+          {Boolean(initial.fullName.trim()) && (
+            <Button variant="ghost" onClick={cancel} disabled={saving}>
+              <X /> Cancel
+            </Button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
