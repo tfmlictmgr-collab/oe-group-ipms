@@ -5984,3 +5984,42 @@ already was. All of it narrows or reorders the page the server already scoped �
 none of it re-queries, because a list that re-fetches on sort silently changes
 WHICH 200 rows you are looking at, which is a different list rather than the
 same one reordered.
+
+---
+
+## A requisition says what it is for, and a reference dictates as one token
+
+### The reference was a label, never an explanation
+
+`ops_requisitions.reference` has been compulsory since `0170` — the raiser's own
+filing label ("Job101-M", "PO-10001"), which is what they reconcile against. It
+stays compulsory. What it never was is a description.
+
+So everything downstream inferred the purpose from either the linked job card's
+summary — absent on a standalone requisition, which `0170` explicitly allows for
+"materials with no single job behind it" — or from the cost lines, which
+describe individual items rather than the ask. The approvals queue said
+**"Standalone requisition"** and nothing else, to four people in a row whose job
+is to decide whether it should be paid.
+
+`0224` adds `description` beside the reference rather than instead of it: one is
+how the raiser files it, the other is what they are asking for. It renders on
+the queue card, in the "What you are approving" block, and as the card subtitle
+where there is no job card to name.
+
+📌 The four-argument `raise_ops_requisition` is DROPPED rather than left beside
+the five-argument one. Two overloads differing only by a trailing default is an
+ambiguous call for PostgREST, and the one it would pick is the one that silently
+discards the description.
+
+### The separator came out of the references
+
+`REQ-4F2A1C90` → `REQ4F2A1C90`, and the same for `WO`, `PAY`, `PO`. One token
+reads and dictates cleanly; a hyphen invites it to be broken across a line,
+half-copied, or typed as an en dash by a phone keyboard.
+
+⚠️ `refMatches()` accepts either form, comparing on alphanumerics only. Anything
+already quoted in an email or a WhatsApp thread carries the hyphen, and a
+reference someone is holding must still find its row — the cost of tolerating it
+is one regex and the cost of not is a support call. Verified by searching
+`REQ-0387661C` and matching `REQ0387661C`.

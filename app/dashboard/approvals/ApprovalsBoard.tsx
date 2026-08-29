@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import ChainTrail from "@/components/approvals/ChainTrail";
 import StageActions from "@/components/approvals/StageActions";
 import PayableDetail, { type PayableDetailData } from "@/components/approvals/PayableDetail";
+import { refMatches } from "@/lib/acknowledgement";
 import {
   canActorAction, whyNotActionable, waitingOn,
   type Actor, type ChainState, type PayableType, type StageOrder,
@@ -101,7 +102,11 @@ export default function ApprovalsBoard({
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return active;
-    return active.filter((r) => r.haystack.includes(q));
+    // Two ways to match: the plain text of the row (vendor, job, the raiser's
+    // own reference), and the auto reference with punctuation ignored — so
+    // "REQ4F2A1C90", "req4f2a1c90" and a hyphenated form pasted from an older
+    // message all find the same row.
+    return active.filter((r) => r.haystack.includes(q) || refMatches(query, r.ref));
   }, [active, query]);
 
   const TABS = [
@@ -165,7 +170,7 @@ export default function ApprovalsBoard({
             {query && (
               <p className="mt-1 text-xs text-muted-foreground">
                 A requisition reference looks like{" "}
-                <span className="font-mono">REQ-4F2A1C90</span>. Clear the box to
+                <span className="font-mono">REQ4F2A1C90</span>. Clear the box to
                 see everything.
               </p>
             )}

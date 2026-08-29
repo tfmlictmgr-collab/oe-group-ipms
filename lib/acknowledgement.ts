@@ -77,7 +77,24 @@ export function payableRef(
   kind: keyof typeof REF_PREFIX,
   id: string
 ): string {
-  return `${REF_PREFIX[kind]}-${shortRef(id)}`;
+  // ⚠️ NO SEPARATOR (board, 29 Aug 2026). "REQ4F2A1C90" reads and dictates as
+  // one token; a hyphen invites it to be broken across a line, half-copied, or
+  // typed as an en dash by a phone keyboard. `refMatches` below still accepts a
+  // hyphenated form, because anything already quoted in an email or a WhatsApp
+  // message has one.
+  return `${REF_PREFIX[kind]}${shortRef(id)}`;
+}
+
+/**
+ * Whether a typed query is this reference, however it was punctuated.
+ *
+ * Someone reading a reference off a printed job card types what they see;
+ * someone pasting from an older message brings a hyphen. Both find the row.
+ */
+export function refMatches(query: string, reference: string): boolean {
+  const strip = (v: string) => v.replace(/[^0-9a-z]/gi, "").toLowerCase();
+  const q = strip(query);
+  return q.length >= 3 && strip(reference).includes(q);
 }
 
 export function buildAcknowledgement(ticket: {

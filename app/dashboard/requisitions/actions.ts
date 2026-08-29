@@ -19,6 +19,8 @@ export type RequisitionLineInput = {
 
 export async function raiseRequisition(input: {
   reference: string;
+  /** What the requisition is for, in the raiser's own words (0224). */
+  description: string;
   ticketId?: string | null;
   attachmentPath?: string | null;
   lines: RequisitionLineInput[];
@@ -42,6 +44,7 @@ export async function raiseRequisition(input: {
 
   const { data, error } = await supabase.rpc("raise_ops_requisition", {
     p_reference: input.reference,
+    p_description: input.description || null,
     p_ticket_id: input.ticketId || null,
     p_attachment_path: input.attachmentPath || null,
     p_lines: input.lines.map((l) => ({

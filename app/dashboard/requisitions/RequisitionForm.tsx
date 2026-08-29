@@ -40,6 +40,7 @@ export default function RequisitionForm({
 }) {
   const router = useRouter();
   const [reference, setReference] = React.useState("");
+  const [description, setDescription] = React.useState("");
   const [lines, setLines] = React.useState<Line[]>([emptyLine()]);
   const [file, setFile] = React.useState<File | null>(null);
   const [busy, setBusy] = React.useState(false);
@@ -106,6 +107,7 @@ export default function RequisitionForm({
 
       const res = await raiseRequisition({
         reference: reference.trim(),
+        description: description.trim(),
         ticketId: ticketId || null,
         attachmentPath,
         lines: lines.map((l) => ({
@@ -147,6 +149,34 @@ export default function RequisitionForm({
           id="req-ref" value={reference} onChange={(e) => setReference(e.target.value)}
           placeholder="e.g. your own PO or memo number" autoComplete="off"
         />
+        <p className="text-xs text-muted-foreground">
+          Your own filing label, so you can reconcile this later. The system also
+          gives it a reference of its own that everyone can search by.
+        </p>
+      </div>
+
+      {/* ⚠️ A label is not an explanation. Before this, four people in a row
+          decided whether to release money with nothing to go on but the cost
+          lines and — where there was one — the linked job card's summary. A
+          standalone requisition (materials with no single job behind it, which
+          0170 explicitly allows) simply read "Standalone requisition". */}
+      <div className="space-y-1.5">
+        <Label htmlFor="req-desc">
+          What is this for?{" "}
+          <span className="font-normal text-muted-foreground">(optional)</span>
+        </Label>
+        <textarea
+          id="req-desc"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          rows={3}
+          className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+          placeholder="e.g. Replacement filters and coolant for the standby generator, ahead of the 500-hour service."
+        />
+        <p className="text-xs text-muted-foreground">
+          Read by everyone in the approval chain — the audit review, the
+          Managing Partner and the payment approver all see it.
+        </p>
       </div>
 
       <div className="space-y-3">

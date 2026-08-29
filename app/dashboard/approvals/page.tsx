@@ -63,7 +63,7 @@ export default async function ApprovalsPage() {
       .limit(100),
     supabase
       .from("ops_requisitions")
-      .select("id, total_amount, reference, status, created_at, invoice_attachment_path, users!ops_requisitions_raised_by_fkey(full_name), tickets(id, summary, category, urgency, property_or_unit)")
+      .select("id, total_amount, reference, description, status, created_at, invoice_attachment_path, users!ops_requisitions_raised_by_fkey(full_name), tickets(id, summary, category, urgency, property_or_unit)")
       // ⚠️ `approved` as well as `pending_approval`. A requisition that clears
       // the chain moves to `approved`, and this query excluded it — so the one
       // person who exists to send it could not see it anywhere. There is no
@@ -133,11 +133,13 @@ export default async function ApprovalsPage() {
     raisedBy: string | null,
     raisedAt: string | null,
     jobCard: JobCard,
-    lines: PayableLine[]
+    lines: PayableLine[],
+    description: string | null = null
   ): PayableDetailData => ({
     reference,
     raisedBy,
     raisedAt,
+    description,
     jobCard,
     lines,
     invoiceUrl: path ? (signedByPath.get(path) ?? null) : null,
@@ -217,7 +219,11 @@ export default async function ApprovalsPage() {
         ].filter(Boolean).join(" ").toLowerCase(),
         title: `${q.reference} — ${formatNaira(state.amount)}`,
         subtitle: [
-          job ? `Requisition for: ${job}` : "Standalone requisition",
+          job
+            ? `Requisition for: ${job}`
+            : q.description
+              ? q.description.slice(0, 80)
+              : "Standalone requisition",
           hasInvoice ? "invoice attached" : "no invoice attached",
         ].join(" · "),
         href: `/dashboard/approvals/requisitions/${q.id}`,
@@ -228,7 +234,8 @@ export default async function ApprovalsPage() {
           (q.users as unknown as { full_name?: string } | null)?.full_name ?? null,
           q.created_at,
           (q.tickets as unknown as JobCard) ?? null,
-          linesByReq.get(q.id) ?? []
+          linesByReq.get(q.id) ?? [],
+          q.description ?? null
         ),
       };
     }),

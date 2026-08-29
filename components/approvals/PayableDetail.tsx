@@ -46,6 +46,8 @@ export type PayableDetailData = {
   reference: string | null;
   raisedBy: string | null;
   raisedAt: string | null;
+  /** What the raiser said it is for (0224). A label is not an explanation. */
+  description?: string | null;
   jobCard: JobCard;
   lines: PayableLine[];
   invoiceUrl: string | null;
@@ -56,7 +58,7 @@ export type PayableDetailData = {
 };
 
 export default function PayableDetail({ data }: { data: PayableDetailData }) {
-  const { reference, raisedBy, raisedAt, jobCard, lines, invoiceUrl, invoiceIsImage } = data;
+  const { reference, raisedBy, raisedAt, description, jobCard, lines, invoiceUrl, invoiceIsImage } = data;
 
   const when = raisedAt
     ? new Date(raisedAt).toLocaleDateString("en-NG", {
@@ -87,6 +89,12 @@ export default function PayableDetail({ data }: { data: PayableDetailData }) {
           </p>
         )}
       </div>
+
+      {description && (
+        <p className="mt-2 whitespace-pre-wrap rounded-md border border-border bg-card px-2.5 py-2 text-xs">
+          {description}
+        </p>
+      )}
 
       {/* The job card the money is claimed against. The auditor's stage is a
           comparison, and it cannot be made against one half. */}
