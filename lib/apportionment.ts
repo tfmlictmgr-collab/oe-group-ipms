@@ -1,9 +1,26 @@
-// Service-charge apportionment: split a shared cost across a property's units
-// pro-rata by each unit's occupied space (e.g. floor area).
+// Service-charge apportionment: split a shared cost across a property's units.
 //
-// NOTE: this is the conventional pro-rata-by-area method. The CLAUDE.md brief
-// names sample SC + electricity-apportionment workbooks as the source of truth;
-// reconcile these formulas against those files when they're available.
+// Three methods (0227), and the first is the original:
+//
+//   `area`   — pro-rata by occupied space × quantity. Every budget written
+//              before 0227 is this, it is the default, and NOTHING about it
+//              changed when the other two were added. The suites that exercise
+//              it run the same arithmetic they always did.
+//   `equal`  — per unit, ignoring size. How a small estate actually splits
+//              security and waste: the guard costs the same whatever the floor
+//              area behind the door.
+//   `manual` — a person states each unit's amount. Not computed here at all;
+//              `apportion` is handed the stated amounts and its only job is to
+//              report them with their derived percentages, so one function
+//              still produces every share in the system.
+//
+// NOTE: the CLAUDE.md brief names sample SC + electricity-apportionment
+// workbooks as the source of truth; reconcile these formulas against those
+// files when they're available. `manual` is the escape hatch until then — a
+// person can state what the workbook says without waiting for it to be encoded.
+
+/** Mirrors the `sc_apportion_method` enum (0227). */
+export type ApportionMethod = "area" | "equal" | "manual";
 
 export type ApportionUnit = {
   id: string;
@@ -17,6 +34,12 @@ export type ApportionUnit = {
    */
   quantity?: number | null;
   occupant_user_id?: string | null;
+  /**
+   * The amount a person stated for this unit. Read only when the method is
+   * `manual`, and ignored entirely otherwise — so a stale stated share left
+   * behind by a method change can never leak into a computed split.
+   */
+  statedAmount?: number | null;
 };
 
 export type ApportionedShare = ApportionUnit & {
@@ -49,11 +72,45 @@ export function effectiveFactor(u: Pick<ApportionUnit, "factor" | "quantity">): 
   return u.factor * q;
 }
 
+/**
+ * What one row weighs under `equal`: its quantity, and nothing about its size.
+ *
+ * ⚠️ Quantity, NOT a literal 1 — even though `units_quantity_is_one` (0200)
+ * currently pins every row to exactly one unit, so the two are identical today.
+ * The reason to route through it anyway is that `effectiveFactor` is the one
+ * place this codebase answers "how many units is this row", and 0198 shipped a
+ * `vacant_count` that answered it independently, counted ROWS, and let eleven
+ * of twelve stalls become unlettable. If that constraint is ever relaxed,
+ * `equal` should mean equal per unit without anyone having to remember this
+ * file exists.
+ */
+function equalWeight(u: Pick<ApportionUnit, "factor" | "quantity">): number {
+  return effectiveFactor({ factor: 1, quantity: u.quantity });
+}
+
 export function apportion(
   total: number,
-  units: ApportionUnit[]
+  units: ApportionUnit[],
+  method: ApportionMethod = "area"
 ): ApportionedShare[] {
-  const weight = units.map(effectiveFactor);
+  // `manual` computes nothing. The amounts were decided by a person; this
+  // reports them, deriving each percentage for display only. It deliberately
+  // does NOT reconcile a shortfall onto the largest unit the way the computed
+  // methods do — silently moving somebody's stated share to somebody else is
+  // precisely what stating it by hand was meant to prevent. Whether the set
+  // reconciles is `sc_manual_shares_state()`'s question, asked before anything
+  // reaches this function.
+  if (method === "manual") {
+    const stated = units.map((u) => Math.max(0, Number(u.statedAmount ?? 0)));
+    const statedSum = stated.reduce((a, n) => a + n, 0);
+    return units.map((u, i) => ({
+      ...u,
+      pct: statedSum > 0 ? stated[i] / statedSum : 0,
+      amount: round2(stated[i]),
+    }));
+  }
+
+  const weight = units.map(method === "equal" ? equalWeight : effectiveFactor);
   const factorSum = weight.reduce((a, w) => a + w, 0);
   if (factorSum <= 0 || units.length === 0) {
     return units.map((u) => ({ ...u, pct: 0, amount: 0 }));

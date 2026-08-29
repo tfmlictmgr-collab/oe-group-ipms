@@ -10,9 +10,20 @@ import { runAction, describeError } from "@/lib/run-action";
 export default function GenerateButton({
   budgetId,
   alreadyInvoiced,
+  /**
+   * Why generation would be refused right now, if it would be. Disabled rather
+   * than hidden — the payouts page settled that pattern for a control someone
+   * may see and not press, because a missing button is a mystery and a disabled
+   * one carrying its reason is an instruction.
+   *
+   * ⚠️ Advisory only. `generateInvoices` re-asks `sc_manual_shares_state()`
+   * server-side and refuses regardless of what this renders.
+   */
+  blockedReason = null,
 }: {
   budgetId: string;
   alreadyInvoiced: boolean;
+  blockedReason?: string | null;
 }) {
   const [pending, startTransition] = useTransition();
 
@@ -31,8 +42,14 @@ export default function GenerateButton({
     });
   }
 
-  return (
-    <Button onClick={handleClick} disabled={pending} variant="brand" size="sm">
+  const button = (
+    <Button
+      onClick={handleClick}
+      disabled={pending || blockedReason !== null}
+      variant="brand"
+      size="sm"
+      title={blockedReason ?? undefined}
+    >
       <FileOutput />
       {pending
         ? "Generating…"
@@ -40,5 +57,14 @@ export default function GenerateButton({
           ? "Regenerate invoices"
           : "Generate invoices"}
     </Button>
+  );
+
+  if (!blockedReason) return button;
+
+  return (
+    <span className="flex flex-col items-end gap-1">
+      {button}
+      <span className="text-xs text-warning">Not yet — {blockedReason}.</span>
+    </span>
   );
 }
