@@ -6,8 +6,7 @@ import { getSessionProfile } from "@/lib/auth";
 import { type Ticket } from "@/lib/ticket-format";
 import { PageHeader } from "@/components/patterns/page-header";
 import { Button } from "@/components/ui/button";
-import TicketList from "./TicketList";
-import RequestStats from "./RequestStats";
+import RequestsBoard from "./RequestsBoard";
 import ScopeTabs from "./ScopeTabs";
 import { FM_PM } from "@/lib/roles";
 import { parseScope, showsScopeTabs, scopeLabel, scopesFor } from "./request-scope";
@@ -54,7 +53,7 @@ export default async function DashboardPage({
   let q = supabase
     .from("tickets")
     .select(
-      "id, channel, message_text, category, urgency, summary, property_or_unit, requires_human_review, status, created_at, assigned_to_user_id",
+      "id, channel, message_text, category, urgency, summary, property_or_unit, requires_human_review, status, created_at, assigned_to_user_id, sender_id, property_id",
       { count: "exact" }
     );
 
@@ -62,12 +61,39 @@ export default async function DashboardPage({
   // cap, narrowing after the fact would let 200 unassigned requests push a
   // manager's own three off the end — and the page would say "no requests
   // assigned to you" while three sat waiting.
+  // The places this person manages. Needed by BOTH the "desk" query below and
+  // the live-update filter in `TicketList`, so it is resolved once here rather
+  // than guessed at in the browser — the client has no business deciding which
+  // properties are yours.
+  const { data: propertyIdRows } =
+    scope === "desk" ? await supabase.rpc("current_user_property_ids") : { data: null };
+  const propertyIds = ((propertyIdRows as string[] | null) ?? []).filter(Boolean);
+
   if (scope === "mine" && user) q = q.eq("assigned_to_user_id", user.id);
   // Decision 23. `sender_id` is already a clause of `tickets_select`, so this
   // narrows what RLS returned rather than widening it — an FM sees the requests
   // they raised because the policy has always allowed it, not because this line
   // says so.
   if (scope === "raised" && user) q = q.eq("sender_id", user.id);
+  // ⚠️ THE LANDING VIEW. Everything that is this person's to act on: dispatched
+  // to them, raised by them, or sitting on a building they manage. An FM/PM
+  // opening the product used to land on "assigned to me" and see nothing, with
+  // their actual workload one unmarked click away — which is how a live portal
+  // came to look empty to the manager whose properties held three open
+  // requests.
+  //
+  // Still a NARROWING of what `tickets_select` released, never a widening: each
+  // disjunct is a clause the policy already permits.
+  if (scope === "desk" && user) {
+    const clauses = [
+      `assigned_to_user_id.eq.${user.id}`,
+      `sender_id.eq.${user.id}`,
+    ];
+    // `property_id.in.()` is a syntax error, so an FM who manages nothing yet
+    // simply gets the two personal clauses rather than a broken query.
+    if (propertyIds.length > 0) clauses.push(`property_id.in.(${propertyIds.join(",")})`);
+    q = q.or(clauses.join(","));
+  }
 
   const { data: tickets, count } = await q
     .order("created_at", { ascending: false })
@@ -81,7 +107,9 @@ export default async function DashboardPage({
       <PageHeader
         title="Service Requests"
         description={
-          scope === "mine"
+          scope === "desk"
+            ? "Everything that is yours to act on — dispatched to you, raised by you, or on a property you manage. Updating in real time."
+            : scope === "mine"
             ? "The requests assigned to you, updating in real time."
             : scope === "raised"
               ? "The requests you logged yourself, updating in real time."
@@ -117,12 +145,16 @@ export default async function DashboardPage({
         />
       )}
 
-      <RequestStats tickets={(tickets as Ticket[]) ?? []} truncated={truncated} total={total} />
-
-      <TicketList
+      {/* One owner of the ticket array, so the stat tiles and the list cannot
+          describe different sets — which they did the moment a request arrived
+          over the socket. */}
+      <RequestsBoard
         initialTickets={(tickets as Ticket[]) ?? []}
         scope={scope}
         viewerId={user?.id ?? null}
+        propertyIds={propertyIds}
+        truncated={truncated}
+        total={total}
       />
 
       {truncated && (

@@ -5785,3 +5785,66 @@ where the person was. A read policy fixed while the screen still cannot render
 the name. A storage policy fixed while the queue still offers no link. A write
 path fixed while the existing rows stay orphaned. **"Fixed" means the reporter
 can see it, not that the cause is gone.**
+
+---
+
+## The dashboard was empty because it was asking the wrong question
+
+Reported with two screenshots: an FM's Service Requests showing **"OPEN REQUESTS
+1"** directly above a list reading **"All 0 — No requests yet"**, and the note
+that requests reach them *"only on their notifications"*.
+
+### One screen, two sources of truth
+
+The tiles and the list are fed the same server array — and then `TicketList`
+kept its own `useState(initialTickets)` and its own realtime subscription, while
+`RequestStats` rendered from the server's copy. From the first socket message
+onward they described different sets.
+
+📌 **A screen that contradicts itself is not a display bug; it is two sources of
+truth.** `RequestsBoard` now owns one array and one subscription; both consumers
+read it. They cannot drift, rather than being expected not to.
+
+### The landing view asked "what was dispatched to me"
+
+The default scope was `mine` = `assigned_to_user_id = me`. An FM/PM is not
+primarily dispatched work — **they dispatch it**. Reproduced against the live
+portal's own data, signed in as an OEA facilities manager:
+
+    /dashboard                  →  OPEN 0 · All 0 · "Nothing assigned to you"
+    /dashboard?view=properties  →  OPEN 1 · All 3
+
+Three requests on their properties, including the generator job their own
+requisition was raised against, one unmarked click away behind an empty screen
+that told them there was nothing. That is the whole of "they only see them in
+their notifications".
+
+The landing view is now `desk` — assigned to me **or** raised by me **or** on a
+property I manage — built server-side from `current_user_property_ids()`. Every
+disjunct is a clause `tickets_select` already permits, so it narrows what RLS
+released and never widens it.
+
+### Nothing could arrive live on the view people actually sit on
+
+`belongsHere` was `scope === "mine" && t.assigned_to_user_id === viewerId`. **A
+new request is unassigned by definition**, so it could never satisfy that — the
+socket was connected, the indicator said "Live", and no arriving request was
+ever admitted. The filter now mirrors the `desk` query, with the property ids
+passed from the server: the browser is told which places are yours, it never
+decides.
+
+Verified by inserting a request on the FM's property with the page open and
+untouched: it appeared, `All` 3 → 4 → 5, `OPEN` 1 → 2 → 3, and
+`performance.getEntriesByType('navigation').length` stayed at 1 throughout — no
+reload.
+
+### The vendor and operative pages re-fetch rather than splice
+
+`my-work` and `my-jobs` join tickets to payments, evaluation readiness and
+invoice state. A socket message carries only the ticket, so splicing the row
+would show a new job beside stats, scores and pay status computed before it
+existed — the same two-copies fault arrived at from the other direction.
+`LiveRefresh` calls `router.refresh()` instead, debounced, keeping one source of
+truth for the whole page. It grants nothing: the refresh re-runs the same
+RLS-scoped queries the viewer already had. Verified by dispatching a job to an
+open vendor page — OPEN JOBS 2 → 3, no reload.

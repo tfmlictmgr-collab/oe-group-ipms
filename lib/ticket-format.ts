@@ -15,6 +15,11 @@ export type Ticket = {
    * arrives over the socket and lands on a manager's "Assigned to me" list.
    */
   assigned_to_user_id?: string | null;
+  /** Same reason as `assigned_to_user_id`: the "My work" view and its live
+   *  stream are "assigned to me OR raised by me OR on a property I manage",
+   *  and the socket cannot apply that rule without these two. */
+  sender_id?: string | null;
+  property_id?: string | null;
 };
 
 export const URGENCY_STYLES: Record<string, string> = {

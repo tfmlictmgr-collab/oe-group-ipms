@@ -11,6 +11,7 @@ import {
 import { PageHeader } from "@/components/patterns/page-header";
 import SubmitInvoice, { type InvoiceableJob } from "./SubmitInvoice";
 import WorkStats from "./WorkStats";
+import LiveRefresh from "@/components/patterns/live-refresh";
 import JobCard from "./JobCard";
 import { shortRef } from "@/lib/acknowledgement";
 import { EmptyState } from "@/components/patterns/empty-state";
@@ -212,6 +213,9 @@ export default async function MyWorkPage() {
 
   return (
     <div className="space-y-6">
+      {/* A newly dispatched job appears without the contractor reloading — it
+          reached their notifications and not their work list. */}
+      <LiveRefresh />
       <PageHeader
         title={vendor.name}
         description={[vendor.service_category, "Your jobs, score and payment status"]

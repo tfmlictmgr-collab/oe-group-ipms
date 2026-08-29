@@ -18,7 +18,7 @@ import { FM_PM } from "@/lib/roles";
  * managed properties because the policy allows it, not because this file said
  * so.
  */
-export const REQUEST_SCOPES = ["mine", "raised", "properties", "all"] as const;
+export const REQUEST_SCOPES = ["desk", "mine", "raised", "properties", "all"] as const;
 export type RequestScope = (typeof REQUEST_SCOPES)[number];
 
 /** Roles whose landing view is their own desk rather than the whole queue. */
@@ -41,8 +41,22 @@ const DESK_FIRST: readonly string[] = [...FM_PM, "regional_manager", "fm_ops_sta
  */
 const CAN_RAISE: readonly string[] = [...DESK_FIRST, "admin"];
 
+/**
+ * ⚠️ The landing view is "desk", NOT "mine".
+ *
+ * Reported from the live portal: an FM opened Service Requests, saw "Nothing
+ * assigned to you", and concluded the product had lost their work — while three
+ * requests sat on their properties one click away, including the generator job
+ * their own requisition was raised against. Reproduced exactly:
+ * `?view=properties` showed All 3; the default showed 0.
+ *
+ * "Assigned to me" was the wrong default because an FM/PM is not primarily
+ * DISPATCHED work — they dispatch it. A request on a building they manage is
+ * theirs to act on the moment it arrives, which is the whole basis of 0178's
+ * review-before-dispatch gate. The narrower views remain, one click away.
+ */
 export function defaultScope(role: string | null | undefined): RequestScope {
-  return DESK_FIRST.includes(role ?? "") ? "mine" : "all";
+  return DESK_FIRST.includes(role ?? "") ? "desk" : "all";
 }
 
 /**
@@ -53,7 +67,7 @@ export function defaultScope(role: string | null | undefined): RequestScope {
  */
 export function scopesFor(role: string | null | undefined): RequestScope[] {
   const r = role ?? "";
-  if (DESK_FIRST.includes(r)) return ["mine", "raised", "properties"];
+  if (DESK_FIRST.includes(r)) return ["desk", "mine", "raised", "properties"];
   if (r === "admin") return ["raised", "all"];
   return [];
 }
@@ -73,6 +87,7 @@ export function showsScopeTabs(role: string | null | undefined): boolean {
 }
 
 export function scopeLabel(scope: RequestScope, role: string | null | undefined): string {
+  if (scope === "desk") return "My work";
   if (scope === "mine") return "Assigned to me";
   // Board direction, 28 Aug 2026: *"fm should see their own requests on their
   // dashboards"*. "Their own" turned out to mean two different things and the

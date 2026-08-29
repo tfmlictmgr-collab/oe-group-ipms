@@ -10,8 +10,8 @@ import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/patterns/status-badge";
 import { EmptyState } from "@/components/patterns/empty-state";
 import { type Ticket, CHANNEL_LABELS, formatDateTime } from "@/lib/ticket-format";
-import { shortRef } from "@/lib/acknowledgement";
 import type { RequestScope } from "./request-scope";
+import { shortRef } from "@/lib/acknowledgement";
 
 const FILTERS = [
   { key: "all", label: "All" },
@@ -21,69 +21,31 @@ const FILTERS = [
 ] as const;
 
 export default function TicketList({
-  initialTickets,
-  scope = "all",
-  viewerId = null,
+  tickets,
+  live,
+  scope,
 }: {
-  initialTickets: Ticket[];
-  scope?: RequestScope;
-  viewerId?: string | null;
+  /**
+   * ⚠️ Owned by `RequestsBoard`, not by this component.
+   *
+   * It used to hold its own `useState(initialTickets)` and its own realtime
+   * subscription, while `RequestStats` was rendered separately from the
+   * server's copy of the same array. So a request arriving over the socket
+   * updated the list and NOT the tiles, and the screen contradicted itself —
+   * "OPEN REQUESTS 1" above a list holding two open requests. That is the same
+   * class of fault that was reported ("stats say 1, list says 0"), so the two
+   * now read one array by construction rather than by agreement.
+   */
+  tickets: Ticket[];
+  /** Whether the socket is connected — owned by `RequestsBoard` alongside the
+   *  subscription itself, so the indicator describes the real connection. */
+  live: boolean;
+  /** Only used to word the empty state; the narrowing itself happened on the
+   *  server and in `RequestsBoard`. */
+  scope: RequestScope;
 }) {
-  const [tickets, setTickets] = useState<Ticket[]>(initialTickets);
-  const [live, setLive] = useState(false);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<(typeof FILTERS)[number]["key"]>("all");
-
-  // The server query was scoped; the socket is not. A request dispatched to
-  // somebody else still arrives here (RLS lets this manager read it — they
-  // manage the property), and without this it would land on their "Assigned to
-  // me" list and stay there until a refresh corrected it.
-  //
-  // ⚠️ Narrowing only, and only of rows RLS already released. This cannot show
-  // anything `tickets_select` withheld.
-  const belongsHere = useMemo(() => {
-    if (scope !== "mine" || !viewerId) return () => true;
-    return (t: Ticket) => t.assigned_to_user_id === viewerId;
-  }, [scope, viewerId]);
-
-  useEffect(() => {
-    const supabase = createClient();
-
-    const channel = supabase
-      .channel("tickets-realtime")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "tickets" },
-        (payload) => {
-          const next = payload.new as Ticket;
-          if (!belongsHere(next)) return;
-          setTickets((prev) =>
-            prev.some((t) => t.id === next.id) ? prev : [next, ...prev]
-          );
-        }
-      )
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "tickets" },
-        (payload) => {
-          const next = payload.new as Ticket;
-          setTickets((prev) => {
-            const known = prev.some((t) => t.id === next.id);
-            // Reassignment moves a request between desks in both directions:
-            // one dispatched TO this person should appear without a refresh,
-            // and one taken away from them should go.
-            if (!belongsHere(next)) return known ? prev.filter((t) => t.id !== next.id) : prev;
-            if (!known) return [next, ...prev];
-            return prev.map((t) => (t.id === next.id ? next : t));
-          });
-        }
-      )
-      .subscribe((status) => setLive(status === "SUBSCRIBED"));
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [belongsHere]);
 
   // Client-side narrowing only — RLS already scoped what arrived here, so a
   // filter can never widen visibility beyond the viewer's B7 row.

@@ -5,6 +5,7 @@ import type { RequestScope } from "./request-scope";
 /** Fixed labels. `properties` is passed in because it reads differently for a
  *  regional manager ("In my region") than for an FM/PM ("On my properties"). */
 const LABELS: Record<RequestScope, string> = {
+  desk: "My work",
   mine: "Assigned to me",
   raised: "Raised by me",
   properties: "On my properties",
@@ -38,6 +39,7 @@ export default function ScopeTabs({
   scopes: RequestScope[];
 }) {
   const HINTS: Record<RequestScope, string> = {
+    desk: "Everything that is yours to act on — dispatched to you, raised by you, or on a property you manage.",
     mine: "Work dispatched to you, which is what you sign off.",
     raised: "Requests you logged yourself, whoever they were passed to.",
     properties:
