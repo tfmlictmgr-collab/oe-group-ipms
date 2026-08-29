@@ -354,11 +354,14 @@ export async function contestFinding(
  * org — a signed URL is a convenience for the browser, not the security
  * boundary.
  */
-export async function getAttachmentUrl(storagePath: string): Promise<ActionResult<{ url: string }>> {
+export async function getAttachmentUrl(
+  storagePath: string,
+  download?: string
+): Promise<ActionResult<{ url: string }>> {
   const supabase = await createClient();
   const { data, error } = await supabase.storage
     .from("application-documents")
-    .createSignedUrl(storagePath, 300);
+    .createSignedUrl(storagePath, 300, download ? { download } : undefined);
   if (error) return failFromDb(error, "open that document");
   if (!data) return fail("Could not open that document.");
   return ok({ url: data.signedUrl });

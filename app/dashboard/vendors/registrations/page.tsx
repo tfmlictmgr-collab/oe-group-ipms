@@ -5,7 +5,8 @@ import { PageHeader } from "@/components/patterns/page-header";
 import { EmptyState } from "@/components/patterns/empty-state";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Inbox } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Inbox, Download } from "lucide-react";
 import ReviewPanel from "./ReviewPanel";
 
 /**
@@ -21,16 +22,24 @@ import ReviewPanel from "./ReviewPanel";
  */
 export default async function VendorRegistrationsPage() {
   const session = await getSessionProfile();
-  if (!session) redirect("/login");
+  if (!session?.profile || !session.org) redirect("/login");
+  const { profile, org } = session;
+  const isOperator = profile.role === "admin" && Boolean(org.is_platform_operator);
 
   const supabase = await createClient();
 
   // `vendors.write` is what governs verifying a pack — the same capability that
   // governs adding a vendor at all. RLS refuses regardless; this keeps the page
   // from rendering an empty shell to someone who simply may not review.
-  const { data: canReview } = await supabase.rpc("has_permission", {
-    p_capability: "vendors.write",
-  });
+  const [{ data: canReview }, { data: exportGranted }] = await Promise.all([
+    supabase.rpc("has_permission", { p_capability: "vendors.write" }),
+    // 0223 — off for everyone but the operator until turned on for this org's
+    // admin, same gate as the tenancy application's document zip.
+    profile.role === "admin" && !isOperator
+      ? supabase.rpc("has_permission", { p_capability: "records.export" })
+      : Promise.resolve({ data: false }),
+  ]);
+  const canDownloadDocs = isOperator || Boolean(exportGranted);
   if (!canReview) {
     return (
       <EmptyState
@@ -107,6 +116,13 @@ export default async function VendorRegistrationsPage() {
                     <Badge variant={p.status === "submitted" ? "warning" : "muted"}>
                       {p.status === "submitted" ? "Awaiting review" : "Changes requested"}
                     </Badge>
+                    {canDownloadDocs && (
+                      <Button asChild variant="outline" size="sm">
+                        <a href={`/api/records/documents-zip?type=vendor&id=${p.vendor_id}`} download>
+                          <Download className="size-4" /> All docs
+                        </a>
+                      </Button>
+                    )}
                   </div>
                 </div>
               </CardHeader>

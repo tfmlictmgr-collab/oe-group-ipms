@@ -1,9 +1,11 @@
 import { notFound, redirect } from "next/navigation";
+import { Download } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
 import { sectionsFor, type Section } from "@/lib/application-form";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import ReviewPanel from "./ReviewPanel";
 import AttachmentList from "./AttachmentList";
 import DocumentChecks, { type Finding } from "./DocumentChecks";
@@ -23,12 +25,13 @@ export default async function ApplicationReviewPage({
 }) {
   const { id } = await params;
   const session = await getSessionProfile();
-  if (!session) redirect("/login");
-  const profile = session.profile!;
+  if (!session?.profile || !session.org) redirect("/login");
+  const { profile, org } = session;
+  const isOperator = profile.role === "admin" && Boolean(org.is_platform_operator);
 
   const supabase = await createClient();
 
-  const [appRes, recommendRes, approveRes, checksEnabledRes, canRunChecksRes] = await Promise.all([
+  const [appRes, recommendRes, approveRes, checksEnabledRes, canRunChecksRes, exportRes] = await Promise.all([
     // `application_overview` never selects `sensitive` — the only thing this
     // page can show is what the view already withholds nothing else from.
     supabase.from("application_overview").select("*").eq("id", id).maybeSingle(),
@@ -37,7 +40,13 @@ export default async function ApplicationReviewPage({
     // Both flags, asked of the database — decision 10 starts this off.
     supabase.rpc("org_runs_document_checks", { p_org_id: profile.org_id }),
     supabase.rpc("has_permission", { p_capability: "applications.run_document_checks" }),
+    // 0223 — off for everyone but the operator until the operator turns it on
+    // for this org's admin, same gate as /dashboard/people's roster download.
+    profile.role === "admin" && !isOperator
+      ? supabase.rpc("has_permission", { p_capability: "records.export" })
+      : Promise.resolve({ data: false }),
   ]);
+  const canDownloadDocs = isOperator || Boolean(exportRes.data);
 
   const application = appRes.data;
   if (!application) notFound();
@@ -152,13 +161,22 @@ export default async function ApplicationReviewPage({
       </Card>
 
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Documents</CardTitle>
-          <CardDescription>
-            {missing.length > 0
-              ? `Still to upload: ${missing.map((m) => m.label).join(", ")}.`
-              : "Everything required has been uploaded."}
-          </CardDescription>
+        <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 pb-3">
+          <div>
+            <CardTitle className="text-base">Documents</CardTitle>
+            <CardDescription>
+              {missing.length > 0
+                ? `Still to upload: ${missing.map((m) => m.label).join(", ")}.`
+                : "Everything required has been uploaded."}
+            </CardDescription>
+          </div>
+          {canDownloadDocs && attachments.length > 0 && (
+            <Button asChild variant="outline" size="sm">
+              <a href={`/api/records/documents-zip?type=tenant&id=${application.id}`} download>
+                <Download className="size-4" /> Download all (.zip)
+              </a>
+            </Button>
+          )}
         </CardHeader>
         <CardContent>
           <AttachmentList attachments={attachments} requirements={requirements} />

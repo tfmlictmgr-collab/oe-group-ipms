@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { CheckCircle2, Paperclip, Undo2 } from "lucide-react";
+import { CheckCircle2, Paperclip, Undo2, Download } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -56,16 +56,23 @@ export default function ReviewPanel({
     return () => { cancelled = true; };
   }, [vendorId]);
 
-  async function open(d: Doc) {
+  async function open(d: Doc, mode: "view" | "download") {
     const supabase = createClient();
     const { data, error } = await supabase.storage
       .from("vendor-documents")
-      .createSignedUrl(d.storage_path, 60);
+      .createSignedUrl(
+        d.storage_path, 60,
+        mode === "download" ? { download: d.file_name ?? true } : undefined
+      );
     if (error || !data) {
       toast.error("Could not open that document", { description: error?.message });
       return;
     }
-    window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+    // A download-signed URL carries Content-Disposition: attachment — a real
+    // navigation is what makes the browser save it, `_blank` would just open
+    // another tab that also tries (and fails) to render it.
+    if (mode === "download") window.location.assign(data.signedUrl);
+    else window.open(data.signedUrl, "_blank", "noopener,noreferrer");
   }
 
   async function decide(approve: boolean) {
@@ -115,17 +122,26 @@ export default function ReviewPanel({
         ) : docs.length === 0 ? (
           <p className="text-sm text-muted-foreground">Nothing attached.</p>
         ) : (
-          <ul className="flex flex-wrap gap-2">
+          <ul className="flex flex-wrap gap-1.5">
             {docs.map((d) => (
-              <li key={d.id}>
+              <li key={d.id} className="inline-flex items-center gap-0.5">
                 <button
                   type="button"
-                  onClick={() => open(d)}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-input px-2.5 py-1.5 text-xs hover:bg-accent"
+                  onClick={() => open(d, "view")}
+                  className="inline-flex items-center gap-1.5 rounded-l-md border border-input px-2.5 py-1.5 text-xs hover:bg-accent"
                 >
                   <Paperclip className="size-3" />
                   {d.doc_type.replace(/_/g, " ")}
                   {d.verified_at && <Badge variant="success" className="text-[10px]">✓</Badge>}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => open(d, "download")}
+                  title="Download"
+                  aria-label={`Download ${d.doc_type.replace(/_/g, " ")}`}
+                  className="inline-flex items-center rounded-r-md border border-l-0 border-input px-2 py-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                >
+                  <Download className="size-3" />
                 </button>
               </li>
             ))}
