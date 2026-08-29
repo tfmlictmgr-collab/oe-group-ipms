@@ -73,6 +73,25 @@ export default async function JournalPage() {
         const debits = e.ledger_postings
           .filter((p) => Number(p.amount) > 0)
           .reduce((s, p) => s + Number(p.amount), 0);
+
+        // ⚠️ An entry with NO postings moved no money, and rendering it as
+        // "₦0.00" says something false: it reads as a transaction of zero
+        // rather than as a line with nothing behind it.
+        //
+        // These exist. `assert_entry_balanced` is a trigger on
+        // `ledger_postings`, so it never fires for an entry that has none —
+        // "every entry balances" is trivially true of the empty set, which is
+        // the one case the invariant does not actually cover. No product path
+        // can create one (every posting is written by a plpgsql function in the
+        // same transaction as its entry, and RLS admits only admin/finance to
+        // `ledger_entries` at all); the ones on this world were left behind by
+        // verification fixtures, which cannot delete them afterwards because the
+        // ledger is correctly append-only.
+        //
+        // So they are shown for what they are rather than hidden. Hiding a row
+        // from the journal to make the journal look tidy is the opposite of an
+        // audit trail.
+        const empty = e.ledger_postings.length === 0;
         // Every posting in one entry shares a currency — record_collection and
         // every other money-path function only ever touch one currency's
         // accounts per entry (0103) — so the first posting's account speaks
@@ -94,11 +113,23 @@ export default async function JournalPage() {
                   <Badge variant={SOURCE_VARIANT[e.source] ?? "muted"}>
                     {e.source.replace(/_/g, " ")}
                   </Badge>
-                  <span className="font-semibold tabular-nums">{formatMoney(debits, currency)}</span>
+                  {empty ? (
+                    <Badge variant="warning">No postings</Badge>
+                  ) : (
+                    <span className="font-semibold tabular-nums">{formatMoney(debits, currency)}</span>
+                  )}
                 </div>
               </div>
             </CardHeader>
             <CardContent>
+              {empty && (
+                <p className="rounded-md border border-dashed border-warning/50 bg-warning/5 px-3 py-2 text-xs text-muted-foreground">
+                  This entry has no postings, so no money moved against it. It
+                  cannot be removed — the ledger is append-only — and it is shown
+                  rather than hidden, because a journal that quietly drops rows is
+                  not a record.
+                </p>
+              )}
               <ul className="space-y-1.5">
                 {e.ledger_postings.map((p) => {
                   const amt = Number(p.amount);

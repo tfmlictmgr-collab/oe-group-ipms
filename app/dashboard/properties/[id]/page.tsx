@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ArrowLeft, MapPin, Package } from "lucide-react";
+import { ArrowLeft, MapPin, Package, FileBarChart } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
 import { roleLabel, FM_PM } from "@/lib/roles";
@@ -95,11 +95,25 @@ export default async function PropertyDetailPage({
           [property.reference, property.property_type].filter(Boolean).join(" · ") || undefined
         }
         actions={
-          canWrite ? (
+          <div className="flex items-center gap-2">
+            {/* Offered to everyone who can open this page, with no check of its
+                own. `property_statement()` is definer-scoped through the same
+                resolver that let them reach the property register in the first
+                place, and returns no row to anyone else — so a second gate here
+                could only ever disagree with the one that counts. A landlord
+                reaches their own building's statement by this route; B7 gives
+                them "Own portfolio (RT)". */}
             <Button asChild variant="outline" size="sm">
-              <Link href={`/dashboard/properties/${id}/edit`}>Edit details</Link>
+              <Link href={`/dashboard/properties/${id}/statement`}>
+                <FileBarChart /> Statement
+              </Link>
             </Button>
-          ) : undefined
+            {canWrite && (
+              <Button asChild variant="outline" size="sm">
+                <Link href={`/dashboard/properties/${id}/edit`}>Edit details</Link>
+              </Button>
+            )}
+          </div>
         }
       />
 
