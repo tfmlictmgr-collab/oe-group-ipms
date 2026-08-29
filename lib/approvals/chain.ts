@@ -248,6 +248,42 @@ export function whyNotActionable(
   return null;
 }
 
+/**
+ * Whose desk this payable is sitting on, in words.
+ *
+ * ⚠️ Reported from the demo: a payment approver opened a requisition that was
+ * genuinely waiting for them, found no button, and had no way to learn why. The
+ * refusal was correct — ₦200,000 needs a tier-2 approver and they hold tier 1 —
+ * but a queue that shows a decision and withholds the reason teaches people the
+ * product is broken rather than that they are the wrong pair of hands.
+ *
+ * `whyNotActionable` already answers "why not ME". This answers the question
+ * before it: "then who?".
+ */
+export function waitingOn(state: ChainState): string {
+  if (state.rejected) return "Rejected — it goes no further.";
+  if (!state.nextStage) {
+    return "Every approval stage is complete. It is with the payment officer to release.";
+  }
+  const stage = state.nextStage;
+  const who = stage.requiredRoles.map((r) => ROLE_WORDS[r] ?? r).join(" or ");
+  if (stage.tierResolved) {
+    return `Waiting on a ${who} at ${tierLabel(state.requiredTier).toLowerCase()} — ${formatNaira(state.amount)} needs that band or above.`;
+  }
+  return `Waiting on the ${who}.`;
+}
+
+/** Role names as a person would say them, not as the enum spells them. */
+const ROLE_WORDS: Record<string, string> = {
+  payment_audit_approver: "payment auditor",
+  executive: "Managing Partner",
+  payment_approver: "payment approver",
+  finance_approver: "payment officer",
+  facility_manager: "facilities manager",
+  property_manager: "properties manager",
+  regional_manager: "regional manager",
+};
+
 export function formatNaira(amount: number): string {
   return `₦${Number(amount).toLocaleString("en-NG", {
     minimumFractionDigits: 2,

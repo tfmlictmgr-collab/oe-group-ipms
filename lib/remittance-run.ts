@@ -98,7 +98,12 @@ export async function sendCreatedRemittance(opts: {
     touch();
     return fail(
       "That payee has no verified bank recipient on file.",
-      "Add their bank details first. Nothing has been sent."
+      // ⚠️ Name the PLACE, not just the problem. The payment officer is the one
+      // person who can neither approve nor raise anything, so "add their bank
+      // details" without saying where is the end of the road for them —
+      // whichever screen they are on, the form is not on it. It lives on the
+      // contractor's own page.
+      "Open Vendors → that contractor → Payout account and register their bank details first. Nothing has been sent."
     );
   }
 

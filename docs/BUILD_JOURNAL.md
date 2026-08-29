@@ -5848,3 +5848,71 @@ existed — the same two-copies fault arrived at from the other direction.
 truth for the whole page. It grants nothing: the refresh re-runs the same
 RLS-scoped queries the viewer already had. Verified by dispatching a job to an
 open vendor page — OPEN JOBS 2 → 3, no reload.
+
+---
+
+## The queue said a decision was due and would not say whose
+
+Reported from the promoted portal: a payment approver opened a requisition that
+was visibly waiting, found no button, and had no way to learn why. Plus three
+asks about the list itself, and one about the officer at the end of it.
+
+### The refusal was right; the silence was not
+
+Job101-M is ₦200,000, so `resolve_required_tier` puts it in band 2. OEA has four
+live payment approvers: two at tier 2 and 3 who can clear it, and two at tier 1
+who cannot. Whoever looked held tier 1 — the button was correctly withheld and
+the screen said nothing about it.
+
+`whyNotActionable` already answered "why not me". Nothing answered the question
+before it: **then who?** `waitingOn()` does, and the card now carries both:
+
+    Waiting on a payment approver at tier 2 — ₦200,000.00 needs that band or above.
+    ₦200,000.00 needs a tier 2 approver or above.
+
+📌 A queue that shows a decision and withholds the reason teaches people the
+product is broken rather than that they are the wrong pair of hands.
+
+### The tiers, and where they bite
+
+Three bands (`org_approval_bands`): tier 1 to ₦100,000, tier 2 to ₦1,000,000,
+tier 3 unlimited. On OEA only **stage 3** is tier-resolved — audit and the MP
+carry no limit, so the Managing Partner passes every payment at every amount
+(decision 23) and the amount only decides who may finish it.
+
+### ⚠️ The payment officer's desk could never fill
+
+The worst of it, found while wiring the tabs. `page.tsx` filtered out anything
+`clearedForDisbursement`, and a requisition that clears the chain moves to
+`approved` — which the query also excluded. There is **no requisitions list page
+and no nav entry**, and the Send card renders only on the detail page and only
+when the status IS `approved`.
+
+So the payable was reachable by typed URL and by nothing else, for the one
+person who exists to send it. "Waiting on you" was computed from
+`canActorAction`, which is false for the payment officer on every row by
+design — they hold no stage. The one desk with an action to take had the one
+tab that could never fill.
+
+Now: cleared payables stay in the queue, "waiting on you" means *there is
+something for you to do* (which is a different question for the officer than for
+an approver), and a cleared card carries the route to the screen that releases
+it. Verified by clearing a probe payable end to end — the tab went to
+**"Ready for you to send 1"** with a link to `/dashboard/payments/<id>`.
+
+The disbursement path beyond it was already real and is unchanged: Paystack for
+Naira, Flutterwave for FX, a simulated adapter for demo, and a refusal if the
+payee holds no verified gateway recipient. That refusal now names the screen
+that fixes it rather than only the problem — the officer can neither approve nor
+raise anything, so "add their bank details" without saying where is the end of
+the road for them.
+
+### References that travel
+
+`payableRef()` gives every payable the treatment a work order already had:
+`WO-`, `REQ-`, `PAY-`, `PO-` plus eight hex from the row's own id. Derived
+rather than issued from a sequence — fixed at creation, immutable, unique with
+no counter to keep, and identical in every screen that mentions it. The queue
+searches it, and the human reference somebody typed ("Job101-M") stays as a
+label beside it rather than as the key: it is not unique, not present on older
+rows, and not what anyone else can guess.

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { FileText, Paperclip, Wrench } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { formatNaira } from "@/lib/approvals/chain";
+import { payableRef } from "@/lib/acknowledgement";
 
 /**
  * What the chain is being asked to approve, shown ON THE QUEUE.
@@ -97,6 +98,11 @@ export default function PayableDetail({ data }: { data: PayableDetailData }) {
               href={`/dashboard/tickets/${jobCard.id}`}
               className="font-medium hover:underline"
             >
+              {/* The work order's own reference travels with it — quoted on the
+                  phone, searched in the queue, printed on the job card. */}
+              <span className="font-mono text-[11px] text-muted-foreground">
+                {payableRef("ticket", jobCard.id)}
+              </span>{" "}
               {jobCard.summary ?? "the job card"}
             </Link>
           </p>

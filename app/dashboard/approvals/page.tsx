@@ -1,35 +1,16 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSessionProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import {
-  Card, CardContent, CardDescription, CardHeader, CardTitle,
-} from "@/components/ui/card";
-import ChainTrail from "@/components/approvals/ChainTrail";
-import StageActions from "@/components/approvals/StageActions";
-import PayableDetail, {
   type PayableDetailData, type PayableLine, type JobCard,
 } from "@/components/approvals/PayableDetail";
+import ApprovalsBoard, { type QueueRow } from "./ApprovalsBoard";
 import {
-  ALL_CHAIN_ROLES,
-  getChainState, canActorAction, whyNotActionable, formatNaira, effectiveTier,
-  tierLabel, type PayableType, type ChainState, type StageOrder,
+  ALL_CHAIN_ROLES, getChainState, formatNaira, effectiveTier, tierLabel,
 } from "@/lib/approvals/chain";
+import { payableRef } from "@/lib/acknowledgement";
 
 export const dynamic = "force-dynamic";
-
-type QueueRow = {
-  payableType: PayableType;
-  payableId: string;
-  title: string;
-  subtitle: string;
-  href: string | null;
-  state: ChainState;
-  /** What is being approved, rendered on the card. Absent for a landlord
-   *  payout, which is a period and a property rather than a claim with
-   *  evidence behind it. */
-  detail?: PayableDetailData;
-};
 
 /**
  * The outbound-payment approval queue.
@@ -83,7 +64,13 @@ export default async function ApprovalsPage() {
     supabase
       .from("ops_requisitions")
       .select("id, total_amount, reference, status, created_at, invoice_attachment_path, users!ops_requisitions_raised_by_fkey(full_name), tickets(id, summary, category, urgency, property_or_unit)")
-      .eq("status", "pending_approval")
+      // ⚠️ `approved` as well as `pending_approval`. A requisition that clears
+      // the chain moves to `approved`, and this query excluded it — so the one
+      // person who exists to send it could not see it anywhere. There is no
+      // requisitions list page and no nav entry, and the Send card renders only
+      // on the detail page and only when status IS `approved`: the payable was
+      // reachable by typed URL and nothing else. That is the dead end.
+      .in("status", ["pending_approval", "approved"])
       .order("created_at", { ascending: true })
       .limit(100),
   ]);
@@ -172,6 +159,11 @@ export default async function ApprovalsPage() {
       return {
         payableType: "vendor_payment" as const,
         payableId: p.id,
+        ref: payableRef("vendor_payment", p.id),
+        haystack: [
+          payableRef("vendor_payment", p.id), p.invoice_reference, vendor,
+          (p.tickets as unknown as JobCard)?.summary,
+        ].filter(Boolean).join(" ").toLowerCase(),
         title: `${vendor} — ${formatNaira(state.amount)}`,
         subtitle: p.invoice_reference
           ? `Invoice ${p.invoice_reference}`
@@ -194,6 +186,9 @@ export default async function ApprovalsPage() {
       return {
         payableType: "landlord_payout" as const,
         payableId: r.id,
+        ref: payableRef("landlord_payout", r.id),
+        haystack: [payableRef("landlord_payout", r.id), r.reference, prop, r.period]
+          .filter(Boolean).join(" ").toLowerCase(),
         title: `${prop} — ${formatNaira(state.amount)}`,
         subtitle: `Landlord payout${r.period ? ` · ${r.period}` : ""}`,
         href: "/dashboard/ledger/payouts",
@@ -211,6 +206,15 @@ export default async function ApprovalsPage() {
       return {
         payableType: "ops_requisition" as const,
         payableId: q.id,
+        // ⚠️ The AUTO reference is the identifier; `q.reference` is whatever the
+        // person raising it typed ("Job101-M", "PO-10001"), which is a useful
+        // label and a poor key — it is not unique, not present on older rows,
+        // and not what anyone else can guess. Both are searchable.
+        ref: payableRef("ops_requisition", q.id),
+        haystack: [
+          payableRef("ops_requisition", q.id), q.reference, job,
+          (q.users as unknown as { full_name?: string } | null)?.full_name,
+        ].filter(Boolean).join(" ").toLowerCase(),
         title: `${q.reference} — ${formatNaira(state.amount)}`,
         subtitle: [
           job ? `Requisition for: ${job}` : "Standalone requisition",
@@ -230,24 +234,16 @@ export default async function ApprovalsPage() {
     }),
   ]);
 
-  // Anything already cleared or refused is not waiting on anybody.
-  const rows: QueueRow[] = described.filter(
-    (r) => !r.state.clearedForDisbursement && !r.state.rejected
-  );
-
-  const mine = rows.filter((r) => canActorAction(actor, r.state));
+  // ⚠️ A refusal is terminal, so it leaves. A CLEARED payable does not: it is
+  // waiting on the payment officer, which is a desk like any other. Dropping it
+  // here is what left them with nothing to act on.
+  const rows: QueueRow[] = described.filter((r) => !r.state.rejected);
 
   // Every role named at any stage of EITHER ladder, read from the shapes rather
   // than retyped — so a role added to a stage reaches this automatically and
   // cannot be forgotten here. Plus the payment officer, who releases what the
   // chain clears.
   const inChain = ALL_CHAIN_ROLES.has(role);
-
-  // Visible to the chain, actionable only by whoever owns the CURRENT stage —
-  // `canActorAction` above is the second half of that and is unchanged.
-  const others = inChain
-    ? rows.filter((r) => !canActorAction(actor, r.state))
-    : [];
 
   return (
     <div className="space-y-6">
@@ -257,84 +253,16 @@ export default async function ApprovalsPage() {
           Every payment leaving the organisation — vendor invoices, landlord
           payouts and ops requisitions alike — passes three pairs of hands
           before the payment officer sends it.
-          {myTier ? ` You approve up to ${tierLabel(myTier).toLowerCase()}.` : ""}
+          {myTier
+            ? ` You approve up to ${tierLabel(myTier).toLowerCase()}.`
+            : " You hold no approval limit, so nothing waits on you here."}
         </p>
       </div>
 
-      <section className="space-y-3">
-        <h2 className="text-sm font-medium text-muted-foreground">
-          Waiting on you ({mine.length})
-        </h2>
-        {mine.length === 0 ? (
-          <Card>
-            <CardContent className="py-8 text-center text-sm text-muted-foreground">
-              Nothing is waiting on you right now.
-            </CardContent>
-          </Card>
-        ) : (
-          mine.map((r) => (
-            <Card key={`${r.payableType}:${r.payableId}`}>
-              <CardHeader>
-                <CardTitle className="text-base">
-                  {r.href ? (
-                    <Link href={r.href} className="hover:underline">
-                      {r.title}
-                    </Link>
-                  ) : (
-                    r.title
-                  )}
-                </CardTitle>
-                <CardDescription>{r.subtitle}</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {r.detail && <PayableDetail data={r.detail} />}
-                <ChainTrail state={r.state} />
-                {r.state.nextStage && (
-                  <StageActions
-                    payableType={r.payableType}
-                    payableId={r.payableId}
-                    stage={r.state.nextStage.stageOrder as StageOrder}
-                    stageLabel={r.state.nextStage.short}
-                  />
-                )}
-              </CardContent>
-            </Card>
-          ))
-        )}
-      </section>
-
-      {others.length > 0 && (
-        <section className="space-y-3">
-          <h2 className="text-sm font-medium text-muted-foreground">
-            Waiting on someone else ({others.length})
-          </h2>
-          {others.map((r) => (
-            <Card key={`${r.payableType}:${r.payableId}`} className="opacity-80">
-              <CardHeader>
-                <CardTitle className="text-base">
-                  {r.href ? (
-                    <Link href={r.href} className="hover:underline">
-                      {r.title}
-                    </Link>
-                  ) : (
-                    r.title
-                  )}
-                </CardTitle>
-                <CardDescription>
-                  {r.subtitle} · {whyNotActionable(actor, r.state)}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {/* Shown here too. Someone waiting their turn still needs to
-                    know what is coming and to have checked it before it
-                    lands — decision 23's "every touch point". */}
-                {r.detail && <PayableDetail data={r.detail} />}
-                <ChainTrail state={r.state} />
-              </CardContent>
-            </Card>
-          ))}
-        </section>
-      )}
+      {/* Tabs, search and collapse live in the board: they are view state, and
+          view state belongs in the browser. The SCOPING — which rows exist at
+          all — stayed on the server and in RLS. */}
+      <ApprovalsBoard rows={rows} actor={actor} inChain={inChain} />
     </div>
   );
 }

@@ -52,6 +52,34 @@ export function shortRef(id: string): string {
   return id.replace(/-/g, "").slice(0, 8).toUpperCase();
 }
 
+/**
+ * The reference a payable is known by, everywhere it appears.
+ *
+ * ⚠️ Derived from the row's own id rather than issued from a sequence, which is
+ * deliberate: it is fixed at the moment the thing is created, immutable, unique
+ * without a counter to keep, and identical in every screen, notification and
+ * PDF that mentions it. A work order has been shown as `shortRef(ticket.id)`
+ * since intake existed; this gives a requisition and a vendor invoice the same
+ * treatment rather than inventing a second scheme beside it.
+ *
+ * The prefix says WHAT it is, so a reference quoted on the phone is unambiguous
+ * — `WO-` a work order, `REQ-` an ops requisition, `PAY-` a vendor invoice,
+ * `PO-` a landlord payout.
+ */
+export const REF_PREFIX = {
+  ticket: "WO",
+  ops_requisition: "REQ",
+  vendor_payment: "PAY",
+  landlord_payout: "PO",
+} as const;
+
+export function payableRef(
+  kind: keyof typeof REF_PREFIX,
+  id: string
+): string {
+  return `${REF_PREFIX[kind]}-${shortRef(id)}`;
+}
+
 export function buildAcknowledgement(ticket: {
   id: string;
   category: string | null;
