@@ -10,7 +10,7 @@ import TicketList from "./TicketList";
 import RequestStats from "./RequestStats";
 import ScopeTabs from "./ScopeTabs";
 import { FM_PM } from "@/lib/roles";
-import { parseScope, showsScopeTabs, scopeLabel } from "./request-scope";
+import { parseScope, showsScopeTabs, scopeLabel, scopesFor } from "./request-scope";
 
 export default async function DashboardPage({
   searchParams,
@@ -113,6 +113,7 @@ export default async function DashboardPage({
           active={scope}
           role={session?.profile?.role ?? null}
           propertiesLabel={scopeLabel("properties", session?.profile?.role)}
+          scopes={scopesFor(session?.profile?.role)}
         />
       )}
 

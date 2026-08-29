@@ -24,8 +24,38 @@ export type RequestScope = (typeof REQUEST_SCOPES)[number];
 /** Roles whose landing view is their own desk rather than the whole queue. */
 const DESK_FIRST: readonly string[] = [...FM_PM, "regional_manager", "fm_ops_staff"];
 
+/**
+ * Roles that can RAISE work as well as read the queue, and therefore need
+ * somewhere to follow what they raised.
+ *
+ * ⚠️ `admin` is here and was not. The board asked that "fm/pm/admin/vendor
+ * should be able to see their work order/requests raised", and an administrator
+ * had no such view at all: they land on "All" with no tabs, so a request they
+ * raised themselves sits in a queue of everything with nothing marking it as
+ * theirs. Measured on the live database, an org's administrator had raised
+ * requests and no way to list them.
+ *
+ * A vendor is deliberately absent: they are redirected to My Work, whose ticket
+ * list is unfiltered and RLS-scoped, so anything they raised already appears
+ * there beside the jobs dispatched to them.
+ */
+const CAN_RAISE: readonly string[] = [...DESK_FIRST, "admin"];
+
 export function defaultScope(role: string | null | undefined): RequestScope {
   return DESK_FIRST.includes(role ?? "") ? "mine" : "all";
+}
+
+/**
+ * The views this role is offered, in order. Not every role gets every one:
+ * "Assigned to me" is meaningless for an administrator, who is not dispatched
+ * work, and "All" is not offered to an FM/PM because their reach is their
+ * places rather than the organisation.
+ */
+export function scopesFor(role: string | null | undefined): RequestScope[] {
+  const r = role ?? "";
+  if (DESK_FIRST.includes(r)) return ["mine", "raised", "properties"];
+  if (r === "admin") return ["raised", "all"];
+  return [];
 }
 
 export function parseScope(
@@ -39,7 +69,7 @@ export function parseScope(
 
 /** Whether to offer the view switcher at all. */
 export function showsScopeTabs(role: string | null | undefined): boolean {
-  return DESK_FIRST.includes(role ?? "");
+  return CAN_RAISE.includes(role ?? "");
 }
 
 export function scopeLabel(scope: RequestScope, role: string | null | undefined): string {

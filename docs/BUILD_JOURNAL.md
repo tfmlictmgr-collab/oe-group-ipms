@@ -5688,3 +5688,100 @@ row to prove an edit saves, and overwrote 37 answered fields with
 exactly what `log_audit` captures it for — but the probe should have run inside
 a transaction that rolled back, the way every suite here does it. A write probe
 against live data is a write, however short its life was meant to be.
+
+---
+
+## Three correct fixes that nobody could see
+
+Reported after the demo, in the reporter's own words: *"the details of the
+requisition raised still didn't reflect/surface on the audit approver role and
+other finance approvers"*, and *"fm/pm requests still do not surface on their
+dashboard as requested"*.
+
+Both had already been "fixed". `0217` made a requisition's invoice readable by
+the chain; `0218` gave `raise_work_order` a sender. Migrations applied to dev and
+staging, app deployed after the last commit — checked before touching anything,
+because "it still doesn't work" usually means a stale environment and this time
+did not.
+
+📌 **The common shape: the fix landed where the defect was, not where the person
+was looking.**
+
+### The queue said "invoice attached" and gave no way to open it
+
+`0217`'s app change added those two words to the subtitle and rendered the
+evidence on the *detail page*. But the board's rule is that every touch point
+sees the detail **at their desk**, and their desk is the Approvals queue — the
+screen the auditor decides on. Telling somebody evidence exists, on the screen
+where they approve, without showing it, is worse than saying nothing: it names
+the thing they are missing.
+
+What is being approved now renders on the card itself — reference, raiser, date,
+the linked job card with its category/urgency/property, the line items with
+amounts, and the invoice, opened by a signed URL and shown inline when it is an
+image. On the rows waiting on someone else too, because a stage that has not
+reached you yet is still a stage you can prepare for.
+
+⚠️ Two extra queries and **one** signing call for the whole page — batched, not
+per row. The page is `force-dynamic` and already runs `getChainState` per
+payable; the note beside that loop about nine hundred sequential queries is the
+same warning, and this stays on the right side of it.
+
+### The audit trail could not name a single person
+
+Signed in as the auditor, every completed stage read **"Approved by someone no
+longer listed"**. Nobody had left. `ChainTrail` renders `actorName ?? "someone
+no longer listed"` and the name is an embed on `users`, which returned null.
+
+Counting rows each role may SELECT from `users` in one 112-person organisation:
+
+    payment_audit_approver     1      (their own, and nothing else)
+    payment_approver           1
+    finance_approver         112
+    executive                112
+    admin                    112
+    facility_manager         112
+
+`users_select` gates on `oversight_roles_with_fm()`, written in `0072a` — before
+`0151` created those two roles.
+
+📌 **This is `0157` one table over.** That migration's header says it outright:
+*"0151 added payment_audit_approver and payment_approver and gave them authority
+over those tables without giving them sight of them."* It fixed `payments` and
+`remittances`. `users` is the third, and it is reached by an **embed** rather
+than by a query anyone wrote — so it failed as a wrong sentence rather than an
+empty screen. An empty screen gets reported in a day. A sentence that reads
+plausibly gets believed.
+
+### A fix that only applies going forward
+
+`0218` stamped `sender_id` on new work orders and left every existing one
+carrying 0120's explicit NULL. Measured live: **every facility and property
+manager in both brands had `raised = 0`** — including `esuetim`, the FM who
+raised the generator job that the demo's own requisition (Job101-M) was drawn
+against. The view was correct, wired to the right column, and empty for exactly
+the person who reported it.
+
+`0221` recovers the raiser from `reviewed_by`, which `raise_work_order` has
+stamped with `auth.uid()` since `0178` ("raised deliberately by someone who may
+dispatch: reviewed"). Bounded to `channel = 'portal'`: the chat paths also leave
+`sender_id` null for a reporter with no account, and an FM who *triages* one of
+those is written into `reviewed_by` by the ordinary dispatch flow — backfilling
+those would file a tenant's WhatsApp complaint as the FM's own, and hand them
+the tenant's satisfaction form on it. There are 0 such rows today; the guard is
+there so that stays true rather than by luck. The 20 rows older than `0178`
+carry no reviewer and are left unattributed — a wrong name on a request is worse
+than none.
+
+And an **administrator** now gets "Raised by me". They could always raise a
+request and had no view that listed one; the tab strip is now built from
+`scopesFor(role)` rather than a fixed pair, so the roles that can raise are the
+roles that can find it.
+
+### The lesson worth keeping
+
+All three were closed at the layer where the bug was and left open at the layer
+where the person was. A read policy fixed while the screen still cannot render
+the name. A storage policy fixed while the queue still offers no link. A write
+path fixed while the existing rows stay orphaned. **"Fixed" means the reporter
+can see it, not that the cause is gone.**

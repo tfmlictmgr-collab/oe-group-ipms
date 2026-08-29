@@ -321,6 +321,71 @@ console.log("\n7. Nobody sends what the chain has not cleared");
   e3 ? ok("the approver cannot also release the money") : bad("THE APPROVER RELEASED THE PAYMENT THEY APPROVED");
 }
 
+// ---------------------------------------------------------------------------
+console.log("");
+console.log("8. The chain can see what it is approving, and who approved it");
+// ---------------------------------------------------------------------------
+//
+// ⚠️ Reported from the demo: the requisition's details "didn't surface on the
+// audit approver role and other finance approvers". Two separate causes, both
+// asserted here as a real signed-in user rather than read off a policy.
+{
+  const asUserClient = async (email) => {
+    const c = createClient(URL_, ANON, { auth: { persistSession: false } });
+    const { error } = await c.auth.signInWithPassword({ email, password: PW });
+    return error ? null : c;
+  };
+
+  // A. THE AUDIT TRAIL COULD NOT NAME ANYONE. `users_select` gated on
+  //    `oversight_roles_with_fm()` (0072a), written before 0151 created these
+  //    two roles — so they could read ONE row, their own, and every stage on
+  //    the trail rendered "Approved by someone no longer listed" to the very
+  //    person whose stage exists to check it. 0157 fixed the same omission for
+  //    payments and remittances; `users` is reached by an EMBED, so it failed
+  //    as a wrong sentence rather than an empty screen. Fixed in 0222.
+  for (const who of [auditor, tier2]) {
+    const c = await asUserClient(who.email);
+    if (!c) { bad(`could not sign in as ${who.role}`); continue; }
+    const { data: seen } = await c.from("users").select("id").eq("org_id", oea.id);
+    (seen?.length ?? 0) > 1
+      ? ok(`${who.role} can name the people on the trail (${seen.length} rows)`)
+      : bad(`${who.role} READS ONLY ${seen?.length ?? 0} USER ROW(S) — the audit trail cannot name who approved`);
+    await c.auth.signOut();
+  }
+
+  // B. THE EVIDENCE ITSELF. A requisition's invoice lives in the same bucket a
+  //    vendor invoice scan does, and 0140's read policy joined `payments` and
+  //    nothing else until 0217 — so it was readable by nobody. Asserted against
+  //    a REAL attachment where the org has one; skipped honestly where it does
+  //    not, rather than passing on an empty set.
+  const { data: withInvoice } = await svc
+    .from("ops_requisitions")
+    .select("id, invoice_attachment_path")
+    .eq("org_id", oea.id)
+    .not("invoice_attachment_path", "is", null)
+    .limit(1)
+    .maybeSingle();
+
+  if (!withInvoice) {
+    console.log("  [33mNOTE[0m no requisition on this org carries an invoice — B not exercised");
+  } else {
+    for (const who of [auditor, tier2, officer]) {
+      const c = await asUserClient(who.email);
+      if (!c) { bad(`could not sign in as ${who.role}`); continue; }
+      const { data: req } = await c.from("ops_requisitions").select("id, total_amount")
+        .eq("id", withInvoice.id).maybeSingle();
+      const { data: lines } = await c.from("ops_requisition_lines").select("id, description, amount")
+        .eq("requisition_id", withInvoice.id);
+      const { data: sig } = await c.storage.from("invoice-attachments")
+        .createSignedUrl(withInvoice.invoice_attachment_path, 60);
+      req && (lines?.length ?? 0) > 0 && sig?.signedUrl
+        ? ok(`${who.role} reads the requisition, its ${lines.length} line(s) and its invoice`)
+        : bad(`${who.role} is missing part of what they approve — requisition=${Boolean(req)} lines=${lines?.length ?? 0} invoice=${Boolean(sig?.signedUrl)}`);
+      await c.auth.signOut();
+    }
+  }
+}
+
 // ── Teardown ───────────────────────────────────────────────────────────────
 //
 // An account that authored an approval CANNOT be deleted — `payment_approvals`

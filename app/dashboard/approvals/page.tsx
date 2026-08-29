@@ -7,6 +7,9 @@ import {
 } from "@/components/ui/card";
 import ChainTrail from "@/components/approvals/ChainTrail";
 import StageActions from "@/components/approvals/StageActions";
+import PayableDetail, {
+  type PayableDetailData, type PayableLine, type JobCard,
+} from "@/components/approvals/PayableDetail";
 import {
   ALL_CHAIN_ROLES,
   getChainState, canActorAction, whyNotActionable, formatNaira, effectiveTier,
@@ -22,6 +25,10 @@ type QueueRow = {
   subtitle: string;
   href: string | null;
   state: ChainState;
+  /** What is being approved, rendered on the card. Absent for a landlord
+   *  payout, which is a period and a property rather than a claim with
+   *  evidence behind it. */
+  detail?: PayableDetailData;
 };
 
 /**
@@ -62,7 +69,7 @@ export default async function ApprovalsPage() {
   const [{ data: payments }, { data: payouts }, { data: requisitions }] = await Promise.all([
     supabase
       .from("payments")
-      .select("id, amount, invoice_reference, status, vendors(name)")
+      .select("id, amount, invoice_reference, status, created_at, invoice_attachment_path, vendors(name), tickets(id, summary, category, urgency, property_or_unit)")
       .in("status", ["recommended", "approved"])
       .order("created_at", { ascending: true })
       .limit(100),
@@ -75,11 +82,81 @@ export default async function ApprovalsPage() {
       .limit(100),
     supabase
       .from("ops_requisitions")
-      .select("id, total_amount, reference, status, invoice_attachment_path, tickets(summary)")
+      .select("id, total_amount, reference, status, created_at, invoice_attachment_path, users!ops_requisitions_raised_by_fkey(full_name), tickets(id, summary, category, urgency, property_or_unit)")
       .eq("status", "pending_approval")
       .order("created_at", { ascending: true })
       .limit(100),
   ]);
+
+  // ── The evidence, fetched in BATCHES rather than per row ────────────────
+  //
+  // The board asked that every touch point sees the detail at their desk
+  // (decision 23), and the queue previously showed only the words "invoice
+  // attached". Rendering the substance costs two more queries and one signing
+  // call TOTAL — not one per card, which on a `force-dynamic` page of up to 300
+  // rows is the difference between a page and a timeout. Same reasoning the
+  // parallel `getChainState` note below already records.
+  const reqIds = (requisitions ?? []).map((q) => q.id);
+  const { data: allLines } = reqIds.length
+    ? await supabase
+        .from("ops_requisition_lines")
+        .select("id, requisition_id, description, amount, vendors(name), payout_recipients(display_name)")
+        .in("requisition_id", reqIds)
+        .order("line_order")
+    : { data: [] };
+
+  const linesByReq = new Map<string, PayableLine[]>();
+  for (const l of (allLines ?? []) as unknown as Array<{
+    id: string; requisition_id: string; description: string; amount: number;
+    vendors: { name?: string } | null; payout_recipients: { display_name?: string } | null;
+  }>) {
+    const list = linesByReq.get(l.requisition_id) ?? [];
+    list.push({
+      id: l.id,
+      description: l.description,
+      amount: l.amount,
+      payee: l.vendors?.name ?? l.payout_recipients?.display_name ?? null,
+    });
+    linesByReq.set(l.requisition_id, list);
+  }
+
+  // One signing call for every attachment on the page. The paths are read off
+  // rows RLS already admitted, so signing them needs no second authorisation —
+  // and a path that 0217's policy does not admit simply fails to sign, which is
+  // rendered as "could not be opened" rather than as "none attached".
+  const invoicePaths = [
+    ...(requisitions ?? []).map((q) => q.invoice_attachment_path),
+    ...(payments ?? []).map((p) => p.invoice_attachment_path),
+  ].filter((x): x is string => Boolean(x));
+
+  const signedByPath = new Map<string, string>();
+  if (invoicePaths.length > 0) {
+    const { data: signed } = await supabase.storage
+      .from("invoice-attachments")
+      .createSignedUrls(invoicePaths, 600);
+    for (const row of signed ?? []) {
+      if (row.signedUrl && row.path) signedByPath.set(row.path, row.signedUrl);
+    }
+  }
+
+  const isImagePath = (p: string | null) => /\.(png|jpe?g|webp|gif)$/i.test(p ?? "");
+  const detailFor = (
+    path: string | null,
+    reference: string | null,
+    raisedBy: string | null,
+    raisedAt: string | null,
+    jobCard: JobCard,
+    lines: PayableLine[]
+  ): PayableDetailData => ({
+    reference,
+    raisedBy,
+    raisedAt,
+    jobCard,
+    lines,
+    invoiceUrl: path ? (signedByPath.get(path) ?? null) : null,
+    invoiceIsImage: isImagePath(path),
+    invoiceUnavailable: Boolean(path) && !signedByPath.has(path as string),
+  });
 
   // ⚠️ Resolved in PARALLEL, and the difference is not cosmetic. Each
   // `getChainState` is three round trips, and these were three sequential `for`
@@ -101,6 +178,14 @@ export default async function ApprovalsPage() {
           : "Vendor invoice",
         href: `/dashboard/payments/${p.id}`,
         state,
+        detail: detailFor(
+          p.invoice_attachment_path,
+          p.invoice_reference ? `Invoice ${p.invoice_reference}` : "Vendor invoice",
+          vendor,
+          p.created_at,
+          (p.tickets as unknown as JobCard) ?? null,
+          []
+        ),
       };
     }),
     ...(payouts ?? []).map(async (r) => {
@@ -133,6 +218,14 @@ export default async function ApprovalsPage() {
         ].join(" · "),
         href: `/dashboard/approvals/requisitions/${q.id}`,
         state,
+        detail: detailFor(
+          q.invoice_attachment_path,
+          q.reference,
+          (q.users as unknown as { full_name?: string } | null)?.full_name ?? null,
+          q.created_at,
+          (q.tickets as unknown as JobCard) ?? null,
+          linesByReq.get(q.id) ?? []
+        ),
       };
     }),
   ]);
@@ -194,6 +287,7 @@ export default async function ApprovalsPage() {
                 <CardDescription>{r.subtitle}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
+                {r.detail && <PayableDetail data={r.detail} />}
                 <ChainTrail state={r.state} />
                 {r.state.nextStage && (
                   <StageActions
@@ -230,7 +324,11 @@ export default async function ApprovalsPage() {
                   {r.subtitle} · {whyNotActionable(actor, r.state)}
                 </CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-4">
+                {/* Shown here too. Someone waiting their turn still needs to
+                    know what is coming and to have checked it before it
+                    lands — decision 23's "every touch point". */}
+                {r.detail && <PayableDetail data={r.detail} />}
                 <ChainTrail state={r.state} />
               </CardContent>
             </Card>

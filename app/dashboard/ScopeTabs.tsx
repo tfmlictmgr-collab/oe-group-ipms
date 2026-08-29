@@ -2,6 +2,15 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import type { RequestScope } from "./request-scope";
 
+/** Fixed labels. `properties` is passed in because it reads differently for a
+ *  regional manager ("In my region") than for an FM/PM ("On my properties"). */
+const LABELS: Record<RequestScope, string> = {
+  mine: "Assigned to me",
+  raised: "Raised by me",
+  properties: "On my properties",
+  all: "All",
+};
+
 /**
  * The three desks a manager works from.
  *
@@ -19,31 +28,30 @@ export default function ScopeTabs({
   active,
   role,
   propertiesLabel,
+  scopes,
 }: {
   active: RequestScope;
   role: string | null;
   propertiesLabel: string;
+  /** Which views this role is offered — `scopesFor(role)`, resolved server-side
+   *  so the tab strip cannot offer a view the query does not implement. */
+  scopes: RequestScope[];
 }) {
-  const tabs: { key: RequestScope; label: string; hint: string }[] = [
-    {
-      key: "mine",
-      label: "Assigned to me",
-      hint: "Work dispatched to you, which is what you sign off.",
-    },
-    {
-      key: "raised",
-      label: "Raised by me",
-      hint: "Requests you logged yourself, whoever they were passed to.",
-    },
-    {
-      key: "properties",
-      label: propertiesLabel,
-      hint:
-        role === "regional_manager"
-          ? "Everything across your region, including requests nobody has picked up yet."
-          : "Everything on the properties you manage, including requests nobody has picked up yet.",
-    },
-  ];
+  const HINTS: Record<RequestScope, string> = {
+    mine: "Work dispatched to you, which is what you sign off.",
+    raised: "Requests you logged yourself, whoever they were passed to.",
+    properties:
+      role === "regional_manager"
+        ? "Everything across your region, including requests nobody has picked up yet."
+        : "Everything on the properties you manage, including requests nobody has picked up yet.",
+    all: "Every request in the organisation.",
+  };
+
+  const tabs = scopes.map((key) => ({
+    key,
+    label: key === "properties" ? propertiesLabel : LABELS[key],
+    hint: HINTS[key],
+  }));
 
   return (
     <div
