@@ -26,8 +26,13 @@ export default async function ServiceChargePage() {
   // `executive` holds `sc.read_all` in the seeded matrix (0072b/0077) — reading
   // every service charge is explicitly theirs. Creating budgets is not: that is
   // `sc.manage`, which they do not hold, and the button below is gated on it.
+  // `regional_manager` added by 0231. They supersede the FM/PM over a wider
+  // place (`role_rank` 60 against 50 since 0183) and now hold `sc.manage`, so
+  // refusing them the screen the capability is for was the last thing in the
+  // way. What they SEE here is still decided by `sc_budgets_select` — their own
+  // properties, expanded through the node subtree — not by this list.
   if (!roleAllowed(session.profile?.role, [
-    "admin", ...FM_PM, "finance_approver", "executive",
+    "admin", ...FM_PM, "regional_manager", "finance_approver", "executive",
   ])) {
     return <RoleGate title="Service Charge Administration" />;
   }

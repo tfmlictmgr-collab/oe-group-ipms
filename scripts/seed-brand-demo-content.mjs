@@ -196,4 +196,19 @@ for (const b of BRANDS) {
 }
 
 console.log("\n✅ Brand demo content ready. New per-brand logins (password " + PASSWORD + "):");
-console.log("   tfml.fm@oegroup.test · tfml.finance@oegroup.test · oea.fm@oegroup.test · oea.finance@oegroup.test");
+// ⚠️ `oea.fm@` is named here as a PROPERTY manager, which is what it is.
+// This file seeds it as a `facility_manager`, and 0183 then converts every OEA
+// facility_manager row to `property_manager` — that is the FM/PM split doing
+// exactly what decision 18 says it should, since OEA's existing "facilities
+// managers" were its property managers. The row moved; the email string did
+// not. Printing it under an "fm" label sent people to sign in expecting a
+// facilities manager and getting "Properties Manager" on screen, which reads
+// as a broken login and is a correct database.
+//
+// OEA's real facilities manager is `oea.fmgr@` (seed-brand-roles.mjs), and
+// TFML's `tfml.fm@` was never converted — hence the two brands differ here.
+console.log("   TFML  facilities manager  tfml.fm@oegroup.test");
+console.log("   TFML  payment officer     tfml.finance@oegroup.test");
+console.log("   OEA   properties manager  oea.fm@oegroup.test   (a PM since 0183, despite the name)");
+console.log("   OEA   payment officer     oea.finance@oegroup.test");
+console.log("   OEA   facilities manager  oea.fmgr@oegroup.test (from seed-brand-roles.mjs)");

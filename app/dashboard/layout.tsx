@@ -210,7 +210,21 @@ export default async function DashboardLayout({
     seesVendors: can("vendors.read") || can("vendors.write"),
     reviewsVendorRegistrations: can("vendors.write"),
     seesLettings: can("leases.write") || can("applications.review_all") || can("applications.recommend"),
-    seesServiceCharges: can("sc.read_all") || can("sc.manage"),
+    // ⚠️ NOT derived from `sc.read_all` alone, and that was the whole defect
+    // (0231). `sc_budgets_select` has admitted "oversight, or a property I
+    // hold" since 0055, so an FM, a PM and a regional manager could always
+    // READ the budgets on their own buildings — this line hid the module from
+    // them anyway, because neither operational capability existed to test.
+    //
+    // The fix is not to grant them `sc.read_all`: that capability means "read
+    // every service charge, not only their own", i.e. org-wide, which decision
+    // 9 explicitly denies a regional manager. The nav asks the narrower and
+    // truer question — is there any chance this person holds a property whose
+    // budget they may see — and RLS decides what actually lists.
+    seesServiceCharges:
+      can("sc.read_all") ||
+      can("sc.manage") ||
+      ["facility_manager", "property_manager", "regional_manager"].includes(role),
     // Vendor payments: FM/PM verifies delivery, finance and oversight decide.
     // Not capability-derived because approval is non-delegable, and a screen
     // whose only action is refused is worse than no screen.
