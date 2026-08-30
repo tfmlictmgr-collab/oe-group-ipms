@@ -82,11 +82,28 @@ type RentCharge = {
   amount_paid: number | string;
   currency: string;
   status: string;
-  management_fee_pct: number | string;
-  management_fee_amount: number | string;
-  admin_fee_amount: number | string;
-  landlord_net_amount: number | string;
+  // Nullable since 0229: a tenant's own schedule arrives through
+  // `my_rent_charges()`, which returns no fee column. Every consumer of these
+  // four sits behind `seesFeeSplit`, so null is never rendered — the type says
+  // out loud that the data is absent for one audience rather than zero.
+  management_fee_pct: number | string | null;
+  management_fee_amount: number | string | null;
+  admin_fee_amount: number | string | null;
+  landlord_net_amount: number | string | null;
   remitted_at: string | null;
+};
+
+/** The tenant-safe projection `my_rent_charges()` (0110) returns. */
+type MyRentCharge = {
+  charge_id: string;
+  lease_id: string;
+  period_start: string;
+  period_end: string;
+  due_date: string;
+  amount: number | string;
+  amount_paid: number | string;
+  currency: string;
+  status: string;
 };
 
 type ServiceCharge = {
@@ -177,15 +194,30 @@ export default async function LeaseDetailPage({
     .includes(role);
   const seesFeeSplit = isStaff || !viewerIsTenant;
 
+  // ⚠️ TWO READS, chosen by who is looking — and since 0229 that is not a
+  // nicety, it is the only way a tenant sees their own schedule at all.
+  //
+  // `rent_charges_select` no longer admits the tenant: the row carries the
+  // management fee and the landlord net, and the measured exposure was that a
+  // tenant could read both directly (and, through `rent_roll`, on a screen).
+  // So a tenant now comes through `my_rent_charges()` — SECURITY DEFINER,
+  // scoped to their own tenancies, and returning no fee column at all.
+  //
+  // 📌 This is stronger than what `seesFeeSplit` does below, and both are kept.
+  // The gate stops the fee split being RENDERED; this stops it being SENT. A
+  // column that never leaves the database cannot be read out of a payload by
+  // someone who opens the network tab.
   const [chargesRes, scRes, canWriteRes] = await Promise.all([
-    supabase
-      .from("rent_charges")
-      .select(
-        "id, period_start, period_end, due_date, amount, amount_paid, currency, status, " +
-        "management_fee_pct, management_fee_amount, admin_fee_amount, landlord_net_amount, remitted_at"
-      )
-      .eq("lease_id", lease.id)
-      .order("period_start", { ascending: false }),
+    viewerIsTenant && !isStaff
+      ? supabase.rpc("my_rent_charges")
+      : supabase
+          .from("rent_charges")
+          .select(
+            "id, period_start, period_end, due_date, amount, amount_paid, currency, status, " +
+            "management_fee_pct, management_fee_amount, admin_fee_amount, landlord_net_amount, remitted_at"
+          )
+          .eq("lease_id", lease.id)
+          .order("period_start", { ascending: false }),
     // Service charges land on the UNIT, not the lease — a budget is apportioned
     // across a property's units and knows nothing about who is in them. Bounded
     // to the tenancy's own term so a previous occupant's bill never appears on
@@ -201,7 +233,32 @@ export default async function LeaseDetailPage({
     supabase.rpc("has_permission", { p_capability: "leases.write" }),
   ]);
 
-  const charges = (chargesRes.data ?? []) as unknown as RentCharge[];
+  // `my_rent_charges()` answers for every tenancy the caller holds and names the
+  // key `charge_id`, so the tenant branch is filtered to THIS lease and mapped
+  // onto the same shape the table below already renders. The fee fields resolve
+  // to null rather than 0: nothing was charged that we are declining to show —
+  // the figure simply is not ours to hand over, and `seesFeeSplit` means no
+  // cell is drawn from them anyway.
+  const charges: RentCharge[] =
+    viewerIsTenant && !isStaff
+      ? ((chargesRes.data ?? []) as unknown as MyRentCharge[])
+          .filter((c) => c.lease_id === lease.id)
+          .map((c) => ({
+            id: c.charge_id,
+            period_start: c.period_start,
+            period_end: c.period_end,
+            due_date: c.due_date,
+            amount: c.amount,
+            amount_paid: c.amount_paid,
+            currency: c.currency,
+            status: c.status,
+            management_fee_pct: null,
+            management_fee_amount: null,
+            admin_fee_amount: null,
+            landlord_net_amount: null,
+            remitted_at: null,
+          }))
+      : ((chargesRes.data ?? []) as unknown as RentCharge[]);
   const serviceCharges = (scRes.data ?? []) as unknown as ServiceCharge[];
   const canWrite = Boolean(canWriteRes.data);
 

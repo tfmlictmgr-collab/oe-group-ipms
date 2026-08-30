@@ -34,6 +34,15 @@ export default async function LeasesPage() {
   if (!session) redirect("/login");
   const profile = session.profile!;
 
+  // A tenant has a rent screen of their own, and this is not it. The nav has
+  // never offered this link to them (`seesLettings` is capability-derived), but
+  // the nav is a courtesy and never the boundary — and until 0229 a tenant who
+  // typed this URL was rendered their own tenancy under a column headed
+  // "Landlord net", because `rent_roll` computed the fee split under the
+  // reader. The view now declines them, so the honest thing is to send them
+  // where their rent actually lives rather than to an empty table.
+  if (profile.role === "tenant") redirect("/dashboard/my-rent");
+
   const supabase = await createClient();
   const [rollRes, moduleRes, canWriteRes] = await Promise.all([
     supabase

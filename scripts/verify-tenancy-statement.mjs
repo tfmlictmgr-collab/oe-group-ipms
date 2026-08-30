@@ -225,10 +225,14 @@ if (tenant) {
 // ── §C The schedule the page renders ──────────────────────────────────────
 head("§C The rent schedule, and the position it totals");
 
+// ⚠️ The tenant left this loop in 0229. They no longer hold a direct read on
+// `rent_charges` at all — the row carries the fee split — and reach their own
+// schedule through `my_rent_charges()` instead. That they still see every one
+// of their demands is asserted in §D, where the narrowing is proved; asserting
+// it here as well against the wrong surface would just re-fail the same fact.
 for (const [who, sess, expected] of [
   ["FM/PM", pm, pmHoldsProperty ? chargeCount[lease.id] : 0],
   ["finance", finance, chargeCount[lease.id]],
-  ["the tenant", tenant, chargeCount[lease.id]],
 ]) {
   if (!sess) continue;
   const { data, error } = await sess.c
@@ -283,16 +287,55 @@ if (/seesFeeSplit/.test(pageSrc) &&
   bad("the page does not gate the fee split — a tenant would read the landlord's management fee");
 }
 
-// And the fact underneath it, recorded rather than asserted as fixed: RLS is
-// row-level, so the tenant CAN still select those columns directly. The page is
-// the control today; this prints the exposure so it stays known.
+// ── The exposure underneath the page gate, now closed (0229) ─────────────
+//
+// This block used to print a NOTE saying `rent_charges_select` still let a
+// tenant SELECT the fee columns directly, and that it was "not reachable on any
+// screen". ⚠️ The second half was wrong: `rent_roll` is security_invoker and
+// publishes the same sums as columns literally named `management_fees` and
+// `landlord_net`, and `/dashboard/leases` carries no role guard — so a tenant
+// who typed that URL was rendered a column headed "Landlord net". The NOTE is
+// now four assertions, because a printed note does not fail a build.
 if (tenant) {
-  const { data } = await tenant.c.from("rent_charges")
-    .select("management_fee_amount").eq("lease_id", lease.id).limit(1);
-  if ((data ?? []).length > 0) {
-    console.log("  \x1b[33mNOTE\x1b[0m rent_charges_select still permits a tenant to SELECT " +
-                "management_fee_amount directly (row-level, not column-level). Not reachable " +
-                "on any screen; narrowing it needs column privileges or a view.");
+  const direct = await tenant.c.from("rent_charges")
+    .select("id, management_fee_amount, landlord_net_amount").eq("lease_id", lease.id);
+  (direct.data ?? []).length === 0
+    ? ok("a tenant reads no rent_charges row directly — the fee columns are out of reach")
+    : bad(`a tenant still SELECTs ${direct.data.length} rent_charges row(s) carrying the fee split`);
+
+  // The screen-level half, and the one that made this worth doing.
+  const roll = await tenant.c.from("rent_roll")
+    .select("lease_id, management_fees, landlord_net");
+  (roll.data ?? []).length === 0
+    ? ok("and no rent_roll row — the view states the two audiences it is for")
+    : bad(`a tenant reads ${roll.data.length} rent_roll row(s); /dashboard/leases renders "Landlord net" to them`);
+
+  // ⚠️ And the other direction, which is the whole point of 0091b's lesson: a
+  // narrowing that also removed the tenant's own schedule would pass both
+  // checks above and be a worse bug than the one it fixed.
+  const mine = await tenant.c.rpc("my_rent_charges");
+  const forLease = (mine.data ?? []).filter((r) => r.lease_id === lease.id);
+  forLease.length === chargeCount[lease.id]
+    ? ok(`the tenant still sees all ${forLease.length} of their own demand(s) via my_rent_charges()`)
+    : bad(`the tenant sees ${forLease.length} of ${chargeCount[lease.id]} demand(s) — the narrowing took their statement with it`);
+
+  const feeCols = Object.keys(mine.data?.[0] ?? {})
+    .filter((k) => /fee|landlord_net/.test(k));
+  feeCols.length === 0
+    ? ok("and my_rent_charges() returns no fee column of any kind")
+    : bad(`my_rent_charges() leaks ${feeCols.join(", ")}`);
+}
+
+// The fix must not have overshot: the fee split IS the landlord's own statement
+// line, and whoever holds the property reads it through the same two surfaces.
+{
+  const holder = pmHoldsProperty ? pm : finance;
+  if (holder) {
+    const { data } = await holder.c.from("rent_roll")
+      .select("lease_id, management_fees, landlord_net").eq("lease_id", lease.id).maybeSingle();
+    data
+      ? ok(`whoever holds the property still reads the fee split (net ₦${Number(data.landlord_net).toLocaleString()})`)
+      : bad("the narrowing overshot — the property's own manager lost the rent roll");
   }
 }
 
