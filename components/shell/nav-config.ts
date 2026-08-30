@@ -24,6 +24,7 @@ import {
   ClipboardCheck,
   BookOpen,
   GraduationCap,
+  Handshake,
 } from "lucide-react";
 
 // Role/permission context computed on the server (from the B7 matrix) and passed
@@ -245,6 +246,17 @@ export const NAV_GROUPS: NavGroup[] = [
         label: "Registrations",
         href: "/dashboard/vendors/registrations",
         icon: ClipboardCheck,
+        show: (c) => c.reviewsVendorRegistrations,
+      },
+      {
+        // 0165's staff side: a registration a contractor consents to carry
+        // here from elsewhere on the platform. Same audience as
+        // Registrations — taking one on is registering a vendor, just with
+        // the pack pre-filled — so it rides the same capability rather than
+        // a new one.
+        label: "Introductions",
+        href: "/dashboard/vendors/introductions",
+        icon: Handshake,
         show: (c) => c.reviewsVendorRegistrations,
       },
       {

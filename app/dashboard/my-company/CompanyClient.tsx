@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
-  ArrowRight, CheckCircle2, CircleAlert, Paperclip, Send, Upload, Users,
+  ArrowRight, CheckCircle2, CircleAlert, Handshake, Paperclip, Send,
+  Undo2, Upload, Users,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -19,6 +20,7 @@ import { runAction, describeError } from "@/lib/run-action";
 import {
   saveRegistration, submitRegistration, recordDocument,
   setVendorUserCapabilities, removeVendorUser,
+  offerIntroduction, withdrawIntroduction,
 } from "./actions";
 
 const BUCKET = "vendor-documents";
@@ -104,6 +106,16 @@ export type VendorMember = {
   email: string | null;
 };
 export type RegistrationRow = Record<string, string | null> | null;
+export type Introduction = {
+  id: string;
+  target_org_name: string;
+  target_org_slug: string;
+  status: "offered" | "accepted" | "declined" | "withdrawn" | "expired";
+  consented_at: string;
+  expires_at: string;
+  decided_at: string | null;
+  decision_notes: string | null;
+};
 
 /** The four fixed capabilities (decision 17). Set by migration, configurable by nobody. */
 const CAPABILITIES: { key: string; label: string; hint: string }[] = [
@@ -114,19 +126,36 @@ const CAPABILITIES: { key: string; label: string; hint: string }[] = [
 ];
 
 /**
- * Where each capability is actually exercised — "manage_users" and
- * "manage_profile" are sections further down THIS page; "manage_work" is a
- * different screen entirely.
- *
- * ⚠️ `manage_contracts` has no href. It is a real, database-held capability
- * (decision 17) with nothing behind it yet — no contracts/introductions
- * screen exists anywhere in the vendor's own nav. Rather than link it
- * somewhere misleading, its pill stays plain state until that screen exists.
+ * Where each capability is actually exercised — all four are sections on
+ * THIS page except "manage_work", which is a different screen entirely.
  */
 const CAPABILITY_HREF: Record<string, string> = {
   manage_users: "#company-people",
   manage_profile: "#company-details",
   manage_work: "/dashboard/my-work",
+  manage_contracts: "#company-contracts",
+};
+
+/**
+ * The consent shown before an introduction is offered, and stored verbatim
+ * onto the offer (decision 10's rule for consent copy, same as the
+ * compliance declaration below). Read `offer_vendor_introduction`'s own
+ * header (0165) for why this is a considered act rather than a form field:
+ * it carries the approved pack, including its documents, to an organisation
+ * this company names — irreversibly, until the receiving side decides.
+ */
+const INTRODUCTION_CONSENT =
+  "I consent to carry this company's approved registration — including its " +
+  "attached documents — to the organisation named below. I understand they " +
+  "will review and decide on it themselves, and that I can withdraw this " +
+  "offer only until they do.";
+
+const INTRO_STATUS_COPY: Record<Introduction["status"], { label: string; tone: "muted" | "warning" | "success" | "destructive" }> = {
+  offered: { label: "Waiting on their decision", tone: "warning" },
+  accepted: { label: "Accepted", tone: "success" },
+  declined: { label: "Declined", tone: "destructive" },
+  withdrawn: { label: "Withdrawn", tone: "muted" },
+  expired: { label: "Expired, unanswered", tone: "muted" },
 };
 
 /**
@@ -157,7 +186,8 @@ const STATUS_COPY: Record<string, { label: string; tone: "muted" | "warning" | "
 
 export default function CompanyClient({
   vendorId, orgId, tier, status, missing, registration, documents, requirements,
-  members, canManageProfile, canManageUsers, myVendorUserId,
+  members, canManageProfile, canManageUsers, canManageContracts, myVendorUserId,
+  introductions,
 }: {
   vendorId: string;
   orgId: string;
@@ -170,10 +200,16 @@ export default function CompanyClient({
   members: VendorMember[];
   canManageProfile: boolean;
   canManageUsers: boolean;
+  canManageContracts: boolean;
   myVendorUserId: string;
+  introductions: Introduction[];
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
+  const [targetSlug, setTargetSlug] = React.useState("");
+  const [consented, setConsented] = React.useState(false);
+  const [offering, setOffering] = React.useState(false);
+  const [withdrawingId, setWithdrawingId] = React.useState<string | null>(null);
   /** Which doc_type is mid-upload, so the row can say so rather than the page. */
   const [uploading, setUploading] = React.useState<string | null>(null);
   /** The last refusal per doc_type, kept ON THE ROW — a toast the person has
@@ -323,6 +359,36 @@ export default function CompanyClient({
       router.refresh();
     } catch (e) {
       toast.error("Could not remove that person", { description: describeError(e) });
+    }
+  }
+
+  async function offer() {
+    setOffering(true);
+    try {
+      await runAction(offerIntroduction(targetSlug, INTRODUCTION_CONSENT));
+      toast.success("Offer sent", {
+        description: "They will review your registration and decide themselves.",
+      });
+      setTargetSlug("");
+      setConsented(false);
+      router.refresh();
+    } catch (e) {
+      toast.error("Could not send that offer", { description: describeError(e) });
+    } finally {
+      setOffering(false);
+    }
+  }
+
+  async function withdraw(id: string) {
+    setWithdrawingId(id);
+    try {
+      await runAction(withdrawIntroduction(id));
+      toast.success("Offer withdrawn");
+      router.refresh();
+    } catch (e) {
+      toast.error("Could not withdraw that offer", { description: describeError(e) });
+    } finally {
+      setWithdrawingId(null);
     }
   }
 
@@ -708,6 +774,130 @@ export default function CompanyClient({
               </p>
             </div>
           ))}
+        </CardContent>
+      </Card>
+
+      {/* ── Carrying this registration elsewhere on the platform ─────────
+          0165's UI half. The database side (offer/withdraw/accept/decline)
+          has existed since 0165; nothing in the product ever called offer
+          or withdraw, and `manage_contracts` (decision 17) named a
+          capability with nowhere to exercise it. */}
+      <Card id="company-contracts" className="scroll-mt-4">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Handshake className="size-4" /> Contracts &amp; introductions
+          </CardTitle>
+          <CardDescription>
+            Carry your approved registration — and its documents — to another
+            organisation on the platform, so you do not file the same pack
+            twice. They review and decide it themselves; nothing here approves
+            anything on your behalf.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {status !== "approved" ? (
+            <p className="text-sm text-muted-foreground">
+              Your registration must be approved here before it can be carried
+              anywhere else.
+            </p>
+          ) : !canManageContracts ? (
+            <p className="text-sm text-muted-foreground">
+              Only someone who can manage contracts may offer this company's
+              registration elsewhere.
+            </p>
+          ) : (
+            <div className="space-y-3 rounded-md border border-border p-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="target-slug">Organisation</Label>
+                <Input
+                  id="target-slug"
+                  value={targetSlug}
+                  onChange={(e) => setTargetSlug(e.target.value)}
+                  placeholder="Their address, e.g. oea or acme-estates"
+                  disabled={offering}
+                />
+                <p className="text-xs text-muted-foreground">
+                  The short address they gave you — not a name you pick from a
+                  list. Ask them what to type here if you are not sure.
+                </p>
+              </div>
+              <label
+                className={cn(
+                  "flex gap-2.5 rounded-md border border-border p-3",
+                  offering ? "opacity-70" : "cursor-pointer hover:bg-accent/40"
+                )}
+              >
+                <input
+                  type="checkbox"
+                  className="mt-0.5 size-4 shrink-0 accent-[var(--brand)]"
+                  checked={consented}
+                  disabled={offering}
+                  onChange={(e) => setConsented(e.target.checked)}
+                />
+                <span className="text-xs leading-relaxed text-muted-foreground">
+                  {INTRODUCTION_CONSENT}
+                </span>
+              </label>
+              <Button
+                onClick={offer}
+                disabled={offering || !consented || !targetSlug.trim()}
+                variant="brand"
+              >
+                <Send /> {offering ? "Sending…" : "Send offer"}
+              </Button>
+            </div>
+          )}
+
+          {introductions.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Your offers
+              </p>
+              {introductions.map((i) => {
+                const sc = INTRO_STATUS_COPY[i.status];
+                return (
+                  <div key={i.id} className="rounded-md border border-border p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-medium">{i.target_org_name}</p>
+                      <Badge
+                        variant={
+                          sc.tone === "success" ? "success"
+                            : sc.tone === "warning" ? "warning"
+                              : sc.tone === "destructive" ? "destructive" : "muted"
+                        }
+                      >
+                        {sc.label}
+                      </Badge>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Offered{" "}
+                      {new Date(i.consented_at).toLocaleDateString("en-NG", {
+                        day: "numeric", month: "short", year: "numeric",
+                      })}
+                      {i.status === "offered" &&
+                        ` · open until ${new Date(i.expires_at).toLocaleDateString("en-NG", {
+                          day: "numeric", month: "short", year: "numeric",
+                        })}`}
+                    </p>
+                    {i.status === "declined" && i.decision_notes && (
+                      <p className="mt-1.5 text-xs text-destructive">
+                        What they said: {i.decision_notes}
+                      </p>
+                    )}
+                    {i.status === "offered" && canManageContracts && (
+                      <Button
+                        variant="ghost" size="sm" className="mt-2"
+                        disabled={withdrawingId === i.id}
+                        onClick={() => withdraw(i.id)}
+                      >
+                        <Undo2 /> {withdrawingId === i.id ? "Withdrawing…" : "Withdraw"}
+                      </Button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

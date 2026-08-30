@@ -209,3 +209,61 @@ export async function reviewRegistration(
   revalidatePath("/dashboard/vendors/registrations");
   return ok();
 }
+
+/**
+ * Carrying an approved registration to another organisation on the platform
+ * (0165, `manage_contracts`). By slug — the same "you can act on an address
+ * you were given, not discover one from a list" rule `org_public_branding`
+ * follows — and the consent text is stored VERBATIM on the offer, exactly as
+ * `saveRegistration`'s compliance declaration is.
+ */
+export async function offerIntroduction(
+  targetOrgSlug: string,
+  consentStatement: string
+): Promise<ActionResult<{ id: string }>> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("offer_vendor_introduction", {
+    p_target_org_slug: targetOrgSlug.trim(),
+    p_consent_statement: consentStatement,
+  });
+  if (error) return fail(error.message.replace(/^.*?:\s*/, ""));
+  revalidatePath("/dashboard/my-company");
+  return ok({ id: data as string });
+}
+
+/** Withdrawable until the receiving org acts on it — consent that cannot be taken back is not consent. */
+export async function withdrawIntroduction(id: string): Promise<ActionResult> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("withdraw_vendor_introduction", { p_id: id });
+  if (error) return fail(error.message.replace(/^.*?:\s*/, ""));
+  revalidatePath("/dashboard/my-company");
+  return ok();
+}
+
+/** Staff-side: take on a registration a vendor has offered to carry here. */
+export async function acceptIntroduction(id: string): Promise<ActionResult<{ vendorId: string }>> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("accept_vendor_introduction", { p_id: id });
+  if (error) return fail(error.message.replace(/^.*?:\s*/, ""));
+  revalidatePath("/dashboard/vendors/introductions");
+  revalidatePath("/dashboard/vendors/registrations");
+  return ok({ vendorId: data as string });
+}
+
+/** Staff-side: decline an offer. The contractor sees the reason verbatim. */
+export async function declineIntroduction(id: string, notes: string): Promise<ActionResult> {
+  const supabase = await createClient();
+  if (notes.trim().length < 10) {
+    return fail(
+      "Say why.",
+      "Recorded on the offer so the contractor is told something they can act on."
+    );
+  }
+  const { error } = await supabase.rpc("decline_vendor_introduction", {
+    p_id: id,
+    p_notes: notes.trim(),
+  });
+  if (error) return fail(error.message.replace(/^.*?:\s*/, ""));
+  revalidatePath("/dashboard/vendors/introductions");
+  return ok();
+}

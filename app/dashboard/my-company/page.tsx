@@ -9,6 +9,7 @@ import CompanyClient, {
   type VendorDoc,
   type VendorMember,
   type RegistrationRow,
+  type Introduction,
 } from "./CompanyClient";
 
 /**
@@ -59,7 +60,7 @@ export default async function MyCompanyPage() {
 
   const vendorId = mine.vendor_id;
 
-  const [stateRes, missingRes, regRes, docsRes, reqsRes, membersRes] =
+  const [stateRes, missingRes, regRes, docsRes, reqsRes, membersRes, introsRes] =
     await Promise.all([
       supabase.rpc("vendor_registration_state", { p_vendor_id: vendorId }),
       supabase.rpc("vendor_registration_missing", { p_vendor_id: vendorId }),
@@ -84,6 +85,10 @@ export default async function MyCompanyPage() {
         // means or PostgREST refuses as ambiguous (PGRST201).
         .select("id, user_id, is_owner, capabilities, users!vendor_users_user_id_fkey(full_name, email)")
         .eq("vendor_id", vendorId),
+      // 0165/0224 — this company's own consent to carry its registration
+      // elsewhere on the platform. Named because the reader supplied the
+      // slug themselves; the redacted direction is staff-side.
+      supabase.rpc("my_vendor_introductions"),
     ]);
 
   const state = ((stateRes.data as { tier: string; status: string; outstanding: number }[]) ?? [])[0] ?? {
@@ -133,7 +138,9 @@ export default async function MyCompanyPage() {
         members={members}
         canManageProfile={mine.is_owner || mine.capabilities.includes("manage_profile")}
         canManageUsers={mine.is_owner || mine.capabilities.includes("manage_users")}
+        canManageContracts={mine.is_owner || mine.capabilities.includes("manage_contracts")}
         myVendorUserId={mine.id}
+        introductions={(introsRes.data as Introduction[]) ?? []}
       />
     </div>
   );
