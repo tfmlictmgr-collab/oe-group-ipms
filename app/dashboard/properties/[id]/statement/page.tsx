@@ -144,7 +144,12 @@ export default async function PropertyStatementPage({
           }
         />
         <div className="mt-4">
-          <PeriodPicker from={from} to={to} />
+          {/* ⚠️ basePath, or Apply navigates to the ledger's own reports page —
+              which is gated to admin, finance and the executive, so the two
+              audiences this statement exists for (the property's manager and
+              its landlord) were sent to "Finance access required" instead of a
+              re-dated statement. */}
+          <PeriodPicker from={from} to={to} basePath={`/dashboard/properties/${id}/statement`} />
         </div>
       </div>
 

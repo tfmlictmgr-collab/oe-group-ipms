@@ -12,15 +12,31 @@ import { Label } from "@/components/ui/label";
  * Pushed into the URL rather than held in state so a finance lead can bookmark
  * or send "the Q1 P&L" as a link — a report you cannot point someone at is half
  * a report.
+ *
+ * ⚠️ `basePath` exists because this component hardcoded `/dashboard/ledger/reports`
+ * and was then reused on the property statement (0228). Clicking Apply there
+ * did not change the period: it navigated to the LEDGER, which is gated to
+ * admin, finance and the executive — so a property manager or a landlord
+ * pressing Apply on their own statement was thrown onto a page reading
+ * "Finance access required". The default keeps the original caller identical;
+ * every other caller states where it lives.
  */
-export default function PeriodPicker({ from, to }: { from: string; to: string }) {
+export default function PeriodPicker({
+  from,
+  to,
+  basePath = "/dashboard/ledger/reports",
+}: {
+  from: string;
+  to: string;
+  basePath?: string;
+}) {
   const router = useRouter();
   const [f, setF] = React.useState(from);
   const [t, setT] = React.useState(to);
 
   const apply = () =>
     router.push(
-      `/dashboard/ledger/reports?from=${encodeURIComponent(f)}&to=${encodeURIComponent(t)}`
+      `${basePath}?from=${encodeURIComponent(f)}&to=${encodeURIComponent(t)}`
     );
 
   return (

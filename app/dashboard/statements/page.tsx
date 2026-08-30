@@ -6,6 +6,9 @@ import { formatNaira, formatMoney } from "@/lib/currency";
 import { PageHeader } from "@/components/patterns/page-header";
 import { EmptyState } from "@/components/patterns/empty-state";
 import { StatusBadge } from "@/components/patterns/status-badge";
+import { PrintButton } from "@/components/patterns/print-button";
+import { PrintMasthead } from "@/components/patterns/print-masthead";
+import { roleLabel } from "@/lib/roles";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -172,18 +175,44 @@ export default async function StatementsPage() {
     </Card>
   );
 
+  // A tenant asking for "a statement" means a sheet of paper — for a bank, a
+  // visa application, an employer, a dispute. This page has always been able to
+  // answer the question on screen and never able to hand over the answer.
+  //
+  // The print carries whatever the reads above already returned and adds no
+  // check of its own: RLS decided what is on the screen, so a tenant prints
+  // their own charges and a finance lead prints the org's register, each seeing
+  // exactly what they see now.
+  const printedBy = session.profile?.full_name || session.profile?.email || undefined;
+  const printedByLine = printedBy
+    ? `${printedBy} · ${roleLabel(session.profile?.role, session.org?.delivery_brand)}`
+    : undefined;
+
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title={isStaff ? "Service Charge Statements" : "My Service Charge Statement"}
-        description={
+    <div className="printable space-y-6">
+      <PrintMasthead
+        org={session.org?.name ?? "Statement"}
+        title={isStaff ? "Service charge register" : "Service charge statement"}
+        subtitle={
           isStaff
-            ? "All issued service-charge invoices you have access to."
-            : outstanding > 0
-              ? `${formatNaira(outstanding)} outstanding across ${rows.length} invoice${rows.length === 1 ? "" : "s"}.`
-              : "Charges apportioned to your unit."
+            ? "All issued service-charge invoices"
+            : `${formatNaira(outstanding)} outstanding across ${rows.length} invoice${rows.length === 1 ? "" : "s"}`
         }
+        by={printedByLine}
       />
+      <div data-print="screen-only">
+        <PageHeader
+          title={isStaff ? "Service Charge Statements" : "My Service Charge Statement"}
+          description={
+            isStaff
+              ? "All issued service-charge invoices you have access to."
+              : outstanding > 0
+                ? `${formatNaira(outstanding)} outstanding across ${rows.length} invoice${rows.length === 1 ? "" : "s"}.`
+                : "Charges apportioned to your unit."
+          }
+          actions={<PrintButton />}
+        />
+      </div>
 
       {rows.length === 0 ? (
         <>

@@ -226,14 +226,31 @@ if (finance) {
           ["landlord share", mine.landlord_share, row.landlord_share],
           ["remitted", mine.remitted, row.landlord_remitted],
           ["still held", mine.still_held, row.landlord_held],
+          // ⚠️ The service-charge half, added in 0230. Until then
+          // `landlord_statement` carried no SC column at all, so these two
+          // reports about one building gave different accounts of it and this
+          // comparison could not have caught it — there was nothing to compare.
+          // Measured live on Parkview Terraces: ₦71,000,000 billed and
+          // ₦18,000,000 collected, visible to a manager and to nobody else.
+          ["sc billed", mine.sc_billed, row.sc_billed],
+          ["sc collected", mine.sc_collected, row.sc_collected],
+          ["sc outstanding", mine.sc_outstanding, row.sc_outstanding],
         ];
         const off = checks.filter(([, a, b]) => !near(a, b));
         if (off.length === 0) {
-          ok(`all ${checks.length} rent figures agree with landlord_statement to the kobo`);
+          ok(`all ${checks.length} figures agree with landlord_statement to the kobo (rent and service charge)`);
         } else {
           off.forEach(([n, a, b]) =>
             bad(`${n}: landlord_statement says ${a}, property_statement says ${b}`));
         }
+
+        // The columns must actually be there. An agreement of two undefineds is
+        // `NaN === NaN` away from passing on a report that carries neither.
+        const scCols = ["sc_invoices", "sc_billed", "sc_collected", "sc_outstanding", "currency"]
+          .filter((k) => !(k in mine));
+        scCols.length === 0
+          ? ok("landlord_statement carries the service-charge columns and a currency")
+          : bad(`landlord_statement is missing ${scCols.join(", ")}`);
       }
     }
   }
@@ -266,8 +283,97 @@ if (finance) {
   }
 }
 
-// ── §E Anonymous ──────────────────────────────────────────────────────────
-head("§E The revoke this repo has forgotten four times");
+// ── §E The landlord's own copy ────────────────────────────────────────────
+head("§E The statement the landlord themselves pulls (0230)");
+
+{
+  const { data: ownerRows } = await svc
+    .from("property_stakeholders").select("user_id")
+    .eq("property_id", target.id).eq("relation", "owner");
+  const ownerId = (ownerRows ?? [])[0]?.user_id ?? null;
+  const { data: ownerUser } = ownerId
+    ? await svc.from("users").select("email").eq("id", ownerId).maybeSingle()
+    : { data: null };
+  const theOwner = ownerUser?.email ? await login(ownerUser.email) : null;
+
+  if (!theOwner) {
+    console.log("  \x1b[33mSKIP\x1b[0m the recorded owner has no signable account");
+  } else {
+    const { data: own, error } = await theOwner.c.rpc("landlord_statement", {
+      p_landlord_user_id: theOwner.id, p_from: FROM, p_to: TO,
+    });
+    if (error) bad(`a landlord cannot pull their own statement — ${error.message}`);
+    else if ((own ?? []).length === 0) bad("a landlord pulls their own statement and gets nothing");
+    else ok(`a landlord pulls their own statement (${own.length} propert(ies))`);
+
+    // ⚠️ 0091b's lesson, applied to the other direction: proving they see no
+    // one else's is worthless unless they see their own, which is asserted
+    // above first.
+    const other = (await svc.from("property_stakeholders")
+      .select("user_id").eq("relation", "owner").neq("user_id", theOwner.id).limit(1)).data?.[0];
+    if (other) {
+      const { data: theirs } = await theOwner.c.rpc("landlord_statement", {
+        p_landlord_user_id: other.user_id, p_from: FROM, p_to: TO,
+      });
+      (theirs ?? []).length === 0
+        ? ok("and gets nothing when they ask for another landlord's")
+        : bad(`a landlord reads ${theirs.length} row(s) of another landlord's statement`);
+    }
+  }
+
+  // A tenant is not a party to what a landlord is charged (0229), and the
+  // statement is the other surface that carries it.
+  const t = await login("oea.tenant@oegroup.test");
+  if (t && ownerId) {
+    const { data } = await t.c.rpc("landlord_statement", {
+      p_landlord_user_id: ownerId, p_from: FROM, p_to: TO,
+    });
+    (data ?? []).length === 0
+      ? ok("a tenant pulling the landlord's statement gets nothing")
+      : bad(`a tenant reads ${data.length} row(s) of the landlord's statement`);
+  }
+}
+
+// ── §F What the two screens do with it ────────────────────────────────────
+head("§F The screens read it the way the rule says");
+
+{
+  const fs = await import("node:fs");
+  const portfolio = fs.readFileSync(
+    path.join(rootDir, "app/dashboard/portfolio/page.tsx"), "utf8");
+  const propStmt = fs.readFileSync(
+    path.join(rootDir, "app/dashboard/properties/[id]/statement/page.tsx"), "utf8");
+
+  // Rent and service charge are never added. Asserted as the absence of a sum
+  // rather than by reading the rendered figure, because the failure this
+  // guards against is someone helpfully adding a "Total" row later.
+  /sc_billed[\s\S]{0,400}?scBilled/.test(portfolio) || /scBilled/.test(portfolio)
+    ? ok("the portfolio computes a service-charge total of its own")
+    : bad("the portfolio does not surface the service charge at all");
+  /(collected|demanded)\s*\+\s*sc_|sc_billed\s*\+\s*(collected|demanded)/.test(portfolio)
+    ? bad("the portfolio adds rent and service charge into one figure — the 0103 mistake")
+    : ok("and never adds it to the rent (no combined total anywhere in the file)");
+
+  // ⚠️ The period picker hardcoded /dashboard/ledger/reports, which is gated to
+  // admin, finance and the executive — so pressing Apply on a property
+  // statement or a portfolio threw the two audiences those pages exist for
+  // ("the property's manager" and "its landlord") onto "Finance access
+  // required". Both callers must now name their own path.
+  /basePath=\{`\/dashboard\/properties\/\$\{id\}\/statement`\}/.test(propStmt)
+    ? ok("the property statement's period picker returns to the property statement")
+    : bad("the property statement's Apply navigates away from the statement");
+  /basePath="\/dashboard\/portfolio"/.test(portfolio)
+    ? ok("the portfolio's period picker returns to the portfolio")
+    : bad("the portfolio has no period picker, or it navigates away");
+
+  // A statement nobody can put on paper is not a statement.
+  /PrintMasthead/.test(portfolio) && /PrintButton/.test(portfolio)
+    ? ok("the landlord statement can be printed, with a masthead naming org, period and reader")
+    : bad("the landlord statement cannot be printed");
+}
+
+// ── §G Anonymous ──────────────────────────────────────────────────────────
+head("§G The revoke this repo has forgotten four times");
 
 const anon = createClient(URL_, ANON, { auth: { persistSession: false } });
 for (const fn of ["property_statement", "property_statement_lines"]) {
@@ -276,6 +382,17 @@ for (const fn of ["property_statement", "property_statement_lines"]) {
   });
   if (error) ok(`anon cannot execute ${fn}() — ${error.message.slice(0, 60)}`);
   else bad(`⚠️ ${fn}() is callable by anon — 0204/0209/0210/0214, a fifth time`);
+}
+// 0230 dropped and recreated landlord_statement, and `create or replace`
+// re-applies Supabase's default grants — the exact way `remember_conversation`
+// was closed by 0114 and silently reopened. A drop-and-create is that hazard
+// with the safety off.
+{
+  const { error } = await anon.rpc("landlord_statement", {
+    p_landlord_user_id: target.id, p_from: FROM, p_to: TO,
+  });
+  if (error) ok(`anon cannot execute landlord_statement() — ${error.message.slice(0, 60)}`);
+  else bad("⚠️ landlord_statement() is callable by anon — 0230 reopened it");
 }
 
 console.log(

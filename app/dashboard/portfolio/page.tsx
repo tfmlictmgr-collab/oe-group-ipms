@@ -6,8 +6,12 @@ import { formatNaira, formatMoney } from "@/lib/currency";
 import { PageHeader } from "@/components/patterns/page-header";
 import { EmptyState } from "@/components/patterns/empty-state";
 import PortfolioStats from "./PortfolioStats";
+import PeriodPicker from "../ledger/reports/PeriodPicker";
+import { PrintButton } from "@/components/patterns/print-button";
+import { PrintMasthead } from "@/components/patterns/print-masthead";
+import { roleLabel } from "@/lib/roles";
 import { StatusBadge } from "@/components/patterns/status-badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table, TableHeader, TableBody, TableRow, TableHead, TableCell,
 } from "@/components/ui/table";
@@ -34,6 +38,7 @@ export const dynamic = "force-dynamic";
 type StatementRow = {
   property_id: string;
   property_name: string;
+  currency: string;
   charges: number;
   demanded: number | string;
   collected: number | string;
@@ -41,6 +46,12 @@ type StatementRow = {
   landlord_share: number | string;
   remitted: number | string;
   still_held: number | string;
+  // 0230. The fund's side of the same buildings — billed to the units, spent on
+  // the property. Reported beside the rent and never added to it.
+  sc_invoices: number;
+  sc_billed: number | string;
+  sc_collected: number | string;
+  sc_outstanding: number | string;
 };
 
 type Remittance = {
@@ -103,12 +114,46 @@ export default async function PortfolioPage({
   // "nothing has been sent" apart from "nothing is owed".
   const held = statement.reduce((a, r) => a + Number(r.still_held), 0);
 
+  const scBilled = statement.reduce((a, r) => a + Number(r.sc_billed), 0);
+  const scCollected = statement.reduce((a, r) => a + Number(r.sc_collected), 0);
+  const scOutstanding = statement.reduce((a, r) => a + Number(r.sc_outstanding), 0);
+  const hasServiceCharge = statement.some((r) => Number(r.sc_invoices) > 0);
+
+  // Whoever the RLS-scoped reads above already let in prints exactly what they
+  // are looking at — the same rule the ledger's own print follows. An owner
+  // prints their portfolio; oversight opening this prints the same page.
+  const printedBy = session.profile?.full_name || session.profile?.email || undefined;
+  const printedByLine = printedBy
+    ? `${printedBy} · ${roleLabel(session.profile?.role, session.org?.delivery_brand)}`
+    : undefined;
+
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title="My Portfolio"
-        description={`${properties.length} propert${properties.length === 1 ? "y" : "ies"} · statement for ${from} to ${to}.`}
+    <div className="printable space-y-6">
+      {/* A landlord statement is the page most likely to be printed and posted
+          to someone — and until now it was the one financial surface with no
+          masthead, so a printed copy carried no org, no period and no date. */}
+      <PrintMasthead
+        org={session.org?.name ?? "Portfolio"}
+        title="Landlord statement"
+        subtitle={`${from} to ${to}`}
+        by={printedByLine}
       />
+      <div data-print="screen-only">
+        <PageHeader
+          title="My Portfolio"
+          description={`${properties.length} propert${properties.length === 1 ? "y" : "ies"} · statement for ${from} to ${to}.`}
+          actions={<PrintButton />}
+        />
+        {properties.length > 0 && (
+          <div className="mt-4">
+            {/* The page has read `from`/`to` off the URL since it was written
+                and offered no way to set them, so every landlord saw the
+                current calendar year and could reach no other period without
+                editing the address bar. */}
+            <PeriodPicker from={from} to={to} basePath="/dashboard/portfolio" />
+          </div>
+        )}
+      </div>
 
       {properties.length === 0 ? (
         <EmptyState
@@ -127,7 +172,12 @@ export default async function PortfolioPage({
           {statement.length > 0 && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Statement by property</CardTitle>
+                <CardTitle className="text-base">Rent by property</CardTitle>
+                <CardDescription>
+                  What was demanded, what came in, and what of it is yours. Fees
+                  are apportioned to rent actually collected, at the rate in
+                  force when each demand was raised.
+                </CardDescription>
               </CardHeader>
               <CardContent className="p-0">
                 <div className="overflow-x-auto">
@@ -167,6 +217,80 @@ export default async function PortfolioPage({
                           </TableCell>
                         </TableRow>
                       ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* ⚠️ SERVICE CHARGE IS A SEPARATE CARD, AND THAT IS THE POINT.
+              Rent is collected FOR the owner and remitted to them net of fees;
+              service charge is collected INTO a fund the building spends on
+              itself. Adding them produces a figure that means nothing — the
+              0103 mistake, which this codebase has already made once at scale
+              on the one screen built to catch it. `property_statement` refuses
+              the same sum, and so does this.
+
+              Until 0230 `landlord_statement` carried no service-charge column
+              at all, so an owner's own screen and their building's statement
+              gave different accounts of the same property: measured live,
+              Parkview Terraces showed ₦71,000,000 billed and ₦18,000,000
+              collected to a manager, and nothing whatever to its landlord. */}
+          {hasServiceCharge && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Service charge by property</CardTitle>
+                <CardDescription>
+                  Billed to the units and spent on the building. Shown apart from
+                  the rent above and never added to it — this is the fund&apos;s
+                  money, not yours to be remitted.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Property</TableHead>
+                        <TableHead className="text-right">Invoices</TableHead>
+                        <TableHead className="text-right">Billed</TableHead>
+                        <TableHead className="text-right">Collected</TableHead>
+                        <TableHead className="text-right">Outstanding</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {statement
+                        .filter((r) => Number(r.sc_invoices) > 0)
+                        .map((r) => (
+                          <TableRow key={r.property_id}>
+                            <TableCell className="font-medium">{r.property_name}</TableCell>
+                            <TableCell className="text-right tabular-nums text-muted-foreground">
+                              {r.sc_invoices}
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums">
+                              {formatMoney(r.sc_billed, r.currency)}
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums text-success">
+                              {formatMoney(r.sc_collected, r.currency)}
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums text-warning">
+                              {formatMoney(r.sc_outstanding, r.currency)}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      <TableRow className="bg-muted/40 hover:bg-muted/40">
+                        <TableCell colSpan={2} className="font-semibold">Total</TableCell>
+                        <TableCell className="text-right font-semibold tabular-nums">
+                          {formatNaira(scBilled)}
+                        </TableCell>
+                        <TableCell className="text-right font-semibold tabular-nums">
+                          {formatNaira(scCollected)}
+                        </TableCell>
+                        <TableCell className="text-right font-semibold tabular-nums">
+                          {formatNaira(scOutstanding)}
+                        </TableCell>
+                      </TableRow>
                     </TableBody>
                   </Table>
                 </div>
