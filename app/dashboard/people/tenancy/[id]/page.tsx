@@ -237,9 +237,17 @@ export default async function ApplicationReviewPage({
             {decisionsRes.data.map((d, i) => (
               <div key={i} className="text-sm">
                 <p className="font-medium">
-                  {decisionLabel(d.kind)}
+                  {/* ⚠️ A machine step is never shown as a person's. `decided_by`
+                      is NULL only on the automated completeness check (0225),
+                      and rendering that as "—" would read as a missing name
+                      against what looks like somebody's recommendation. It is
+                      named for what it is, so the history stays honest about
+                      which decisions a human actually made. */}
+                  {d.decided_by === null ? "Passed on by the completeness check" : decisionLabel(d.kind)}
                   <span className="ml-2 text-xs font-normal text-muted-foreground">
-                    {(d.users as unknown as { full_name: string } | null)?.full_name ?? "—"}
+                    {d.decided_by === null
+                      ? "Automatic · no person decided this"
+                      : (d.users as unknown as { full_name: string } | null)?.full_name ?? "—"}
                     {" · "}
                     {new Date(d.created_at).toLocaleDateString("en-NG", { day: "numeric", month: "short" })}
                   </span>

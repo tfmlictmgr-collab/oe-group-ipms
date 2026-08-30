@@ -28,6 +28,10 @@
     {
       "path": "/api/jobs/escalate-unassigned",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/jobs/screen-applications",
+      "schedule": "*/15 * * * *"
     }
   ]
 }
