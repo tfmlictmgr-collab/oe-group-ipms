@@ -34,6 +34,11 @@ export type PayoutCandidate = {
   collected: number;
   charges: number;
   hasRecipient: boolean;
+  // 0235. How many people are recorded as owning this building. Above 1 means
+  // the whole of `collected` is going to ONE of them: property_landlord() picks
+  // the owner of record and the schema cannot express a split. Disclosed so
+  // finance can stop and ask, rather than derived into a number nobody agreed.
+  coOwnerCount: number;
 };
 
 /**
@@ -68,6 +73,7 @@ export async function payoutCandidates(): Promise<ActionResult<PayoutCandidate[]
         property_id: string; property_name: string;
         landlord_user_id: string; landlord_name: string;
         collected: number | string; charge_count: number; has_recipient: boolean;
+        co_owner_count: number | string;
       }) => ({
         propertyId: r.property_id,
         propertyName: r.property_name,
@@ -76,6 +82,7 @@ export async function payoutCandidates(): Promise<ActionResult<PayoutCandidate[]
         collected: Number(r.collected),
         charges: Number(r.charge_count),
         hasRecipient: r.has_recipient,
+        coOwnerCount: Number(r.co_owner_count ?? 1),
       })
     )
   );

@@ -156,6 +156,54 @@ console.log("\nC. Nobody can submit the same source twice for the same job");
   dupTn ? ok("a second tenant submission is refused") : bad("A SECOND TENANT EVALUATION WAS ACCEPTED");
 }
 
+console.log("\nD0. One criterion takes one answer (0234)");
+{
+  // ⚠️ The defect this replaces: the scorer read ONE response per criterion
+  // with `limit 1` and no `order by`, so a payload answering the same
+  // criterion twice was scored on whichever element the executor returned
+  // first — nondeterministically, on the composite that gates paying a vendor
+  // (B4). `v_seen_criteria` was declared and appended to for exactly this and
+  // never read by anything, so the concern looked handled and was not.
+  const fresh = await mkTicket({ status: "resolved" });
+  const answers = fmAnswers(["quality", "compliance"]);
+  if (answers.length === 0) {
+    bad("no manual criteria to build a duplicate payload from");
+  } else {
+    // The same criterion, answered twice, contradicting itself.
+    const contradictory = [
+      { ...answers[0], value: answers[0].value },
+      ...answers,
+    ];
+    const { error } = await svc.rpc("submit_vendor_evaluation", {
+      p_ticket_id: fresh.id, p_source: "fm_pm", p_responses: contradictory,
+    });
+    if (!error) {
+      bad("A DUPLICATE-CRITERION PAYLOAD WAS SCORED — the gate depends on row order");
+    } else if (/same criterion more than once/.test(error.message)) {
+      ok("a payload answering one criterion twice is refused, not silently de-duplicated");
+    } else {
+      bad(`refused, but not for the duplicate — "${error.message}"`);
+    }
+
+    // And nothing was written on the way to that refusal.
+    const { data: leaked } = await svc
+      .from("vendor_evaluations").select("id").eq("ticket_id", fresh.id);
+    (leaked ?? []).length === 0
+      ? ok("and no evaluation row survived the refusal")
+      : bad(`${leaked.length} evaluation row(s) written before the refusal`);
+    for (const r of leaked ?? []) made.evaluations.push(r.id);
+  }
+
+  // The honest control: the SAME answers without the duplicate must still pass,
+  // or the guard has simply broken submission.
+  const clean = await mkTicket({ status: "resolved" });
+  const { data: okId, error: okErr } = await svc.rpc("submit_vendor_evaluation", {
+    p_ticket_id: clean.id, p_source: "fm_pm", p_responses: fmAnswers(["quality", "compliance"]),
+  });
+  if (okErr) bad(`the guard broke an ordinary submission — ${okErr.message}`);
+  else { ok("an ordinary one-answer-per-criterion payload still scores"); made.evaluations.push(okId); }
+}
+
 console.log("\nD. A job that is not done, or has no vendor, cannot be evaluated");
 {
   const open = await mkTicket({ status: "open" });

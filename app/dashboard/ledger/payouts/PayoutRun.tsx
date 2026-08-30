@@ -138,6 +138,17 @@ export default function PayoutRun({
                       details before this can be sent.
                     </p>
                   )}
+                  {/* 0235. The whole figure goes to the owner of record. The
+                      schema holds no share, so a split is not something this
+                      screen can compute — only something it must not conceal. */}
+                  {c.coOwnerCount > 1 && (
+                    <p className="flex items-start gap-1.5 text-xs text-warning">
+                      <AlertCircle className="mt-0.5 size-3.5 flex-shrink-0" />
+                      {c.coOwnerCount} owners are recorded on this property. The
+                      full amount goes to {c.landlordName}, the owner of record —
+                      no split is applied. Check this is right before sending.
+                    </p>
+                  )}
                 </div>
 
                 <div className="flex flex-shrink-0 items-center gap-3">
