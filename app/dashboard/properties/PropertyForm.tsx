@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { runAction, describeError } from "@/lib/run-action";
 import { Select } from "@/components/ui/input";
 import HierarchyPicker, { type OrgNode } from "@/components/patterns/hierarchy-picker";
-import { saveProperty, saveUnit } from "./actions";
+import { saveProperty, saveUnit, addPropertyType } from "./actions";
 import { createNode } from "./hierarchy/actions";
 
 export type { OrgNode };
@@ -17,11 +17,16 @@ export type { OrgNode };
 /** The offered descriptions, grouped as the board asked (0198). */
 export type UnitType = { id: string; label: string; category: "residential" | "commercial" };
 
+/** The same, for the PROPERTY itself (0237). A separate catalogue on purpose. */
+export type PropertyType = { id: string; label: string; category: "residential" | "commercial" };
+
 export default function PropertyForm({
   property,
   nodes = [],
   canBuildHierarchy = false,
   unitTypes = [],
+  propertyTypes = [],
+  canWriteTypes = false,
 }: {
   property?: {
     id: string;
@@ -36,6 +41,10 @@ export default function PropertyForm({
   canBuildHierarchy?: boolean;
   /** Offered when enrolling a property. Empty on the edit form, which has none. */
   unitTypes?: UnitType[];
+  /** Offered for the property's own description (0237). Both forms use it. */
+  propertyTypes?: PropertyType[];
+  /** `properties.write` — whether this person may add a description. */
+  canWriteTypes?: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
@@ -47,6 +56,28 @@ export default function PropertyForm({
   });
   const [siteNodeId, setSiteNodeId] = React.useState(property?.site_node_id ?? "");
 
+  // null = the picker is showing; a string = someone is naming a new one.
+  const [newPropertyType, setNewPropertyType] = React.useState<string | null>(null);
+  const [addingType, setAddingType] = React.useState(false);
+
+  async function addType(category: "residential" | "commercial") {
+    const label = (newPropertyType ?? "").trim();
+    if (!label) return;
+    setAddingType(true);
+    try {
+      await runAction(addPropertyType(label, category));
+      // Select what they just added, so naming it and using it are one act.
+      setForm((f) => ({ ...f, propertyType: label }));
+      setNewPropertyType(null);
+      toast.success(`"${label}" added to the list`);
+      router.refresh();
+    } catch (e) {
+      toast.error(describeError(e));
+    } finally {
+      setAddingType(false);
+    }
+  }
+
   // How many units this property has, captured while it is being enrolled
   // rather than left to a second visit. Offered only on CREATE: an existing
   // property has a units panel of its own, and a "how many" box on the edit
@@ -56,8 +87,12 @@ export default function PropertyForm({
   const unitCount = Number(units.count.replace(/[,\s]/g, "") || "0");
   const unitsGiven = enrolling && (units.type !== "" || units.count !== "" || units.space !== "");
 
-  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setForm((f) => ({ ...f, [k]: e.target.value }));
+  // Widened to the select in 0237 — the Type field is a picker now, and one
+  // helper serving both is what keeps the two from drifting apart.
+  const set =
+    (k: keyof typeof form) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+      setForm((f) => ({ ...f, [k]: e.target.value }));
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -141,8 +176,79 @@ export default function PropertyForm({
           <Label htmlFor="p-type">
             Type <span className="font-normal text-muted-foreground">(optional)</span>
           </Label>
-          <Input id="p-type" value={form.propertyType} onChange={set("propertyType")}
-                 placeholder="e.g. Residential estate, Office tower" />
+          {newPropertyType === null ? (
+            <>
+              <Select id="p-type" value={form.propertyType} onChange={set("propertyType")}>
+                <option value="">Choose…</option>
+                {/* ⚠️ A property filed before 0237 carries hand-typed text that
+                    is on no list. Offering only the catalogue would make saving
+                    an unrelated edit silently blank it, so the recorded value
+                    keeps its own place until someone deliberately changes it. */}
+                {form.propertyType &&
+                  !propertyTypes.some((t) => t.label === form.propertyType) && (
+                    <optgroup label="Recorded on this property">
+                      <option value={form.propertyType}>{form.propertyType}</option>
+                    </optgroup>
+                  )}
+                <optgroup label="Residential">
+                  {propertyTypes.filter((t) => t.category === "residential").map((t) => (
+                    <option key={t.id} value={t.label}>{t.label}</option>
+                  ))}
+                </optgroup>
+                <optgroup label="Commercial">
+                  {propertyTypes.filter((t) => t.category === "commercial").map((t) => (
+                    <option key={t.id} value={t.label}>{t.label}</option>
+                  ))}
+                </optgroup>
+              </Select>
+              {canWriteTypes && (
+                <button
+                  type="button"
+                  className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+                  onClick={() => setNewPropertyType("")}
+                >
+                  Not listed? Add a description
+                </button>
+              )}
+            </>
+          ) : (
+            // The same affordance UnitsPanel gives for unit types (0198): the
+            // person filing the first cold store in the register should not be
+            // sent to a settings screen to name it. The category is asked
+            // rather than guessed — guessing puts it in the wrong half of every
+            // future dropdown.
+            <div className="space-y-1">
+              <Input
+                autoFocus value={newPropertyType} placeholder="e.g. Tank Farm"
+                onChange={(e) => setNewPropertyType(e.target.value)}
+              />
+              <div className="flex gap-1">
+                <Button
+                  type="button" size="sm" variant="outline" className="h-7 px-2 text-xs"
+                  disabled={!newPropertyType.trim() || addingType}
+                  onClick={() => void addType("residential")}
+                >
+                  Residential
+                </Button>
+                <Button
+                  type="button" size="sm" variant="outline" className="h-7 px-2 text-xs"
+                  disabled={!newPropertyType.trim() || addingType}
+                  onClick={() => void addType("commercial")}
+                >
+                  Commercial
+                </Button>
+                <Button
+                  type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs"
+                  onClick={() => setNewPropertyType(null)}
+                >
+                  Cancel
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Which half of the list it belongs in.
+              </p>
+            </div>
+          )}
         </div>
       </div>
 

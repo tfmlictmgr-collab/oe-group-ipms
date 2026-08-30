@@ -15,7 +15,10 @@ export default async function EditPropertyPage({
   if (!session) redirect("/login");
 
   const supabase = await createClient();
-  const [{ data: property }, { data: nodes }, { data: canBuildHierarchy }] = await Promise.all([
+  const [
+    { data: property }, { data: nodes }, { data: canBuildHierarchy },
+    { data: propertyTypes }, { data: canWrite },
+  ] = await Promise.all([
     supabase
       .from("properties")
       .select("id, name, reference, address, property_type, site_node_id")
@@ -23,6 +26,12 @@ export default async function EditPropertyPage({
       .maybeSingle(),
     supabase.from("org_nodes").select("id, parent_id, level, name").order("name"),
     supabase.rpc("has_permission", { p_capability: "hierarchy.write" }),
+    // 0237. Offered here too — an existing property whose type was typed by
+    // hand is exactly where someone will want to pick the proper description,
+    // and the form keeps the recorded value as its own option until they do.
+    supabase.from("property_types").select("id, label, category")
+      .is("deleted_at", null).order("label"),
+    supabase.rpc("has_permission", { p_capability: "properties.write" }),
   ]);
 
   if (!property) notFound();
@@ -36,6 +45,8 @@ export default async function EditPropertyPage({
             property={property}
             nodes={nodes ?? []}
             canBuildHierarchy={Boolean(canBuildHierarchy)}
+            propertyTypes={(propertyTypes ?? []) as { id: string; label: string; category: "residential" | "commercial" }[]}
+            canWriteTypes={Boolean(canWrite)}
           />
         </CardContent>
       </Card>

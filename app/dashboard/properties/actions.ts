@@ -331,6 +331,55 @@ export async function addUnitType(
   return ok({ id: data.id as string });
 }
 
+/**
+ * Adds a PROPERTY description to this org's list and returns it.
+ *
+ * The twin of `addUnitType`, against `property_types` (0237) — same shape, same
+ * capability, deliberately not the same table: a property is an "Office
+ * Complex" and a unit inside it is an "Office Suite", and one dropdown holding
+ * both would offer "Boys Quarters" as a description of an estate.
+ *
+ * The insert policy also requires `properties.write`, so this cannot become a
+ * way for a role without register access to write rows.
+ */
+export async function addPropertyType(
+  label: string,
+  category: "residential" | "commercial"
+): Promise<ActionResult<{ id: string }>> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return fail("Your session expired. Please sign in again.");
+
+  const { data: me } = await supabase
+    .from("users").select("org_id").eq("id", user.id).single();
+  if (!me) return fail("Could not resolve your profile.");
+
+  const clean = label.trim();
+  if (!clean) return fail("Give the description a name.");
+  if (clean.length > 60) return fail("That description is too long — 60 characters at most.");
+  if (category !== "residential" && category !== "commercial") {
+    return fail("A description has to be residential or commercial.");
+  }
+
+  const { data, error } = await supabase
+    .from("property_types")
+    .insert({ org_id: me.org_id, label: clean, category, created_by: user.id })
+    .select("id")
+    .single();
+
+  if (error) {
+    // A standard label collides on the global partial index, an org's own on
+    // the per-org one. Both mean the same thing to the person typing.
+    if (/property_types_(org|standard)_label_uidx/.test(error.message)) {
+      return fail(`"${clean}" is already on the list.`);
+    }
+    return failFromDb(error, "add this description");
+  }
+
+  revalidatePath("/dashboard/properties");
+  return ok({ id: data.id as string });
+}
+
 /** Context the importer validates against — existing labels and org members. */
 export async function unitImportContext(
   propertyId: string
