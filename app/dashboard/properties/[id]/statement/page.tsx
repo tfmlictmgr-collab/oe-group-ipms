@@ -45,6 +45,7 @@ type Statement = {
   property_id: string;
   property_name: string;
   currency: string;
+  rent_currencies: number;
   rent_charges: number;
   rent_demanded: number | string;
   rent_collected: number | string;
@@ -86,7 +87,7 @@ export default async function PropertyStatementPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ from?: string; to?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; currency?: string }>;
 }) {
   const { id } = await params;
   const session = await getSessionProfile();
@@ -96,11 +97,19 @@ export default async function PropertyStatementPage({
   const now = new Date();
   const from = sp.from || `${now.getFullYear()}-01-01`;
   const to = sp.to || `${now.getFullYear()}-12-31`;
+  // Null asks the statement for the property's dominant currency; a value pins
+  // it. Either way the rent half is filtered to one currency rather than summed
+  // across all of them and labelled with the commonest (0233).
+  const currency = sp.currency?.trim() || null;
 
   const supabase = await createClient();
   const [stmtRes, linesRes] = await Promise.all([
-    supabase.rpc("property_statement", { p_property_id: id, p_from: from, p_to: to }),
-    supabase.rpc("property_statement_lines", { p_property_id: id, p_from: from, p_to: to }),
+    supabase.rpc("property_statement", {
+      p_property_id: id, p_from: from, p_to: to, p_currency: currency,
+    }),
+    supabase.rpc("property_statement_lines", {
+      p_property_id: id, p_from: from, p_to: to, p_currency: currency,
+    }),
   ]);
 
   const stmt = ((stmtRes.data ?? []) as Statement[])[0] ?? null;
@@ -122,13 +131,25 @@ export default async function PropertyStatementPage({
       <PrintMasthead
         org={session.org?.name ?? "Property"}
         title="Property statement"
-        subtitle={`${stmt.property_name} · ${fmtDate(from)} to ${fmtDate(to)}`}
+        subtitle={`${stmt.property_name} · ${fmtDate(from)} to ${fmtDate(to)} · in ${ccy}`}
         by={
           printedBy
             ? `${printedBy} · ${roleLabel(session.profile?.role, session.org?.delivery_brand)}`
             : undefined
         }
       />
+
+      {/* Disclosed rather than folded in. Before 0233 the rent figures summed
+          every currency together and wore the commonest one's label; now the
+          statement is denominated in one and says when there are others. */}
+      {Number(stmt.rent_currencies) > 1 && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
+          This property was let in {stmt.rent_currencies} currencies over this period.
+          The rent figures below are <strong>{ccy} only</strong> — amounts in the others
+          are not included and are not converted. Add <code>?currency=</code> to the
+          address to see another.
+        </div>
+      )}
 
       <div data-print="screen-only">
         <PageHeader

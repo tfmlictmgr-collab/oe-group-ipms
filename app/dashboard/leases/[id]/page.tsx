@@ -192,7 +192,6 @@ export default async function LeaseDetailPage({
   const viewerIsTenant = lease.tenant_user_id === session.user.id;
   const isStaff = ["admin", "finance_approver", "executive", "regional_manager", ...FM_PM]
     .includes(role);
-  const seesFeeSplit = isStaff || !viewerIsTenant;
 
   // ⚠️ TWO READS, chosen by who is looking — and since 0229 that is not a
   // nicety, it is the only way a tenant sees their own schedule at all.
@@ -207,17 +206,28 @@ export default async function LeaseDetailPage({
   // The gate stops the fee split being RENDERED; this stops it being SENT. A
   // column that never leaves the database cannot be read out of a payload by
   // someone who opens the network tab.
-  const [chargesRes, scRes, canWriteRes] = await Promise.all([
-    viewerIsTenant && !isStaff
-      ? supabase.rpc("my_rent_charges")
-      : supabase
+  // ⚠️ The branch used to be `viewerIsTenant && !isStaff`, which read as "a
+  // tenant unless they are staff" and silently meant "staff take the RLS path,
+  // even on their own tenancy". `rent_charges_select` admits oversight and
+  // whoever holds the PROPERTY — so an FM/PM or regional manager renting
+  // somewhere they do not manage took the staff branch, matched no rows, and
+  // was shown their own ₦6,000,000 tenancy as nothing billed and nothing paid.
+  // That is precisely the failure 0229's own note names: a zero that means
+  // "you may not see this" is indistinguishable from one that means "nothing
+  // was billed". Both reads now run for a staff tenant, and the fee-bearing
+  // rows are used only if RLS actually returned them.
+  const [staffChargesRes, ownChargesRes, scRes, canWriteRes] = await Promise.all([
+    isStaff || !viewerIsTenant
+      ? supabase
           .from("rent_charges")
           .select(
             "id, period_start, period_end, due_date, amount, amount_paid, currency, status, " +
             "management_fee_pct, management_fee_amount, admin_fee_amount, landlord_net_amount, remitted_at"
           )
           .eq("lease_id", lease.id)
-          .order("period_start", { ascending: false }),
+          .order("period_start", { ascending: false })
+      : Promise.resolve({ data: null }),
+    viewerIsTenant ? supabase.rpc("my_rent_charges") : Promise.resolve({ data: null }),
     // Service charges land on the UNIT, not the lease — a budget is apportioned
     // across a property's units and knows nothing about who is in them. Bounded
     // to the tenancy's own term so a previous occupant's bill never appears on
@@ -239,26 +249,35 @@ export default async function LeaseDetailPage({
   // to null rather than 0: nothing was charged that we are declining to show —
   // the figure simply is not ours to hand over, and `seesFeeSplit` means no
   // cell is drawn from them anyway.
-  const charges: RentCharge[] =
-    viewerIsTenant && !isStaff
-      ? ((chargesRes.data ?? []) as unknown as MyRentCharge[])
-          .filter((c) => c.lease_id === lease.id)
-          .map((c) => ({
-            id: c.charge_id,
-            period_start: c.period_start,
-            period_end: c.period_end,
-            due_date: c.due_date,
-            amount: c.amount,
-            amount_paid: c.amount_paid,
-            currency: c.currency,
-            status: c.status,
-            management_fee_pct: null,
-            management_fee_amount: null,
-            admin_fee_amount: null,
-            landlord_net_amount: null,
-            remitted_at: null,
-          }))
-      : ((chargesRes.data ?? []) as unknown as RentCharge[]);
+  const staffCharges = (staffChargesRes.data ?? []) as unknown as RentCharge[];
+  const ownCharges: RentCharge[] = ((ownChargesRes.data ?? []) as unknown as MyRentCharge[])
+    .filter((c) => c.lease_id === lease.id)
+    .map((c) => ({
+      id: c.charge_id,
+      period_start: c.period_start,
+      period_end: c.period_end,
+      due_date: c.due_date,
+      amount: c.amount,
+      amount_paid: c.amount_paid,
+      currency: c.currency,
+      status: c.status,
+      management_fee_pct: null,
+      management_fee_amount: null,
+      admin_fee_amount: null,
+      landlord_net_amount: null,
+      remitted_at: null,
+    }));
+
+  // The fee-bearing rows when RLS granted them, the tenant's own definer-scoped
+  // copy otherwise. A staff tenant on a property they do not manage lands on
+  // the second and sees a true schedule with no fee columns, rather than zeros.
+  const charges: RentCharge[] = staffCharges.length > 0 ? staffCharges : ownCharges;
+
+  // Narrower than the old `isStaff || !viewerIsTenant`: the split is drawn only
+  // when the fee-bearing rows are actually in hand, and never for the tenant of
+  // record whatever else they are. The management fee and the landlord net are
+  // between the landlord and OE Group (0229).
+  const seesFeeSplit = !viewerIsTenant && staffCharges.length > 0;
   const serviceCharges = (scRes.data ?? []) as unknown as ServiceCharge[];
   const canWrite = Boolean(canWriteRes.data);
 

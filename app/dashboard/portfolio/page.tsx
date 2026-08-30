@@ -39,6 +39,10 @@ type StatementRow = {
   property_id: string;
   property_name: string;
   currency: string;
+  // 0233. How many currencies this property was actually let in over the
+  // period. The rent columns are ONE of them — filtered, not summed across all
+  // and labelled with the commonest, which is what they were until 0233.
+  rent_currencies: number;
   charges: number;
   demanded: number | string;
   collected: number | string;

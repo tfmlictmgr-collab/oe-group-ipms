@@ -243,9 +243,23 @@ export async function setApportionMethod(
     );
   }
 
-  const { error } = await supabase
-    .from("sc_budgets").update({ apportion_method: method }).eq("id", budgetId);
+  // ⚠️ `.select()` is what makes this honest. An UPDATE that RLS declines
+  // matches zero rows and returns NO error, so without it this action reported
+  // success on a write that did nothing — the pattern decision 23 records
+  // three times over (a storage path RLS declines, an UPDATE policy with no
+  // grant, a supersede that matched nothing and returned no error).
+  const { data: updated, error } = await supabase
+    .from("sc_budgets")
+    .update({ apportion_method: method })
+    .eq("id", budgetId)
+    .select("id");
   if (error) return failFromDb(error, "set how this budget is split");
+  if (!updated || updated.length === 0) {
+    return fail(
+      "You do not have permission to change how this budget is split.",
+      "Nothing has been saved. Setting the apportionment method needs sc.manage."
+    );
+  }
 
   revalidatePath(`/dashboard/sc/${budgetId}`);
   return ok();
@@ -317,6 +331,21 @@ export async function saveManualShares(
     { onConflict: "budget_id,unit_id" }
   );
   if (error) return failFromDb(error, "save these shares");
+
+  // ⚠️ Clear shares for units that are no longer on the property. Without this
+  // a soft-deleted unit leaves its row behind, and `sc_manual_shares_state`
+  // then counts MORE stated units than live ones: `reconciles` is false,
+  // `missing_units` is 0 (it is a `greatest(…, 0)`), and the variance is 0 —
+  // so generation refuses with "the stated shares are ₦0.00 over the budget
+  // total", which is both untrue and impossible to act on. A share is a
+  // statement about a unit; when the unit goes, so does the statement.
+  if (valid.size > 0) {
+    await supabase
+      .from("sc_budget_shares")
+      .delete()
+      .eq("budget_id", budgetId)
+      .not("unit_id", "in", `(${Array.from(valid).join(",")})`);
+  }
 
   // Read the state back rather than computing it here, so the number the form
   // shows after saving is the same one that will decide whether generation is
