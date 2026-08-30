@@ -315,6 +315,26 @@ export async function setVendorApproval(
 // canonical action rather than this file proxying it.
 
 
+/**
+ * First-tier vendor review (0238): put an application forward, or put it
+ * forward to be refused. Never a decision — `approve_vendor_application`
+ * refuses this same person, exactly as the tenant twin does.
+ */
+export async function recommendVendorApplication(
+  applicationId: string,
+  notes: string
+): Promise<ActionResult> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("recommend_vendor_application", {
+    p_application_id: applicationId,
+    p_notes: notes,
+  });
+  if (error) return failFromDb(error, "recommend this application");
+  revalidatePath("/dashboard/people");
+  revalidatePath("/dashboard/people/applications");
+  return ok();
+}
+
 /** Approve or reject a public vendor application. Approval creates the vendor. */
 export async function decideVendorApplication(
   applicationId: string,
@@ -335,6 +355,7 @@ export async function decideVendorApplication(
     return failFromDb(error, approve ? "approve this application" : "reject this application");
   }
   revalidatePath("/dashboard/people");
+  revalidatePath("/dashboard/people/applications");
   revalidatePath("/dashboard/vendors");
   return ok();
 }

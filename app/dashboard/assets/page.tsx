@@ -21,6 +21,7 @@ export default async function AssetsPage() {
     !roleAllowed(session.profile?.role, [
       "admin",
       ...FM_PM,
+      "regional_manager",
       "finance_approver",
       "property_owner",
       "executive",

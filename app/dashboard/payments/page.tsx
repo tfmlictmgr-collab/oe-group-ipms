@@ -37,8 +37,13 @@ export default async function PaymentsPage() {
   // payment, and above the threshold it REQUIRES one. Refusing them the page
   // was asking for an authorisation without showing what was being authorised.
   // Remittance stays refused in the database regardless of who opens this page.
+  // ⚠️ `regional_manager` named explicitly, NOT folded into FM_PM — that
+  // constant's own comment forbids it, because several call sites include the
+  // regional manager and several deliberately do not. It belongs here because
+  // they hold the capability this page is for (0236/0238); the nav offers the
+  // link from that capability and only this list said no.
   if (!roleAllowed(session.profile?.role, [
-    "admin", ...FM_PM, "finance_approver", "executive",
+    "admin", ...FM_PM, "regional_manager", "finance_approver", "executive",
   ])) {
     return <RoleGate title="Vendor Payments" />;
   }

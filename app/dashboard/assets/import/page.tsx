@@ -12,7 +12,12 @@ import { FM_PM } from "@/lib/roles";
 export default async function AssetImportPage() {
   const session = await getSessionProfile();
   if (!session) redirect("/login");
-  if (!roleAllowed(session.profile?.role, ["admin", ...FM_PM])) {
+  // ⚠️ `regional_manager` named explicitly, NOT folded into FM_PM — that
+  // constant's own comment forbids it, because several call sites include the
+  // regional manager and several deliberately do not. It belongs here because
+  // they hold the capability this page is for (0236/0238); the nav offers the
+  // link from that capability and only this list said no.
+  if (!roleAllowed(session.profile?.role, ["admin", ...FM_PM, "regional_manager"])) {
     return <RoleGate title="Bulk import assets" />;
   }
 

@@ -33,8 +33,13 @@ export default async function VendorsPage() {
   // `executive` holds `vendors.read`. Scoring a vendor (`vendors.evaluate`) is
   // deliberately not theirs — an evaluation feeds the payment gate they sit on,
   // so writing one would let the same person set and clear their own bar.
+  // ⚠️ `regional_manager` named explicitly, NOT folded into FM_PM — that
+  // constant's own comment forbids it, because several call sites include the
+  // regional manager and several deliberately do not. It belongs here because
+  // they hold the capability this page is for (0236/0238); the nav offers the
+  // link from that capability and only this list said no.
   if (!roleAllowed(session.profile?.role, [
-    "admin", ...FM_PM, "finance_approver", "executive",
+    "admin", ...FM_PM, "regional_manager", "finance_approver", "executive",
   ])) {
     return <RoleGate title="Vendors" />;
   }
@@ -43,7 +48,7 @@ export default async function VendorsPage() {
   // see vendors, but creating a company is the same audience `vendors.write`
   // covers. RLS refuses the insert regardless — this only decides whether to
   // offer a button that would be refused.
-  const canAddVendor = roleAllowed(session.profile?.role, ["admin", ...FM_PM]);
+  const canAddVendor = roleAllowed(session.profile?.role, ["admin", ...FM_PM, "regional_manager"]);
 
   const supabase = await createClient();
   // ⚠️ Scores come from `vendor_evaluation_tickets`, NOT an embedded

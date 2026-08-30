@@ -13,11 +13,12 @@ export default async function ApplicationsPage() {
   const profile = session.profile!;
 
   const supabase = await createClient();
-  const [appsRes, orgRes, pendingVendorsRes] = await Promise.all([
+  const [appsRes, orgRes, pendingVendorsRes, canRecommendRes, canApproveRes] =
+    await Promise.all([
     supabase
       .from("vendor_applications")
       .select(
-        "id, business_name, service_category, cac_number, tin, contact_name, contact_email, contact_phone, website, notes, status, email_verified_at, created_at"
+        "id, business_name, service_category, cac_number, tin, contact_name, contact_email, contact_phone, website, notes, status, email_verified_at, created_at, recommended_by, recommendation_notes"
       )
       .in("status", ["submitted", "email_verified", "under_review"])
       .order("created_at", { ascending: false }),
@@ -31,6 +32,10 @@ export default async function ApplicationsPage() {
       .select("id, name, service_category, contact_email")
       .eq("approval_status", "pending")
       .order("created_at", { ascending: false }),
+    // 0238. Asked of the database rather than inferred from the role, so the
+    // buttons on screen agree with what the function will actually permit.
+    supabase.rpc("has_permission", { p_capability: "vendors.recommend" }),
+    supabase.rpc("has_permission", { p_capability: "vendors.approve" }),
   ]);
 
   const h = await headers();
@@ -64,7 +69,12 @@ export default async function ApplicationsPage() {
           <CardTitle className="text-base">Applications to review</CardTitle>
         </CardHeader>
         <CardContent>
-          <ApplicationQueue applications={(appsRes.data as Application[]) ?? []} />
+          <ApplicationQueue
+            applications={(appsRes.data as Application[]) ?? []}
+            canRecommend={Boolean(canRecommendRes.data)}
+            canApprove={Boolean(canApproveRes.data)}
+            me={session.user.id}
+          />
         </CardContent>
       </Card>
 
