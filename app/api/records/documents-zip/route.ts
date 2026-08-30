@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { ZipArchive } from "archiver";
+import { zipSync } from "fflate";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
 
@@ -91,34 +91,36 @@ export async function GET(req: Request) {
     return new NextResponse("There are no documents to download for this record.", { status: 404 });
   }
 
-  const archive = new ZipArchive({ zlib: { level: 9 } });
-  const chunks: Buffer[] = [];
-  archive.on("data", (c: Buffer) => chunks.push(c));
-  const done = new Promise<void>((resolve, reject) => {
-    archive.on("end", resolve);
-    archive.on("error", reject);
-  });
-
+  // ⚠️ `fflate`, not `archiver`. Archiver v8 ships an `exports` map webpack
+  // refuses — "Default condition should be last one" — so it type-checked
+  // cleanly, ran under `next dev`, and broke `next build`. This route holds the
+  // whole pack in memory either way (a KYC pack is a handful of PDFs under
+  // 2 MB each, capped by 0213), so a synchronous in-memory zip is the honest
+  // shape for it and drops a dependency tree rather than adding one.
+  //
   // Same-name collisions (two documents both called "id-card.pdf") are real —
   // an index prefix keeps every file in the zip, rather than one silently
   // overwriting another when it lands on disk.
-  const seen = new Set<string>();
+  const entries: Record<string, Uint8Array> = {};
   for (let i = 0; i < files.length; i++) {
     const f = files[i];
     const { data, error } = await supabase.storage.from(bucket).download(f.path);
     if (error || !data) continue; // one unreadable file does not fail the whole pack
     let name = f.name || `document-${i + 1}`;
-    if (seen.has(name)) name = `${i + 1}-${name}`;
-    seen.add(name);
-    archive.append(Buffer.from(await data.arrayBuffer()), { name });
+    if (entries[name]) name = `${i + 1}-${name}`;
+    entries[name] = new Uint8Array(await data.arrayBuffer());
   }
-  await archive.finalize();
-  await done;
+
+  if (Object.keys(entries).length === 0) {
+    return new NextResponse("None of this record's documents could be read.", { status: 502 });
+  }
+
+  const zipped = zipSync(entries, { level: 9 });
 
   const niceName = `${subjectName} - documents.zip`.replace(/[/\\?%*:|"<>]/g, "-");
   const asciiName = niceName.replace(/[^\x20-\x7E]/g, "").trim() || "documents.zip";
 
-  return new NextResponse(Buffer.concat(chunks) as unknown as BodyInit, {
+  return new NextResponse(Buffer.from(zipped) as unknown as BodyInit, {
     headers: {
       "Content-Type": "application/zip",
       "Content-Disposition":
