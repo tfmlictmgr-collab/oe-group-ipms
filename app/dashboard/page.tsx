@@ -29,6 +29,23 @@ export default async function DashboardPage({
   // dispatched, which is what My Work shows — with their score and pay status
   // beside it.
   if (session?.profile?.role === "vendor") redirect("/dashboard/my-work");
+  // ⚠️ THE MONEY DESK IS NOT A REQUEST DESK.
+  //
+  // Board direction, 30 Aug 2026: of the payment chain, only the administrator,
+  // the Managing Director and the Payment Auditor see service requests by
+  // default — and those three are exactly who `tickets.read_all` already names
+  // (B7, 0185). A Payment Approver and a Payment Officer hold no such
+  // capability, so this page was rendering them the empty end of a policy that
+  // was working correctly: a Service Requests screen with nothing on it, which
+  // reads as a broken build rather than as a desk that is not theirs.
+  //
+  // They are not losing sight of the work. `0212` admits the payment chain to
+  // the JOB A PAYMENT IS FOR, which is the route that makes sense for them —
+  // reached from the requisition, invoice or approval that raises the question,
+  // with the money in front of them. What is removed is the front door to a
+  // queue they have no business browsing.
+  if (session?.profile?.role === "payment_approver") redirect("/dashboard/approvals");
+  if (session?.profile?.role === "finance_approver") redirect("/dashboard/payments");
 
   const canRaiseWork = ["admin", ...FM_PM, "regional_manager"].includes(
     session?.profile?.role ?? ""

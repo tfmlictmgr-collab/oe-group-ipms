@@ -79,6 +79,23 @@ export type NavContext = {
   isOwner: boolean;
   /** Decision 9: "Nothing financial, no org-wide read." */
   isRegionalManager: boolean;
+  /**
+   * A money-desk role — Payment Approver or Payment Officer.
+   *
+   * Board direction, 30 Aug 2026: within the payment chain only the
+   * administrator, the Managing Director and the Payment Auditor see service
+   * requests by default, and those three are precisely who `tickets.read_all`
+   * already names. These two hold no such capability, so the Service Requests
+   * link led them to a correctly-empty page — the same "a screen that
+   * half-works is worse than one honest one" fault this file records for a
+   * viewer and for a contractor.
+   *
+   * Their queue is money: payments and the approval chain. The job behind a
+   * payment stays reachable from the payment itself (0212), which is the
+   * route that carries the context — requisition, invoice, work order — rather
+   * than a bare queue.
+   */
+  isMoneyDesk: boolean;
   seesBi: boolean;
   /** The `requests` capability of the B7 BI matrix — the analytics console. */
   seesRequestAnalytics: boolean;
@@ -197,7 +214,8 @@ export const NAV_GROUPS: NavGroup[] = [
         label: "Requests",
         href: "/dashboard",
         icon: Inbox,
-        show: (c) => !c.isViewer && !c.isTenant && !c.isVendor && !c.isOpsStaff,
+        show: (c) =>
+          !c.isViewer && !c.isTenant && !c.isVendor && !c.isOpsStaff && !c.isMoneyDesk,
       },
       {
         label: "Analytics",

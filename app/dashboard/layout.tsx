@@ -191,6 +191,13 @@ export default async function DashboardLayout({
     // via the capability matrix; Statements is a second, separate way onto the
     // same financial data that the matrix was never asked about.
     isRegionalManager: role === "regional_manager",
+    // The two money-desk roles. Deliberately NOT capability-derived: the point
+    // is which queue is their HOME, and `tickets.read_all` — the capability
+    // that decides what they may READ — already correctly answers no for both.
+    // Deriving this from it would conflate "may not browse the queue" with
+    // "may not see the job behind a payment", and 0212 grants exactly that
+    // second thing.
+    isMoneyDesk: ["payment_approver", "finance_approver"].includes(role),
 
     // Capability-derived. `properties`/`vendors`/`leases` read as "can act on
     // them at all"; RLS then decides WHICH — an FM/PM and a regional manager
