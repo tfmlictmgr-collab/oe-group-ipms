@@ -21,7 +21,7 @@ export default function RecordDownloads() {
       <CardHeader className="pb-3">
         <CardTitle className="text-base">Download records</CardTitle>
         <CardDescription>
-          A CSV roster of this organisation's own records. Nothing here
+          A CSV roster of this organisation&apos;s own records. Nothing here
           crosses an organisation boundary.
         </CardDescription>
       </CardHeader>

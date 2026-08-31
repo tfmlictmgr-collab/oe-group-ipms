@@ -802,8 +802,8 @@ export default function CompanyClient({
             </p>
           ) : !canManageContracts ? (
             <p className="text-sm text-muted-foreground">
-              Only someone who can manage contracts may offer this company's
-              registration elsewhere.
+              Only someone who can manage contracts may offer this
+              company&apos;s registration elsewhere.
             </p>
           ) : (
             <div className="space-y-3 rounded-md border border-border p-3">
