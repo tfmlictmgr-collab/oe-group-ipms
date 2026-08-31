@@ -58,7 +58,7 @@ alter table application_decisions
   check (decided_by is not null or kind = 'recommend_approve');
 
 comment on column application_decisions.decided_by is
-  'The person who decided. NULL only on a recommend_approve written by the automated completeness check (0225) - no person decided it, and the review history says so rather than attributing a machine step to somebody.';
+  'The person who decided. NULL only on a recommend_approve written by the automated completeness check (0241) - no person decided it, and the review history says so rather than attributing a machine step to somebody.';
 
 -- Stamped so the check speaks once per application, and the 24-hour nudge
 -- fires once. The ROW is the record of having been told; the schedule never
@@ -68,9 +68,9 @@ alter table tenant_applications
   add column if not exists escalated_at  timestamptz;
 
 comment on column tenant_applications.screened_at is
-  'When the automated completeness check passed this application to a human reviewer (0225). Set once; its presence is what stops the job speaking twice.';
+  'When the automated completeness check passed this application to a human reviewer (0241). Set once; its presence is what stops the job speaking twice.';
 comment on column tenant_applications.escalated_at is
-  'When the administrators were told this application had sat unattended for 24 hours (0225). Set once, for the same reason.';
+  'When the administrators were told this application had sat unattended for 24 hours (0241). Set once, for the same reason.';
 
 -- ── 2. The completeness check hands it to the region ──────────────────────
 --
@@ -227,97 +227,32 @@ grant execute on function escalate_stale_applications() to service_role;
 -- node subtree and nothing else. "Approve based on the location of the
 -- property" is therefore the scoping that already exists, finally reachable.
 --
--- 🚨 And `applications.review_all` comes OFF that arm, where 0184 put it back.
--- Audit 0729b-S1 removed it in 0077 as a High finding — it is defined as
--- "read every tenant application in the organisation, not only those for
--- properties they are attached to", which is the org-wide read decision 9
--- denies the role, and it carries every applicant's identity documents. The
--- live rows never had it (checked, all four orgs); only the seed did, so this
--- has been latent for new organisations rather than leaking today. It also
--- matters more now than it did an hour ago: `review_all` is the clause that
--- BYPASSES the property scoping above, so leaving it would have handed a
--- regional manager approval over every application in the organisation — the
--- exact opposite of what this migration is for.
-create or replace function seed_b7_permissions(p_org_id uuid)
-returns void language plpgsql security definer set search_path = public as $$
-declare
-  cap record;
-  r user_role;
-  v_granted boolean;
-begin
-  for cap in select key from capabilities where not locked loop
-    foreach r in array array['tenant','vendor','fm_ops_staff','facility_manager',
-                             'property_manager',
-                             'finance_approver','property_owner','admin','viewer',
-                             'executive','regional_manager',
-                             'payment_audit_approver','payment_approver']::user_role[]
-    loop
-      v_granted := case
-        when cap.key = 'tickets.assign_without_review' then false
-        when cap.key = 'training.read' then false
-        when cap.key = 'records.export' then false
-
-        when r = 'admin' then true
-
-        when r = 'executive' then cap.key in (
-          'tickets.read_all', 'assets.read', 'sc.read_all', 'properties.read_all',
-          'vendors.read', 'bi.read', 'tickets.triage_unassigned'
-        )
-
-        when r = 'payment_audit_approver' then cap.key in (
-          'tickets.read_all', 'vendors.read', 'bi.read', 'properties.read_all'
-        )
-
-        when r = 'payment_approver' then cap.key in (
-          'vendors.read', 'bi.read', 'properties.read_all'
-        )
-
-        when r = 'regional_manager' then cap.key in (
-          'tickets.assign', 'tickets.close', 'tickets.triage_unassigned',
-          'assets.write', 'assets.import',
-          'vendors.read', 'vendors.write', 'vendors.evaluate',
-          'properties.write', 'units.assign_occupant',
-          'people.invite', 'bi.read',
-          -- 0225: the region decides its own tenancies. Bounded to their node
-          -- subtree by record_application_approval's own property check, which
-          -- is why `applications.review_all` must NOT be here.
-          'applications.recommend', 'applications.approve'
-        )
-
-        when cap.key = 'tickets.read_all' then false
-
-        when cap.key in ('assets.read', 'sc.read_all', 'properties.read_all')
-          then r = 'finance_approver'
-
-        when cap.key in ('tickets.assign', 'tickets.close',
-                         'assets.write', 'assets.import',
-                         'vendors.write', 'vendors.evaluate',
-                         'properties.write', 'units.assign_occupant',
-                         'people.invite')
-          then r in ('facility_manager', 'property_manager')
-
-        when cap.key = 'vendors.read'
-          then r in ('facility_manager', 'property_manager', 'finance_approver')
-        when cap.key = 'sc.manage'    then r = 'finance_approver'
-        when cap.key = 'bi.read'
-          then r in ('facility_manager', 'property_manager',
-                     'finance_approver', 'property_owner')
-        when cap.key = 'people.deactivate' then false
-        when cap.key = 'tickets.triage_unassigned' then false
-
-        else false
-      end;
-
-      insert into role_permissions (org_id, role, capability, granted)
-      values (p_org_id, r, cap.key, v_granted)
-      on conflict (org_id, role, capability) do nothing;
-    end loop;
-  end loop;
-end;
-$$;
-
-comment on function seed_b7_permissions is
-  'What a NEW org starts with, and what "reset to B7" returns an existing one to (0184, +0203 training.read, +0223 records.export, +0225 the regional manager approves tenancies for their own region and loses the org-wide application read 0077 had already removed). A capability not named here falls to `else false` -- decision 7''s "B7 silent means OFF".';
+-- 🚨 And `applications.review_all` must stay OFF that arm, where 0184 had put
+-- it back once already. Audit 0729b-S1 removed it in 0077 as a High finding —
+-- it is defined as "read every tenant application in the organisation, not
+-- only those for properties they are attached to", which is the org-wide
+-- read decision 9 denies the role, and it carries every applicant's identity
+-- documents. It is the clause that BYPASSES the property scoping above, so
+-- granting it would hand a regional manager approval over every application
+-- in the organisation — the exact opposite of what this migration is for.
+--
+-- ⚠️ RENUMBERED 0225 → 0241, and `seed_b7_permissions` is NOT redefined here.
+-- Written and applied to staging as 0225, ahead of a concurrent session
+-- working the same shared database directly on `phase-1` — by the time that
+-- session's own `0236`/`0238` reached this function, they extracted the LIVE
+-- definition (pg_get_functiondef) rather than retyping from a stale file
+-- (0183's rule), so `applications.recommend`/`applications.approve` for
+-- `regional_manager` and the absence of `applications.review_all` from that
+-- arm are already exactly what `0238` states — inherited, not reconstructed.
+-- This migration now runs strictly AFTER `0238` in the merged sequence;
+-- redefining the function again here would risk exactly the regression 0183
+-- warns about, silently dropping `hierarchy.write`, `sc.manage`,
+-- `leases.write`, `vendors.recommend` and `vendors.approve` — all added by
+-- `0236`/`0238`, all after this migration was first written. What still
+-- needs doing here, and is not implied by `0238` alone, is the backfill onto
+-- EXISTING organisations below: `seed_b7_permissions` only ever runs at
+-- provisioning, so a function correction reaches new orgs and never touches
+-- one already live.
 
 -- Existing organisations get the grant that unblocks them. Deliberately only
 -- the ADD: revoking review_all from live rows would be a change to what
