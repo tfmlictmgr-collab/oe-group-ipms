@@ -5,8 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
-  ArrowRight, CheckCircle2, CircleAlert, Handshake, Paperclip, Send,
-  Undo2, Upload, Users,
+  ArrowRight, Check, CheckCircle2, CircleAlert, Copy, Handshake, Mail, Paperclip, Send,
+  Undo2, Upload, UserPlus, Users,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
 import { runAction, describeError } from "@/lib/run-action";
 import {
   saveRegistration, submitRegistration, recordDocument,
-  setVendorUserCapabilities, removeVendorUser,
+  setVendorUserCapabilities, removeVendorUser, inviteVendorColleague,
   offerIntroduction, withdrawIntroduction,
 } from "./actions";
 
@@ -210,6 +210,12 @@ export default function CompanyClient({
   const [consented, setConsented] = React.useState(false);
   const [offering, setOffering] = React.useState(false);
   const [withdrawingId, setWithdrawingId] = React.useState<string | null>(null);
+  const [inviteEmail, setInviteEmail] = React.useState("");
+  const [inviteName, setInviteName] = React.useState("");
+  const [inviteCaps, setInviteCaps] = React.useState<string[]>([]);
+  const [inviting, setInviting] = React.useState(false);
+  const [issued, setIssued] = React.useState<{ url: string; accepted: boolean } | null>(null);
+  const [copied, setCopied] = React.useState(false);
   /** Which doc_type is mid-upload, so the row can say so rather than the page. */
   const [uploading, setUploading] = React.useState<string | null>(null);
   /** The last refusal per doc_type, kept ON THE ROW — a toast the person has
@@ -360,6 +366,36 @@ export default function CompanyClient({
     } catch (e) {
       toast.error("Could not remove that person", { description: describeError(e) });
     }
+  }
+
+  async function inviteColleague() {
+    setInviting(true);
+    try {
+      const res = await runAction(
+        inviteVendorColleague(inviteEmail, inviteName, inviteCaps)
+      );
+      setIssued(res);
+      toast.success("Invitation issued", {
+        description: res.accepted
+          ? "Emailed. If it hasn't arrived in a few minutes, share the link below directly."
+          : "Email wasn't sent — copy the link below and share it directly.",
+      });
+      setInviteEmail("");
+      setInviteName("");
+      setInviteCaps([]);
+      router.refresh();
+    } catch (e) {
+      toast.error("Could not issue that invitation", { description: describeError(e) });
+    } finally {
+      setInviting(false);
+    }
+  }
+
+  async function copyIssuedLink() {
+    if (!issued) return;
+    await navigator.clipboard.writeText(issued.url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   }
 
   async function offer() {
@@ -774,6 +810,106 @@ export default function CompanyClient({
               </p>
             </div>
           ))}
+
+          {/* ── Inviting a colleague ────────────────────────────────────
+              The database side (`invitations_insert_by_vendor_user`) has
+              existed since 0163; "Manage people"'s own hint text has
+              promised this ("Invite colleagues and set what they may do")
+              since the pill existed. This is that promise, kept. */}
+          {canManageUsers && (
+            <div className="space-y-3 rounded-md border border-border p-3">
+              <p className="flex items-center gap-2 text-sm font-medium">
+                <UserPlus className="size-4" /> Invite a colleague
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="invite-name">Full name</Label>
+                  <Input
+                    id="invite-name"
+                    value={inviteName}
+                    onChange={(e) => setInviteName(e.target.value)}
+                    disabled={inviting}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="invite-email">Email</Label>
+                  <Input
+                    id="invite-email"
+                    type="email"
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                    disabled={inviting}
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label>What may they do?</Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {CAPABILITIES.map((c) => {
+                    const on = inviteCaps.includes(c.key);
+                    return (
+                      <button
+                        key={c.key}
+                        type="button"
+                        title={c.hint}
+                        aria-pressed={on}
+                        disabled={inviting}
+                        onClick={() =>
+                          setInviteCaps((prev) =>
+                            on ? prev.filter((k) => k !== c.key) : [...prev, c.key]
+                          )
+                        }
+                        className={cn(
+                          "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors hover:opacity-90",
+                          on
+                            ? "border-transparent bg-[var(--brand)] text-[var(--brand-fg)]"
+                            : "border-border bg-card text-muted-foreground"
+                        )}
+                      >
+                        {c.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <Button
+                onClick={inviteColleague}
+                disabled={
+                  inviting || !inviteEmail.trim() || !inviteName.trim() || inviteCaps.length === 0
+                }
+                variant="brand"
+              >
+                <Send /> {inviting ? "Sending…" : "Send invitation"}
+              </Button>
+
+              {issued && (
+                <div className="space-y-2 rounded-md border border-border bg-muted/40 p-3">
+                  <p className="flex items-center gap-2 text-sm font-medium">
+                    <Mail className="size-4 text-brand" />
+                    {issued.accepted ? "Invitation sent" : "Send this link to them"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {issued.accepted
+                      ? "Handed to the mail provider. If it hasn't arrived in a few minutes, send this link directly (WhatsApp is fine)."
+                      : "Email wasn't sent, so share this link directly (WhatsApp is fine)."}{" "}
+                    It works once and expires in 14 days.
+                  </p>
+                  <div className="flex gap-2">
+                    <Input readOnly value={issued.url} className="font-mono text-xs" />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={copyIssuedLink}
+                      className="flex-shrink-0"
+                    >
+                      {copied ? <Check /> : <Copy />}
+                      {copied ? "Copied" : "Copy"}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 

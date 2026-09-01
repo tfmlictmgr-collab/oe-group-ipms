@@ -1,8 +1,18 @@
 "use server";
 
+import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import {
+  generateInviteToken,
+  hashInviteToken,
+  buildInviteUrl,
+  sendInviteEmail,
+} from "@/lib/invitation";
 import { ok, fail, failFromDb, type ActionResult } from "@/lib/action-result";
+
+/** Mirrors the `vendor_capability` enum (0163) — the only four keys `invitations_insert_by_vendor_user` will accept. */
+const VENDOR_CAPABILITIES = ["manage_users", "manage_profile", "manage_work", "manage_contracts"];
 
 /**
  * A vendor company administering itself — decision 17's UI half, which
@@ -185,6 +195,115 @@ export async function removeVendorUser(vendorUserId: string): Promise<ActionResu
   }
   revalidatePath("/dashboard/my-company");
   return ok();
+}
+
+/**
+ * A vendor owner (or anyone else holding `manage_users`) inviting a colleague
+ * into their OWN company. The database side has existed since 0163 —
+ * `invitations_insert_by_vendor_user` already permits exactly this — but
+ * nothing on this screen ever called it: the "Manage people" pill's own hint
+ * text ("Invite colleagues and set what they may do") named a feature that
+ * had no form behind it. This is that form's server half.
+ *
+ * Deliberately its OWN action rather than a widened `inviteMember` — a vendor
+ * colleague is a PEER within the same company, not a subordinate in an org's
+ * rank hierarchy (`ROLE_RANK["vendor"]` is not even meaningfully comparable to
+ * itself), so it does not belong on that action's seniority logic. It mirrors
+ * only the parts that ARE shared: token issuance, the re-invite-replaces-stale
+ * behaviour, and the email.
+ */
+export async function inviteVendorColleague(
+  email: string,
+  fullName: string,
+  capabilities: string[]
+): Promise<ActionResult<{ url: string; accepted: boolean }>> {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return fail("Your session expired. Please sign in again.");
+
+  const { data: me } = await supabase
+    .from("users").select("org_id, role, full_name").eq("id", user.id).single();
+  if (!me) return fail("Could not resolve your profile.");
+  if (me.role !== "vendor") {
+    return fail("Only a vendor company may invite its own colleagues here.");
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+    return fail("Enter a valid email address.");
+  }
+  const cleanCapabilities = Array.from(new Set(capabilities)).filter((c) =>
+    VENDOR_CAPABILITIES.includes(c)
+  );
+  // The RLS policy refuses an empty set too — this is the same rule, said
+  // before the round trip: an empty set is what makes a FIRST login an owner,
+  // and this is never a company's first login.
+  if (cleanCapabilities.length === 0) {
+    return fail(
+      "Choose what this person may do.",
+      "At least one — an invitation with nothing granted would be a login with nothing to do."
+    );
+  }
+
+  const { data: vendorId, error: vendorErr } = await supabase.rpc("current_user_vendor_id");
+  if (vendorErr || !vendorId) {
+    return fail("You are not attached to a vendor company.");
+  }
+
+  const existing = await supabase
+    .from("users").select("id").eq("email", cleanEmail).maybeSingle();
+  if (existing.data) {
+    return fail(
+      "That person is already a platform member.",
+      "An existing login cannot be re-invited into a second company from here."
+    );
+  }
+
+  // Re-inviting replaces any live invitation for this email INTO THIS company,
+  // rather than colliding with it. Scoped to `vendor_id` so a stray email match
+  // can never revoke a staff invitation this vendor has no business touching.
+  await supabase
+    .from("invitations")
+    .update({ status: "revoked" })
+    .eq("org_id", me.org_id)
+    .eq("vendor_id", vendorId as string)
+    .eq("status", "pending")
+    .ilike("email", cleanEmail);
+
+  const token = generateInviteToken();
+  const { data: invitation, error } = await supabase.from("invitations").insert({
+    org_id: me.org_id,
+    email: cleanEmail,
+    role: "vendor",
+    full_name: fullName.trim() || null,
+    vendor_id: vendorId,
+    vendor_capabilities: cleanCapabilities,
+    token_hash: hashInviteToken(token),
+    invited_by: user.id,
+  }).select("id").single();
+  // `invitations_insert_by_vendor_user` is the real gate — this is a company
+  // inviting into itself, so a refusal here almost always means the scope
+  // slipped (an id from another company, say), not a permission question a
+  // vendor could act on. Passed through rather than reworded.
+  if (error) return failFromDb(error, "issue that invitation");
+
+  const h = await headers();
+  const origin =
+    process.env.NEXT_PUBLIC_SITE_URL ??
+    `${h.get("x-forwarded-proto") ?? "https"}://${h.get("host")}`;
+  const url = buildInviteUrl(origin, token);
+
+  const { data: org } = await supabase
+    .from("orgs").select("delivery_brand").eq("id", me.org_id).single();
+
+  const accepted = await sendInviteEmail(
+    cleanEmail, url, "vendor", me.org_id, org?.delivery_brand ?? null,
+    me.full_name ?? null, invitation?.id ?? null
+  );
+
+  revalidatePath("/dashboard/my-company");
+  return ok({ url, accepted });
 }
 
 /** Staff-side: approve a submitted pack, or send it back with a reason. */

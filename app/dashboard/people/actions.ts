@@ -8,8 +8,8 @@ import {
   generateInviteToken,
   hashInviteToken,
   buildInviteUrl,
+  sendInviteEmail,
 } from "@/lib/invitation";
-import { sendEmail } from "@/lib/email";
 import { roleLabel, INVITABLE_ROLES, ROLE_RANK, type InvitableRole, FM_PM } from "@/lib/roles";
 import { ok, fail, failFromDb, type ActionResult } from "@/lib/action-result";
 
@@ -141,7 +141,7 @@ export async function inviteMember(
 
   // `accepted` is what the provider tells us synchronously; whether it ARRIVED
   // is decided later, by the delivery webhook, against this invitation.
-  const accepted = await trySendInviteEmail(
+  const accepted = await sendInviteEmail(
     email,
     url,
     input.role,
@@ -152,54 +152,6 @@ export async function inviteMember(
   );
   revalidatePath("/dashboard/people");
   return ok({ url, accepted });
-}
-
-/**
- * Best-effort email. Returns whether the provider ACCEPTED it — never whether it
- * arrived; that is only known once the delivery webhook reports back. Returns
- * false (not an error) when Resend isn't configured: the caller still has the
- * shareable link, so onboarding is never blocked.
- * Category "account", so replies reach the org's support inbox rather than the
- * unmonitored sending subdomain.
- *
- * The copy names the CLIENT-FACING BRAND, never the holding entity (B1): a TFML
- * recipient reads "TFML portal". The role is rendered with the
- * brand-aware label, so TFML says "Operations Staff" where OEA says "Property
- * Operations Staff" — not the raw database value.
- */
-async function trySendInviteEmail(
-  to: string,
-  url: string,
-  role: string,
-  orgId: string,
-  brand: string | null,
-  invitedByName: string | null,
-  invitationId: string | null
-): Promise<boolean> {
-  const roleName = roleLabel(role, brand);
-
-  const res = await sendEmail({
-    to,
-    orgId,
-    category: "account",
-    entityType: "invitation",
-    entityId: invitationId,
-    subject: ({ brandName }) => `You've been invited to the ${brandName} portal`,
-    text: ({ brandName }) =>
-      [
-        `You've been invited to join the ${brandName} portal as ${roleName}.`,
-        ...(invitedByName ? [``, `Invited by ${invitedByName}.`] : []),
-        ``,
-        `Set your password to get started:`,
-        url,
-        ``,
-        `This link expires in 14 days and can only be used once.`,
-        ``,
-        `If you weren't expecting this invitation you can safely ignore this email`,
-        `— or reply to it if you'd like to confirm it's genuine.`,
-      ].join("\n"),
-  });
-  return res.sent;
 }
 
 /**
