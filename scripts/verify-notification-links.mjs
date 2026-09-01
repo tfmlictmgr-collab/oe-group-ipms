@@ -68,7 +68,7 @@ console.log("A. Every id-bearing link declares what it points at");
 {
   const { rows } = await db.query(`
     select count(*)::int n from user_notifications
-     where link ~ '^/dashboard/(tickets|payments|assets|properties|leases)/'
+     where link ~ '^/dashboard/(tickets|payments|assets|properties|leases|people/tenancy)/'
        and link ~ '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}'
        and entity_id is null`);
   rows[0].n === 0
@@ -82,6 +82,9 @@ console.log("\nB. No notification outlives its subject");
   for (const [type, table] of [
     ["ticket", "tickets"], ["payment", "payments"], ["asset", "assets"],
     ["property", "properties"], ["lease", "leases"],
+    // Added by 0242, after a live 404 traced to exactly this entity type
+    // being absent from this list.
+    ["tenant_application", "tenant_applications"],
   ]) {
     const { rows } = await db.query(
       `select count(*)::int n from user_notifications nt
@@ -178,10 +181,15 @@ console.log("\nD. Every role, every org: no dead link is offered");
           // Ask as SERVICE ROLE whether the row exists at all. That is what
           // tells the two causes apart.
           const table = { ticket: "tickets", payment: "payments", asset: "assets",
-                          property: "properties", lease: "leases" }[r.entity_type];
+                          property: "properties", lease: "leases",
+                          tenant_application: "tenant_applications" }[r.entity_type];
           let exists = false;
           if (table && r.entity_id) {
-            const { data } = await svc.from(table).select("id").eq("id", r.entity_id).maybeSingle();
+            let q = svc.from(table).select("id").eq("id", r.entity_id);
+            // Purged, not just deleted — my_notifications()'s own target_live
+            // check for this entity treats a purged row as gone too.
+            if (table === "tenant_applications") q = q.is("purged_at", null);
+            const { data } = await q.maybeSingle();
             exists = Boolean(data);
           }
           if (exists) { outOfScope++; scopeDetail.push(`${org.slug} ${u.role}`); }
