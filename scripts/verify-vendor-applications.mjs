@@ -3,11 +3,21 @@
 //   • anon can INSERT but NEVER read back (no enumeration)
 //   • a closed org rejects submissions (a leaked link is inert)
 //   • an application can never create a vendor by itself
-//   • only admin/FM in the SAME org may decide
+//   • only staff of the SAME org, holding the right capability, may decide
+//   • two-tier since 0238: an FM/PM/RM recommends, only a regional manager or
+//     admin approves, and the recommender may not also approve their own
 //   • approving creates exactly one vendor, marked approved
 //   • duplicates are refused while a decision is pending
 //   • email confirmation is single-use and reveals nothing
 //   • everything is audited
+//
+// ⚠️ Sections I onward were rewritten (0243-adjacent fix) after `0238` added
+// the recommend/approve split to `approve_vendor_application` and this suite
+// was never updated for it — it kept calling `approve_vendor_application`
+// straight from `submitted`, which the new function correctly refuses
+// ("has not been recommended by a first reviewer yet"). The gate was right;
+// the test was stale — the same class of thing 0145's own header warns about.
+//
 // Usage: npx tsx scripts/verify-vendor-applications.mjs
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -38,6 +48,11 @@ async function login(email) {
 const admin = await login("oe-group-foundation-poc.admin@oegroup.test");
 const tenant = await login("oe-group-foundation-poc.tenant@oegroup.test");
 const oea = await login("oea.admin@oegroup.test");
+// The first-tier reviewer (0238): recommends, never decides. A distinct
+// person from `admin` on purpose — `approve_vendor_application` refuses the
+// recommender, so testing the real two-tier shape needs two different
+// people, exactly as the product requires.
+const fm = await login("oe-group-foundation-poc.facilitymanager@oegroup.test");
 
 const { data: { user: adminUser } } = await admin.auth.getUser();
 const { data: me } = await admin.from("users").select("org_id").eq("id", adminUser.id).single();
@@ -155,7 +170,41 @@ console.log("\nH. Email confirmation is single-use and silent about failures");
   junk === false ? ok("unknown token returns a bare false, leaking nothing") : bad(`unknown token returned ${junk}`);
 }
 
-console.log("\nI. Approval creates exactly one approved vendor");
+console.log("\nI. The first-tier reviewer puts it forward (0238)");
+{
+  const { error: shortErr } = await fm.rpc("recommend_vendor_application", {
+    p_application_id: app.id, p_notes: "too short",
+  });
+  shortErr ? ok(`a two-word recommendation is refused (${shortErr.message.slice(0, 45)})`) : bad("ALLOWED — a rubber-stamp recommendation with no substance");
+
+  const { error: capErr } = await tenant.rpc("recommend_vendor_application", {
+    p_application_id: app.id, p_notes: "Checked CAC and bank evidence, all in order",
+  });
+  capErr ? ok(`a tenant cannot recommend (${capErr.message.slice(0, 45)})`) : bad("ALLOWED — a tenant recommended a vendor");
+
+  const { error } = await fm.rpc("recommend_vendor_application", {
+    p_application_id: app.id, p_notes: "Checked CAC and bank evidence, all in order",
+  });
+  if (error) bad(`recommendation failed — ${error.message}`);
+  else {
+    const { data: a1 } = await svc
+      .from("vendor_applications").select("status, recommended_by").eq("id", app.id).single();
+    a1?.status === "under_review" ? ok("moved to under_review") : bad(`status is ${a1?.status}`);
+  }
+
+  // The recommender here is an FM, who never holds vendors.approve at all —
+  // this only proves the capability gate, not the self-approval refusal one
+  // level up (a regional manager/admin recommending, then approving their
+  // own). That narrower boundary is verify-vendor-two-tier.mjs's job, and it
+  // covers it directly; this is just confirming an FM stays shut out end to
+  // end, recommendation or not.
+  const { error: sameApprove } = await fm.rpc("approve_vendor_application", { p_application_id: app.id });
+  sameApprove
+    ? ok(`the recommender (an FM, holding no vendors.approve) still cannot decide it (${sameApprove.message.slice(0, 45)})`)
+    : bad("ALLOWED — an FM approved a vendor application");
+}
+
+console.log("\nJ. Approval creates exactly one approved vendor");
 {
   const { data: vendorId, error } = await admin.rpc("approve_vendor_application", {
     p_application_id: app.id, p_notes: "Verified by test",
@@ -179,13 +228,13 @@ console.log("\nI. Approval creates exactly one approved vendor");
   }
 }
 
-console.log("\nJ. An already-decided application cannot be approved twice");
+console.log("\nK. An already-decided application cannot be approved twice");
 {
   const { error } = await admin.rpc("approve_vendor_application", { p_application_id: app.id });
   error ? ok(`re-approval blocked (${error.message.slice(0, 45)})`) : bad("ALLOWED — approved twice, creating a second vendor");
 }
 
-console.log("\nK. The whole path is audited");
+console.log("\nL. The whole path is audited");
 {
   const { count } = await svc
     .from("audit_log").select("*", { count: "exact", head: true }).eq("action", "vendor_application.write");
