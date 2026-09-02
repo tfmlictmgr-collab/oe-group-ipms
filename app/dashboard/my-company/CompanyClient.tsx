@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Input, Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,8 +18,15 @@ import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { runAction, describeError } from "@/lib/run-action";
 import {
+  ASSIGNABLE_VENDOR_ROLES,
+  VENDOR_ROLE_LABEL,
+  VENDOR_ROLE_HINT,
+  VENDOR_ROLE_CAPABILITIES,
+  vendorRoleOf,
+} from "@/lib/vendor-roles";
+import {
   saveRegistration, submitRegistration, recordDocument,
-  setVendorUserCapabilities, removeVendorUser, inviteVendorColleague,
+  setVendorUserRole, removeVendorUser, inviteVendorColleague,
   offerIntroduction, withdrawIntroduction,
 } from "./actions";
 
@@ -212,7 +219,7 @@ export default function CompanyClient({
   const [withdrawingId, setWithdrawingId] = React.useState<string | null>(null);
   const [inviteEmail, setInviteEmail] = React.useState("");
   const [inviteName, setInviteName] = React.useState("");
-  const [inviteCaps, setInviteCaps] = React.useState<string[]>([]);
+  const [inviteRole, setInviteRole] = React.useState<"member" | "admin">("member");
   const [inviting, setInviting] = React.useState(false);
   const [issued, setIssued] = React.useState<{ url: string; accepted: boolean } | null>(null);
   const [copied, setCopied] = React.useState(false);
@@ -346,12 +353,10 @@ export default function CompanyClient({
     }
   }
 
-  async function toggleCapability(m: VendorMember, key: string) {
-    const next = m.capabilities.includes(key)
-      ? m.capabilities.filter((c) => c !== key)
-      : [...m.capabilities, key];
+  async function changeRole(m: VendorMember, role: string) {
     try {
-      await runAction(setVendorUserCapabilities(m.id, next));
+      await runAction(setVendorUserRole(m.id, role));
+      toast.success(`${m.name} is now ${VENDOR_ROLE_LABEL[role as "member" | "admin"]}`);
       router.refresh();
     } catch (e) {
       toast.error("Could not change that", { description: describeError(e) });
@@ -372,7 +377,7 @@ export default function CompanyClient({
     setInviting(true);
     try {
       const res = await runAction(
-        inviteVendorColleague(inviteEmail, inviteName, inviteCaps)
+        inviteVendorColleague(inviteEmail, inviteName, inviteRole)
       );
       setIssued(res);
       toast.success("Invitation issued", {
@@ -382,7 +387,7 @@ export default function CompanyClient({
       });
       setInviteEmail("");
       setInviteName("");
-      setInviteCaps([]);
+      setInviteRole("member");
       router.refresh();
     } catch (e) {
       toast.error("Could not issue that invitation", { description: describeError(e) });
@@ -736,12 +741,49 @@ export default function CompanyClient({
                   database would refuse). So when they are not editable they are
                   no longer BUTTONS — they are state, rendered as state, with a
                   line underneath saying why. */}
+              {/* The role. An owner is shown and never offered: `is_owner`
+                  is refused to a vendor by
+                  `vendor_users_update_is_capabilities_only`, which admits only
+                  a holder of `vendors.write` — the managing organisation. A
+                  dropdown that could select it would be offering a button the
+                  database exists to refuse. A membership predating roles reads
+                  as Custom and keeps exactly what it has until someone picks. */}
+              {canManageUsers && !m.isOwner ? (
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <Select
+                    aria-label={`Role for ${m.name}`}
+                    className="h-8 w-40 text-xs"
+                    value={vendorRoleOf(m.isOwner, m.capabilities)}
+                    onChange={(e) => void changeRole(m, e.target.value)}
+                  >
+                    {vendorRoleOf(m.isOwner, m.capabilities) === "custom" && (
+                      <option value="custom" disabled>
+                        {VENDOR_ROLE_LABEL.custom}
+                      </option>
+                    )}
+                    {ASSIGNABLE_VENDOR_ROLES.map((r) => (
+                      <option key={r} value={r}>{VENDOR_ROLE_LABEL[r]}</option>
+                    ))}
+                  </Select>
+                  <span className="text-[11px] text-muted-foreground">
+                    {VENDOR_ROLE_HINT[vendorRoleOf(m.isOwner, m.capabilities)]}
+                  </span>
+                </div>
+              ) : (
+                <p className="mb-2 text-[11px] font-medium text-muted-foreground">
+                  {VENDOR_ROLE_LABEL[vendorRoleOf(m.isOwner, m.capabilities)]}
+                  {m.isOwner && " — ownership is changed by the managing organisation"}
+                </p>
+              )}
               <div className="flex flex-wrap gap-1.5">
                 {CAPABILITIES.map((c) => {
                   const on = m.isOwner || m.capabilities.includes(c.key);
-                  const editable = canManageUsers && !m.isOwner;
+                  // 0246: always state now, never a button. What a person may
+                  // do is chosen as a ROLE in the picker above this row; a pill
+                  // that could be toggled independently is how a company ends
+                  // up with a combination the product never offers.
+                  {
 
-                  if (!editable) {
                     // A capability I hold MYSELF, with somewhere real to use
                     // it, becomes a shortcut there rather than staying a pill
                     // that only describes itself — someone else's row (or a
@@ -776,23 +818,6 @@ export default function CompanyClient({
                     );
                   }
 
-                  return (
-                    <button
-                      key={c.key}
-                      type="button"
-                      title={c.hint}
-                      aria-pressed={on}
-                      onClick={() => toggleCapability(m, c.key)}
-                      className={cn(
-                        "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors hover:opacity-90",
-                        on
-                          ? "border-transparent bg-[var(--brand)] text-[var(--brand-fg)]"
-                          : "border-border bg-card text-muted-foreground"
-                      )}
-                    >
-                      {c.label}
-                    </button>
-                  );
                 })}
               </div>
               {/* Said once per row, rather than left for the reader to infer
@@ -843,39 +868,35 @@ export default function CompanyClient({
                 </div>
               </div>
               <div className="space-y-1.5">
-                <Label>What may they do?</Label>
-                <div className="flex flex-wrap gap-1.5">
-                  {CAPABILITIES.map((c) => {
-                    const on = inviteCaps.includes(c.key);
-                    return (
-                      <button
-                        key={c.key}
-                        type="button"
-                        title={c.hint}
-                        aria-pressed={on}
-                        disabled={inviting}
-                        onClick={() =>
-                          setInviteCaps((prev) =>
-                            on ? prev.filter((k) => k !== c.key) : [...prev, c.key]
-                          )
-                        }
-                        className={cn(
-                          "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors hover:opacity-90",
-                          on
-                            ? "border-transparent bg-[var(--brand)] text-[var(--brand-fg)]"
-                            : "border-border bg-card text-muted-foreground"
-                        )}
-                      >
-                        {c.label}
-                      </button>
-                    );
-                  })}
-                </div>
+                <Label htmlFor="invite-role">Role</Label>
+                <Select
+                  id="invite-role"
+                  value={inviteRole}
+                  disabled={inviting}
+                  onChange={(e) => setInviteRole(e.target.value as "member" | "admin")}
+                >
+                  {ASSIGNABLE_VENDOR_ROLES.map((r) => (
+                    <option key={r} value={r}>{VENDOR_ROLE_LABEL[r]}</option>
+                  ))}
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {VENDOR_ROLE_HINT[inviteRole]}
+                </p>
+                {/* What the role actually grants, spelled out. The four
+                    capabilities are still the thing the database enforces
+                    (decision 17); a role is a named set of them, and a person
+                    choosing one should be able to see which. */}
+                <p className="text-[11px] text-muted-foreground">
+                  Grants:{" "}
+                  {VENDOR_ROLE_CAPABILITIES[inviteRole]
+                    .map((k) => CAPABILITIES.find((c) => c.key === k)?.label ?? k)
+                    .join(" · ")}
+                </p>
               </div>
               <Button
                 onClick={inviteColleague}
                 disabled={
-                  inviting || !inviteEmail.trim() || !inviteName.trim() || inviteCaps.length === 0
+                  inviting || !inviteEmail.trim() || !inviteName.trim()
                 }
                 variant="brand"
               >

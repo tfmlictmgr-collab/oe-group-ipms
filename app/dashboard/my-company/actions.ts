@@ -10,9 +10,10 @@ import {
   sendInviteEmail,
 } from "@/lib/invitation";
 import { ok, fail, failFromDb, type ActionResult } from "@/lib/action-result";
-
-/** Mirrors the `vendor_capability` enum (0163) — the only four keys `invitations_insert_by_vendor_user` will accept. */
-const VENDOR_CAPABILITIES = ["manage_users", "manage_profile", "manage_work", "manage_contracts"];
+import {
+  isAssignableVendorRole,
+  capabilitiesForVendorRole,
+} from "@/lib/vendor-roles";
 
 /**
  * A vendor company administering itself — decision 17's UI half, which
@@ -170,15 +171,38 @@ export async function recordDocument(input: {
   return ok();
 }
 
-/** A vendor owner setting what one of their own people may do. */
-export async function setVendorUserCapabilities(
+/**
+ * A vendor setting one of their own people's ROLE.
+ *
+ * ⚠️ Takes a role and expands it HERE, never a capability list from the
+ * browser. The previous signature accepted `capabilities: string[]` and wrote
+ * it straight through, so the client chose the permission set; RLS bounded
+ * WHICH membership could be written but not WHAT it was written to. Roles are
+ * a closed set of two, expanded server-side against `lib/vendor-roles.ts`, so
+ * a crafted request can no longer mint a combination the product never offers
+ * — `manage_profile` alone, for instance, which edits the registration
+ * evidence a managing organisation verified.
+ *
+ * `owner` is absent from the assignable set on purpose: `is_owner` is refused
+ * to this caller by `vendor_users_update_is_capabilities_only`, which admits
+ * only a holder of `vendors.write` — the managing organisation. Offering it
+ * here would be offering a button the database exists to refuse.
+ */
+export async function setVendorUserRole(
   vendorUserId: string,
-  capabilities: string[]
+  role: string
 ): Promise<ActionResult> {
+  if (!isAssignableVendorRole(role)) {
+    return fail(
+      "That is not a role you can assign.",
+      "Ownership is changed by the managing organisation, not from this screen."
+    );
+  }
+
   const supabase = await createClient();
   const { error } = await supabase
     .from("vendor_users")
-    .update({ capabilities })
+    .update({ capabilities: capabilitiesForVendorRole(role) })
     .eq("id", vendorUserId);
   if (error) return failFromDb(error, "change what that person may do");
   revalidatePath("/dashboard/my-company");
@@ -215,7 +239,7 @@ export async function removeVendorUser(vendorUserId: string): Promise<ActionResu
 export async function inviteVendorColleague(
   email: string,
   fullName: string,
-  capabilities: string[]
+  role: string
 ): Promise<ActionResult<{ url: string; accepted: boolean }>> {
   const supabase = await createClient();
 
@@ -233,16 +257,18 @@ export async function inviteVendorColleague(
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
     return fail("Enter a valid email address.");
   }
-  const cleanCapabilities = Array.from(new Set(capabilities)).filter((c) =>
-    VENDOR_CAPABILITIES.includes(c)
-  );
-  // The RLS policy refuses an empty set too — this is the same rule, said
-  // before the round trip: an empty set is what makes a FIRST login an owner,
-  // and this is never a company's first login.
-  if (cleanCapabilities.length === 0) {
+  // Expanded from the role server-side, so the set written is one of exactly
+  // two the product offers. The old code filtered a client-supplied array
+  // against the four legal keys, which kept it well-formed without keeping it
+  // OFFERED — every subset of the four was reachable by hand.
+  //
+  // An empty set can no longer occur (both roles grant at least `manage_work`),
+  // but the check stays: it is the rule the RLS policy also enforces, and an
+  // empty set is what makes a FIRST login an owner — which this never is.
+  if (!isAssignableVendorRole(role)) {
     return fail(
       "Choose what this person may do.",
-      "At least one — an invitation with nothing granted would be a login with nothing to do."
+      "Member for the work itself, Admin to also run the company\u2019s people and contracts."
     );
   }
 
@@ -278,7 +304,7 @@ export async function inviteVendorColleague(
     role: "vendor",
     full_name: fullName.trim() || null,
     vendor_id: vendorId,
-    vendor_capabilities: cleanCapabilities,
+    vendor_capabilities: capabilitiesForVendorRole(role),
     token_hash: hashInviteToken(token),
     invited_by: user.id,
   }).select("id").single();
