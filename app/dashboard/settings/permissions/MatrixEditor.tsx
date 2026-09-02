@@ -22,9 +22,39 @@ import { setPermission, resetToB7, type MatrixView } from "./actions";
 // Ordered roughly by seniority so the matrix reads the way the org does.
 const ROLES = [
   "tenant", "vendor", "fm_ops_staff", ...FM_PM,
-  "regional_manager", "finance_approver", "property_owner", "viewer",
+  "regional_manager", "finance_approver",
+  // 0151 created these two and this list was never told — the third time this
+  // exact omission has happened here, after `executive` and `regional_manager`.
+  // They carry real seeded grants (the auditor holds org-wide sight of the
+  // request queue, which is not a small one), and an administrator could see
+  // none of it.
+  "payment_audit_approver", "payment_approver",
+  "property_owner", "viewer",
   "executive", "admin",
 ] as const;
+
+// ⚠️ NOT `roleLabel(...).split(" ")[0]`, which is what these headers used to be.
+// Three roles begin with "Payment" and two with "Propert", so the columns read
+// as duplicates of each other: "Properties" (the properties manager) sat four
+// columns from "Property" (the property owner), and adding the two payment
+// roles above would have produced three columns all headed "Payment". A column
+// heading that cannot be told from its neighbour is worse on a permission grid
+// than a long one.
+const SHORT_LABEL: Record<string, string> = {
+  tenant: "Tenant",
+  vendor: "Vendor",
+  fm_ops_staff: "Ops staff",
+  facility_manager: "FM",
+  property_manager: "PM",
+  regional_manager: "Regional",
+  finance_approver: "Pay officer",
+  payment_audit_approver: "Pay auditor",
+  payment_approver: "Pay approver",
+  property_owner: "Owner",
+  viewer: "Read-only",
+  executive: "MD / MP",
+  admin: "Admin",
+};
 
 export default function MatrixEditor({
   view,
@@ -142,13 +172,17 @@ export default function MatrixEditor({
               )}
             </CardHeader>
             <CardContent className="overflow-x-auto">
-              <table className="w-full min-w-[52rem] text-sm">
+              <table className="w-full min-w-[62rem] text-sm">
                 <thead>
                   <tr className="border-b border-border">
                     <th className="w-72 pb-2 text-left font-medium">Capability</th>
                     {ROLES.map((r) => (
-                      <th key={r} className="pb-2 text-center text-xs font-medium text-muted-foreground">
-                        {roleLabel(r, brand).split(" ")[0]}
+                      <th
+                        key={r}
+                        title={roleLabel(r, brand)}
+                        className="pb-2 text-center text-xs font-medium text-muted-foreground"
+                      >
+                        {SHORT_LABEL[r] ?? roleLabel(r, brand)}
                       </th>
                     ))}
                   </tr>
