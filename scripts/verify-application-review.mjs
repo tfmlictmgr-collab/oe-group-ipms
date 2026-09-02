@@ -122,23 +122,23 @@ const fm2 = await makeUser("facility_manager", "fm2"); // deliberately NOT attac
 await svc.from("property_stakeholders").insert({ org_id: oea.id, user_id: fm1.id, property_id: propA, relation: "manager" });
 
 const { data: adminUser } = await svc.from("users").select("id, email").eq("email", "oea.admin@oegroup.test").single();
-// ⚠️ The executive, not the finance approver, is the second approver here.
+// ⚠️ The SECOND approver on a corporate application, and it is no longer the
+// executive. 0245 narrowed `applications.approve` to the regional manager and
+// the administrator — 0225's decision, restored — so a corporate let now needs
+// two distinct people drawn from THAT pool.
 //
-// Both hold `applications.approve`. Only the executive also holds
-// `applications.review_all`, so only the executive can reach an application on
-// a property they are not attached to — `record_application_approval` scopes
-// on `review_all OR property_id in current_user_property_ids()`, exactly as
-// every other consumer does.
+// It is a second ADMINISTRATOR rather than a second regional manager, and the
+// reason is worth recording: a regional manager is region-scoped, so the second
+// signature must come from someone who also holds that property. Tried it with
+// `oea.regionalmanager@` and `record_application_approval` correctly answered
+// "you may not act on this application" — the scoping working, not a bug.
 //
-// This file used the finance approver and passed on `dev` alone, because dev's
-// two brand orgs still carry a `review_all → finance_approver` row from
-// `0062`'s original backfill, which no `seed_b7_permissions` since `0077` has
-// granted. Every org created since reads the way the function says, and the
-// second approval was refused. Asserting against a legacy row that the seed no
-// longer writes is asserting against one database, not against the rule —
-// and the rule is decision 9's: oversight sees everything finance sees, and
-// then some.
-const { data: execUser } = await svc.from("users").select("id, email").eq("email", "oea.executive@oegroup.test").single();
+// 📌 The operational consequence, which is real: a corporate application needs
+// two approvers BOTH in scope for the property. Two administrators, or two
+// regional managers covering the same region, or one of each. An org holding
+// only one of either cannot complete one — a config gap the org closes by
+// appointing somebody, exactly as decision 23 says of the OEA payment chain.
+const secondApprover = await makeUser("admin", "admin2");
 
 console.log("A. Recommend — held capability and property scope");
 const indApp = await mkApp(propA, "individual", "ind");
@@ -309,7 +309,7 @@ const corpApp = await mkApp(propA, "corporate", "corp");
          : bad("ONE PERSON APPROVED A CORPORATE APPLICATION TWICE");
   await admin.auth.signOut();
 
-  const fin = await login(execUser.email);
+  const fin = await login(secondApprover.email);
   const tok2 = crypto.randomBytes(24).toString("base64url");
   const { data: secondResult, error: e2 } = await fin.rpc("record_application_approval", {
     p_application_id: corpApp, p_reason: "independently verified, second and completing approval",
