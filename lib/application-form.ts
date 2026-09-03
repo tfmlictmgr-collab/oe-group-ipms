@@ -23,6 +23,17 @@ export type Field = {
   sensitive?: boolean;
   /** Half-width on desktop. Long text and addresses take the full row. */
   half?: boolean;
+  /**
+   * A select whose options depend on another field's value — the LGA list is
+   * decided by the state above it.
+   *
+   * `optionsFrom` names the field to read, `optionsBy` maps that field's value
+   * to the options offered. Kept as data on the field rather than a special
+   * case in the renderer, so the next dependent pair costs a line and not a
+   * branch.
+   */
+  optionsFrom?: string;
+  optionsBy?: Record<string, string[]>;
 };
 
 export type Section = {
@@ -31,6 +42,8 @@ export type Section = {
   description?: string;
   fields: Field[];
 };
+
+import { LGA_BY_STATE } from "./nigeria-lgas";
 
 const NIGERIAN_STATES = [
   "Abia","Adamawa","Akwa Ibom","Anambra","Bauchi","Bayelsa","Benue","Borno",
@@ -49,7 +62,16 @@ export const INDIVIDUAL_SECTIONS: Section[] = [
       { key: "date_of_birth", label: "Date of birth", type: "date", half: true },
       { key: "sex", label: "Sex", type: "select", options: ["Female", "Male", "Prefer not to say"], half: true },
       { key: "state_of_origin", label: "State of origin", type: "select", options: NIGERIAN_STATES, half: true },
-      { key: "lga", label: "Local government area", type: "text", half: true },
+      // ⚠️ Was free text, directly beneath a state DROPDOWN — so "Ikeja",
+      // "IKEJA" and "Ikeja LGA" all arrived as different values. 0186's finding
+      // about locations, one level down: an offered list is what stops the
+      // spellings, and the 774 LGAs are a closed set, which is what makes them
+      // offerable. The options are decided by the state chosen above.
+      {
+        key: "lga", label: "Local government area", type: "select", half: true,
+        optionsFrom: "state_of_origin", optionsBy: LGA_BY_STATE,
+        hint: "Choose your state of origin first.",
+      },
       { key: "phone", label: "Phone number", type: "tel", required: true, half: true },
       { key: "alt_phone", label: "Alternative phone", type: "tel", half: true },
       { key: "email", label: "Email address", type: "email", required: true, half: true },
@@ -226,6 +248,33 @@ export const OPTIONAL_DOCUMENTS = [
   { kind: "bank_reference", label: "Bank reference letter" },
   { kind: "other", label: "Anything else" },
 ];
+
+/**
+ * A written statement to go with the application.
+ *
+ * "Anything else" was an upload slot and nothing more, so an applicant with a
+ * gap in their employment, an unusual guarantor arrangement or a reason a
+ * document looks odd had a way to ATTACH a file and no way to say what it was.
+ * A reviewer then read the attachment cold. This is the sentence that goes with
+ * it.
+ *
+ * ⚠️ Deliberately NOT `sensitive: true`, and the hint says why in the
+ * applicant's own terms. `sensitive` is decision 10's separate column for
+ * special-category data (religion, marital status) which is stored apart and
+ * never sent to a model — a free-text box is exactly where somebody volunteers
+ * a health condition, so the hint asks them not to, rather than the field
+ * quietly reclassifying whatever they type. What an applicant chooses to write
+ * cannot be predicted by a flag; it can only be asked for narrowly.
+ */
+export const APPLICANT_STATEMENT_FIELD: Field = {
+  key: "applicant_statement",
+  label: "Anything else you would like the reviewer to know",
+  type: "textarea",
+  hint:
+    "Optional. Use this to explain anything about your application or the documents you have attached — " +
+    "a gap in employment, an unusual guarantor arrangement, a document in another name. " +
+    "Please do not include health, religious or other sensitive personal details; they are not needed to assess a tenancy.",
+};
 
 /**
  * What the applicant is consenting to. Stored verbatim on the application, so a

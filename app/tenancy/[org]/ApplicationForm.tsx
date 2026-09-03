@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { runAction, describeError } from "@/lib/run-action";
 import {
   sectionsFor, REQUIRED_DOCUMENTS, OPTIONAL_DOCUMENTS, CONSENT_STATEMENT,
+  APPLICANT_STATEMENT_FIELD,
   type Field,
 } from "@/lib/application-form";
 import { saveDraft, submitApplication, createUploadTarget } from "./actions";
@@ -45,7 +46,25 @@ export default function ApplicationForm({
   const [busy, setBusy] = React.useState(false);
   const [done, setDone] = React.useState<string | null>(null);
 
-  const set = (k: string, v: unknown) => setValues((s) => ({ ...s, [k]: v }));
+  // ⚠️ Changing a parent CLEARS a dependent that no longer belongs to it.
+  //
+  // Without this, a dependent dropdown quietly manufactures impossible answers:
+  // pick Lagos, pick Ikeja, change your mind to Kano — and the form still holds
+  // Ikeja, a state/LGA pair that exists nowhere, submitted by someone who
+  // watched the field they touched change and had no reason to look at the one
+  // below it. The stale value is dropped rather than silently kept.
+  const set = (k: string, v: unknown) =>
+    setValues((s) => {
+      const next = { ...s, [k]: v };
+      for (const section of sections) {
+        for (const f of section.fields) {
+          if (f.optionsFrom !== k || !f.optionsBy) continue;
+          const stillValid = (f.optionsBy[String(v ?? "")] ?? []).includes(String(next[f.key] ?? ""));
+          if (!stillValid) next[f.key] = "";
+        }
+      }
+      return next;
+    });
 
   // Autosave on step change rather than per keystroke — a phone on Nigerian
   // mobile data should not be making a request per character, and a dropped
@@ -174,7 +193,7 @@ export default function ApplicationForm({
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             {section.fields.map((f) => (
-              <FieldInput key={f.key} field={f} value={values[f.key]} onChange={set} />
+              <FieldInput key={f.key} field={f} value={values[f.key]} values={values} onChange={set} />
             ))}
           </div>
         </div>
@@ -200,6 +219,21 @@ export default function ApplicationForm({
             <DocRow key={d.kind} kind={d.kind} label={d.label}
                     uploadedName={uploaded[d.kind]} busy={busy} onPick={upload} />
           ))}
+
+          {/* "Anything else" was an upload slot and nothing more, so an
+              applicant could attach a file and had no way to say what it was —
+              the reviewer then read it cold. This is the sentence that goes
+              with it, and it is a plain form field like any other: it saves
+              with the draft and appears in the reviewer's read-only rendering
+              without a second code path. */}
+          <div className="space-y-1.5 border-t border-border pt-4">
+            <FieldInput
+              field={APPLICANT_STATEMENT_FIELD}
+              value={values[APPLICANT_STATEMENT_FIELD.key]}
+              values={values}
+              onChange={set}
+            />
+          </div>
         </div>
       )}
 
@@ -267,14 +301,23 @@ export default function ApplicationForm({
 }
 
 function FieldInput({
-  field, value, onChange,
+  field, value, values, onChange,
 }: {
   field: Field;
   value: unknown;
+  /** The whole bag — a dependent select reads the field it depends on. */
+  values: Record<string, unknown>;
   onChange: (k: string, v: unknown) => void;
 }) {
   const id = `f-${field.key}`;
   const wrap = field.half ? "space-y-1.5" : "space-y-1.5 sm:col-span-2";
+
+  // A select whose options depend on another field (LGA under state of origin).
+  // `options` still wins where it is set, so every existing field is unchanged.
+  const parentValue = field.optionsFrom ? String(values[field.optionsFrom] ?? "") : "";
+  const dependentOptions = field.optionsBy ? (field.optionsBy[parentValue] ?? []) : undefined;
+  const options = field.options ?? dependentOptions;
+  const awaitingParent = Boolean(field.optionsFrom) && !parentValue;
 
   return (
     <div className={wrap}>
@@ -289,9 +332,14 @@ function FieldInput({
       </Label>
 
       {field.type === "select" ? (
-        <Select id={id} value={String(value ?? "")} onChange={(e) => onChange(field.key, e.target.value)}>
-          <option value="">— select —</option>
-          {field.options?.map((o) => <option key={o} value={o}>{o}</option>)}
+        <Select
+          id={id}
+          value={String(value ?? "")}
+          disabled={awaitingParent}
+          onChange={(e) => onChange(field.key, e.target.value)}
+        >
+          <option value="">{awaitingParent ? "— choose a state first —" : "— select —"}</option>
+          {options?.map((o) => <option key={o} value={o}>{o}</option>)}
         </Select>
       ) : field.type === "textarea" ? (
         <textarea

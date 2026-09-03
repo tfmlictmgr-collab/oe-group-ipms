@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { Download } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
-import { sectionsFor, type Section } from "@/lib/application-form";
+import { sectionsFor, APPLICANT_STATEMENT_FIELD, type Section } from "@/lib/application-form";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -241,6 +241,30 @@ export default async function ApplicationReviewPage({
           </Card>
         );
       })}
+
+      {/* ⚠️ Rendered explicitly, because the block above walks `sections` and the
+          applicant's statement belongs to no section — it sits with the
+          documents it explains. Without this the field would save, appear in
+          the draft, survive a resume, and be invisible to the only person it is
+          written for. Decision 24: adding a field is not finished when the
+          writer accepts it, but when every reader has been re-read. */}
+      {typeof form[APPLICANT_STATEMENT_FIELD.key] === "string" &&
+        String(form[APPLICANT_STATEMENT_FIELD.key]).trim() !== "" && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">{APPLICANT_STATEMENT_FIELD.label}</CardTitle>
+              <CardDescription>
+                Written by the applicant. It explains what they attached — it is
+                not a document check and decides nothing.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="whitespace-pre-wrap text-sm">
+                {String(form[APPLICANT_STATEMENT_FIELD.key])}
+              </p>
+            </CardContent>
+          </Card>
+        )}
 
       {decisionsRes.data && decisionsRes.data.length > 0 && (
         <Card>
