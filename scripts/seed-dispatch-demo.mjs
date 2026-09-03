@@ -95,6 +95,17 @@ for (const org of (orgs ?? []).filter((o) => DEMO_SLUGS.includes(o.slug))) {
     .select("id, created_at, status, assigned_vendor_id, resolved_at")
     .eq("org_id", org.id)
     .is("assigned_vendor_id", null)
+    // ⚠️ MAINTENANCE only. This used to dispatch every undispatched ticket
+    // regardless of category, round-robin — so a `general` tenancy-renewal
+    // enquiry and a `billing` query landed on a landscaping contractor's My
+    // Work, which is exactly what was reported from the demo. The RLS was never
+    // wrong (a vendor sees a ticket only when `assigned_vendor_id` is their
+    // company); the FIXTURE was dispatching work no contractor performs.
+    //
+    // A person may still assign anything deliberately — an FM sending a
+    // complaint about a broken gate to the gate contractor is legitimate. What
+    // a seed must not do is manufacture that judgement at random.
+    .eq("category", "maintenance")
     .order("created_at");
 
   if (!tickets?.length) {
