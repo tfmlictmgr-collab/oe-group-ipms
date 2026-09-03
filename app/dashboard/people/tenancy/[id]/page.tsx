@@ -51,7 +51,8 @@ export default async function ApplicationReviewPage({
   const application = appRes.data;
   if (!application) notFound();
 
-  const [attachRes, decisionsRes, requirementsRes, unitsRes, findingsRes] = await Promise.all([
+  const [attachRes, decisionsRes, requirementsRes, unitsRes, findingsRes, propRes] =
+    await Promise.all([
     supabase
       .from("application_attachments")
       .select("id, kind, storage_path, file_name, uploaded_at")
@@ -68,22 +69,35 @@ export default async function ApplicationReviewPage({
       .eq("org_id", profile.org_id)
       .eq("type", application.type)
       .order("sort_order"),
+    // ⚠️ `vacant_units_for_property` (0200), NOT a hand-rolled
+    // `occupant_user_id is null`. This screen was the FOURTH consumer to ask
+    // its own version of "is this unit free", and it asked the half decision 22
+    // records as wrong: occupancy is also set by a lease, and `activate_lease`
+    // skips the occupant entirely for a company let. So a unit with a live
+    // tenancy and no portal user read as vacant here and would have been
+    // offered to a second applicant — an occupied home, presented as available.
+    //
+    // `display_label` rather than `label`, for the same reason `vacantUnitsFor`
+    // uses it: since 0198 the label alone is a TYPE, so twelve stalls would
+    // otherwise be twelve identical entries in the dropdown.
     application.property_id
-      ? supabase
-          .from("units")
-          .select("id, label")
-          .eq("property_id", application.property_id)
-          .is("occupant_user_id", null)
-          .is("deleted_at", null)
-          .order("label")
-      : Promise.resolve({ data: [] as { id: string; label: string }[] }),
+      ? supabase.rpc("vacant_units_for_property", {
+          p_property_id: application.property_id,
+        })
+      : Promise.resolve({ data: [] as { id: string; display_label: string }[] }),
     supabase
       .from("application_document_findings")
       .select("id, attachment_id, kind, severity, summary, detail, model, evidence_mode, contested_at, contest_reason, users:contested_by(full_name)")
       .eq("application_id", id)
       .order("created_at"),
+    // Named so the "nothing to assign" message can say WHICH property has no
+    // unit, and link to it. RLS-scoped like everything else here.
+    application.property_id
+      ? supabase.from("properties").select("name").eq("id", application.property_id).maybeSingle()
+      : Promise.resolve({ data: null }),
   ]);
 
+  const propertyName = (propRes.data as { name: string } | null)?.name ?? null;
   const sections: Section[] = sectionsFor(application.type);
   const form = (application.form ?? {}) as Record<string, unknown>;
   const attachments = attachRes.data ?? [];
@@ -270,7 +284,11 @@ export default async function ApplicationReviewPage({
         canApprove={canApprove}
         isRecommender={isRecommender}
         documentsComplete={missing.length === 0}
-        vacantUnits={unitsRes.data ?? []}
+        vacantUnits={(
+          (unitsRes.data ?? []) as { id: string; display_label: string }[]
+        ).map((u) => ({ id: u.id, label: u.display_label }))}
+        propertyId={application.property_id}
+        propertyName={propertyName}
       />
     </div>
   );

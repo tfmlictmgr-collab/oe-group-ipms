@@ -477,6 +477,81 @@ console.log("\nK. The queue reports progress without a join, and stays scoped");
 
 // ── Cleanup ────────────────────────────────────────────────────────────────
 await svc.from("invitations").delete().in("application_id", []).is("id", null); // no-op guard
+// ── The unit an approval needs (0246) ─────────────────────────────────────
+//
+// record_application_approval has required a unit since 0082, and decision 11
+// lets a property on the `open` window take applications with nothing vacant —
+// a waiting list. Both are right and nobody had reconciled them, so an approver
+// met "assign a unit to this application before approving it" on a screen whose
+// unit card was hidden precisely because there was nothing to put in it.
+console.log("\nI. An approval needs a unit, and the screen says so");
+{
+  const propEmpty = await mkProperty(`PROBEREV-EMPTY-${S}`);   // no units at all
+  const appEmpty = await mkApp(propEmpty, "individual", "empty");
+  await svc.from("property_stakeholders")
+    .insert({ org_id: oea.id, user_id: fm1.id, property_id: propEmpty, relation: "manager" });
+
+  // The resolver the screen now reads returns nothing, which is what makes the
+  // card render its explanation instead of an empty dropdown.
+  const { data: none } = await svc.rpc("vacant_units_for_property", { p_property_id: propEmpty });
+  (none ?? []).length === 0
+    ? ok("a property with no units offers no assignable unit")
+    : bad(`offered ${(none ?? []).length} unit(s) on a property that has none`);
+
+  // And the database still refuses, which is the guard the screen is explaining.
+  await svc.from("tenant_applications").update({ status: "under_review", recommended_by: fm1.id }).eq("id", appEmpty);
+  const admin = await login(adminUser.email);
+  const { error } = await admin.rpc("record_application_approval", {
+    p_application_id: appEmpty, p_reason: "Approving with nowhere to put them.",
+  });
+  error && /assign a unit/.test(error.message)
+    ? ok("and the database refuses the approval, as it always did")
+    : bad(`approval with no unit gave: ${error?.message ?? "NO ERROR — approved into nothing"}`);
+}
+
+// ⚠️ The second defect, and the worse one. This screen asked
+// `occupant_user_id is null`, which is the half of vacancy decision 22 records
+// as wrong: occupancy is also set by a lease, and activate_lease skips the
+// occupant entirely for a company let. Measured on the live register when this
+// was found, NINE units would have been offered while not actually vacant.
+console.log("\nJ. The vacancy test is the database's, not the screen's");
+{
+  const propOcc = await mkProperty(`PROBEREV-OCC-${S}`);
+  const unitOcc = await mkUnit(propOcc, `OCC-${S}`);
+
+  // A live tenancy with NO portal occupant — the company let that fooled the
+  // old test. Written through the service role because the point is the state,
+  // not who may create it.
+  const today = new Date();
+  const start = new Date(today.getTime() - 86400000).toISOString().slice(0, 10);
+  const end = new Date(today.getTime() + 300 * 86400000).toISOString().slice(0, 10);
+  const { error: lErr } = await svc.from("leases").insert({
+    org_id: oea.id, property_id: propOcc, unit_id: unitOcc,
+    tenant_user_id: null, start_date: start, end_date: end,
+    rent_amount: 1000000, rent_frequency: "annual", status: "active",
+  });
+
+  if (lErr) {
+    console.log(`  [33mNOTE[0m could not create the company-let fixture (${lErr.message}); asserting the resolver alone`);
+  } else {
+    const { data: occ } = await svc.from("units").select("occupant_user_id").eq("id", unitOcc).single();
+    occ.occupant_user_id === null
+      ? ok("the fixture is the awkward case: a live tenancy and no portal occupant")
+      : bad("fixture has an occupant, so it does not test what it claims to");
+
+    const { data: isVacant } = await svc.rpc("unit_is_vacant", { p_unit_id: unitOcc });
+    isVacant === false
+      ? ok("unit_is_vacant says NOT vacant — the whole rule, not half of it")
+      : bad("unit_is_vacant says vacant on a unit with a live tenancy");
+
+    const { data: offered } = await svc.rpc("vacant_units_for_property", { p_property_id: propOcc });
+    (offered ?? []).some((u) => u.id === unitOcc)
+      ? bad("the resolver OFFERS an occupied home — a second applicant could be put in it")
+      : ok("and the resolver does not offer it, so the screen cannot either");
+  }
+  await svc.from("leases").delete().eq("unit_id", unitOcc);
+}
+
 await svc.from("invitations").delete().eq("org_id", oea.id).like("email", "probeapp-%");
 await svc.from("application_decisions").delete().in("application_id", madeApps);
 await svc.from("application_attachments").delete().in("application_id", madeApps);

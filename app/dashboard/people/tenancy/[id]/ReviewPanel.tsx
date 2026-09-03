@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -37,6 +38,8 @@ export default function ReviewPanel({
   isRecommender,
   documentsComplete,
   vacantUnits,
+  propertyId,
+  propertyName,
 }: {
   applicationId: string;
   status: string;
@@ -49,11 +52,27 @@ export default function ReviewPanel({
   isRecommender: boolean;
   documentsComplete: boolean;
   vacantUnits: Unit[];
+  /** For the link out when there is nothing to assign. */
+  propertyId: string | null;
+  propertyName: string | null;
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState<string | null>(null);
   const [reason, setReason] = React.useState("");
   const [selectedUnit, setSelectedUnit] = React.useState(unitId ?? "");
+
+  // ⚠️ An approval REQUIRES a unit (`record_application_approval`, 0082) and a
+  // property on the `open` window accepts applications with nothing vacant
+  // (decision 11's waiting list). Both are right; nobody had reconciled them,
+  // so an approver on a waiting-list application met "assign a unit to this
+  // application before approving it" with no unit card on the page — it was
+  // hidden precisely because there was nothing to put in it.
+  //
+  // The precondition is now stated where the decision is made, and the button
+  // that cannot succeed is disabled rather than offered.
+  const needsUnit = !unitId;
+  const nothingToAssign = vacantUnits.length === 0;
+  const blockedOnUnit = needsUnit && nothingToAssign;
 
   const open = status === "submitted" || status === "under_review";
   const reasonReady = reason.trim().length >= 10;
@@ -112,7 +131,9 @@ export default function ReviewPanel({
 
   return (
     <div className="space-y-4">
-      {(unitId ?? vacantUnits.length > 0) && (
+      {/* Rendered whenever a unit is still needed — including, and especially,
+          when there is nothing to offer. Hiding it was the dead end. */}
+      {(unitId || canApprove || vacantUnits.length > 0) && (
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Unit</CardTitle>
@@ -121,6 +142,28 @@ export default function ReviewPanel({
               property are offered.
             </CardDescription>
           </CardHeader>
+          {blockedOnUnit ? (
+            <CardContent className="space-y-2">
+              <p className="text-sm text-warning">
+                {propertyName ?? "This property"} has no unit available to
+                assign, so this application cannot be approved yet.
+              </p>
+              <p className="text-xs text-muted-foreground">
+                A property stays open to applications as a waiting list even
+                when nothing is free, so an application can legitimately arrive
+                before there is anywhere to put it. Add a unit, or end a
+                tenancy to free one, and this list will fill. You can still ask
+                the applicant for more, or reject.
+              </p>
+              {propertyId && (
+                <Button asChild type="button" size="sm" variant="outline">
+                  <Link href={`/dashboard/properties/${propertyId}`}>
+                    Open {propertyName ?? "the property"}
+                  </Link>
+                </Button>
+              )}
+            </CardContent>
+          ) : (
           <CardContent className="flex flex-wrap items-center gap-2">
             <Select
               value={selectedUnit}
@@ -146,6 +189,7 @@ export default function ReviewPanel({
               {selectedUnit === unitId && unitId ? "Assigned" : "Assign"}
             </Button>
           </CardContent>
+          )}
         </Card>
       )}
 
@@ -215,8 +259,17 @@ export default function ReviewPanel({
               ) : (
                 <>
                   <Button
-                    type="button" size="sm" variant="brand" disabled={busy !== null || !documentsComplete}
-                    title={!documentsComplete ? "Documents are still outstanding" : undefined}
+                    type="button" size="sm" variant="brand"
+                    disabled={busy !== null || !documentsComplete || needsUnit}
+                    title={
+                      !documentsComplete
+                        ? "Documents are still outstanding"
+                        : needsUnit
+                          ? nothingToAssign
+                            ? "No unit is available on this property to assign"
+                            : "Assign a unit above before approving"
+                          : undefined
+                    }
                     onClick={() =>
                       run(
                         "Approve",
