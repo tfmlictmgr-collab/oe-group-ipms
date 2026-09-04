@@ -28,6 +28,16 @@ export type QueueRow = {
   detail?: PayableDetailData;
   /** Everything a search should match, lower-cased and pre-joined server-side. */
   haystack: string;
+  /**
+   * When this payable was raised, ISO, for ordering.
+   *
+   * ⚠️ Built server-side rather than parsed out of `subtitle`. The three
+   * payable types carry their date in three different columns and one of them
+   * (`remittances`) was ORDERED on `created_at` without ever SELECTING it — so
+   * a client sort would have had nothing to read on a third of the queue and
+   * would have silently grouped those rows together at one end.
+   */
+  sortKey: string;
 };
 
 /**
@@ -63,6 +73,11 @@ export default function ApprovalsBoard({
 }) {
   const [tab, setTab] = useState<"mine" | "others">("mine");
   const [query, setQuery] = useState("");
+  // Newest first by default, matching the server order. "Oldest" is kept
+  // because a queue is legitimately worked FIFO — the longest-waiting
+  // approval is the one most at risk of rotting — and taking that away to
+  // satisfy a default would trade one complaint for another.
+  const [sort, setSort] = useState<"newest" | "oldest">("newest");
   const [open, setOpen] = useState<Record<string, boolean>>({});
 
   /**
@@ -106,8 +121,13 @@ export default function ApprovalsBoard({
     // own reference), and the auto reference with punctuation ignored — so
     // "REQ4F2A1C90", "req4f2a1c90" and a hyphenated form pasted from an older
     // message all find the same row.
-    return active.filter((r) => r.haystack.includes(q) || refMatches(query, r.ref));
-  }, [active, query]);
+    const matched = active.filter((r) => r.haystack.includes(q) || refMatches(query, r.ref));
+    // Copied before sorting: `active` is one of the memoised arrays above, and
+    // sorting in place would reorder those on every keystroke.
+    return [...matched].sort((a, b) =>
+      sort === "newest" ? b.sortKey.localeCompare(a.sortKey) : a.sortKey.localeCompare(b.sortKey)
+    );
+  }, [active, query, sort]);
 
   const TABS = [
     {
@@ -144,15 +164,26 @@ export default function ApprovalsBoard({
           ))}
         </div>
 
-        <div className="relative w-full sm:max-w-xs">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search by reference…"
-            aria-label="Search approvals by reference, vendor, property or job"
-            className="pl-9"
-          />
+        <div className="flex w-full items-center gap-2 sm:w-auto">
+          <div className="relative w-full sm:max-w-xs">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search by reference…"
+              aria-label="Search approvals by reference, vendor, property or job"
+              className="pl-9"
+            />
+          </div>
+          <select
+            value={sort}
+            onChange={(e) => setSort(e.target.value as "newest" | "oldest")}
+            aria-label="Order the approvals queue"
+            className="h-9 flex-shrink-0 rounded-md border border-input bg-card px-2 text-xs text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]"
+          >
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+          </select>
         </div>
       </div>
 

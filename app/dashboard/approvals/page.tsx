@@ -52,14 +52,14 @@ export default async function ApprovalsPage() {
       .from("payments")
       .select("id, amount, invoice_reference, status, created_at, invoice_attachment_path, vendors(name), tickets(id, summary, category, urgency, property_or_unit)")
       .in("status", ["recommended", "approved"])
-      .order("created_at", { ascending: true })
+      .order("created_at", { ascending: false })
       .limit(100),
     supabase
       .from("remittances")
-      .select("id, net_amount, period, reference, status, properties(name)")
+      .select("id, net_amount, period, reference, status, created_at, properties(name)")
       .eq("party", "landlord")
       .eq("status", "queued")
-      .order("created_at", { ascending: true })
+      .order("created_at", { ascending: false })
       .limit(100),
     supabase
       .from("ops_requisitions")
@@ -71,7 +71,7 @@ export default async function ApprovalsPage() {
       // on the detail page and only when status IS `approved`: the payable was
       // reachable by typed URL and nothing else. That is the dead end.
       .in("status", ["pending_approval", "approved"])
-      .order("created_at", { ascending: true })
+      .order("created_at", { ascending: false })
       .limit(100),
   ]);
 
@@ -160,6 +160,7 @@ export default async function ApprovalsPage() {
       const vendor = (p.vendors as { name?: string } | null)?.name ?? "Vendor";
       return {
         payableType: "vendor_payment" as const,
+        sortKey: p.created_at ?? "",
         payableId: p.id,
         ref: payableRef("vendor_payment", p.id),
         haystack: [
@@ -187,6 +188,7 @@ export default async function ApprovalsPage() {
       const prop = (r.properties as { name?: string } | null)?.name ?? "Property";
       return {
         payableType: "landlord_payout" as const,
+        sortKey: r.created_at ?? "",
         payableId: r.id,
         ref: payableRef("landlord_payout", r.id),
         haystack: [payableRef("landlord_payout", r.id), r.reference, prop, r.period]
@@ -207,6 +209,7 @@ export default async function ApprovalsPage() {
       const hasInvoice = Boolean(q.invoice_attachment_path);
       return {
         payableType: "ops_requisition" as const,
+        sortKey: q.created_at ?? "",
         payableId: q.id,
         // ⚠️ The AUTO reference is the identifier; `q.reference` is whatever the
         // person raising it typed ("Job101-M", "PO-10001"), which is a useful

@@ -31,7 +31,15 @@ const STATUS_VARIANT: Record<string, "brand" | "outline" | "success" | "destruct
 // verification script wrote — so opening applications meant someone with
 // database access doing it by hand. An operational switch that lives outside
 // the product is not a switch, it is a support ticket.
-export default async function TenancyApplicationsPage() {
+export default async function TenancyApplicationsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ sort?: string }>;
+}) {
+  // Newest first by default. "Oldest" stays reachable because a review queue is
+  // legitimately worked FIFO — the application waiting longest is the one an
+  // applicant is most likely to be chasing.
+  const sortNewest = (await searchParams).sort !== "oldest";
   const session = await getSessionProfile();
   if (!session) redirect("/login");
   const profile = session.profile!;
@@ -52,7 +60,10 @@ export default async function TenancyApplicationsPage() {
         "id, type, status, applicant_name, property_id, recommendation, approvals_count, approvals_needed, submitted_at, created_at"
       )
       .in("status", ["submitted", "under_review", "info_requested"])
-      .order("submitted_at", { ascending: true, nullsFirst: true }),
+      // ⚠️ `nullsFirst` follows the direction rather than being pinned. A
+      // submitted_at of NULL is a draft that has not been sent, and it belongs
+      // at the END of a newest-first list, not stranded at the top of it.
+      .order("submitted_at", { ascending: !sortNewest, nullsFirst: !sortNewest }),
     // Per-property intake, with the vacancy behind each decision.
     supabase
       .from("property_application_windows")
@@ -141,20 +152,46 @@ export default async function TenancyApplicationsPage() {
 
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            Applications received
-            {applications.length > 0 && <Badge variant="brand">{applications.length}</Badge>}
-          </CardTitle>
-          <CardDescription>
-            Oldest first. Each one is read by a person, never scored or ranked.
-          </CardDescription>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-base">
+                Applications received
+                {applications.length > 0 && <Badge variant="brand">{applications.length}</Badge>}
+              </CardTitle>
+              <CardDescription>
+                {sortNewest ? "Newest first" : "Oldest first"}. Each one is read by
+                a person, never scored or ranked.
+              </CardDescription>
+            </div>
+            {/* Links rather than a control with state: this page is server
+                rendered, so the order is decided by the query and survives a
+                refresh, a bookmark and a shared URL. */}
+            <div className="flex flex-shrink-0 gap-1 text-xs">
+              {([["newest", "Newest first"], ["oldest", "Oldest first"]] as const).map(
+                ([key, label]) => (
+                  <Link
+                    key={key}
+                    href={`/dashboard/people/tenancy?sort=${key}`}
+                    aria-current={(key === "newest") === sortNewest ? "true" : undefined}
+                    className={
+                      (key === "newest") === sortNewest
+                        ? "rounded-full bg-[var(--brand)] px-2.5 py-1 font-medium text-[var(--brand-fg)]"
+                        : "rounded-full border border-border px-2.5 py-1 text-muted-foreground hover:bg-accent"
+                    }
+                  >
+                    {label}
+                  </Link>
+                )
+              )}
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           {applications.length === 0 ? (
             <EmptyState
               icon={<Inbox />}
               title="Nothing waiting"
-              description="Submitted applications appear here, oldest first."
+              description="Submitted applications appear here as they arrive."
             />
           ) : (
             <ul className="divide-y divide-border">
