@@ -29,8 +29,8 @@ async function propId(name) {
   return data.id;
 }
 
-const fm = await userId("fm@oegroup.test");
-const owner = await userId("owner@oegroup.test");
+const fm = await userId("oe-group-foundation-poc.facilitymanager@oegroup.test");
+const owner = await userId("oe-group-foundation-poc.propertyowner@oegroup.test");
 const lekki = await propId("Lekki Gardens Estate");
 const ikoyi = await propId("Ikoyi Heights");
 const victoria = await propId("Victoria Court");

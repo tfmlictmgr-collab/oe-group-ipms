@@ -12,7 +12,7 @@ import { createClient } from "@supabase/supabase-js";
 const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 config({ path: path.join(rootDir, ".env.local") });
 
-const EMAIL = process.env.DEMO_USER_EMAIL ?? "demo@oegroup.test";
+const EMAIL = process.env.DEMO_USER_EMAIL ?? "oe-group-foundation-poc.admin@oegroup.test";
 const PASSWORD = process.env.DEMO_USER_PASSWORD ?? "OEGroupDemo2026!";
 const ORG_ID = process.env.DEMO_ORG_ID;
 

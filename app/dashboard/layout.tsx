@@ -1,7 +1,46 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
+import type { Metadata } from "next";
 import { getSessionProfile } from "@/lib/auth";
-import SignOutButton from "./SignOutButton";
+import { orgForCurrentHost } from "@/lib/org-host";
+import { createClient } from "@/lib/supabase/server";
+import { AppShell } from "@/components/shell/app-shell";
+import { roleLabel, FM_PM, isOversight } from "@/lib/roles";
+import type { NavContext } from "@/components/shell/nav-config";
+import { seesBi, biScope } from "./bi/scope";
+
+// ⚠️ The browser tab named the wrong company.
+//
+// This layout set NO metadata, so every dashboard page inherited the root
+// title from app/layout.tsx — "OE Group — Integrated FM & Property
+// Management". An OEA user working inside oeaportal.com read OE Group's
+// name across the top of their browser, on every screen, all day.
+//
+// Root metadata's own comment already anticipated this ("Per-org pages
+// override this in their own generateMetadata") and the public doors at
+// /o/<slug> and /tenancy/<org> both do. The dashboard — the surface people
+// actually spend their day on — was the one that never did.
+//
+// `noindex` because a client's dashboard has no business in a search index,
+// and the favicon becomes the org's own logo so a person with both brands
+// open can tell the tabs apart by icon as well as by name — the same
+// reasoning /o/[slug] already applies.
+export async function generateMetadata(): Promise<Metadata> {
+  const session = await getSessionProfile();
+  const org = session?.org;
+  if (!org) return { title: "Sign in", robots: { index: false, follow: false } };
+
+  // The org's own NAME, never `delivery_brand`. Decision 12 is explicit that
+  // the brand says which brand delivers the work, not which organisation this
+  // is — two OEA-delivered orgs would otherwise carry an identical tab.
+  const title = `${org.name} — Integrated FM & Property Management`;
+  return {
+    title,
+    description: `Requests, service charges, vendor performance and payments for ${org.name}.`,
+    robots: { index: false, follow: false },
+    openGraph: { title, siteName: org.name },
+    icons: session?.theme?.logoUrl ? { icon: session.theme.logoUrl } : undefined,
+  };
+}
 
 export default async function DashboardLayout({
   children,
@@ -11,115 +50,282 @@ export default async function DashboardLayout({
   const session = await getSessionProfile();
   if (!session) redirect("/login");
 
-  const { profile, org, theme } = session;
-  const roleLabel = (profile?.role ?? "member").replace(/_/g, " ");
-  const isStaff = ["admin", "facility_manager", "finance_approver"].includes(
-    profile?.role ?? ""
-  );
-  const isAdmin = profile?.role === "admin";
-  const seesAudit = isAdmin || profile?.role === "finance_approver";
-  // B7 "Exec / BI dashboard" column
-  const seesBi = ["admin", "facility_manager", "finance_approver", "property_owner"].includes(
-    profile?.role ?? ""
-  );
+  // ⚠️ A session with no profile row (0194, 0196). It is real, and it reaches
+  // nothing: `current_user_org_id()` is null for a deactivated account, so
+  // `users_select` no longer matches even the caller's own row. Every panel
+  // below would render empty and read as a broken portal.
+  //
+  // Deactivated is the case worth naming. End the session for the same reason
+  // the wrong-org check below does — a redirect that leaves the session
+  // standing is a bounce, not a boundary — and say why at the door.
+  //
+  // ⚠️ Every OTHER reason the profile can be missing keeps its session and gets
+  // the ordinary sign-in screen: a half-finished invitation, an applicant
+  // purged under the 90-day rule, or an RPC that simply could not be reached.
+  // None of those is a deactivation, and signing someone out over a transient
+  // database error is a worse failure than the empty dashboard it prevents.
+  if (!session.profile) {
+    if (session.accountState === "deactivated") {
+      const supabaseAuth = await createClient();
+      await supabaseAuth.auth.signOut();
+      redirect("/login?deactivated=1");
+    }
+    redirect("/login");
+  }
 
-  const navLink = "whitespace-nowrap py-1 opacity-80 transition-opacity hover:opacity-100";
+  const { profile, org, theme } = session;
+
+  // ── A brand's hostname shows that brand's people, and nobody else ────────
+  //
+  // Defence in depth behind the sign-in check. A session can reach a dashboard
+  // without passing through this deployment's login form at all — a cookie set
+  // on a shared parent domain, a link opened in a browser already signed in
+  // elsewhere — and none of those routes touch the panel's check.
+  //
+  // ⚠️ Deliberately FREE at page-load time. `orgForCurrentHost()` is cached per
+  // host and `profile` is already in hand for the shell, so this is a string
+  // comparison, not a query. An unbound host (localhost, *.vercel.app, the
+  // operator's own domain) returns null and nothing is enforced — the platform
+  // door is meant to serve everyone.
+  const hostOrg = await orgForCurrentHost();
+  if (hostOrg && profile?.org_id && profile.org_id !== hostOrg.id) {
+    // ⚠️ Audit 0804 C2. End the session, don't just move the browser.
+    //
+    // `sign-in-panel.tsx` signs out on exactly this mismatch; this sibling only
+    // redirected, leaving a live session for the other org's portal sitting in a
+    // cookie on this host. No data was exposed — RLS scopes every read to the
+    // user's own org whatever hostname they arrived on — but a redirect that
+    // leaves the session standing is a bounce, not a boundary, and the two
+    // checks disagreeing about that is how one of them later gets relaxed.
+    const supabaseAuth = await createClient();
+    await supabaseAuth.auth.signOut();
+
+    // Back to the door they knocked on, which will refuse them by name. Not to
+    // their OWN portal: this deployment should not tell one client's browser
+    // where another client's portal lives.
+    //
+    // The operator's own hostname is the one exception: its door is /login, not
+    // /o/oe-group (0112) — that generic template is built for a client org's
+    // front door, not the anonymous operator one.
+    redirect(hostOrg.is_platform_operator ? "/login?wrong_org=1" : `/o/${hostOrg.slug}?wrong_org=1`);
+  }
+  const role = profile?.role ?? "member";
+  // Brand-aware: OEA renders facility_manager as "Properties Manager".
+  const label = roleLabel(role, org?.delivery_brand);
+
+  // ⚠️ Read through `my_notifications()` (0145), NOT the table directly.
+  //
+  // The bell used to select `user_notifications` straight, which gave it no way
+  // to know whether a link still points at anything — so it happily offered a
+  // link to a deleted ticket, and clicking it 404ed. Fixing the inbox tab alone
+  // would have moved that bug here rather than closing it, since the bell is
+  // where most people click a notification from.
+  //
+  // The function also applies the retention rule (30 days, plus anything still
+  // unread whatever its age), so the bell and the tab cannot disagree about
+  // what exists.
+  const supabase = await createClient();
+  const { data: notifications } = await supabase.rpc("my_notifications", { p_days: 30 });
+
+  // A viewer is outside the organisation, so it is listed in none of the sets
+  // below rather than added to any of them. The nav is presentation; RLS is what
+  // actually decides, and 0038 grants a viewer no policy on any of these tables.
+  // ⚠️ `executive` belongs in the READ sets below and in none of the write ones.
+  //
+  // The database already settled this and the nav had not caught up. `0072a`
+  // put the executive into `oversight_roles()`, which grants them audit_log,
+  // ledger and bank_accounts reads; `biScope()` gives them every BI column
+  // ("All (RT)", B7 v3.3); `enforce_payment_transition()` lets them co-approve
+  // a payment, including above the threshold. Yet every one of the flags here
+  // omitted them — so an MD could authorise a disbursement they were not shown
+  // the ledger for, and audit a trail whose link they could not see. The policy
+  // said oversight; the menu said no such person.
+  //
+  // What stays closed stays closed, and for a stated reason each time:
+  // `canEnroll` is enrolment (a write), `isOperator` is governance of OTHER
+  // organisations, and remittance is refused in the database itself — an
+  // executive may authorise money and may never move it (board, 29 Jul 2026).
+  // ⚠️ What the caller may DO comes from the matrix, not from an array here.
+  //
+  // Three times this session an application array of role names was found
+  // disagreeing with the database: the executive locked out of the ledger they
+  // are granted, the executive refused an approval decision 9 gives them, and
+  // the **regional manager** — holding properties.write, assets.write,
+  // tickets.assign, people.invite, vendors.write, leases.write and nine more —
+  // appearing in none of these lists, so the product offered them no Properties,
+  // Assets, Vendors, Leases or People at all.
+  //
+  // Decision 7 made privileges an operator-toggled matrix so role names would
+  // stop being hardcoded. The menu kept its own copy anyway. It now asks
+  // (`my_capabilities()`, 0132), so a capability the operator grants shows up
+  // without a deployment.
+  const { data: capsRow } = await supabase.rpc("my_capabilities");
+  const caps: string[] = capsRow ?? [];
+  const can = (c: string) => caps.includes(c);
+
+  const ctx: NavContext = {
+    // ⚠️ The NON-DELEGABLE controls stay role checks, and that is deliberate
+    // (decision 7): payment approval, remittance, ledger, bank configuration,
+    // audit visibility, admin invitation and permission editing "stay hardwired
+    // and never appear as toggles" — they are what an auditor checks, not
+    // preferences. `non_delegable_controls` lists them, so this is legible
+    // rather than remembered.
+    // ⚠️ CORRECTED 5 Sept 2026. These were two hand-written copies of
+    // `oversight_roles()` that predated `payment_approver` existing (0151) and
+    // being admitted to oversight (0157/0246) — so the senior accounting desk
+    // could read 4,745 audit rows and the whole client-funds ledger through
+    // RLS while the menu offered neither link. Nothing was refused; nothing was
+    // offered. Decision 26's nav-versus-policy fault, two entries down.
+    //
+    // Still a hardcoded role list (decision 7 keeps ledger and audit
+    // visibility non-delegable), but now ONE list, in `lib/roles.ts`, asserted
+    // against the database function by the verification suite.
+    seesAudit: isOversight(role),
+    seesLedger: isOversight(role),
+    isAdmin: role === "admin",
+
+    // Identity, not privilege — which home screen a person gets.
+    isViewer: role === "viewer",
+    isTenant: role === "tenant",
+    isVendor: role === "vendor",
+    // Dispatched internal staff. They hold no capability at all by design (B7
+    // gives them "assigned work" and nothing else), so this cannot come from
+    // the matrix — and they were the one role with somewhere to be sent and
+    // nowhere to look.
+    isOpsStaff: role === "fm_ops_staff",
+    isOwner: role === "property_owner",
+    // Decision 9, verbatim: "Nothing financial, no org-wide read." Statements
+    // is a financial screen with two branches — a per-unit tenant bill, or the
+    // org-wide staff ledger — and a regional manager is entitled to neither.
+    // `seesServiceCharges` already keeps them off the SC dashboard nav item
+    // via the capability matrix; Statements is a second, separate way onto the
+    // same financial data that the matrix was never asked about.
+    isRegionalManager: role === "regional_manager",
+    // The two money-desk roles. Deliberately NOT capability-derived: the point
+    // is which queue is their HOME, and `tickets.read_all` — the capability
+    // that decides what they may READ — already correctly answers no for both.
+    // Deriving this from it would conflate "may not browse the queue" with
+    // "may not see the job behind a payment", and 0212 grants exactly that
+    // second thing.
+    isMoneyDesk: ["payment_approver", "finance_approver"].includes(role),
+
+    // Capability-derived. `properties`/`vendors`/`leases` read as "can act on
+    // them at all"; RLS then decides WHICH — an FM/PM and a regional manager
+    // both reach the same screen and see their own scope.
+    // ⚠️ `|| isOwner` is not an exception being smuggled back in — it is the
+    // one access route the matrix genuinely cannot express. A landlord holds no
+    // property or asset CAPABILITY (they hold `bi.read` and nothing else), and
+    // reaches both tables by being a stakeholder on the property:
+    // `properties_select` admits them, and the asset policy admits
+    // `property_id in current_user_property_ids()`, which for an owner is their
+    // own building. Deriving purely from capabilities would have taken away two
+    // pages that work — a regression introduced by a cleanup, which is the
+    // worst kind.
+    seesProperties: can("properties.write") || can("properties.read_all") || role === "property_owner",
+    seesAssets:
+      can("assets.read") || can("assets.write") || can("assets.import") || role === "property_owner",
+    seesVendors: can("vendors.read") || can("vendors.write"),
+    reviewsVendorRegistrations: can("vendors.write"),
+    // ⚠️ `|| isOversight(role)` added 5 Sept 2026, for the READ.
+    //
+    // `leases_select` and `tenancy_schedule` both admit `oversight_roles()`, so
+    // the payment approver already reads all 20 tenancies and the whole
+    // schedule — measured, not assumed. The menu offered neither, because this
+    // line asks only who may WRITE a lease. The head of accounts reconciling
+    // rent has every reason to open the rent roll and no way to reach it.
+    //
+    // Nothing is granted here: both pages gate their write controls on
+    // `leases.write` separately, which oversight does not hold, so they arrive
+    // read-only exactly as RLS intends.
+    seesLettings:
+      can("leases.write") ||
+      can("applications.review_all") ||
+      can("applications.recommend") ||
+      isOversight(role),
+    // ⚠️ NOT derived from `sc.read_all` alone, and that was the whole defect
+    // (0231). `sc_budgets_select` has admitted "oversight, or a property I
+    // hold" since 0055, so an FM, a PM and a regional manager could always
+    // READ the budgets on their own buildings — this line hid the module from
+    // them anyway, because neither operational capability existed to test.
+    //
+    // The fix is not to grant them `sc.read_all`: that capability means "read
+    // every service charge, not only their own", i.e. org-wide, which decision
+    // 9 explicitly denies a regional manager. The nav asks the narrower and
+    // truer question — is there any chance this person holds a property whose
+    // budget they may see — and RLS decides what actually lists.
+    seesServiceCharges:
+      can("sc.read_all") ||
+      can("sc.manage") ||
+      ["facility_manager", "property_manager", "regional_manager"].includes(role),
+    // Vendor payments: FM/PM verifies delivery, finance and oversight decide.
+    // Not capability-derived because approval is non-delegable, and a screen
+    // whose only action is refused is worse than no screen.
+    seesPayments: [
+      "admin", ...FM_PM, "finance_approver", "executive",
+      // The two chain roles exist to look at payments; a payment approver who
+      // cannot reach the payments screen is a role that cannot do its job.
+      "payment_approver", "payment_audit_approver",
+    ].includes(role),
+    // Everyone who can action a stage, plus the roles that need to watch the
+    // queue move. Same reasoning as seesPayments: not capability-derived,
+    // because approval is non-delegable (decision 7).
+    seesApprovals: [
+      "admin", "executive", ...FM_PM, "regional_manager",
+      "payment_approver", "payment_audit_approver", "finance_approver",
+    ].includes(role),
+    canEnroll: can("people.invite"),
+    // Off everywhere until an operator turns it on per org (0203) — an admin
+    // alone is not enough, unlike every other admin-only screen.
+    seesTraining: can("training.read"),
+
+    // B7 "Exec / BI dashboard" column — one definition, shared with the pages
+    // themselves so the link and the page can never disagree about who may look.
+    seesBi: seesBi(role),
+    seesRequestAnalytics: biScope(role).requests,
+
+    // Everyone operational who is not given a personal home screen above.
+    isStaff: [
+      "admin", ...FM_PM, "finance_approver", "executive", "regional_manager",
+      // Both chain roles (0151). A role whose home screen resolves to nothing
+      // is a person who signs in and lands nowhere — caught by
+      // verify-role-surface, which checks exactly that and is the reason this
+      // list is not "everyone operational" written out twice.
+      "payment_audit_approver", "payment_approver",
+    ].includes(role),
+    // Administrator of the platform operator org. Asked of the org record
+    // rather than inferred from the role, because "admin" means admin of YOUR
+    // org — every brand has one, and only one org is the operator.
+    isOperator: role === "admin" && Boolean(org?.is_platform_operator),
+  };
 
   return (
     <div
-      className="min-h-screen overflow-x-hidden"
       style={
         {
-          background: theme.surface,
-          // Drives .btn-brand / .chip-brand-active / .ring-brand so primary
-          // actions inherit the org's brand colour.
           "--brand": theme.primary,
           "--brand-fg": theme.primaryForeground,
           "--brand-accent": theme.accent,
         } as React.CSSProperties
       }
     >
-      <header style={{ background: theme.primary, color: theme.primaryForeground }}>
-        <div className="mx-auto max-w-5xl px-4 sm:px-6">
-          {/* Top row: brand + identity */}
-          <div className="flex items-center justify-between gap-3 py-3">
-            <Link
-              href="/dashboard"
-              className="flex min-w-0 items-center gap-2"
-            >
-              <span
-                className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-xs font-bold"
-                style={{
-                  background: theme.accent,
-                  color: theme.primaryForeground,
-                }}
-              >
-                OE
-              </span>
-              <span className="truncate text-sm font-semibold">
-                {theme.name}
-                <span className="hidden sm:inline"> · Portal</span>
-              </span>
-            </Link>
-
-            <div className="flex min-w-0 flex-shrink items-center gap-3">
-              <div className="min-w-0 text-right leading-tight">
-                <div className="truncate text-sm font-medium">
-                  {profile?.full_name ?? profile?.email}
-                </div>
-                <div className="truncate text-xs capitalize opacity-80">
-                  {roleLabel}
-                  <span className="hidden sm:inline"> · {org?.name}</span>
-                </div>
-              </div>
-              <SignOutButton />
-            </div>
-          </div>
-
-          {/* Nav wraps rather than scrolling, so no destination is ever hidden
-              off-screen on narrow viewports. */}
-          <nav className="flex flex-wrap gap-x-4 gap-y-1 pb-2 text-sm">
-            <Link href="/dashboard" className={navLink}>
-              Requests
-            </Link>
-            {seesBi && (
-              <Link href="/dashboard/bi" className={navLink}>
-                Dashboard
-              </Link>
-            )}
-            {isStaff && (
-              <>
-                <Link href="/dashboard/vendors" className={navLink}>
-                  Vendors
-                </Link>
-                <Link href="/dashboard/sc" className={navLink}>
-                  Service Charges
-                </Link>
-                <Link href="/dashboard/payments" className={navLink}>
-                  Payments
-                </Link>
-              </>
-            )}
-            <Link href="/dashboard/statements" className={navLink}>
-              Statements
-            </Link>
-            {seesAudit && (
-              <Link href="/dashboard/audit" className={navLink}>
-                Audit
-              </Link>
-            )}
-            {isAdmin && (
-              <Link href="/dashboard/settings" className={navLink}>
-                Settings
-              </Link>
-            )}
-          </nav>
-        </div>
-      </header>
-
-      <main className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6 sm:py-8">
+      <AppShell
+        brandName={theme.name}
+        orgName={org?.name ?? theme.name}
+        logoText={theme.logoText}
+        logoUrl={theme.logoUrl}
+        portalName={theme.portalName}
+        supportEmail={theme.supportEmail}
+        supportPhone={theme.supportPhone}
+        user={{
+          name: profile?.full_name ?? profile?.email ?? "",
+          email: profile?.email ?? "",
+          roleLabel: label,
+        }}
+        ctx={ctx}
+        notifications={notifications ?? []}
+      >
         {children}
-      </main>
+      </AppShell>
     </div>
   );
 }

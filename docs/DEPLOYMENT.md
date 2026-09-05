@@ -1,5 +1,11 @@
 # Deployment Stability (Day 16)
 
+> **This is a dated POC-phase snapshot** (reviewed 2026-07-22, before the
+> Phase-1 environment split, custom domains, or 360dialog migration). It
+> describes the frozen `poc-demo-v1` demo, not the current `phase-1` dev world.
+> For current deployment facts see `HANDOFF.md`; for the production cutover
+> checklist see `GO_LIVE_CHECKLIST.md`.
+
 **Reviewed:** 2026-07-22 · **Pathway A** (already live on Vercel since Day 1).
 **Gate:** nothing about demo day depends on a laptop's network connection.
 
@@ -54,7 +60,15 @@ cross-brand isolation all pass.
 
 ## Demo-day checklist
 
-1. `npm run seed` beforehand for a clean, known dataset (optional — data persists).
+1. ⚠️ **Do NOT run `npm run seed` against the demo.** (This step used to read
+   "`npm run seed` beforehand for a clean, known dataset (optional)".) The demo
+   database was accidentally migrated to the Phase-1 schema on 6 Aug 2026 —
+   see `INCIDENT_2026-08-06_DEMO_DB_MIGRATED.md`. The decision was to accept
+   that drift, because the demo was verified working end to end on it. But a
+   POC-era seed script against a Phase-1 schema is the one action whose
+   outcome nobody has established, and it is not needed: **the demo data is
+   intact and renders correctly.** Reseeding solves a problem that does not
+   exist and risks one that would.
 2. Confirm the latest production deployment is **Ready** in the Vercel dashboard.
 3. Have the 9 logins ready (all password `OEGroupDemo2026!`): `demo@` (admin),
    `finance@`, `fm@`, `ops@`, `owner@`, `vendor@`, `resident@`, `tfml@`, `oea@`.

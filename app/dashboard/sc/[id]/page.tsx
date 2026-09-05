@@ -1,10 +1,30 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { ArrowLeft } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
-import { apportion } from "@/lib/apportionment";
+import { apportion, type ApportionMethod } from "@/lib/apportionment";
 import { formatNaira } from "@/lib/currency";
+import { PageHeader } from "@/components/patterns/page-header";
+import { StatusBadge } from "@/components/patterns/status-badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from "@/components/ui/table";
 import GenerateButton from "./GenerateButton";
+import ApportionmentControls from "./ApportionmentControls";
+
+const METHOD_LABEL: Record<ApportionMethod, string> = {
+  area: "pro-rata by occupied space",
+  equal: "split equally per unit",
+  manual: "stated per unit",
+};
 
 export default async function BudgetDetailPage({
   params,
@@ -16,132 +36,243 @@ export default async function BudgetDetailPage({
   if (!session) redirect("/login");
 
   const supabase = await createClient();
-  const { data: budget } = await supabase
+  const { data: rawBudget } = await supabase
     .from("sc_budgets")
-    .select("id, period, description, total_amount, status, property_id, properties(name, address)")
+    .select(
+      "id, period, description, total_amount, status, property_id, apportion_method, " +
+      "properties(name, address)"
+    )
     .eq("id", id)
-    .single();
-  if (!budget) notFound();
+    .maybeSingle();
+  if (!rawBudget) notFound();
+
+  // `apportion_method` is new in 0227 and not in the generated types yet, so the
+  // client types the whole row as an error. Narrowed once here rather than at
+  // every field, the same way the tenancy page handles its aliased embed.
+  const budget = rawBudget as unknown as {
+    id: string;
+    period: string;
+    description: string | null;
+    total_amount: number | string;
+    status: string;
+    property_id: string;
+    apportion_method: ApportionMethod | null;
+    properties: { name: string; address: string | null } | null;
+  };
+
+  const method = (budget.apportion_method ?? "area") as ApportionMethod;
 
   const property = budget.properties as unknown as {
     name: string;
     address: string | null;
   } | null;
 
-  const { data: units } = await supabase
-    .from("units")
-    .select("id, label, apportionment_factor, occupant_user_id")
-    .eq("property_id", budget.property_id)
-    .order("label");
+  const [{ data: units }, { data: stated }, { data: canManageData }] = await Promise.all([
+    supabase
+      .from("units")
+      .select("id, label, apportionment_factor, unit_quantity, occupant_user_id")
+      .eq("property_id", budget.property_id)
+      .is("deleted_at", null)
+      .order("label"),
+    // Read whatever the method, so switching to `manual` shows work stated
+    // earlier rather than a blank form. `apportion()` ignores these unless the
+    // method is manual, so a stale set cannot leak into a computed split.
+    supabase.from("sc_budget_shares").select("unit_id, amount").eq("budget_id", id),
+    // ⚠️ Asked of the database rather than restated as a role list. This was
+    // `role === 'admin' || role === 'finance_approver'`, which happens to be
+    // exactly who holds `sc.manage` today — but `sc_budgets_write` asks the
+    // permission, and decision 7 makes the matrix the authority. Two copies of
+    // one rule is how they drift; there is now one.
+    supabase.rpc("has_permission", { p_capability: "sc.manage" }),
+  ]);
 
-  const shares = apportion(
-    Number(budget.total_amount),
-    (units ?? []).map((u) => ({
-      id: u.id,
-      label: u.label,
-      factor: Number(u.apportionment_factor),
-      occupant_user_id: u.occupant_user_id,
-    }))
+  const statedBy = new Map(
+    (stated ?? []).map((s) => [s.unit_id as string, Number(s.amount)])
   );
+
+  const unitInputs = (units ?? []).map((u) => ({
+    id: u.id,
+    label: u.label,
+    factor: Number(u.apportionment_factor),
+    // 0198: the area is PER unit, so a row of 12 stalls weighs 12x it.
+    quantity: Number(u.unit_quantity ?? 1),
+    occupant_user_id: u.occupant_user_id,
+    statedAmount: statedBy.get(u.id) ?? null,
+  }));
+
+  const shares = apportion(Number(budget.total_amount), unitInputs, method);
   const sharesTotal = shares.reduce((a, s) => a + s.amount, 0);
 
-  const canManage =
-    session.profile?.role === "admin" ||
-    session.profile?.role === "finance_approver";
+  // What the area split WOULD give, shown beside each manual input as a
+  // reference point. A person stating shares by hand is departing from a
+  // convention, and departing from it knowingly is the difference between a
+  // negotiated split and a typo.
+  const byArea = new Map(
+    apportion(Number(budget.total_amount), unitInputs, "area").map((s) => [s.id, s.amount])
+  );
+
+  const canManage = Boolean(canManageData);
+
+  // ⚠️ Read from `sc_manual_shares_state()` — the SAME function the server
+  // action calls to refuse generation, and the same one the editor above shows
+  // its running variance from. Three consumers, one answer, so the button, the
+  // variance and the refusal cannot tell three different stories.
+  //
+  // Disabled rather than hidden, on the pattern the payouts page already uses
+  // for a control finance may see and not press: a missing button is a mystery,
+  // a disabled one with a reason is an instruction.
+  let blockedReason: string | null = null;
+  if (method === "manual" && budget.status !== "invoiced") {
+    const { data: stateRows } = await supabase.rpc("sc_manual_shares_state", {
+      p_budget_id: budget.id,
+    });
+    const st = (Array.isArray(stateRows) ? stateRows[0] : stateRows) as {
+      variance: number; missing_units: number; reconciles: boolean;
+    } | null;
+    if (!st?.reconciles) {
+      const missing = Number(st?.missing_units ?? 0);
+      const variance = Number(st?.variance ?? 0);
+      blockedReason =
+        missing > 0
+          ? `${missing} unit${missing === 1 ? " has" : "s have"} no stated share`
+          : `the stated shares are ${formatNaira(Math.abs(variance))} ${variance > 0 ? "short of" : "over"} the budget`;
+    }
+  }
 
   return (
-    <div className="mx-auto max-w-3xl">
-      <Link
-        href="/dashboard/sc"
-        className="mb-4 inline-block text-sm text-neutral-500 hover:text-neutral-800"
-      >
-        ← Back to budgets
-      </Link>
+    <div className="mx-auto max-w-4xl space-y-6">
+      <PageHeader
+        title={property?.name ?? "Budget"}
+        description={`${budget.description ?? ""} · ${budget.period}`}
+        actions={
+          <Button asChild variant="ghost" size="sm">
+            <Link href="/dashboard/sc">
+              <ArrowLeft /> Back
+            </Link>
+          </Button>
+        }
+      />
 
-      <div className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-black/5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-          <div className="min-w-0">
-            <h1 className="text-lg font-semibold text-neutral-800">
-              {property?.name}
-            </h1>
-            <p className="text-sm text-neutral-500">
-              {budget.description} · {budget.period}
-            </p>
-            {property?.address && (
-              <p className="mt-1 text-xs text-neutral-400">{property.address}</p>
+      <Card>
+        <CardContent className="pt-5">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Budget total
+              </p>
+              <p className="text-3xl font-semibold tabular-nums">
+                {formatNaira(budget.total_amount)}
+              </p>
+              {property?.address && (
+                <p className="mt-1 text-xs text-muted-foreground">{property.address}</p>
+              )}
+            </div>
+            <StatusBadge status={budget.status} />
+          </div>
+        </CardContent>
+      </Card>
+
+      {canManage && (
+        <ApportionmentControls
+          budgetId={budget.id}
+          method={method}
+          budgetTotal={Number(budget.total_amount)}
+          invoiced={budget.status === "invoiced"}
+          units={unitInputs.map((u) => ({
+            id: u.id,
+            label: u.label,
+            factor: u.factor,
+            quantity: u.quantity,
+            stated: u.statedAmount,
+            computed: byArea.get(u.id) ?? 0,
+          }))}
+        />
+      )}
+
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <CardTitle className="text-base">
+              Apportionment
+              <span className="ml-2 font-normal text-muted-foreground">
+                {shares.length} units, {METHOD_LABEL[method]}
+              </span>
+            </CardTitle>
+            {canManage && (
+              <GenerateButton
+                budgetId={budget.id}
+                alreadyInvoiced={budget.status === "invoiced"}
+                blockedReason={blockedReason}
+              />
             )}
           </div>
-          <div className="flex-shrink-0 sm:text-right">
-            <div className="text-2xl font-bold tabular-nums text-neutral-800">
-              {formatNaira(budget.total_amount)}
-            </div>
-            <span
-              className={`mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-medium capitalize ring-1 ${
-                budget.status === "invoiced"
-                  ? "bg-emerald-100 text-emerald-700 ring-emerald-200"
-                  : "bg-neutral-100 text-neutral-600 ring-neutral-200"
-              }`}
-            >
-              {budget.status}
-            </span>
-          </div>
-        </div>
-      </div>
+        </CardHeader>
+        <CardContent className="px-0 pb-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Unit</TableHead>
+                <TableHead className="text-right">Factor</TableHead>
+                <TableHead className="text-right">Share %</TableHead>
+                <TableHead className="text-right">Amount</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {shares.map((s) => (
+                <TableRow key={s.id}>
+                  <TableCell className="font-medium">{s.label}</TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">
+                    {s.factor}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">
+                    {(s.pct * 100).toFixed(2)}%
+                  </TableCell>
+                  <TableCell className="text-right font-medium tabular-nums">
+                    {formatNaira(s.amount)}
+                  </TableCell>
+                </TableRow>
+              ))}
+              <TableRow className="bg-muted/40 hover:bg-muted/40">
+                <TableCell colSpan={3} className="font-semibold">
+                  Total
+                </TableCell>
+                <TableCell className="text-right font-semibold tabular-nums">
+                  {formatNaira(sharesTotal)}
+                </TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
 
-      <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h2 className="text-sm font-semibold text-neutral-700">
-          Apportionment ({shares.length} units, pro-rata by floor area)
-        </h2>
-        {canManage && (
-          <GenerateButton
-            budgetId={budget.id}
-            alreadyInvoiced={budget.status === "invoiced"}
-          />
+      {/* ⚠️ Conditional, because the flat version was a lie on a manual split.
+          It read "Apportionment reconciles to the budget total exactly" above a
+          table of ₦0.00 — true of the computed methods, which reconcile by
+          construction, and false of a stated one that nobody has finished. A
+          standing reassurance under a figure that contradicts it is the same
+          fault as a total that disagrees with its own rows. */}
+      <p className="text-xs text-muted-foreground">
+        {method === "manual" ? (
+          blockedReason ? (
+            <>
+              This split does not yet account for the budget — {blockedReason}. Nothing
+              can be invoiced until it does, because a short set would silently
+              under-bill the property.
+            </>
+          ) : (
+            <>
+              These are the shares stated by hand, and they account for the budget
+              exactly. Generating invoices creates a per-unit charge on each
+              occupant&apos;s statement.
+            </>
+          )
+        ) : (
+          <>
+            Apportionment reconciles to the budget total exactly — the rounding
+            residual is placed on the largest unit rather than lost. Generating
+            invoices creates a per-unit charge on each occupant&apos;s statement.
+          </>
         )}
-      </div>
-
-      <div className="mt-3 overflow-x-auto rounded-xl bg-white shadow-sm ring-1 ring-black/5">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-neutral-100 text-left text-xs text-neutral-400">
-              <th className="px-4 py-2 font-medium">Unit</th>
-              <th className="px-3 py-2 text-right font-medium">Factor</th>
-              <th className="px-3 py-2 text-right font-medium">Share %</th>
-              <th className="px-4 py-2 text-right font-medium">Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            {shares.map((s) => (
-              <tr key={s.id} className="border-b border-neutral-50 last:border-0">
-                <td className="px-4 py-2 text-neutral-700">{s.label}</td>
-                <td className="px-3 py-2 text-right tabular-nums text-neutral-600">
-                  {s.factor}
-                </td>
-                <td className="px-3 py-2 text-right tabular-nums text-neutral-600">
-                  {(s.pct * 100).toFixed(2)}%
-                </td>
-                <td className="px-4 py-2 text-right font-medium tabular-nums text-neutral-800">
-                  {formatNaira(s.amount)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr className="border-t border-neutral-200 font-semibold">
-              <td className="px-4 py-2 text-neutral-700" colSpan={3}>
-                Total
-              </td>
-              <td className="px-4 py-2 text-right tabular-nums text-neutral-800">
-                {formatNaira(sharesTotal)}
-              </td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-
-      <p className="mt-3 text-xs text-neutral-400">
-        Apportionment reconciles to the budget total exactly. Generating invoices
-        creates a per-unit charge on each occupant&apos;s statement.
       </p>
     </div>
   );

@@ -10,6 +10,73 @@ interactive-analytics items), `OEA_TENANT_ONBOARDING.md`, `PHASE1_VENDOR_EVALUAT
 
 ---
 
+## Status board
+
+Where the build actually is. Updated at each day's gate. The narrative record —
+what was verified, what broke, what was decided — is `BUILD_JOURNAL.md`; this is
+the one-glance version.
+
+| Day | Deliverable | Status | Gate evidence |
+|-----|-------------|--------|---------------|
+| 0 | Preconditions (accounts, keys, domains) | 🟢 done | dev Supabase, Upstash, Sentry, Vercel dev project, Paystack test keys |
+| 1 | Environment split (demo frozen / phase-1 dev) | 🟢 done | seeding dev left demo untouched; limiter + Sentry proven live |
+| 2 | Brand isolation (routing, JWT claims, RLS, middleware) | 🟢 done | `verify-channel-routing`, `verify-jwt-claims` |
+| 3 | Omnichannel intake + AI triage, notification centre | 🟢 done | `verify-notifications`, `verify-cascade`, `verify-email-routing` |
+| — | *(inserted)* UI redesign, org branding, asset register, vendor applications | 🟢 done | `verify-org-theming`, `verify-asset-access`, `verify-asset-import`, `verify-vendor-applications`, `verify-invitations` |
+| 4 | Segregated client-funds ledger + reconciliation | 🟢 done | `verify-ledger`, `verify-reconciliation` — clean statement reconciles to 0, planted ₦75,000 debit flagged |
+| 5 | Live collections (checkout → webhook → ledger → receipt) | 🟢 done | `verify-collections`, `verify-checkout-e2e` — payload claiming ₦999,999,999 ignored; exactly-once under concurrency |
+| 6 | Live remittance (vendor payouts + landlord rent) | 🟢 done | `verify-remittance` — gate refuses every incomplete payment; 3 concurrent claims → 1 winner; re-confirming posts once; cannot pay more than is owed; `unknown` stays unknown |
+| 6.5 | Operator-governed permission matrix (toggles) | 🟢 done | `verify-permissions` — revoking a capability returns ZERO rows (RLS, not the menu); locked capabilities refuse to move; a brand admin reads but cannot edit; isolation and identity survive every capability being off |
+| 6.75 | Property & unit register *(gap found 27 Jul — was in no plan)* | 🟢 done | `verify-properties` — unique unit label per property, strictly positive apportionment factor, retire refuses while obligations remain, attaching an FM grants access and detaching removes it |
+| 7 | OEA tenant application + KYC intake | 🟢 done | `verify-tenant-applications` — module + window both gate intake; an applicant writes but can never read back; special-category data stored apart and absent from the reviewer's view; retention purges the person and keeps the decision |
+| 8 | Two-tier human review + approval | ⬜ | |
+| 9 | Lease admin + rent roll | ⬜ | |
+| 10 | Interactive analytics dashboard (filters, drill-down) | ⬜ | |
+| 11 | Vendor KPI/SLA evaluation, work-order media, UX pass | ⬜ | |
+| 12 | Security audit, NDPA pack, UAT, go-live | ⬜ | |
+
+**Baseline audit (PC2, `docs/BUILD_AUDIT_BASELINE.md`) — actioned 28 Jul:**
+- **S-1** approval threshold not enforced at the DB → **fixed** (`0060`). Was
+  confirmed exploitable: finance approved ₦5,000,000 against a ₦1,000,000
+  threshold by direct PATCH, and could then remit it.
+- **E-1** BI dashboard aggregated whole tables in JS → **fixed** (`0061`), now
+  DB-side `security_invoker` views; figures cross-checked against the raw sums.
+- **E-2** unbounded service-request list → **bounded** at 200 with the total
+  stated on screen. Keyset pagination stays Day 10.
+- **S-2** unit insert not checking the property's org → **already fixed** by
+  `0057`'s composite FK, before the audit was shared.
+- **D-1** read-leak fix depends on `0055` → **guarded**:
+  `scripts/verify-deployment-safety.mjs` fails if any matrix-governed table
+  carries a `FOR ALL` policy. Run it after migrating any environment.
+
+**Open items carried forward** (none blocking Day 7):
+- **Resend webhook** — add the endpoint + `RESEND_WEBHOOK_SECRET` so invitation
+  delivery outcomes (delivered / bounced) are recorded rather than assumed.
+- **Telegram bots** — not yet created in BotFather. Per-brand routing, tokens and
+  interactive buttons are built and waiting; see `TELEGRAM_BOT_SETUP.md`, then
+  `node scripts/register-telegram-bot.mjs <TFML|OEA> <token>`.
+- Client-funds **opening balance** and its allocation — placeholder ₦0 in all three orgs.
+- **Management/admin fee %** OEA deducts from rent — needed *by* Day 9 (rent roll).
+- **Flutterwave (FX)** keys — not set, so non-Naira collections refuse cleanly (403).
+- `oraegbunike.com` sending domain — DNS is on Zoho, not HostGator; subdomain steps pending.
+- **Per-brand portal URLs** — `portal.tfmlconsultant.com` / `portal.oraegbunike.com`
+  CNAME to Vercel at go-live; email sending domains are unaffected (separate records).
+
+**Closed on 27 July** (were listed here, now fixed — kept briefly so a reader of an
+older copy is not misled):
+- `recordOpeningBalance` atomicity → one RPC (`0048`).
+- `record_remittance_sent` inline account resolution → `canonical_ledger_account`
+  (`0048`), and the COLLECTION credit side too (`0049`, after `0048` alone made
+  the two halves of the ledger disagree).
+- Migration numbering collision → renamed `0040a`/`0040b` with their ledger rows
+  retagged, plus a runner guard that now refuses two files claiming one number.
+- **WhatsApp cross-brand replies** → each number routes to its own brand; Meta's
+  callback URL was still pointing at the frozen POC deployment.
+- **`channel_routes` credential leak** → any signed-in user could read the
+  Telegram webhook secret. Policy removed (`0039`).
+
+---
+
 ## Standing rules (carried from the POC)
 
 1. **Never touch the demo.** All work on the `phase-1` branch against the **dev**
@@ -33,7 +100,7 @@ interactive-analytics items), `OEA_TENANT_ONBOARDING.md`, `PHASE1_VENDOR_EVALUAT
 - [ ] **Flutterwave** account (FX collections) → **test** keys.
 - [ ] **Bank:** confirm the **segregated client-funds account** exists (or is being
       opened) — this is the account the ledger reconciles against.
-- [ ] **Domains:** access to DNS for `tfmconsultant.com` and `oraegbunike.com`.
+- [ ] **Domains:** access to DNS for `tfmlconsultant.com` and `oraegbunike.com`.
 - [ ] **WhatsApp:** a second number for OEA (TFML already live on +234 708 471 4148).
 - [ ] **Cloudflare R2** (or confirm Supabase Storage) for photo/video + documents.
 - [ ] Decide the **management/admin fee %** OEA deducts from rent before remitting.
@@ -47,6 +114,20 @@ interactive-analytics items), `OEA_TENANT_ONBOARDING.md`, `PHASE1_VENDOR_EVALUAT
       call with `claude-sonnet-4-6` returned HTTP 200, so triage is genuinely
       classifying, not silently degrading. *(The missing Gemini failover is still
       open — Day 12.)*
+      **⚠️ Update (2026-08-05): the model id was never the problem — the prompt
+      file was.** `lib/triage.ts` read `docs/AURA_Triage_Classification_Prompt.md`
+      via `readFileSync` at request time, a pattern Next's serverless file
+      tracer does not reliably bundle. In production this threw on every
+      genuinely new WhatsApp/Telegram ticket, uncaught (outside the classifier's
+      own fallback try/catch), silently dropping the message — 200 OK, zero
+      ticket, invisible without pulling function logs. Found from a live
+      customer screenshot (a duplicate-reply complaint led to this), confirmed
+      against the deployed function's own logs, fixed in both directions
+      (`next.config.mjs` now traces the file in explicitly; the file-load call
+      moved inside the try so any future failure degrades to a human-reviewed
+      ticket instead of crashing intake). Full account in `BUILD_JOURNAL.md`.
+      The missing Gemini failover (Day 12) is still the one remaining gap in
+      the same failure class.
 
 **Neither precondition blocks Day 1 any longer.** The remaining Day 0 work is
 purely the accounts/keys checklist above.
@@ -90,7 +171,7 @@ with the demo provably untouched side-by-side.
 
 **Claude prompt:**
 > "Implement the remaining B1 isolation layers: JWT org claims, brand API
-> middleware, and DNS/domain routing for tfmconsultant.com and oraegbunike.com.
+> middleware, and DNS/domain routing for tfmlconsultant.com and oraegbunike.com.
 > Replace the hardcoded `DEMO_ORG_ID` in both webhooks with a channel→org mapping so
 > each brand's WhatsApp/Telegram number lands in its own org. Extend
 > `verify-access-matrix.mjs` to prove cross-brand isolation at all four layers."
@@ -212,6 +293,86 @@ the ledger shows fee retained and balance remitted.
 
 ---
 
+## Day 6.5 — Operator-governed permission matrix
+
+Replaces role names hardcoded into RLS policies with a permission catalogue an
+administrator toggles. Sequenced **after** Day 6 deliberately: the permission
+system has to know which permissions are non-delegable, and that list is not
+final until the B4 approval gate is complete.
+
+**Claude prompt:**
+> "Introduce a per-org permission matrix. RLS policies stop naming roles and
+> instead ask `has_permission('<capability>')`, resolved against a
+> `role_permissions` table seeded from the B7 matrix. Build the toggle UI, the
+> locked-permission set, the deviation badge, and a verification suite that
+> proves a toggle changes what the DATABASE returns."
+
+### Locked decisions (agreed 27 July 2026)
+
+**1. Only the OE Group operator portal may change permissions.**
+TFML and OEA administrators **cannot** reach the editor. They see the matrix
+**read-only**, so they know what applies to their staff without being able to
+alter it — transparency without control.
+
+This needs a concept the model does not yet have: a **platform operator org**,
+distinct from a brand org. Add an explicit `orgs.is_platform_operator boolean
+not null default false`, set true for OE Group only. **Do not** infer it from
+`delivery_brand = 'direct'` — that field describes who delivers the service, not
+who governs the platform, and a future direct-delivery client would silently
+inherit operator rights.
+
+Editing another org's permissions is the **only** deliberate crossing of the
+org-isolation boundary in the system. It therefore goes through a single
+`SECURITY DEFINER` function that (a) verifies the caller is an admin of an org
+with `is_platform_operator`, (b) writes to exactly one target org, (c) writes an
+audit row naming both orgs. No table-level cross-org policy is added.
+
+**2. Locked — never appears as a toggle, hardwired in policy.**
+Each is a control someone external audits, not a preference:
+
+| Capability | Fixed to | Why it cannot be delegated |
+|---|---|---|
+| `payment.approve` | finance_approver + admin; above threshold **admin only** | B4 approval gate |
+| `payment.remit` | finance_approver + admin | executes a real transfer |
+| `ledger.write` | **no role** — system only | the ledger is written by collections/remittance, never by hand |
+| `ledger.read` | admin + finance_approver | client funds |
+| `bank.configure` | admin | defines what reconciliation compares against |
+| `audit.read` | admin + finance_approver | the trail must not be readable by those it records |
+| `permissions.edit` | operator admin only | the toggle that grants toggles |
+| `invitation.create_admin` | admin | prevents privilege escalation by invitation |
+| channel routing | service role only | `external_id` is a webhook credential (0039) |
+
+Cross-org isolation is **not** a permission at any level — it is an invariant.
+
+**3. Every configurable permission defaults to its most restrictive workable
+state.** The seed grants a capability only where B7 explicitly names the role;
+anywhere B7 is silent, the default is OFF. A new org therefore starts locked
+down and is opened deliberately, rather than starting open and being closed by
+memory.
+
+**4. B7 remains the approved baseline.** Any org whose matrix differs shows a
+**"differs from approved matrix"** badge with a per-capability diff, and a
+one-click reset to the B7 default. Drift must be visible and deliberate.
+
+**You do:** confirm the capability catalogue before the RLS rewrite begins.
+
+**You verify:** toggle `assets.write` off for FM/PM → an FM's asset save is
+refused **by the database**, not just hidden in the UI; toggle it back → the save
+succeeds. Attempt the same edit signed in as a TFML admin → the editor is
+unreachable. Attempt to move `payment.approve` → no toggle exists, and a direct
+API call still refuses.
+
+**👁 Visible deliverable:** a **permission matrix screen on the OE Group portal**
+with per-role toggles, locked rows shown as locked with their reason, and the
+deviation badge.
+
+**Done when:** a toggle changes what the database returns; locked permissions
+cannot be moved by UI or by direct API call; a brand admin cannot reach the
+editor; and every change is in the audit trail naming who changed what, for
+which org.
+
+---
+
 # TRACK C — OEA lettings (Days 7–9)
 
 ## Day 7 — Tenant application & KYC capture
@@ -231,6 +392,82 @@ document; resume a half-finished one.
 on mobile, with documents attached.
 
 **Done when:** both individual and corporate applications submit cleanly.
+
+**Status — built.** Schema, RPCs, both forms, uploads, save-and-resume, consent
+capture and the 90-day purge are in (`0062`, `0063`); 22 checks pass. The
+operator surface was missing and has been added: **People → Tenancy
+Applications** now carries the open/close switch and the public link, and the
+public page is no longer cached. The tab appears only for an org with the
+lettings module.
+
+**Status — closed, 30 July.** PC2's build audit found submission **silently
+blocked end to end**: the document check read `application_attachments` through
+the applicant's anon session, which has no SELECT policy, and a query with no
+matching policy returns zero rows *without erroring* — so every uploaded document
+read as missing. Reproduced before fixing. The gate now lives inside
+`submit_tenant_application()` (`0070`), which also closes a second hole the audit
+did not name: that RPC is granted to `anon`, so a check in the server action could
+be posted past.
+
+Also closed from the same audit: `sensitive` and `resume_token_hash` are no longer
+readable by `authenticated` (the latter matters more — the resume/save/submit
+functions take that hash as their argument, so reading it meant being able to
+submit someone else's application); `saveDraft` is rate limited; and the emailed
+resume link the form promised now actually exists and works (`?resume=<token>`,
+with `Referrer-Policy: no-referrer` on `/tenancy/*`).
+
+**Mandatory documents are now configuration, not code** —
+`application_document_requirements` per org and application type, which answers the
+question that was previously outstanding here. Turning one off is proven to change
+what is enforced.
+
+Suites: `verify-tenant-applications` (22), `verify-application-submission` (14),
+`verify-audit-followups` (12).
+
+*Awaiting you:* confirm the final field list per form, then walk the form on a
+phone. Also needs a verified Resend sending domain for `oraegbunike.com` before
+the resume email will reach an OEA applicant.
+
+---
+
+## Day 6.75b — Portfolio hierarchy + oversight roles *(inserted 30 July, board of 29 July)*
+
+**REGION → PROJECT → LOCATION → SITE**, above the property register. One
+`org_nodes` table with a materialised path rather than five nested tables, so the
+property stays the security anchor for all 42 policy clauses that scope on it
+(`0066`). Node-scoped assignments were added *inside* `current_user_property_ids()`
+— one resolver, extended — so a manager assigned to a region reaches properties
+added to it later with no re-assignment (`0067`).
+
+Two trigger defects found by the suite before pushing: `UPDATE OF col` fires on the
+columns a statement *names*, not those that changed (`0068`); and an AFTER
+trigger's `WHEN` clause is evaluated outside any trigger, so a `pg_trigger_depth`
+guard there is never true (`0069`).
+
+**Roles (`0071`–`0073`):** `executive` (MD / Managing Partner) — full visibility,
+co-holds approval including above threshold, **cannot remit**; `regional_manager` —
+operational plus inviting staff for their own region, nothing financial. Eighteen
+SELECT policies were rewritten mechanically from `pg_policies` into
+`oversight_roles()` rather than retyped.
+
+⚠️ **Regression caught here:** adding `executive` to `enforce_payment_transition()`
+meant rewriting it from a partial read, which dropped the legal-transition state
+machine — a forged jump straight to `approved` became possible.
+`verify-payment-gate` caught it; restored in `0073`. **`create or replace` is a
+full rewrite: whatever you do not restate, you delete.**
+
+Suites: `verify-hierarchy` (24), `verify-oversight-roles` (21).
+
+**Still to do from the 29 July board** (design in
+`docs/BOARD_JULY29_STRUCTURE_AND_REPORTING.md`):
+- `assets.scope` enum (`unit | property | site`) + shared-asset cost apportionment
+- `scope.org_wide` capability so **write** policies are bounded to a subtree — this
+  *tightens* current access (an FM loses org-wide `properties.write`), so it is
+  staged separately and confirmed against live data first
+- per-property application window (`auto` / `open` / `closed`) — also closes the
+  Day 8 blocker below
+- import templates gaining region/project/location/site columns
+- AI document verification (locked decision 10), after Day 8's human review
 
 ---
 
@@ -252,6 +489,166 @@ a **tenant account created automatically** from it.
 
 **Done when:** no tenant exists without an approved application; all steps audited.
 
+**⚠ Blocker found in Day 7 review — a PM will see zero applications.** Nothing in
+the public flow captures a property or unit, so every application has
+`property_id = null`. Both the RLS policy and `application_overview` scope a
+reviewer without `applications.review_all` to
+`property_id in (select current_user_property_ids())`, and **NULL never matches
+an IN list** — so property-scoped review, which is this day's premise, currently
+returns nothing. Two ways out:
+> - ask the applicant which property/unit they want, or
+> - have an admin assign the application to a property on receipt, before it
+>   enters the PM queue.
+>
+> The second is the safer default: an applicant's own free-text preference should
+> not decide who may read their identity documents. It does mean the queue needs
+> an explicit *unassigned* stage. **Confirm which before Day 8 starts.**
+
+**Blocker closed, 31 July.** Per-property intake (`0081`) gave the public form a
+property to carry, so an application now arrives with `property_id` set and
+property-scoped review works as designed. No unassigned stage was needed.
+
+**Status — built, 31 July.** `application_decisions` records every recommend,
+request-info, approve and reject with its author and a reason; the recommender is
+refused their own approval *and* their own rejection; individual completes on one
+approval, corporate on two distinct approvers; the completing approval issues a
+real invitation through the same hardened `accept_invitation` every other person
+is onboarded by, occupying the unit assigned during review. Rejection sets the
+90-day purge date, approval sets none. Two capabilities added to the B7 matrix:
+`applications.recommend`, `applications.approve`.
+
+The review queue and detail page ship with it: applicant, documents behind
+click-minted signed URLs, every non-sensitive form section, review history, and a
+decision panel whose disabled states mirror what the database enforces.
+
+🔎 Verified in the browser against a real applicant submission — queue, detail,
+a live recommendation, and the maker-checker gate correctly refusing to let the
+recommender also decide.
+
+Suites: `verify-application-review` (35).
+
+*Awaiting you:* name the reviewers and approvers on the live org, and confirm
+whether the executive stays eligible as a second corporate approver (currently
+yes, by default). Rejected-PII purge runs on the same job as Day 7's.
+
+**Your role from here:** you are the *approver*, not the recommender — a
+property/facility manager recommends, and you (or a second admin) decide. The
+system will not let one person do both.
+
+---
+
+## Day 8.75 — The regional structure, made visible *(inserted 31 July 2026)*
+
+**Status — built, 31 July.** `0066` gave the board's REGION → PROJECT → LOCATION
+→ SITE its schema, `0067` extended the one resolver so a regionally-assigned
+manager reaches everything beneath their node, and `0078c`/`0081` wired it into
+invitations. **None of it had a screen.** Nothing created a region, filed a
+property under a site, or assigned a regional manager — every property in the
+system was unfiled, and the structure the board asked for on 29 July was
+invisible to a user.
+
+Shipped: **Properties → Regions & sites** (create, rename, retire, and assign
+regional managers at any level of the tree), a shared cascading picker on the
+property form, a "Region / site" column on the property list, and the invite
+dialog finally passing `node_id` — so a regional manager can be scoped from the
+UI for the first time. `retire_org_node` refuses while a live child node or
+property still depends on it, the same refuse-rather-than-orphan shape as
+`retire_property`.
+
+🔎 14 checks (`verify-hierarchy-ui`), `verify-hierarchy` still green, and in the
+browser: created a project under North, saw it nest, and confirmed the property
+form's cascade unlocked Project with only that node offered while Location and
+Site stayed disabled.
+
+**Your role:** you are the **administrator** here — `hierarchy.write` is
+admin-only by default (B7 is silent on portfolio restructuring, and locked
+decision 7 says silence means OFF). Nobody else can reshape the portfolio.
+
+*Awaiting you:* the real region/project/location/site names for both brands.
+Nigeria's three geopolitical regions (North, South, East) are seeded; everything
+below them is yours to name.
+
+**Still outstanding from the 29 July board:** import templates gaining
+region/project/location/site columns, and `assets.scope` shared-asset
+apportionment.
+
+---
+
+## Day 8.8 — Per-org front doors + operator launcher *(inserted 31 July 2026)*
+
+**Status — built, 31 July.** Each org now carries a unique `slug` and its own
+sign-in at **`/o/<slug>`**, branded with that org's colours, logo and portal
+name. The **grid of organisation icons** replaces the single anonymous login box
+— at **`/orgs`**, behind the operator sign-in.
+
+**⚠ Why it is behind sign-in and not in front.** B1 says a user on one portal
+must never see another brand's data *or existence*. A public grid publishes the
+whole client list — both brands, the SC client, every landlord org onboarded
+later — to anyone who loads the page, competitors included. A link someone was
+handed is not an enumeration; a directory is. `org_public_branding` therefore
+takes a slug and returns at most one row (wildcards match literally, an unknown
+slug and a retired org both 404), while `operator_org_directory` gates on
+`caller_is_operator_admin()` inside the query so a brand administrator gets an
+empty set rather than a refusal.
+
+🔎 13 checks (`verify-org-directory`) — including that a brand admin lists
+nothing and that quotes and wildcards cannot escape into the lookup. Verified in
+the browser: `/o/oea` renders OEA's own branding, an unknown slug 404s, and the
+launcher lists the three live orgs with their addresses and counts.
+
+**Your role:** **operator**. Only a member of the platform-operator org
+(`orgs.is_platform_operator`) sees the launcher. Your brand administrators
+cannot list the platform's clients, by design.
+
+*Awaiting you:* confirm the public slugs (`tfml`, `oea` are set; the POC org
+has a long derived one). **If the board does want the grid public, that needs a
+recorded exception to B1** — the switch itself is one line.
+
+---
+
+## Day 8.9 — Client-facing UI/UX upgrade *(inserted 31 July 2026)*
+
+**Claude prompt:**
+> "Bring the public entry surfaces up to a modern, conventional client-serving
+> standard: the org launcher, the `/o/<slug>` sign-in, and the tenancy
+> application. Typography scale, spacing rhythm, motion on state change, real
+> empty and loading states, and a mobile-first pass. Keep the existing semantic
+> token system — this is a refinement of the design language, not a replacement."
+
+**You do:** approve the direction on the launcher first, since every other
+surface follows its treatment.
+
+**You verify:** open the launcher and an org sign-in on a phone; both should read
+as a product a client would trust with money.
+
+**👁 Visible deliverable:** the **first screen a client or prospect sees**,
+finished to a standard you would put in front of a board.
+
+**Done when:** the three public surfaces are upgraded and pass mobile + WCAG AA.
+
+**Status — built, 1 August.** A display type scale (fluid `clamp()`, tracking
+tightening as size grows — Tailwind's defaults are tuned for body copy and read
+loose at 40px), a brand-tinted hero wash, and short entrance motion that honours
+`prefers-reduced-motion`. Applied to the launcher, the per-org sign-in and the
+tenancy application. The tenancy page's privacy reassurance became three
+separate promises rather than one grey paragraph.
+
+🔎 Verified in the browser: 48px hero / 32px form heading on desktop, 24px at
+375px via the clamp, no horizontal overflow at either width, no console errors.
+
+⚠️ Found and fixed while verifying: a probe property (`PROBEREV-A-BPYT0`) was
+live on the **public** tenancy page. Same root cause as the Day 8.75 dropdown
+leak — end-of-run cleanup never executes when a suite throws. All suites now
+sweep at the start of a run; 26 stray properties cleared, no real data touched.
+
+**Your role:** none required — this is presentation only, no schema, no
+policies. Worth a look on your phone before Day 9 starts.
+
+> **Sequencing.** Only the *client-facing* surfaces are done here, while there
+> are three of them. The internal dashboard's polish stays in **Day 11**'s
+> existing production UX pass — doing it now would mean doing it again after
+> Days 9–11 add lease, rent-roll and evaluation screens.
+
 ---
 
 ## Day 9 — Lease administration, rent billing & rent roll
@@ -270,13 +667,98 @@ a renewal notice is queued.
 **👁 Visible deliverable:** a **rent roll / tenancy schedule** you could hand a
 landlord, and an **automated renewal notice**.
 
+**Fee model resolved, 1 August 2026 (locked decision 14).** Management fee is
+**org-wide default + per-landlord override**, badged as a diff from the default
+with a one-click reset — the same shape decision 7 already built for the
+permission matrix. Admin fee stays an **org-wide flat placeholder** until its
+own shape (ongoing % vs. one-time per-tenancy charge) is decided; Day 9 does not
+block on that. Every rate applied is **snapshotted onto the transaction at
+collection time**, so a later rate change cannot silently rewrite a past
+landlord statement. **Day 9 is now unblocked.**
+
 **Done when:** lease → rent → roll → notice works end to end.
+
+**Status — built, 1 August.** `leases` (with a GiST exclusion so one unit cannot
+be let twice over the same days), `rent_charges` with the fee split **frozen on
+the demand**, `rent_roll`, `my_tenancies()` for the tenant's own view, renewal
+with the escalation on the NEW term, and the rent roll UI with bill/renew.
+Nigerian practice — **annual rent, paid in advance** — is the default rather
+than a monthly cycle.
+
+Rent now reaches the ledger: a receipt splits into the landlord's share and the
+fee using the snapshot, and `create_rent_remittance` pays out a balance that is
+already net rather than deducting a second time. Renewal notices dispatch on a
+daily cron with idempotency in the database — one notice per (lease, threshold),
+claimed before the email is attempted.
+
+Settings → Lettings owns the numbers: default fee, flat admin fee, notice lead
+times and the rent demand lead.
+
+**Confirmed 1 August 2026 (locked decision 15):** renewal notices at
+**90/60/30 days**, rent billed **annually in advance**. These were carried as my
+defaults until this point and are now the client's stated terms — still
+admin-editable per org, because a commercial portfolio may want longer notice
+than a residential one.
+
+Suites: `verify-leases-and-rent` (20), `verify-rent-money` (16),
+`verify-lease-notices` (11).
+
+**Closed 3 August — demands now raise themselves.** `rent_demand_lead_days` was
+stored and read by nothing; demands were raised by clicking "Bill rent", which
+works until the day nobody clicks it. With rent billed annually in advance, that
+is a year's rent never asked for.
+
+`leases_needing_rent_demand()` (`0098`) reports which lease is due and for what
+period; `raise_rent_charge()` still writes it and still snapshots the fee, so
+the scheduled path and the button share one writer. Runs daily at 08:30 via
+Vercel Cron. The next period starts where the last ended — no gap — and a period
+beginning on or after the lease end is excluded, so the final demand of a
+tenancy is never followed by one more. Idempotency is the existing unique
+constraint on `(lease_id, period_start)`.
+
+Suite: `verify-rent-demands` (16).
+
+**Day 9 is complete.**
+
+**Gap found 6 Aug — now CLOSED (`0110`, same day).** Everything above was the
+accounting side, reachable only from admin/FM/finance routes; there was no
+tenant-facing screen to view or pay a rent charge, and `my_tenancies()` — the
+function written for exactly that view — was called nowhere in the app.
+
+`/dashboard/my-rent` now shows a tenant their own demands (period, flat,
+owed, paid) with a **Pay now** button into the same checkout the
+service-charge flow uses; a live link surfaces as **Continue payment** rather
+than attempting a second. New `my_rent_charges()` companions
+`my_tenancies()`, both `SECURITY DEFINER` on `auth.uid()`. No amount is ever
+passed from the client — the RPC computes the outstanding balance from the
+demand itself.
+
+**⚠ And a real defect it uncovered:** `create_rent_payment_intent` checked
+only the caller's *organisation*, never that they were the tenant on the
+lease — so any account in the org could open a payment link on someone
+else's rent and, via the function's own one-live-intent guard, **lock the
+real tenant out of paying**. Fixed in `0110`; reproduced against the pre-fix
+function and re-verified after, in `verify-tenant-rent-payment` section G.
+
+Suite: `verify-tenant-rent-payment` (13), plus an end-to-end browser run:
+tenant pays → ledger balances to zero, landlord's share and OE Group's fee
+each posted correctly. **"Pay rent online" is now genuinely deliverable.**
+Detail: `docs/GAP_2026-08-06_TENANT_RENT_PAYMENT.md`.
 
 ---
 
 # TRACK D — Intelligence & experience (Days 10–11)
 
 ## Day 10 — Interactive analytics dashboard + role reporting
+
+> **Sequencing confirmed 2026-07-26.** The BI charts stay static until this day,
+> deliberately. Days 4–6 create the financial data the console must report on —
+> collection rate, receivables, budget utilisation, vendor liabilities and
+> remittance flow all come from the ledger. Building the filter engine,
+> aggregation layer and exports before that data exists would mean building them
+> twice. The operational half (requests, vendors, assets, timestamps) is already
+> in place and waiting.
+
 **Claude prompt:**
 > "Build the locked interactive analytics dashboard for both brands: filters (date
 > range, vendor, classification, property, status); completion rate % by vendor and
@@ -295,6 +777,74 @@ log in as FM and confirm you still only see your properties.
 vendor completes fastest this quarter?" live, plus a **tenant request tracker**.
 
 **Done when:** filters work, scoping holds, exports produce a file.
+
+### What was built (2026-08-03)
+
+**The fact nobody wrote down.** `tickets` recorded a status and never the moment
+it changed, so "average time-to-resolve" and "which vendor completes fastest"
+were not slow to compute — they were **uncomputable**. `0099` adds `resolved_at`
+and `first_response_at`, stamped by trigger on the transition, set once so a
+reopened ticket keeps its original resolution time. **It does not backfill.**
+Tickets already sitting at `resolved` have no honest duration, and every
+aggregate excludes them explicitly, so each average reads "of what we measured".
+The console says so on screen and in both exports.
+
+**Aggregation (`0100`, `0101`).** Three functions — `bi_ticket_metrics`,
+`bi_vendor_performance`, `bi_category_performance` — each taking every filter,
+rather than a view per filter combination. **None is `SECURITY DEFINER`**: they
+are plain SQL over `tickets`, so RLS scopes them and an FM/PM sees only their own
+properties without the functions knowing that rule exists.
+
+> **Deviation from the prompt, recorded.** The prompt asked for *materialised*
+> aggregates for speed. A materialised view is computed once, as its owner, and
+> cannot vary by caller — it would hand every reader the same numbers and quietly
+> undo the scoping this build spends 42 policy clauses maintaining. Live SQL over
+> an indexed table was chosen instead. If volume ever demands pre-aggregation, it
+> must be per-org and re-checked, not a single shared snapshot.
+
+`0101` exists because the headline pools per-period averages, and weighting the
+first-response average by the *resolution* count is arithmetic across two
+different populations — a ticket can be acknowledged and still open. Each average
+now returns its own count.
+
+**Surfaces.**
+- `/dashboard/bi/analytics` — filters (date range, property, vendor, category,
+  status), week/month/quarter/year toggle (monthly default, board 1 Aug 2026),
+  volume-and-speed trend on two axes, fastest/slowest vendor, vendor turnaround,
+  completion by category, the period table, CSV and a branded PDF report.
+- `/dashboard/my-requests` — the tenant's request tracker: a raised →
+  acknowledged → assigned → completed timeline per request, via `my_requests()`.
+  Replaces the requests list for a tenant rather than sitting beside it.
+- `/dashboard/my-work` — the contractor's own view: pipeline, AURA scorecard and
+  invoice stage. Nothing filters by vendor id; the policies do it.
+
+**Two period traps, both closed.** A partial period is not a decline — comparing
+a three-day-old August against a full July printed "−81.3% raised" in red on an
+executive's screen, so period-over-period now drops the bucket in progress and
+marks it "so far". And a period with nothing timed leaves a **gap** in the trend
+line rather than a straight line drawn through it.
+
+**Gaps found while building, and fixed.**
+- `executive` and `regional_manager` reached **no** BI at all, contrary to B7
+  v3.3. `biScope()` moved out of the page into `bi/scope.ts` — one definition,
+  shared by both pages, the export route and the nav.
+- **No ticket in any org carried an `assigned_vendor_id`**, so every vendor panel
+  was correctly and uselessly empty. `seed-dispatch-demo.mjs` (gated behind
+  `--yes` and a demo-org allowlist) gives the demo a dispatch history.
+- No `vendor@` login was attached to a vendor record, so a contractor signed in
+  to an empty application — a fixture with no subject, reading as broken access
+  control. `seed-org-logins` now links one.
+- A probe contractor, `Perm probe 1785232896727`, was sitting in the live
+  contractor filter: `verify-permissions` inserts a vendor it *expects* to be
+  refused, so it had no cleanup on the run where the refusal failed. Swept at the
+  start of the run now, and the insert captures its id.
+- The vendor picker queried `vendors.deleted_at`, a column that does not exist.
+  The error emptied the picker silently, which reads as "this org has no
+  contractors".
+
+Suites: `verify-analytics-console` (32), `verify-bi-scoping` (mirror updated).
+
+**Day 10 is complete.**
 
 ---
 
@@ -318,11 +868,50 @@ checklist**, and a visibly **polished mobile UI**.
 
 **Done when:** no free-typed scores remain; UI passes mobile + accessibility checks.
 
+**Status (2026-08-05): Day 11 is complete.** Vendor evaluation, work-order
+media and the production UX pass have all landed and been verified live;
+detail for each is in `BUILD_JOURNAL.md`. In summary:
+- **Work-order photo/video evidence** — private bucket, 25 MB cap enforced by
+  the bucket, camera capture on mobile, append-only and attributable, and
+  visibility that *follows the ticket* rather than re-deriving its scoping
+  (`0106`, `verify-work-order-media` — 20 checks).
+- **Confirmation dialogs on money actions** — a dedicated AlertDialog (no
+  dismiss-on-outside-click) on "Approve payment" and "Send payment".
+- **Loading states** — one `app/dashboard/loading.tsx` covering all 44 routes
+  beneath it; there were previously none anywhere in the app router.
+- **Mobile drawer nav** — already existed from the Day 1 design-system work;
+  checked rather than rebuilt.
+- **WCAG AA** — a real measured audit, not a spot-check. Found and fixed
+  genuine contrast failures in every tinted badge variant (worst: 2.06:1
+  against a required 4.5:1) and in `--muted-foreground`, in both themes, plus
+  missing accessible names on file inputs. Re-measured clean across 96
+  elements / 54 badges in light and dark.
+
+**Original status note (2026-08-04): the KPI/SLA evaluation half is complete and
+verified live in the browser as both roles** — full detail in `BUILD_JOURNAL.md`'s
+Day 11 entry.
+Response/Completion are auto-measured from ticket timestamps against an
+admin-set SLA target, never typed; Quality/Compliance come from an FM/PM
+checklist against an admin-editable, effective-dated rubric
+(Settings → Evaluation Rubric); Satisfaction is the tenant's own rating,
+prompted the moment their ticket resolves; the composite appears only once
+both sources exist, matching the AURA weights exactly. No free-typed score is
+possible anywhere in the write path (`scripts/verify-vendor-evaluation.mjs`,
+26 checks). *(What this note listed as still open — work-order media and the
+production UX pass — was completed the following day; see the status above.)*
+
 ---
 
 # TRACK E — Harden & launch (Day 12)
 
 ## Day 12 — Security, compliance, UAT, training, go-live
+
+> **`docs/GO_LIVE_CHECKLIST.md` is the executable version of this section** —
+> what needs doing by the board vs by Claude, environment variables, the
+> role-based user-guide plan, and rollback. Started 2026-08-04, not yet
+> executed. This section stays the narrative; that doc is the checklist to work
+> through on the day.
+
 **Claude prompt:**
 > "Run the production security pass: dependency + secret scan, OWASP ZAP against the
 > Phase-1 URL, k6 load test to target, and confirm rate limits. Produce the NDPA
@@ -334,6 +923,16 @@ checklist**, and a visibly **polished mobile UI**.
 static "needs human review", it does not fail over), and confirm the classifier
 model id is valid so classification can't silently go dark.
 
+**🧹 Clean-data go-live gate:** production is a **fresh, separate** Supabase + Vercel
+project, **stood up empty**. Run `npm run migrate` (schema only) and **do NOT run
+`npm run seed`** — the seed generates synthetic/test data. Every production record
+must arrive through real Day-3 self-service onboarding. All test/synthetic data stays
+in `oe-group-dev` and the frozen `poc-demo-v1` demo and is **never migrated in**. This
+removes any real-vs-test confusion *by construction* — not by deleting test rows later,
+which is unsafe here anyway (the `audit_log` is append-only, and financial/ledger rows
+are retained, not deletable). If a rehearsal ever writes test data into the prod env,
+**reset/re-provision it before the real cutover**, don't hand-delete rows.
+
 **You do:** designate the **DPO**, sign processor DPAs (Supabase, Vercel, Anthropic,
 Meta, Paystack, Flutterwave), publish the privacy notice, run UAT with real staff,
 and give the **go/no-go**.
@@ -344,7 +943,8 @@ and give the **go/no-go**.
 and the **production system live** for TFML and OEA.
 
 **Done when:** no critical findings, UAT signed off, production deployed, rollback
-confirmed.
+confirmed, and the **production DB verified clean** — migrations run, seed **not** run,
+zero synthetic rows before the first real onboarding.
 
 ---
 

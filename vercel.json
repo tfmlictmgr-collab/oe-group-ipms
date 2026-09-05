@@ -1,3 +1,37 @@
 {
-  "framework": "nextjs"
+  "framework": "nextjs",
+  "crons": [
+    {
+      "path": "/api/jobs/lease-notices",
+      "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/jobs/raise-rent-demands",
+      "schedule": "30 8 * * *"
+    },
+    {
+      "path": "/api/jobs/expire-leases",
+      "schedule": "45 8 * * *"
+    },
+    {
+      "path": "/api/jobs/purge-applications",
+      "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/jobs/purge-notifications",
+      "schedule": "15 3 * * *"
+    },
+    {
+      "path": "/api/jobs/copy-vendor-documents",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/jobs/escalate-unassigned",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/jobs/screen-applications",
+      "schedule": "*/15 * * * *"
+    }
+  ]
 }

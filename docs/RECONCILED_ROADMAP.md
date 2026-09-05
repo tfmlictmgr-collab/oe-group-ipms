@@ -119,13 +119,14 @@ must be scheduled for Phase 1 — recorded here so they are not assumed done:
    self-registration. The schema seams exist (`org_id`, `parent_org_id`,
    `delivery_brand`); the screens and invite flow do not.
 
-2. **Per-org inbound channel routing.** One WhatsApp number, one Telegram bot, one
-   credential set — and the webhook routes **hardcode `DEMO_ORG_ID`**, so every
-   inbound message lands under the POC org regardless of brand. To have WhatsApp /
-   Telegram / SMS uniquely service each org, need either separate numbers/bots per
-   org or a mapping layer (inbound number/bot → org) that sets the ticket's
-   `org_id` from the channel. Day 13 covers *outbound* delivery only, not inbound
-   org routing. Ties to the same brand-isolation area as Wk4 ("no urls").
+2. **Per-org inbound channel routing.** ✅ DONE (Phase 1 Day 2, 2026-07-24).
+   `channel_routes` (migration 0011) maps each inbound identity → one org:
+   WhatsApp by `phone_number_id`, Telegram by the per-bot secret token (which
+   also authenticates). `DEMO_ORG_ID` hardcode removed from both webhooks;
+   unknown identity is dropped, never defaulted. Proven end-to-end on the live
+   dev URL (`scripts/verify-channel-routing.mjs`). Remaining: add the real OEA
+   number's route row when OEA gets its own channel (placeholder identities
+   prove the mechanism today).
 
 ---
 
@@ -228,9 +229,9 @@ branch **`phase-1-hardening`** (commits `2e48f8b`, `2bf4b17`); migration
 | **S9** | `payments_update` RLS let a **direct API PATCH skip the gate** | Apply `0010` payment state-machine trigger (service-role-exempt) | Day 6 | ⏳ migration written |
 | **S3** | `vendor_evaluations` **drive the KPI gate but were unaudited** (gate gameable) | Apply `0010` audit trigger | Day 4 / Day 11 | ⏳ migration written |
 | **S4** | `service_charges` had **no audit** + were **hard-deletable**; no soft-delete | Apply `0010` (audit + `deleted_at` soft-delete) | Day 4 (ledger immutability) | ⏳ migration written |
-| **S5** | FM sees **all vendors/payments/evaluations org-wide** (not property-scoped) | Leave (internal over-grant, org isolation holds) | Day 2 — extend property-scoping to the money side; **needs a vendor↔property model** (link table or derive via assigned tickets); re-run `verify-access-matrix.mjs` | 🔧 design call |
+| **S5** | FM sees **all vendors/payments/evaluations org-wide** (not property-scoped) | Leave (internal over-grant, org isolation holds) | ✅ DONE (Day 2). `vendor_properties` (0012) + `current_user_scoped_vendor_ids()`; payments + evaluations scoped to the FM's properties (FM now sees 2 of 3 payments, verified). Vendor directory stays org-visible for assignment. | ✅ fixed on `phase-1` |
 | **S6** | Next.js **14→16 bump is uncommitted, unpinned, untested** | **RESOLVED (PC1, 2026-07-24):** `main` is pinned at **`next@14.2.35`**, lockfile agrees, working tree clean — the proven POC baseline. The bump exists only as an uncommitted/stashed change in PC2's working copy; **drop it there**, don't commit it. | Day 0/1 gate — now clear | ✅ **resolved on `main`** |
-| **S7** | Inbound **hardcodes `DEMO_ORG_ID`** (both brands collapse on intake) | Leave (POC is single-org) | Day 2 (channel→org routing) | ✅ already planned |
+| **S7** | Inbound **hardcodes `DEMO_ORG_ID`** (both brands collapse on intake) | Leave (POC is single-org) | ✅ DONE (Day 2) — `channel_routes` per-org routing; `DEMO_ORG_ID` removed from both webhooks | ✅ fixed on `phase-1` |
 | **S8** | **No Gemini failover**; verify model id `claude-sonnet-4-6` | **VERIFIED (PC1, 2026-07-24):** live call to the Anthropic API with `claude-sonnet-4-6` returned **HTTP 200** — the id is valid and the classifier is not silently degrading. The **missing Gemini failover** remains real. | Day 12 (resilience) — failover only | ✅ model id verified · ⏳ failover pending |
 
 **Applying these to the POC/demo too (per the "fix both builds" call):**
@@ -270,3 +271,55 @@ branch **`phase-1-hardening`** (commits `2e48f8b`, `2bf4b17`); migration
 syncs both machines. The code + migration for S1–S4/S9 live on `phase-1-hardening`
 (pushed). Merge that branch (or cherry-pick the two code fixes) into the POC when
 you accept the S6 decision, so the demo and Phase 1 stay in step.
+
+---
+
+## Board of 29 July 2026 — structure, oversight, reporting (added 30 July)
+
+The design is `docs/BOARD_JULY29_STRUCTURE_AND_REPORTING.md`; the locked decisions
+are `CLAUDE.md` **v3.3**, items 8–11. Roadmap consequences:
+
+**Landed (Phase 1, branch `phase-1`)**
+- **Portfolio hierarchy** REGION → PROJECT → LOCATION → SITE above the property
+  register (`0066`–`0069`). One table with a materialised path; the property stays
+  the security anchor for the 42 policy clauses that scope on it.
+- **Node-scoped assignments** — a manager assigned to a region reaches every
+  property beneath it, including ones added later. Added *inside*
+  `current_user_property_ids()`; a second scoping mechanism is forbidden.
+- **`executive`** (MD of TFML / Managing Partner of OEA) and **`regional_manager`**
+  (`0071`–`0073`). An executive co-holds approval including above threshold and
+  **cannot execute a remittance** — oversight authorises, finance disburses.
+- **Day 7 audit closure** (`0070`, `0074`): tenancy submission was silently blocked
+  end to end; `sensitive` and `resume_token_hash` revoked from `authenticated`; the
+  emailed resume link now exists; the last BI figure moved into the database.
+
+**Still ahead**
+- `assets.scope` (`unit | property | site`) and shared-asset cost apportionment —
+  touches the Step 6 apportionment engine, so it is finance logic, not display.
+- `scope.org_wide` so **write** policies are bounded to a subtree. This *tightens*
+  today's access (an FM currently holds org-wide `properties.write`, which B7 never
+  granted), so it ships on its own and is confirmed against live data first.
+- ~~Per-property application window (`auto` / `open` / `closed`)~~ — **done
+  (`0076`, 30 July)**; it gave applications a `property_id` and unblocked
+  property-scoped review, which Day 8 then built on.
+- ~~The hierarchy needs a user interface~~ — **done (Day 8.75, 31 July)**. The
+  tree had schema, scoping and invitation wiring since `0066`/`0067` and no
+  screen at all; Properties → Regions & sites now creates, renames, retires and
+  assigns regional managers, and the property form files a property under a site.
+  **Still open from the same board item:** import templates gaining
+  region/project/location/site columns.
+- ~~Every org needs its own entry URL~~ — **done (Day 8.8, 31 July)**.
+  `/o/<slug>` per org, plus an operator-only launcher at `/orgs`. The directory
+  is deliberately **not** public: B1 forbids revealing another brand's
+  *existence*, so `org_public_branding` resolves one slug and cannot list, while
+  `operator_org_directory` gates on `caller_is_operator_admin()`. **A public
+  grid would need a recorded board exception to B1.**
+- **Day 10 reporting** gains a real specification: parameterised, `SECURITY
+  INVOKER` report functions (a report must never show more than the dashboard),
+  aggregation in the database, dimensions including the hierarchy node, saved
+  report definitions, exports as audit events — and **date buckets in
+  `Africa/Lagos`, not UTC**, or a report labelled "29 July" starts at 01:00 WAT and
+  drops the first hour of the Nigerian day.
+- **AI document verification** (locked decision 10) after Day 8's human review:
+  findings tied to evidence, never a decision, behind a per-org flag off by
+  default. Needs a DPA with Anthropic as processor.

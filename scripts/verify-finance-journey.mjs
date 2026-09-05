@@ -1,0 +1,636 @@
+// The finance lead's documented journey, across every organisation:
+//   reconcile the ledger (match payments to the work they paid for) →
+//   batch-approve vendor payouts → remit to owners → generate reports (P&L and
+//   statements) → multi-entity consolidation.
+//
+// Four things this suite exists to hold down, each of which was wrong:
+//
+//   * ⚠️ A BATCH MUST NOT BE A SHORTCUT PAST THE GATE, and must not be
+//     all-or-nothing. Section B approves a mixed batch as a finance approver:
+//     some below the threshold, one above it, one not even at `recommended`.
+//     The right answer is a partial success with a reason per row — a single
+//     multi-row UPDATE would have refused the lot.
+//   * ⚠️ THE APP WAS STRICTER THAN THE BOARD. `approvePayment` refused an
+//     executive above the threshold ("ask an administrator") for a payment
+//     `enforce_payment_transition` accepts from them — decision 9 gave the MD
+//     and Managing Partner exactly that power. Section C proves the database
+//     allows it, which is what makes the application fix correct rather than a
+//     loosening.
+//   * ⚠️ THE OWNER COULD NOT BE PAID. `create_rent_remittance` has existed
+//     since 0092b and was called by nothing outside the verification scripts.
+//   * ⚠️ CONSOLIDATION IS A B1 CROSSING. Section F is the one that matters most:
+//     a brand administrator must receive an EMPTY SET, never a refusal, because
+//     a refusal confirms the other organisations exist.
+//
+// Usage: node scripts/verify-finance-journey.mjs
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { config } from "dotenv";
+import { createClient } from "@supabase/supabase-js";
+import pg from "pg";
+
+const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+config({ path: path.join(rootDir, ".env.local") });
+
+const svc = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY,
+  { auth: { persistSession: false } }
+);
+
+let failures = 0;
+const ok = (m) => console.log(`  \x1b[32mPASS\x1b[0m ${m}`);
+const bad = (m) => { failures++; console.log(`  \x1b[31mFAIL\x1b[0m ${m}`); };
+const note = (m) => console.log(`  \x1b[33mNOTE\x1b[0m ${m}`);
+
+const db = new pg.Client({
+  host: process.env.SUPABASE_DB_HOST, port: Number(process.env.SUPABASE_DB_PORT || 5432),
+  database: process.env.SUPABASE_DB_NAME, user: process.env.SUPABASE_DB_USER,
+  password: process.env.SUPABASE_DB_PASSWORD, ssl: { rejectUnauthorized: false },
+});
+await db.connect();
+
+const claims = (id) =>
+  `set local request.jwt.claims = '${JSON.stringify({ sub: id, role: "authenticated" }).replace(/'/g, "''")}'`;
+
+/**
+ * Several statements in ONE transaction, rolled back.
+ *
+ * `{ service: true, sql }` drops to the service role (what a webhook or a
+ * seeding job is); `{ as: id, sql }` speaks as that user. Fixtures are created
+ * as service role throughout — a finance user cannot mint a recommended payment
+ * out of nothing, and a suite that tried would be testing the wrong thing.
+ *
+ * ⚠️ Separate statements, never a CTE: a row created inside a CTE is invisible
+ * to a SELECT in the same statement, and an earlier suite in this codebase
+ * reported a product bug that was really that.
+ */
+async function steps(items) {
+  await db.query("begin");
+  try {
+    const out = [];
+    for (const item of items) {
+      if (item.service) {
+        await db.query("reset role");
+        await db.query("set local request.jwt.claims = '{}'");
+      } else if (item.as) {
+        await db.query("set local role authenticated");
+        await db.query(claims(item.as));
+      }
+      if (item.sql) {
+        out.push((await db.query(item.sql)).rows);
+        // ⚠️ A temp table created by the superuser is NOT readable by
+        // `authenticated`. Without this grant every fixture handoff fails with
+        // "permission denied for table _p" — which the first run of this suite
+        // reported as "A BATCH APPROVED AN UNGATED PAYMENT", an alarming
+        // sentence about a plumbing fault. Granted here, once, rather than
+        // remembered at each call site.
+        const made = /create temp table (_\w+)/i.exec(item.sql);
+        if (made) await db.query(`grant all on ${made[1]} to authenticated`);
+      }
+    }
+    await db.query("rollback");
+    return { ok: true, steps: out };
+  } catch (e) {
+    await db.query("rollback");
+    return { ok: false, err: e.message.slice(0, 160) };
+  }
+}
+
+async function asUser(userId, sql) {
+  const r = await steps([{ as: userId, sql }]);
+  return r.ok ? { ok: true, rows: r.steps[0] } : { ok: false, err: r.err };
+}
+
+const { data: orgs } = await svc.from("orgs")
+  .select("id, name, slug, is_platform_operator").is("deleted_at", null).order("slug");
+const tenantOrgs = (orgs ?? []).filter((o) => !o.is_platform_operator);
+
+console.log("Finance lead journey — every step, every organisation\n");
+
+for (const o of tenantOrgs) {
+  const { data: fin } = await svc.from("users").select("id, email")
+    .eq("org_id", o.id).eq("role", "finance_approver").is("deactivated_at", null)
+    .limit(1).maybeSingle();
+  if (!fin) { note(`${o.slug}: no finance_approver — skipped`); continue; }
+
+  const { data: vendor } = await svc.from("vendors")
+    .select("id").eq("org_id", o.id).limit(1).maybeSingle();
+
+  console.log(`── ${o.slug} ──`);
+
+  // ⚠️ A missing vendor skips the VENDOR sections, not the organisation.
+  //
+  // The first version of this suite did `continue` here, and the cost was
+  // invisible: OEA is the only org with a lease, and OEA has no vendor — so
+  // the whole org was skipped and section F's rule ("a landlord is paid what
+  // was received, never what was billed") was never once exercised, on any
+  // org, while the suite reported ALL CHECKS PASSED. A skip that silently
+  // takes the most important assertion with it is worse than a failure.
+
+  // ── A. What the caller may approve ──────────────────────────────────────
+  //
+  // ⚠️ REWRITTEN FOR THE APPROVAL CHAIN (0151/0155). This section used to
+  // assert that finance may approve up to the threshold. It no longer may
+  // approve at all — that is decision 16 carried to its conclusion and Task 2's
+  // explicit instruction: oversight authorises, finance disburses. Finance
+  // keeps every other thing this suite checks (ledger reconciliation, owner
+  // remittance, reports, consolidation) and loses only the approval it should
+  // never have held alongside the power to release.
+  const lim = await asUser(fin.id, `select * from my_approval_limit()`);
+  const l = lim.ok ? lim.rows[0] : undefined;
+  l?.may_approve === false
+    ? ok("finance holds NO final-approval authority — it disburses, it does not authorise")
+    : bad(`finance can still approve: ${JSON.stringify(l ?? lim.err)}`);
+
+  // The band comes from the approver's own tier now, so read the ladder from
+  // the org rather than from finance's (absent) limit.
+  const { data: gate } = await svc.from("payment_settings")
+    .select("tier1_threshold_amount, approval_threshold_amount").eq("org_id", o.id).maybeSingle();
+  const tier1 = Number(gate?.tier1_threshold_amount ?? 100000);
+
+  // ── B. A mixed batch ────────────────────────────────────────────────────
+  //
+  // Three payments: two approvable, one above the threshold, one still at
+  // `verified` and therefore not ready. A single multi-row UPDATE would refuse
+  // all three.
+  const threshold = Number(gate?.approval_threshold_amount ?? 1000000);
+  if (!vendor) note("no vendor on this org — the approval and invoice sections need one");
+
+  // The batch is now run by a TIER-2 payment approver, because finance can no
+  // longer action any stage. Stages 1 and 2 are pre-recorded by service role so
+  // this section still tests what it was written to test — that a batch is not
+  // a shortcut past the gate and is not all-or-nothing — rather than turning
+  // into a test of stage ordering, which verify-approval-chain already owns.
+  const pick = async (role) => (await svc.from("users").select("id")
+    .eq("org_id", o.id).eq("role", role).is("deactivated_at", null)
+    .limit(1).maybeSingle()).data;
+  // ⚠️ The approver's TIER decides what "above the band" even means, so the
+  // fallback may not be "any payment_approver".
+  //
+  // It was: tier 2, else whichever `payment_approver` an unordered `.limit(1)`
+  // returned. `seed-org-logins.mjs` seeds tier 1 and tier 3 and no tier 2, so
+  // the fallback was a coin toss — and when it landed on the TIER 3 account,
+  // the "above the threshold" payment was correctly APPROVED (tier 3 has no
+  // ceiling) and the suite reported "the over-threshold payment was not
+  // refused correctly" against a ladder doing exactly its job. It failed on
+  // one org out of four, which is what a coin toss looks like.
+  //
+  // So: the lowest available tier, deterministically, and never tier 3 — an
+  // approver with no band above them cannot demonstrate a band being enforced.
+  const { data: approverPool } = await svc.from("users")
+    .select("id, approval_tier")
+    .eq("org_id", o.id).eq("role", "payment_approver")
+    .in("approval_tier", [1, 2])
+    .is("deactivated_at", null)
+    .order("approval_tier", { ascending: false })   // prefer tier 2, else tier 1
+    .order("id");
+  const approver2 = approverPool?.[0] ?? null;
+  if (!approver2) {
+    note("no tier-1 or tier-2 payment approver — the band cannot be exercised here");
+  }
+
+  // The ceiling this approver may not cross, and one naira past it. Tier 2's
+  // bound is `approval_threshold_amount`; tier 1's is `tier1_threshold_amount`
+  // (0151). Deriving it from the approver rather than assuming tier 2 is what
+  // stops the amount and the actor disagreeing.
+  const band = approver2?.approval_tier === 1 ? tier1 : threshold;
+  const overBand = band + 500000;
+  // ⚠️ The first two stages are NOT the same two roles on every organisation.
+  // Decision 23 gave OEA its own ladder (audit → MP → payment approver), so a
+  // fixture that hardcodes "FM at stage 1, auditor at stage 2" pre-records a
+  // chain OEA refuses — and every assertion downstream of it then fails for a
+  // reason that has nothing to do with what it was testing. Read the stages the
+  // organisation actually has and find somebody who holds each.
+  const { data: chainRows } = await svc.rpc("payment_chain_stages", { p_org_id: o.id });
+  const rolesForStage = (n) =>
+    (chainRows ?? []).find((s) => s.stage_order === n)?.required_roles ?? [];
+  const pickForStage = async (n) => {
+    for (const role of rolesForStage(n)) {
+      const u = await pick(role);
+      if (u) return u;
+    }
+    return null;
+  };
+  const stage1User = await pickForStage(1);
+  const stage2User = await pickForStage(2);
+  // Kept under their old names so the rest of the file reads unchanged; what
+  // they now hold is "whoever actions this stage HERE", not a fixed role.
+  const fmUser = stage1User;
+  const auditUser = stage2User;
+
+  // Stages 1–2 for every row in `_p` except the one that is deliberately not at
+  // `recommended`. org_id, actor_role, actor_tier and amount are placeholders:
+  // `enforce_approval_rules` overwrites all four from the authoritative records,
+  // which is itself the behaviour verify-approval-chain section 5 proves.
+  const preStages = () =>
+    `insert into payment_approvals (org_id, payable_type, payable_id, stage_order,
+                                    actor_id, actor_role, actor_tier, amount, decision)
+     select '${o.id}', 'vendor_payment', p.id, s.stage_order,
+            case s.stage_order when 1 then '${fmUser?.id}'::uuid else '${auditUser?.id}'::uuid end,
+            'viewer', null, 1, 'approved'
+       from _p p
+       cross join (values (1::smallint), (2::smallint)) s(stage_order)
+      where p.tag <> 'notready'`;
+  const mk = (amount, status, ref) =>
+    `insert into payments (org_id, vendor_id, amount, status, service_verified_at,
+                           performance_validated, invoice_reference)
+     values ('${o.id}', '${vendor.id}', ${amount}, '${status}',
+             now(), true, 'PROBEFIN-${ref}') returning id`;
+
+  const batch = (!vendor || !approver2 || !fmUser || !auditUser) ? null : await steps([
+    { service: true, sql: `create temp table _p (id uuid, tag text) on commit drop` },
+    { service: true, sql: `with n as (${mk(1000, "recommended", "small1")}) insert into _p select id, 'small1' from n` },
+    { service: true, sql: `with n as (${mk(2000, "recommended", "small2")}) insert into _p select id, 'small2' from n` },
+    // Above THIS approver's ceiling, so the batch must refuse it on the ladder.
+    { service: true, sql: `with n as (${mk(overBand, "recommended", "big")}) insert into _p select id, 'big' from n` },
+    { service: true, sql: `with n as (${mk(3000, "verified", "notready")}) insert into _p select id, 'notready' from n` },
+    // Stages 1–2 on the three that are at `recommended`; `notready` gets none,
+    // so it still exercises the "not awaiting approval" skip.
+    { service: true, sql: preStages() },
+    { as: approver2.id, sql:
+      `select p.tag, r.approved, r.reason
+         from _p p
+         join approve_payments((select array_agg(id) from _p)) r on r.payment_id = p.id
+        order by p.tag` },
+  ]);
+
+  if (!batch) {
+    // sections B and C need a vendor; F, E and G below do not
+  } else if (!batch.ok) {
+    bad(`the batch itself failed: ${batch.err}`);
+  } else {
+    const by = Object.fromEntries(batch.steps[6].map((r) => [r.tag, r]));
+    by.small1?.approved === true && by.small2?.approved === true
+      ? ok("approves the two within the approver's band")
+      : bad(`the approvable ones were refused: ${JSON.stringify([by.small1, by.small2])}`);
+
+    // The refusal now names the TIER rather than the role, because the ladder
+    // decides it per band instead of at one cut-off.
+    by.big?.approved === false && /tier \d|approver or above/i.test(by.big?.reason ?? "")
+      ? ok("refuses the one above the band, in the ladder's own words")
+      : bad(`the over-threshold payment was not refused correctly: ${JSON.stringify(by.big)}`);
+
+    by.notready?.approved === false
+      ? ok("and skips one that is not at 'recommended'")
+      : bad(`a payment not awaiting approval was approved: ${JSON.stringify(by.notready)}`);
+
+    // The whole point: a refusal in the middle did NOT roll back the rest.
+    by.small1?.approved && by.small2?.approved && !by.big?.approved
+      ? ok("PARTIAL SUCCESS — one refusal did not undo the others")
+      : bad("the batch behaved as all-or-nothing");
+  }
+
+  // The gate is not skipped just because the call is a batch.
+  const ungated = !vendor ? null : await steps([
+    { service: true, sql: `create temp table _u (id uuid) on commit drop` },
+    { service: true, sql:
+      `with n as (insert into payments (org_id, vendor_id, amount, status,
+                                        service_verified_at, performance_validated, invoice_reference)
+                  values ('${o.id}', '${vendor.id}', 1000, 'recommended', null, false, 'PROBEFIN-ungated')
+                  returning id) insert into _u select id from n` },
+    { as: (approver2 ?? fin).id, sql: `select approved, reason from approve_payments(array(select id from _u))` },
+  ]);
+  if (ungated) {
+    const u = ungated.ok ? ungated.steps[2][0] : undefined;
+    u?.approved === false
+      ? ok("a payment through no gate is refused even inside a batch")
+      : bad(`!!! A BATCH APPROVED AN UNGATED PAYMENT: ${JSON.stringify(u ?? ungated.err)}`);
+  }
+
+  // Finance cannot reach the batch path at all any more — the same rule as
+  // section A, proven by attempting it rather than by reading the limit.
+  if (vendor) {
+    const finBatch = await steps([
+      { service: true, sql: `create temp table _f (id uuid) on commit drop` },
+      { service: true, sql: `with n as (${mk(1000, "recommended", "finbatch")}) insert into _f select id from n` },
+      { as: fin.id, sql: `select approved, reason from approve_payments(array(select id from _f))` },
+    ]);
+    const f = finBatch.ok ? finBatch.steps[2][0] : undefined;
+    f?.approved === false
+      ? ok("and finance cannot approve through the batch either")
+      : bad(`!!! FINANCE APPROVED VIA THE BATCH PATH: ${JSON.stringify(f ?? finBatch.err)}`);
+  }
+
+  // ── C. The executive's above-threshold approval ─────────────────────────
+  const { data: exec } = await svc.from("users").select("id, email")
+    .eq("org_id", o.id).eq("role", "executive").is("deactivated_at", null)
+    .limit(1).maybeSingle();
+  if (!exec || !vendor) {
+    note("no executive or no vendor on this org — decision-9 escalation not testable");
+  } else {
+    const el = await asUser(exec.id, `select * from my_approval_limit()`);
+    el.ok && el.rows[0]?.unlimited === true
+      ? ok("an executive is above the threshold — decision 9, and the app used to say otherwise")
+      : bad(`the executive is not exempt: ${JSON.stringify(el.rows?.[0] ?? el.err)}`);
+
+    // ⚠️ WHICH stage is the executive's is not the same on both ladders. On the
+    // standard chain they are stage 3, the tier-resolved one. On OEA (decision
+    // 23) they are stage 2, and stage 3 belongs to the payment approver alone.
+    // What is being tested either way is that a large AMOUNT does not block the
+    // MD — so every stage before theirs is pre-recorded, and they action their
+    // own.
+    const execStage =
+      (chainRows ?? []).find((s) => (s.required_roles ?? []).includes("executive"))?.stage_order ?? 3;
+
+    const preStagesBefore = (table) => {
+      const pairs = [];
+      for (let s = 1; s < execStage; s++) {
+        const u = s === 1 ? stage1User : stage2User;
+        if (!u) return `select 1`;
+        pairs.push(`(${s}::smallint, '${u.id}'::uuid)`);
+      }
+      if (pairs.length === 0) return `select 1`;
+      return `insert into payment_approvals (org_id, payable_type, payable_id, stage_order,
+                                             actor_id, actor_role, actor_tier, amount, decision)
+              select '${o.id}', 'vendor_payment', e.id, s.stage_order, s.actor,
+                     'viewer', null, 1, 'approved'
+                from ${table} e cross join (values ${pairs.join(", ")}) s(stage_order, actor)`;
+    };
+
+    const bigExec = await steps([
+      { service: true, sql: `create temp table _e (id uuid, tag text) on commit drop` },
+      { service: true, sql: `with n as (${mk(threshold + 900000, "recommended", "execbig")}) insert into _e select id, 'execbig' from n` },
+      // Every stage before the executive's: the escalation is about WHO clears
+      // the top band, not about skipping the hands before it.
+      { service: true, sql: preStagesBefore("_e") },
+      { as: exec.id, sql: `select approved, reason from approve_payments(array(select id from _e))` },
+    ]);
+    bigExec.ok && bigExec.steps[3][0]?.approved === true
+      ? ok(`and can approve above it at stage ${execStage} — the MD is who the escalation was for`)
+      : bad(`the executive was refused: ${JSON.stringify(bigExec.steps?.[3]?.[0] ?? bigExec.err)}`);
+
+    // Oversight authorises; finance disburses. This must never soften.
+    const remit = await steps([
+      { service: true, sql: `create temp table _r (id uuid) on commit drop` },
+      { service: true, sql:
+        `with n as (insert into payments (org_id, vendor_id, amount, status, service_verified_at,
+                                          performance_validated, approved_at, invoice_reference)
+                    values ('${o.id}', '${vendor.id}', 5000, 'approved', now(), true, now(), 'PROBEFIN-remit')
+                    returning id) insert into _r select id from n` },
+      { as: exec.id, sql: `update payments set status = 'remitted' where id = (select id from _r) returning id` },
+    ]);
+    // ⚠️ Three outcomes, not two. "Refused" is only correct when it was refused
+    // for THIS reason — an unrelated failure (a broken fixture, a missing
+    // grant) would otherwise read as a passing security check, or, as it did on
+    // this suite's first run, as a screaming false alarm.
+    if (remit.ok) {
+      bad("!!! AN EXECUTIVE REMITTED A PAYMENT");
+    } else if (/may remit payments|only finance or an administrator may remit/i.test(remit.err ?? "")) {
+      // Decision 23 reworded this and narrowed it: the `remitted` transition is
+      // the payment officer alone, where 0151 also allowed an administrator.
+      // Both spellings are matched so the check does not depend on which
+      // migration a given world has reached.
+      ok("and still cannot remit — oversight authorises, the payment officer disburses");
+    } else {
+      bad(`the remit attempt failed for an unrelated reason, so nothing was proven: ${remit.err}`);
+    }
+  }
+
+  // ── D. A payment names the work it paid for ─────────────────────────────
+  const trace = await asUser(fin.id,
+    `select count(*)::int n, count(*) filter (where unmatched_and_paid)::int unmatched
+       from payment_work_order_trace`);
+  trace.ok
+    ? ok(`traces ${trace.rows[0].n} payment(s), ${trace.rows[0].unmatched} paid with no work order`)
+    : bad(`cannot read the payment/work-order trace: ${trace.err}`);
+
+  // An invoice cannot be attached to a job the vendor did not do.
+  const { data: foreignJob } = vendor
+    ? await svc.from("tickets")
+        .select("id, assigned_vendor_id").eq("org_id", o.id)
+        .not("assigned_vendor_id", "is", null).neq("assigned_vendor_id", vendor.id)
+        .limit(1).maybeSingle()
+    : { data: null };
+  if (!foreignJob || !vendor) {
+    note("no job belonging to another vendor — the mis-attachment check needs one");
+  } else {
+    const wrong = await steps([
+      { service: true, sql:
+        `insert into payments (org_id, vendor_id, ticket_id, amount, status, invoice_reference)
+         values ('${o.id}', '${vendor.id}', '${foreignJob.id}', 1000, 'pending_verification', 'PROBEFIN-wrongjob')` },
+    ]);
+    !wrong.ok && /not assigned to this vendor/i.test(wrong.err ?? "")
+      ? ok("an invoice cannot claim another vendor's job")
+      : bad(`an invoice was attached to a job the vendor did not do: ${wrong.err ?? "allowed"}`);
+  }
+
+  // ── E. Reports ──────────────────────────────────────────────────────────
+  const pnl = await asUser(fin.id,
+    `select count(*)::int n, count(distinct currency)::int ccy
+       from org_profit_and_loss('2000-01-01', '2100-01-01')`);
+  pnl.ok
+    ? ok(`produces a P&L: ${pnl.rows[0].n} account line(s) across ${pnl.rows[0].ccy} currency/currencies`)
+    : bad(`cannot produce a P&L: ${pnl.err}`);
+
+  // ⚠️ The 0103 lesson, asserted rather than assumed: every row must carry a
+  // currency, so nothing downstream can sum across them by accident.
+  const ccy = await asUser(fin.id,
+    `select count(*)::int n from org_profit_and_loss('2000-01-01','2100-01-01') where currency is null`);
+  ccy.ok && ccy.rows[0].n === 0
+    ? ok("and every line names its currency — nothing can be summed across them by accident")
+    : bad(`${ccy.rows?.[0]?.n} P&L line(s) with no currency`);
+
+  // ── F. Payouts to owners ────────────────────────────────────────────────
+  const cands = await asUser(fin.id, `select count(*)::int n from landlord_payout_candidates()`);
+  cands.ok
+    ? ok(`sees ${cands.rows[0].n} landlord payout candidate(s)`)
+    : bad(`cannot read payout candidates: ${cands.err}`);
+
+  // ⚠️ The rule that matters: money DEMANDED is not money HELD. A payout
+  // candidate must appear only once a tenant has actually paid.
+  //
+  // ⚠️ This section builds its OWN lease, unit and rent charge rather than
+  // looking for one. The first version searched the seed data, found none on
+  // any org, printed "not testable here" four times, and reported ALL CHECKS
+  // PASSED — so the single most important rule in the payout path was never
+  // once exercised while the suite looked green. A check that quietly opts out
+  // when the data is thin is not a check.
+  const { data: owned } = await svc.from("property_stakeholders")
+    .select("property_id, user_id").eq("org_id", o.id).eq("relation", "owner")
+    .limit(1).maybeSingle();
+
+  if (!owned) {
+    note("no property with a recorded owner — the payout rule needs one");
+  } else {
+    const build = (amountPaid) => [
+      { service: true, sql: `create temp table _u (id uuid) on commit drop` },
+      { service: true, sql:
+        `with n as (insert into units (org_id, property_id, label)
+                    values ('${o.id}', '${owned.property_id}', 'PROBEFIN-unit')
+                    returning id) insert into _u select id from n` },
+      { service: true, sql: `create temp table _l (id uuid) on commit drop` },
+      { service: true, sql:
+        // ⚠️ No `landlord_user_id` on `leases` — there is no such column. The
+        // landlord of a property is `property_stakeholders.relation = 'owner'`,
+        // which is exactly what `landlord_payout_candidates` joins through, so
+        // the fixture must establish ownership the same way rather than
+        // inventing a field. (The first attempt assumed the column and the
+        // database said no, which is the check working.)
+        `with n as (insert into leases (org_id, property_id, unit_id,
+                                        start_date, end_date, status, rent_amount, currency)
+                    values ('${o.id}', '${owned.property_id}', (select id from _u),
+                            current_date, current_date + 365,
+                            'active', 500000, 'NGN')
+                    returning id) insert into _l select id from n` },
+      { service: true, sql:
+        `insert into rent_charges (org_id, lease_id, period_start, period_end, due_date,
+                                   amount, amount_paid, currency, status,
+                                   management_fee_pct, management_fee_amount,
+                                   admin_fee_amount, landlord_net_amount)
+         values ('${o.id}', (select id from _l), current_date, current_date + 365,
+                 current_date, 500000, ${amountPaid}, 'NGN',
+                 '${amountPaid > 0 ? "paid" : "due"}', 10, 50000, 0, 450000)` },
+      // ⚠️ THIS property's row, not an org-wide sum.
+      //
+      // It was `sum(collected)` over every candidate the org has, which reads
+      // as "the total payable" and is not what the assertion below means. Two
+      // things inflate it and neither is a defect in what is being tested:
+      // any OTHER unremitted collected rent in the organisation, and — the one
+      // that actually bit — a property carrying two `owner` stakeholders.
+      // `landlord_payout_candidates()` groups by (property, owner), so a
+      // co-owned property yields one row PER OWNER, each showing the full
+      // collected share, and the sum doubles. TFML and OEA both hold two demo
+      // landlord accounts on one property (`*.owner@` from seed-brand-roles
+      // and `*.propertyowner@` from seed-org-logins), so both reported
+      // ₦900,000 against a fixture that collected ₦450,000, under the message
+      // "the fee is being paid away" — which was not happening at all.
+      //
+      // 📌 Worth stating separately, because narrowing this assertion does not
+      // change it: a genuinely co-owned property DOES show each owner the full
+      // collected amount in the payout preview. Finance cannot actually pay it
+      // twice — `create_rent_remittance` re-checks `remitted_at is null` in its
+      // closing update (0102) — but the preview overstates what is owed, and
+      // how a co-owned property should split a payout is a decision nobody has
+      // taken. Recorded here rather than silently absorbed into a test fix.
+      { as: fin.id, sql:
+        `select coalesce(max(collected),0)::numeric total
+           from landlord_payout_candidates()
+          where property_id = '${owned.property_id}'` },
+    ];
+
+    const demanded = await steps(build(0));
+    const collected = await steps(build(500000));
+
+    if (!demanded.ok || !collected.ok) {
+      bad(`could not build the payout fixture: ${demanded.err ?? collected.err}`);
+    } else {
+      const d = Number(demanded.steps[5][0].total);
+      const c = Number(collected.steps[5][0].total);
+      c > d
+        ? ok(`a COLLECTED demand becomes payable (₦${c.toLocaleString()}); a merely demanded one does not (₦${d.toLocaleString()})`)
+        : bad(`demanded ${d} vs collected ${c} — a landlord could be paid money no tenant handed over`);
+      // And the figure must be the LANDLORD'S share, not the gross rent — the
+      // fee was already taken at collection, and paying out the gross would
+      // hand the landlord the org's own fee income.
+      c === 450000
+        ? ok("and it is the landlord's net share, not the gross rent")
+        : bad(`the payable figure is ${c}, expected the net 450000 — the fee is being paid away`);
+    }
+  }
+
+  // ── G. What stays shut ──────────────────────────────────────────────────
+  const { data: fm } = await svc.from("users").select("id")
+    .eq("org_id", o.id).eq("role", "facility_manager").is("deactivated_at", null)
+    .limit(1).maybeSingle();
+  if (fm) {
+    const fmPnl = await asUser(fm.id,
+      `select count(*)::int n from org_profit_and_loss('2000-01-01','2100-01-01')`);
+    fmPnl.ok && fmPnl.rows[0].n === 0
+      ? ok("an FM/PM gets no P&L — B7 holds")
+      : bad(`AN FM SAW ${fmPnl.rows?.[0]?.n} P&L LINE(S)`);
+
+    const fmPayouts = await asUser(fm.id, `select count(*)::int n from landlord_payout_candidates()`);
+    fmPayouts.ok && fmPayouts.rows[0].n === 0
+      ? ok("and no landlord payouts")
+      : bad(`AN FM SAW ${fmPayouts.rows?.[0]?.n} PAYOUT CANDIDATE(S)`);
+  }
+
+  console.log("");
+}
+
+// ── H. Consolidation is the operator's, and nobody else's ─────────────────
+//
+// ⚠️ The B1 crossing. The assertion is not merely "a brand admin gets no data"
+// — it is that they get an EMPTY SET rather than a REFUSAL. A refusal confirms
+// there are other organisations worth refusing access to, which is the half of
+// B1 people forget: "or existence".
+console.log("── consolidation boundary ──");
+{
+  const operator = (orgs ?? []).find((o) => o.is_platform_operator);
+  if (!operator) {
+    note("no platform operator org — consolidation not testable");
+  } else {
+    const { data: opAdmin } = await svc.from("users").select("id, email")
+      .eq("org_id", operator.id).eq("role", "admin").is("deactivated_at", null)
+      .limit(1).maybeSingle();
+
+    if (!opAdmin) {
+      note("no operator administrator — consolidation not testable");
+    } else {
+      const seen = await asUser(opAdmin.id,
+        `select count(*)::int n, count(distinct org_id)::int orgs
+           from operator_consolidated_position('2000-01-01','2100-01-01')`);
+      seen.ok && seen.rows[0].orgs > 0
+        ? ok(`the operator consolidates ${seen.rows[0].orgs} client organisation(s)`)
+        : bad(`the operator sees nothing to consolidate: ${JSON.stringify(seen.rows?.[0] ?? seen.err)}`);
+
+      // ⚠️ The crossing is CONFINED to the one function. An operator admin
+      // reads zero rows of `ledger_entries` directly — no cross-org policy was
+      // added, and none should ever be. If this ever returns a non-zero count,
+      // somebody has widened a policy instead of extending the audited
+      // function, which is exactly what decision 7 forbids.
+      const raw = await asUser(opAdmin.id, `select count(*)::int n from ledger_entries`);
+      raw.ok && raw.rows[0].n === 0
+        ? ok("and reads no org's raw ledger — the crossing is the function, not a policy")
+        : bad(`THE OPERATOR READS ${raw.rows?.[0]?.n} LEDGER ENTRIES DIRECTLY — a cross-org policy exists`);
+
+      // The page's own default range, not just a wide one. A report that works
+      // over 2000–2100 and shows nothing over "this year" is a broken report.
+      const thisYear = await asUser(opAdmin.id,
+        `select count(*)::int n from operator_consolidated_position(
+           date_trunc('year', current_date)::date, current_date)`);
+      thisYear.ok && thisYear.rows[0].n > 0
+        ? ok("and consolidates over the year-to-date range the page actually asks for")
+        : bad("the consolidation is empty over the page's own default period");
+
+      // The operator org is the holder of the view, not an entity in it.
+      const selfIncluded = await asUser(opAdmin.id,
+        `select count(*)::int n from operator_consolidated_position('2000-01-01','2100-01-01')
+          where org_id = '${operator.id}'`);
+      selfIncluded.ok && selfIncluded.rows[0].n === 0
+        ? ok("and does not consolidate itself")
+        : bad("the operator org appears inside its own consolidation");
+    }
+
+    for (const o of tenantOrgs) {
+      for (const role of ["admin", "finance_approver", "executive"]) {
+        const { data: u } = await svc.from("users").select("id")
+          .eq("org_id", o.id).eq("role", role).is("deactivated_at", null)
+          .limit(1).maybeSingle();
+        if (!u) continue;
+
+        const r = await asUser(u.id,
+          `select count(*)::int n from operator_consolidated_position('2000-01-01','2100-01-01')`);
+        // BOTH halves. `r.ok` proves it did not raise; `n === 0` proves it
+        // returned nothing. Either one alone would pass for the wrong reason.
+        r.ok && r.rows[0].n === 0
+          ? ok(`${o.slug} ${role}: empty set, not a refusal`)
+          : bad(
+              r.ok
+                ? `!!! ${o.slug} ${role} CONSOLIDATED ${r.rows[0].n} ROW(S) ACROSS ORGS`
+                : `${o.slug} ${role} got a REFUSAL, which confirms the other orgs exist: ${r.err}`
+            );
+      }
+    }
+  }
+}
+
+await db.end();
+
+console.log(
+  failures === 0
+    ? "\n\x1b[32mALL CHECKS PASSED\x1b[0m — finance reconciles, pays owners and reports but never approves; the ladder holds per row, and only the operator consolidates."
+    : `\n\x1b[31m${failures} CHECK(S) FAILED\x1b[0m`
+);
+process.exit(failures === 0 ? 0 : 1);

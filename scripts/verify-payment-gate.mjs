@@ -45,18 +45,50 @@ const svc = createClient(URL, SERVICE, { auth: { persistSession: false } });
 console.log("Direct-PATCH bypass attempts against the payment gate (0010)\n");
 
 // A payment still at the very first stage: nothing verified, nothing validated.
-const { data: fresh } = await svc
-  .from("payments").select("id, status, amount")
-  .eq("status", "pending_verification").limit(1).single();
+//
+// Created here rather than borrowed from the seed. This suite used to take the
+// first `pending_verification` payment it found — and the moment the gate was
+// genuinely broken, its own forge attempt SUCCEEDED and moved that row to
+// `approved`, leaving nothing for the next run to test. It then reported "run
+// npm run seed first" instead of "the gate is bypassable", which is the failure
+// mode of every test that asserts a precondition it did not establish.
+// ⚠️ Resolved from a VENDOR outwards, not from a guessed org inwards.
+//
+// This used to read "the first live org whose delivery_brand is 'direct', then a
+// vendor in it". `delivery_brand` was never an identifier — 0085 learned that
+// when two OEA orgs collided on a slug — and 'direct' means only "no single
+// brand delivers this", which is true of the POC, the platform operator, AND
+// every independent client onboarded later. Adding the service-charge client
+// (0094) made the query return an org with no vendors, and the suite died on
+// `probeVendor.id` of null: a crash about a missing property, in a file whose
+// subject is the payment gate.
+//
+// A vendor cannot exist without an org, so starting there yields a pair that is
+// guaranteed consistent and cannot be invalidated by onboarding another client.
+const { data: probeVendor, error: vendorErr } = await svc
+  .from("vendors").select("id, org_id").order("created_at").limit(1).maybeSingle();
+if (vendorErr || !probeVendor) {
+  console.error("No vendor exists to test the gate against — run npm run seed.");
+  process.exit(1);
+}
+const probeOrg = { id: probeVendor.org_id };
 
-if (!fresh) {
-  console.log("No pending_verification payment in the DB — run `npm run seed` first.");
+const { data: fresh, error: freshErr } = await svc.from("payments").insert({
+  org_id: probeOrg.id,
+  vendor_id: probeVendor.id,
+  amount: 250000,
+  invoice_reference: `GATE-PROBE-${Date.now().toString(36).toUpperCase().slice(-5)}`,
+  status: "pending_verification",
+}).select("id, status, amount").single();
+
+if (freshErr || !fresh) {
+  console.log(`Could not create the probe payment: ${freshErr?.message ?? "no row"}`);
   process.exit(1);
 }
 console.log(`Target: payment ${fresh.id.slice(0, 8)} (status=${fresh.status}, ₦${Number(fresh.amount).toLocaleString()})\n`);
 
-const finance = await asUser("finance@oegroup.test");
-const fm = await asUser("fm@oegroup.test");
+const finance = await asUser("oe-group-foundation-poc.financeapprover@oegroup.test");
+const fm = await asUser("oe-group-foundation-poc.facilitymanager@oegroup.test");
 
 console.log("A. ILLEGAL TRANSITIONS — skipping stages of the B4 gate");
 await mustReject(finance, fresh.id, { status: "approved" }, "finance: pending_verification → approved");
@@ -92,4 +124,5 @@ console.log(
     ? "\n\x1b[32mALL CHECKS PASSED\x1b[0m — the gate holds against direct API calls."
     : `\n\x1b[31m${failures} CHECK(S) FAILED\x1b[0m — the gate is bypassable.`
 );
+await svc.from("payments").delete().eq("id", fresh.id);
 process.exit(failures === 0 ? 0 : 1);

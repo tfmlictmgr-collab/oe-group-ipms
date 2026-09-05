@@ -1,0 +1,144 @@
+import { notFound } from "next/navigation";
+import type { Metadata } from "next";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { orgForCurrentHost } from "@/lib/org-host";
+import { getBrandTheme } from "@/lib/brands";
+import SignInPanel from "@/components/auth/sign-in-panel";
+
+// An organisation's own front door.
+//
+// Resolved through `org_public_branding`, which takes a slug and returns at most
+// one row — it cannot be made to list, so holding one org's link never reveals
+// that another exists. A wrong slug and a retired org both answer 404, for the
+// same reason the public tenancy page does: distinguishing them would let
+// someone map which organisations are on the platform.
+//
+// Never cached: branding is admin-editable and a stale render would show a
+// client the colours they just changed away from.
+export const dynamic = "force-dynamic";
+
+type Branding = {
+  id: string;
+  name: string;
+  portal_name: string | null;
+  tagline: string | null;
+  login_headline: string | null;
+  logo_url: string | null;
+  theme_primary: string | null;
+  theme_accent: string | null;
+  theme_logo_text: string | null;
+  delivery_brand: string;
+};
+
+async function brandingFor(slug: string): Promise<Branding | null> {
+  const { data } = await supabaseAdmin.rpc("org_public_branding", { p_slug: slug });
+  return (data as Branding[] | null)?.[0] ?? null;
+}
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}): Promise<Metadata> {
+  const { slug } = await params;
+  const org = await brandingFor(slug);
+  if (!org) return { title: "Sign in" };
+
+  const name = org.portal_name || org.name;
+  return {
+    title: `${name} — Sign in`,
+    // Set explicitly, so this page cannot inherit the root description. That is
+    // how the other brand's name reached this door: root metadata cascades, and
+    // a link preview of THIS page was rendering it.
+    description: `Sign in to ${name}.`,
+    // A client's own portal has no business in a search index.
+    robots: { index: false, follow: false },
+    openGraph: {
+      title: `${name} — Sign in`,
+      description: `Sign in to ${name}.`,
+      siteName: name,
+    },
+    // The browser tab, not just the page — a TFML admin with both brands open
+    // should be able to tell the tabs apart at a glance, the same reason the
+    // sidebar shows the org's own logo instead of a generic mark. Falls back to
+    // the app's default icon when the org has none (LogoUpload's own fallback,
+    // mirrored here rather than left to point at nothing).
+    icons: org.logo_url ? { icon: org.logo_url } : undefined,
+  };
+}
+
+export default async function OrgLoginPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<{ wrong_org?: string }>;
+}) {
+  const { slug } = await params;
+  const { wrong_org } = await searchParams;
+
+  // A hostname bound to one organisation serves ONLY that organisation's door.
+  // Without this, portal.tfmlconsultant.com/o/oea would paint OEA's brand on
+  // TFML's domain — a cross-brand surface on a host a client believes is
+  // exclusively theirs, which is precisely what B1 exists to prevent. Answered
+  // as 404 rather than a redirect, so the host cannot be used to enumerate
+  // which slugs exist.
+  const hostOrg = await orgForCurrentHost();
+  if (hostOrg && hostOrg.slug?.toLowerCase() !== slug.toLowerCase()) notFound();
+
+  const org = await brandingFor(slug);
+  if (!org) notFound();
+
+  // ⚠️ Was a hand-rolled fallback hardcoded to TFML's own navy (#003366) for
+  // ANY org with no theme_primary set — so OEA, with nothing configured on a
+  // fresh database, rendered its own sign-in door in TFML's exact brand
+  // colour. `getBrandTheme` already exists, is already correct (it is what
+  // the post-login dashboard uses), and falls back to THAT org's own base
+  // palette by `delivery_brand` — navy for TFML, red for OEA, dark-red/gold
+  // for a direct client — never one hardcoded colour for every org that
+  // hasn't customised. A second, divergent fallback here was the bug.
+  const theme = getBrandTheme(org.delivery_brand, {
+    // The org's own name drives its monogram (orgMonogram), so two orgs of
+    // the same delivery brand no longer share one badge. Passed as `name`
+    // rather than `portal_name` so an org shows the SAME mark here, in the
+    // operator directory and in its own dashboard sidebar.
+    name: org.name,
+    theme_primary: org.theme_primary,
+    theme_accent: org.theme_accent,
+    theme_logo_text: org.theme_logo_text,
+  });
+  const portalName = org.portal_name || org.name;
+
+  return (
+    <SignInPanel
+      brand={{
+        portalName,
+        logoText: theme.logoText ?? portalName.slice(0, 2).toUpperCase(),
+        logoUrl: org.logo_url,
+        primary: theme.primary,
+        headline: org.login_headline || `Welcome to ${portalName}.`,
+        tagline:
+          org.tagline ||
+          "Requests, service charges, vendor performance and payments — in one auditable place.",
+        // The organisation's own name, so its door carries its copyright and no
+        // one else's (B1).
+        owner: org.name,
+      }}
+      // This door admits this organisation's people only. Another client's
+      // valid password is still a valid password — it is simply not a key to
+      // this address.
+      expectedOrgId={org.id}
+      // Set when the dashboard guard bounced an existing session that belongs
+      // elsewhere — so the person is told why they are back here, rather than
+      // silently returned to a login they thought they had passed.
+      // Says only that a sign-in is needed. The earlier wording named the
+      // situation — "an account from another organisation" — which tells anyone
+      // holding the session that this platform hosts other organisations.
+      notice={wrong_org ? "Please sign in to continue." : undefined}
+      // Deliberately no "not your organisation?" link. It used to point at
+      // /login, which is now the PLATFORM OPERATOR's door — inviting a client to
+      // OE Group's own sign-in, from their own branded page. A client who is on
+      // the wrong org's address should ask whoever sent them the link.
+    />
+  );
+}

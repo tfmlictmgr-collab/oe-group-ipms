@@ -1,0 +1,11 @@
+-- One enum value, alone in its own migration (decision 30, 5 Sept 2026).
+--
+-- `alter type ... add value` may run inside a transaction block, but the value
+-- it adds cannot be USED in that same transaction. The migration runner wraps
+-- every file in one transaction, so 0250b — which reads and writes this value
+-- in constraints, functions and assertions — could not have contained it.
+--
+-- Suffixed numbering rather than 0250/0251, for the reason migrate.mjs states
+-- when it refuses two files claiming one number: a suffix states the order
+-- instead of leaving it to be inferred.
+alter type payment_status add value if not exists 'returned_for_correction';

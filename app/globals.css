@@ -2,50 +2,131 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─────────────────────────────────────────────────────────────────────────
+   Design tokens. Neutral scale is a warm-cool slate; brand tokens (--brand*)
+   are injected at runtime from the org theme (lib/brands.ts) with the OE Group
+   dark-red as the default, so login/landing and the shell share one language.
+   ───────────────────────────────────────────────────────────────────────── */
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 0 0% 9%;
+    --background: 220 20% 98%;
+    --foreground: 222 22% 12%;
+
     --card: 0 0% 100%;
-    --card-foreground: 0 0% 9%;
+    --card-foreground: 222 22% 12%;
     --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 9%;
-    --primary: 0 0% 9%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 0 0% 96%;
-    --secondary-foreground: 0 0% 9%;
-    --muted: 0 0% 96%;
-    --muted-foreground: 0 0% 45%;
-    --accent: 0 0% 96%;
-    --accent-foreground: 0 0% 9%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 90%;
-    --input: 0 0% 90%;
-    --ring: 0 0% 63%;
-    --radius: 0.5rem;
+    --popover-foreground: 222 22% 12%;
+
+    --primary: 222 22% 12%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 16% 95%;
+    --secondary-foreground: 222 22% 18%;
+    --muted: 220 16% 95%;
+    /* Was 46% lightness, which measured 3.63:1 against a card — under the
+       4.5:1 AA floor for the small secondary text this token exists to paint
+       ("Portal · 4 Aug, 16:07" under every request). Darkened just far enough
+       to clear it; still clearly secondary to --foreground. */
+    --muted-foreground: 220 10% 40%;
+    --accent: 220 16% 95%;
+    --accent-foreground: 222 22% 18%;
+
+    --destructive: 0 72% 48%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 152 55% 38%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 48%;
+    --warning-foreground: 40 90% 12%;
+    --info: 212 80% 48%;
+    --info-foreground: 0 0% 100%;
+
+    /* ── Text ON a tinted surface ───────────────────────────────────────────
+       The tokens above are FILL colours: they pair with `-foreground` (white)
+       on a solid chip. The tint badges do the opposite — they paint the hue at
+       12–15% and use the hue ITSELF as the text — and at that job these fills
+       are far too light. Measured against the composited tint on a real
+       rendered page: "Resolved" 3.71:1, "Closed"/"Low" 4.31:1, and
+       "High"/"In Progress" 2.06:1, against the 4.5:1 that WCAG AA requires of
+       12px text. Amber on cream was effectively decorative rather than legible.
+
+       So the tint variants get their own, darker foreground. The solid
+       variants keep the fills unchanged — nothing that was already passing
+       moves. */
+    --success-on-tint: 152 62% 24%;
+    --warning-on-tint: 36 96% 25%;
+    --info-on-tint: 212 88% 33%;
+    --destructive-on-tint: 0 74% 38%;
+
+    --border: 220 16% 90%;
+    --input: 220 16% 88%;
+    --ring: 222 22% 24%;
+
+    /* Sidebar surface — a distinct, deeper neutral. */
+    --sidebar: 224 26% 13%;
+    --sidebar-foreground: 220 16% 82%;
+    --sidebar-muted: 220 12% 58%;
+    --sidebar-border: 222 20% 22%;
+
+    --radius: 0.7rem;
+
+    /* Brand (runtime-overridden per org). Defaults = OE Group house colours. */
+    --brand: #8b1d1d;
+    --brand-fg: #ffffff;
+    --brand-accent: #c9a227;
+
+    /* Elevation */
+    --shadow-sm: 0 1px 2px 0 rgb(16 24 40 / 0.05);
+    --shadow-md: 0 4px 12px -2px rgb(16 24 40 / 0.08), 0 2px 6px -2px rgb(16 24 40 / 0.05);
+    --shadow-lg: 0 12px 32px -8px rgb(16 24 40 / 0.14), 0 4px 12px -4px rgb(16 24 40 / 0.08);
   }
 
   .dark {
-    --background: 0 0% 9%;
-    --foreground: 0 0% 98%;
-    --card: 0 0% 9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 0 0% 9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 0 0% 9%;
-    --secondary: 0 0% 15%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 0 0% 15%;
-    --muted-foreground: 0 0% 64%;
-    --accent: 0 0% 15%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 63% 31%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 15%;
-    --input: 0 0% 15%;
-    --ring: 0 0% 45%;
+    --background: 224 24% 8%;
+    --foreground: 220 16% 92%;
+
+    --card: 224 22% 11%;
+    --card-foreground: 220 16% 92%;
+    --popover: 224 22% 11%;
+    --popover-foreground: 220 16% 92%;
+
+    --primary: 220 16% 92%;
+    --primary-foreground: 224 24% 10%;
+    --secondary: 222 18% 17%;
+    --secondary-foreground: 220 16% 92%;
+    --muted: 222 18% 16%;
+    /* Same correction as light mode, opposite direction: 60% measured 2.97:1
+       on a dark card. */
+    --muted-foreground: 220 12% 72%;
+    --accent: 222 18% 18%;
+    --accent-foreground: 220 16% 92%;
+
+    --destructive: 0 62% 52%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 152 48% 45%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 90% 55%;
+    --warning-foreground: 40 90% 12%;
+    --info: 212 74% 58%;
+    --info-foreground: 224 24% 10%;
+
+    /* On a DARK tint the correction runs the other way — the same hues, but
+       lifted well clear of the surface rather than pushed into it. */
+    --success-on-tint: 152 60% 66%;
+    --warning-on-tint: 38 96% 64%;
+    --info-on-tint: 212 90% 72%;
+    --destructive-on-tint: 0 86% 74%;
+
+    --border: 222 16% 20%;
+    --input: 222 16% 22%;
+    --ring: 220 16% 70%;
+
+    --sidebar: 224 30% 9%;
+    --sidebar-foreground: 220 16% 78%;
+    --sidebar-muted: 220 10% 52%;
+    --sidebar-border: 222 20% 18%;
+
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+    --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.4);
+    --shadow-lg: 0 16px 40px -8px rgb(0 0 0 / 0.55);
   }
 }
 
@@ -53,8 +134,22 @@
   * {
     @apply border-border;
   }
+  html {
+    -webkit-text-size-adjust: 100%;
+    /* Belt-and-suspenders for mobile: only `body` carried the app background
+       before. Anywhere the browser paints past body's own box — overscroll
+       rubber-banding, a pinch-zoom edge, any gap a future layout bug leaves —
+       showed bare white through `html` instead of the app's surface colour. */
+    @apply bg-background;
+  }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+  /* Consistent, visible keyboard focus everywhere. */
+  :focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
   }
 }
 
@@ -62,33 +157,221 @@
   .text-balance {
     text-wrap: balance;
   }
+  .text-pretty {
+    text-wrap: pretty;
+  }
+
+  /* ── Display type ────────────────────────────────────────────────────────
+     Client-facing surfaces (Day 8.9). Large type needs tighter tracking and
+     leading than Tailwind's defaults, which are tuned for body copy — at 40px
+     the default spacing reads loose and unfinished. */
+  .display-lg {
+    font-size: clamp(2rem, 1.4rem + 2.6vw, 3rem);
+    line-height: 1.08;
+    letter-spacing: -0.028em;
+    font-weight: 600;
+  }
+  .display-md {
+    font-size: clamp(1.5rem, 1.2rem + 1.4vw, 2rem);
+    line-height: 1.15;
+    letter-spacing: -0.022em;
+    font-weight: 600;
+  }
+  .display-sm {
+    font-size: clamp(1.25rem, 1.1rem + 0.7vw, 1.5rem);
+    line-height: 1.25;
+    letter-spacing: -0.016em;
+    font-weight: 600;
+  }
+  /* Small caps label above a heading. */
+  .eyebrow {
+    font-size: 0.6875rem;
+    line-height: 1;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+
+  /* ── Surfaces ────────────────────────────────────────────────────────────
+     A brand-tinted wash for hero areas: enough colour to feel considered,
+     light enough that text on it keeps AA contrast at every brand hue. */
+  .bg-brand-wash {
+    background-image:
+      radial-gradient(60rem 30rem at 15% -10%, color-mix(in srgb, var(--brand) 12%, transparent), transparent 70%),
+      radial-gradient(40rem 24rem at 95% 0%, color-mix(in srgb, var(--brand-accent, var(--brand)) 9%, transparent), transparent 65%);
+  }
+  .hairline {
+    box-shadow: inset 0 0 0 1px hsl(var(--border));
+  }
+
+  /* ── Motion ──────────────────────────────────────────────────────────────
+     Entrances are short and slight. Anything longer than ~350ms on a form the
+     user is trying to fill reads as lag rather than polish. */
+  .animate-rise {
+    animation: rise 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .animate-fade {
+    animation: fade 240ms ease both;
+  }
+  /* Staggered children, for card grids and option lists. */
+  .stagger > * {
+    animation: rise 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .stagger > *:nth-child(1) { animation-delay: 0ms; }
+  .stagger > *:nth-child(2) { animation-delay: 45ms; }
+  .stagger > *:nth-child(3) { animation-delay: 90ms; }
+  .stagger > *:nth-child(4) { animation-delay: 135ms; }
+  .stagger > *:nth-child(5) { animation-delay: 180ms; }
+  .stagger > *:nth-child(6) { animation-delay: 225ms; }
+
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: none; }
+  }
+  @keyframes fade {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+
+  /* Honour the OS setting. Motion is decoration here and never carries
+     meaning, so removing it costs the user nothing. */
+  @media (prefers-reduced-motion: reduce) {
+    .animate-rise,
+    .animate-fade,
+    .stagger > * {
+      animation: none !important;
+    }
+  }
+  .bg-brand {
+    background-color: var(--brand);
+    color: var(--brand-fg);
+  }
+  .text-brand {
+    color: var(--brand);
+  }
+  .border-brand {
+    border-color: var(--brand);
+  }
+  /* Subtle dotted texture for hero surfaces. */
+  .bg-grid {
+    background-image: radial-gradient(hsl(var(--foreground) / 0.05) 1px, transparent 1px);
+    background-size: 22px 22px;
+  }
 }
 
-/* Brand-driven chrome. --brand/--brand-fg/--brand-accent are set on the
-   dashboard shell from the org's delivery_brand (lib/brands.ts), so primary
-   actions and accents follow the brand rather than a hard-coded neutral. */
 @layer components {
+  /* Legacy brand helpers kept for markup not yet migrated to <Button>. */
   .btn-brand {
     background-color: var(--brand, #8b1d1d);
     color: var(--brand-fg, #ffffff);
-    transition: opacity 150ms ease;
+    transition: opacity 150ms ease, transform 120ms ease;
   }
   .btn-brand:hover {
-    opacity: 0.9;
+    opacity: 0.92;
+  }
+  .btn-brand:active {
+    transform: translateY(0.5px);
   }
   .btn-brand:disabled {
     opacity: 0.5;
   }
-
   .ring-brand:focus {
     border-color: var(--brand, #8b1d1d);
     box-shadow: 0 0 0 1px var(--brand, #8b1d1d);
     outline: none;
   }
-
   .chip-brand-active {
     background-color: var(--brand, #8b1d1d);
     color: var(--brand-fg, #ffffff);
     box-shadow: inset 0 0 0 1px var(--brand, #8b1d1d);
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Print.
+
+   Scoped to `.printable` rather than applied to every page: these rules hide
+   buttons and flatten surfaces, which is right for a report and wrong for, say,
+   a work order someone prints to carry round a site. A section opts in.
+
+   Nothing here gates anything. Print reproduces the DOM the server already
+   decided this reader may see — the page's own access check is the boundary,
+   and a second one here would only be able to disagree with it.
+   ───────────────────────────────────────────────────────────────────────── */
+@media print {
+  @page {
+    margin: 14mm;
+  }
+
+  /* A report printed from a dark-themed screen is pale text on paper the
+     printer leaves white — a blank sheet. So the dark palette is returned to
+     its light values for print only, rather than forcing everything to black,
+     which would erase the one thing a finance reader looks for first: a figure
+     in red. */
+  .dark {
+    --background: 0 0% 100%;
+    --foreground: 222 22% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 22% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 22% 12%;
+    --secondary: 220 16% 95%;
+    --secondary-foreground: 222 22% 18%;
+    --muted: 220 16% 95%;
+    --muted-foreground: 220 10% 35%;
+    --accent: 220 16% 95%;
+    --accent-foreground: 222 22% 18%;
+    --border: 220 16% 78%;
+    --destructive: 0 72% 44%;
+    --success: 152 55% 30%;
+    --destructive-on-tint: 0 74% 38%;
+    --success-on-tint: 152 62% 24%;
+    --warning-on-tint: 36 96% 25%;
+    --info-on-tint: 212 88% 33%;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+  }
+
+  /* Tints carry meaning here — a shortfall card's border, a "Segregated" badge
+     — so they are printed rather than dropped. */
+  .printable {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    max-width: none !important;
+  }
+
+  /* Ink cannot be clicked, and screen furniture (tabs, pickers, nav) tells the
+     reader nothing about the figures. */
+  [data-print="screen-only"],
+  .printable button {
+    display: none !important;
+  }
+
+  /* The counterpart: blocks that exist only on paper — the masthead, the
+     period line the picker was showing on screen. */
+  [data-print="print-only"] {
+    display: block !important;
+  }
+
+  /* Cards keep their outline but lose the elevation, which prints as a smear,
+     and are kept off page boundaries where they fit on one sheet. */
+  .printable .rounded-lg {
+    box-shadow: none !important;
+    break-inside: avoid;
+  }
+
+  /* A long journal or P&L legitimately spans sheets — so the table may break,
+     a row may not, and every sheet repeats the column headings. */
+  .printable table {
+    break-inside: auto;
+  }
+  .printable thead {
+    display: table-header-group;
+  }
+  .printable tr {
+    break-inside: avoid;
   }
 }
