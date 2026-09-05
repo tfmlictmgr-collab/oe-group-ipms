@@ -40,12 +40,40 @@ export type ApportionUnit = {
    * behind by a method change can never leak into a computed split.
    */
   statedAmount?: number | null;
+  /**
+   * The distinguisher between same-type units (0198/0200) — "4" on a unit
+   * labelled "Office Suite". Optional, and carried through untouched: `apportion`
+   * spreads every input field onto its output, so a caller that never reads it
+   * (nothing here does) pays nothing for it being present.
+   */
+  description?: string | null;
 };
 
 export type ApportionedShare = ApportionUnit & {
   pct: number; // share of total, 0..1
   amount: number; // rounded to 2dp; the set sums exactly to total
 };
+
+/**
+ * How a unit is named to a person: the type, then its distinguisher.
+ *
+ * ⚠️ Mirrors `unit_display_label()` (SQL, 0200) exactly — trim/blank rule and
+ * all — rather than inventing a second naming convention in TypeScript. A unit
+ * printed as "Office Suite - 4" on the tenancy schedule and "Office Suite 4" on
+ * a service-charge invoice would read as two different systems disagreeing
+ * about the same suite.
+ *
+ * Needed here, in TS, because `generateInvoices` builds `property_or_unit` from
+ * plain JS objects it already holds after apportioning — there is no row for
+ * PostgREST to embed a SQL function into at that point. Every other consumer
+ * (the tenancy schedule, the vacant-units picker) calls the database function
+ * directly on a live query; this is the one place that cannot, and this is
+ * therefore the one legitimate mirror. Do not add a second.
+ */
+export function unitDisplayLabel(label: string, description?: string | null): string {
+  const d = (description ?? "").trim();
+  return d ? `${label} - ${d}` : label;
+}
 
 function round2(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100;

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { apportion, type ApportionMethod } from "@/lib/apportionment";
+import { apportion, unitDisplayLabel, type ApportionMethod } from "@/lib/apportionment";
 import { sendCascade } from "@/lib/cascade";
 import { flattenTemplateVar, firstNameTemplateVar } from "@/lib/notify";
 import { formatNaira } from "@/lib/currency";
@@ -73,7 +73,11 @@ export async function generateInvoices(budgetId: string): Promise<ActionResult> 
 
   const { data: units, error: uErr } = await supabase
     .from("units")
-    .select("id, label, apportionment_factor, unit_quantity, occupant_user_id")
+    // ⚠️ `description` added (5 Sept 2026) — it was never selected, so the
+    // invoice below could not distinguish "Office Suite 4" from "Office Suite 9"
+    // and every same-type unit on a property produced the identical string.
+    // See `unitDisplayLabel` for why the fix lives there and not here.
+    .select("id, label, description, apportionment_factor, unit_quantity, occupant_user_id")
     .eq("property_id", budget.property_id);
   if (uErr) return failFromDb(uErr, "read the units for this property");
   if (!units || units.length === 0) {
@@ -88,6 +92,7 @@ export async function generateInvoices(budgetId: string): Promise<ActionResult> 
     units.map((u) => ({
       id: u.id,
       label: u.label,
+      description: u.description,
       factor: Number(u.apportionment_factor),
       // 0198: the area is PER unit, so a row of 12 stalls weighs 12x it.
       quantity: Number(u.unit_quantity ?? 1),
@@ -125,7 +130,10 @@ export async function generateInvoices(budgetId: string): Promise<ActionResult> 
     budget_id: budget.id,
     unit_id: s.id,
     billed_to_user_id: s.occupant_user_id ?? null,
-    property_or_unit: `${property?.name ?? "Property"} · ${s.label}`,
+    // ⚠️ Was `s.label` alone — every unit of one type on a property collapsed
+    // into one indistinguishable string ("Lake River · Office Suite" × 11).
+    // Not a duplicate-billing bug, but indistinguishable from one on screen.
+    property_or_unit: `${property?.name ?? "Property"} · ${unitDisplayLabel(s.label, s.description)}`,
     billing_period: budget.period,
     amount: s.amount,
     apportionment_pct: Number((s.pct * 100).toFixed(4)),
