@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { zipSync } from "fflate";
 import { createClient } from "@/lib/supabase/server";
+import { capabilityRefusal } from "@/lib/capability-refusal";
 import { getSessionProfile } from "@/lib/auth";
 
 // Every document on ONE applicant or vendor, zipped — for the reviewer who
@@ -39,10 +40,8 @@ export async function GET(req: Request) {
       p_capability: "records.export",
     });
     if (!canExport) {
-      return new NextResponse(
-        "Document download isn't turned on for your organisation yet. Ask your OE Group contact to enable it.",
-        { status: 403 }
-      );
+      const why = await capabilityRefusal(supabase, "records.export", "Document download");
+      return new NextResponse(`${why.message} ${why.hint}`, { status: 403 });
     }
   }
 

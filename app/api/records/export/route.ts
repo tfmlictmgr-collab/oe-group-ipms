@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
 import { csvCell } from "@/lib/asset-schema";
 import { roleLabel } from "@/lib/roles";
+import { capabilityRefusal } from "@/lib/capability-refusal";
 
 // Bulk record export — a CSV roster of one record type, scoped to the
 // caller's own org exactly as every other page in this dashboard is (the
@@ -85,10 +86,10 @@ export async function GET(req: Request) {
       p_capability: "records.export",
     });
     if (!canExport) {
-      return new NextResponse(
-        "Record export isn't turned on for your organisation yet. Ask your OE Group contact to enable it.",
-        { status: 403 }
-      );
+      // Role or org — asked of the matrix rather than assumed. See
+      // lib/capability-refusal.ts for why "your organisation" was wrong here.
+      const why = await capabilityRefusal(supabase, "records.export", "Record export");
+      return new NextResponse(`${why.message} ${why.hint}`, { status: 403 });
     }
   }
 

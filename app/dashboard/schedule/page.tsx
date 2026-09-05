@@ -12,13 +12,14 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import ScheduleFilters from "./ScheduleFilters";
+import { capabilityRefusal } from "@/lib/capability-refusal";
 
 export const dynamic = "force-dynamic";
 
 /**
  * The tenancy / lease schedule.
  *
- * This is `public/MANAGEMENT PORTFOLIO.xlsx` as a live report. That workbook is
+ * This is `private/MANAGEMENT PORTFOLIO.xlsx` as a live report. That workbook is
  * how this portfolio is actually kept: one sheet per location, a header block
  * naming the LANDLORD and the PROPERTY ADDRESS, then a table of tenancies —
  * tenant, phone, term, rent p.a., service charge, amount paid, size/shop no.,
@@ -180,6 +181,12 @@ export default async function SchedulePage({
     { billed: 0, collected: 0, outstanding: 0, fees: 0, sc: 0 }
   );
 
+  // Only asked when it is going to be shown — a refusal message costs a query,
+  // and the overwhelmingly common case is that the button simply renders.
+  const exportRefusal = canExport
+    ? { message: "", hint: "" }
+    : await capabilityRefusal(supabase, "records.export", "Bulk download");
+
   const exportParams = new URLSearchParams({ type: "schedule" });
   for (const [k, v] of Object.entries({ owner: sp.owner, property: sp.property, tenant: sp.tenant, status, from, to })) {
     if (v) exportParams.set(k, v);
@@ -225,9 +232,11 @@ export default async function SchedulePage({
             </a>
           </Button>
         ) : (
+          // Role or org — the matrix decides which is true, because telling a
+          // payment officer "your organisation" is false the moment the
+          // administrators and property managers already hold it.
           <span className="text-xs text-muted-foreground">
-            Bulk download is turned off for this organisation. Your OE Group
-            contact can enable it under Settings → Permissions.
+            {exportRefusal.message} {exportRefusal.hint}
           </span>
         )}
       </div>

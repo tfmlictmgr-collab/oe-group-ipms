@@ -245,7 +245,12 @@ for (const cap of ["sc.manage", "leases.write"]) {
 // for everyone, admin included. An operator may then open it, per org, per
 // role, deliberately — which is the lever 0239 exists to provide.
 {
-  for (const role of ["admin", "property_manager", "regional_manager", "facility_manager"]) {
+  // `payment_approver` is the senior accounting desk (0246 / decision 23) and
+  // holds the grant for reporting and record generation. `finance_approver`
+  // — the payment officer — deliberately does NOT: they release money, and
+  // bulk PII export is not part of releasing money.
+  for (const role of ["admin", "property_manager", "regional_manager",
+                      "payment_approver", "facility_manager", "finance_approver"]) {
     // The baseline itself, asked of the function that defines it.
     const { data: base } = await svc.rpc("b7_grants", {
       p_role: role, p_capability: "records.export",

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
+import { capabilityRefusal } from "@/lib/capability-refusal";
 import { roleLabel } from "@/lib/roles";
 import {
   processesForEdition, processesForRole, type Edition, type Process,
@@ -44,10 +45,8 @@ export async function GET(req: Request) {
     supabase.from("org_modules").select("module").eq("org_id", profile.org_id).eq("enabled", true),
   ]);
   if (!canRead) {
-    return new NextResponse(
-      "The training handbook isn't turned on for your organisation yet.",
-      { status: 403 }
-    );
+    const why = await capabilityRefusal(supabase, "training.read", "The training handbook");
+    return new NextResponse(`${why.message} ${why.hint}`, { status: 403 });
   }
 
   const isOperator = Boolean(org.is_platform_operator);

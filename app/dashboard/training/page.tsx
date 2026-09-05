@@ -6,6 +6,7 @@ import { getSessionProfile } from "@/lib/auth";
 import { roleLabel } from "@/lib/roles";
 import { processesForEdition, type Edition } from "@/lib/guides/processes";
 import { PageHeader } from "@/components/patterns/page-header";
+import { capabilityRefusal } from "@/lib/capability-refusal";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/patterns/empty-state";
 import AdminOnly from "../settings/AdminOnly";
@@ -45,13 +46,21 @@ export default async function TrainingPage() {
   ]);
 
   if (!canRead) {
+    // `training.read` is granted per ROLE per org (0203), so "your organisation"
+    // is only true when nobody in it holds the handbook. Once one role does,
+    // the honest sentence is that yours does not.
+    const why = await capabilityRefusal(supabase, "training.read", "The training handbook");
     return (
       <div className="space-y-6">
         <PageHeader title="Training" />
         <EmptyState
           icon={<GraduationCap />}
-          title="Not turned on for your organisation yet"
-          description="The training handbook is rolling out organisation by organisation. Ask your OE Group contact to enable it."
+          title={
+            why.scope === "role"
+              ? "Not turned on for your role yet"
+              : "Not turned on for your organisation yet"
+          }
+          description={why.hint}
         />
       </div>
     );

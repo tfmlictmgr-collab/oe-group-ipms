@@ -60,15 +60,18 @@
 > nothing about either standard). The three remaining mentions of 41016 are the correction itself
 > explaining why it is not the basis.
 >
-> **4 · `records.export` enabled for the administrator, the property manager and the regional manager**, on **TFML and OEA**,
+> **4 · `records.export` enabled for the administrator, the property manager, the regional manager and the payment approver**, on **TFML and OEA**,
 > through `set_role_permission` as a signed-in operator administrator — so `set_by` and the audit
 > row name a person rather than "platform (service role)". Verified as the users themselves, on both worlds:
-> admin `true`, PM `true`, RM `true`, **facilities manager `false`**, **payment officer `false`**.
+> admin `true`, PM `true`, RM `true`, payment approver `true`, **facilities manager `false`**,
+> **payment officer `false`**.
 > The B7 baseline is untouched and still OFF for every role, so this is a badged,
 > one-click-revocable deviation, not a reversal of `0239`.
-> ⚠️ The payment officer and payment approver are admitted by the ROUTE's role gate but hold no
-> capability, so they meet an accurate refusal naming the switch rather than a flat 403 — the
-> two-gate layering working. One command adds the accounting desks if the board wants them in.
+> ⚠️ The **payment officer** is admitted by the ROUTE's role gate but holds no capability, so they
+> meet an accurate refusal naming the switch rather than a flat 403 — the two-gate layering working.
+> That is deliberate and not an oversight: they RELEASE money, and pulling a tenant roster out of
+> the platform is a different act that stays separately granted. The **payment approver** — the
+> senior accounting desk, which holds everything the officer holds except disbursement — does have it.
 > ⚠️ Deliberately **not** enabled for *OE Group — Foundation POC* or *Service Charge Client*:
 > turning on bulk PII export for a client organisation is that client's decision, which is `0239`'s
 > own framing ("only when asked"). Say the word and it is one command.
