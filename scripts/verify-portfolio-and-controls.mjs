@@ -214,6 +214,42 @@ console.log("\n\x1b[1m§B The payment chain, and who may change it\x1b[0m");
     : bad("A BRAND ADMINISTRATOR SET THE APPROVAL CHAIN through the operator function");
 }
 
+{
+  // ── Tierless by default, but never chainless (0261) ──────────────────────
+  //
+  // ⚠️ The two are easy to confuse and must not be. The board removed the
+  // amount-based BAND on the final stage; it did not remove any pair of hands.
+  // A pass here that showed one stage would mean approval had been collapsed,
+  // not unblocked.
+  const { data: stages } = await svc.rpc("payment_chain_stages", { p_org_id: oea.id });
+  const banded = (stages ?? []).filter((s) => s.tier_resolved);
+  banded.length === 0
+    ? ok("no stage demands an approval band — approval is tierless by default")
+    : bad(`${banded.length} stage(s) still demand a band: ${banded.map((s) => s.label).join(", ")}`);
+
+  (stages ?? []).length === 3
+    ? ok("and the chain is still three stages — tierless is not chainless")
+    : bad(`OEA now runs ${(stages ?? []).length} stage(s); removing the band must not remove a desk`);
+
+  const { data: req } = await svc.rpc("resolve_required_tier", { p_org_id: oea.id, p_amount: 5000000 });
+  Number(req) === 1
+    ? ok("even a large amount resolves to no band while tiers are off")
+    : bad(`a large amount still resolves to tier ${req} with bands off`);
+
+  // The switch is the operator's, like the chain shape.
+  const { error: admErr } = await admin
+    .from("orgs").update({ approval_tiers_enabled: true }).eq("id", oea.id);
+  admErr
+    ? ok("an org administrator cannot switch approval bands back on")
+    : bad("AN ORG ADMINISTRATOR TURNED APPROVAL BANDS ON — decision 7 breached");
+  const { error: rpcErr } = await admin.rpc("operator_set_approval_tiers", {
+    p_org_id: oea.id, p_enabled: true,
+  });
+  rpcErr
+    ? ok("operator_set_approval_tiers refuses a brand administrator")
+    : bad("A BRAND ADMINISTRATOR SET THE BAND POLICY through the operator function");
+}
+
 // ── C. What each desk holds (0249) ─────────────────────────────────────────
 console.log("\n\x1b[1m§C The property manager's new authority, and the FM's unchanged one\x1b[0m");
 

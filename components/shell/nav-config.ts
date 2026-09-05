@@ -373,7 +373,12 @@ export const NAV_GROUPS: NavGroup[] = [
         // side was assumed to be billed. A contractor is PAID, not billed; an
         // ops staff member is neither billed nor paid through this screen —
         // their money, where relevant, lives elsewhere.
-        show: (c) => !c.isViewer && !c.isVendor && !c.isOpsStaff && !c.isRegionalManager,
+        // ⚠️ `!c.isRegionalManager` removed (board, 5 Sept 2026). Decision 26
+        // gave them `sc.manage` on the properties they hold, so a role that can
+        // raise a service-charge budget could not read the invoices it produced.
+        // `service_charges_select` scopes them to their own region, so what they
+        // reach is the place, not the organisation.
+        show: (c) => !c.isViewer && !c.isVendor && !c.isOpsStaff,
       },
       {
         label: "Audit Trail",

@@ -163,7 +163,18 @@ console.log("1. The organisation climbs the OEA ladder");
   eq("stage 1 is the audit", String(byOrder[0]?.required_roles), "payment_audit_approver");
   eq("stage 2 is the MP", String(byOrder[1]?.required_roles), "executive");
   eq("stage 3 is the payment approver", String(byOrder[2]?.required_roles), "payment_approver");
-  eq("only stage 3 is tier-resolved", String(byOrder.map((s) => s.tier_resolved)), "false,false,true");
+  // AMENDED (0261). This asserted "false,false,true" - stage 3 always
+  // tier-resolved. The board switched approval BANDS off by default on
+  // 5 Sept 2026: the chain still runs all three stages, but no stage demands
+  // that the approver's band cover the amount. So this now follows the org's
+  // own setting rather than a constant, and section 5 exercises BOTH states
+  // rather than only the one that used to be true.
+  const { data: bandsOn } = await svc.rpc("org_approval_tiers_enabled", { p_org_id: oea.id });
+  eq(
+    `stage bands follow the org setting (tiers ${bandsOn ? "on" : "off"})`,
+    String(byOrder.map((s) => s.tier_resolved)),
+    bandsOn ? "false,false,true" : "false,false,false"
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -245,23 +256,50 @@ console.log("\n4. Who may not action a stage");
 }
 
 // ---------------------------------------------------------------------------
-console.log("\n5. The tier still binds at final approval");
+console.log("\n5. Bands are OFF by default, and still bind when switched on");
 // ---------------------------------------------------------------------------
 {
-  const big = await mkPayment(T2 + 0.01);   // above tier 2's ceiling
-  await decide(big, auditor, 1);
-  await decide(big, md, 2);
+  // -- Off (the default since 0261) ---------------------------------------
+  //
+  // The board's reason: at OEA every outbound payment already climbs to the
+  // Managing Partner, so a second amount-based hurdle behind them adds no
+  // control and does block work. What must NOT have changed is the number of
+  // hands - section 1 asserts that separately.
+  await svc.from("orgs").update({ approval_tiers_enabled: false }).eq("id", oea.id);
+  {
+    const big = await mkPayment(T2 + 0.01);
+    await decide(big, auditor, 1);
+    await decide(big, md, 2);
+    const e = await decide(big, tier2, 3);
+    e ? bad(`with bands off, tier 2 was still refused - ${e.message.slice(0, 70)}`)
+      : ok("with bands off, a tier-2 approver clears an amount that used to need tier 3");
+  }
 
-  (await decide(big, tier2, 3))
-    ? ok("tier 2 cannot clear above ₦1,000,000")
-    : bad("TIER 2 CLEARED ABOVE ITS BAND");
+  // -- On (an org that asks for them back) --------------------------------
+  //
+  // The control is NOT deleted, only defaulted off, so it is still tested.
+  // A suite that stopped exercising it would leave the operator switch
+  // shipping untested the day somebody turns it on.
+  await svc.from("orgs").update({ approval_tiers_enabled: true }).eq("id", oea.id);
+  try {
+    const big = await mkPayment(T2 + 0.01);
+    await decide(big, auditor, 1);
+    await decide(big, md, 2);
 
-  // 📌 The config gap the board accepted: with the executive at stage 2 they
-  // cannot also clear stage 3, so an OEA org needs a tier-3 approver of its
-  // own. This asserts the gap is real and is closed by APPOINTING one.
-  const e = await decide(big, tier3, 3);
-  e ? bad(`the tier-3 approver was refused — ${e.message.slice(0, 70)}`)
-    : ok("a tier-3 payment approver clears it (the appointed-approver answer)");
+    (await decide(big, tier2, 3))
+      ? ok("with bands on, tier 2 cannot clear above ₦1,000,000")
+      : bad("TIER 2 CLEARED ABOVE ITS BAND while bands were on");
+
+    // The config gap the board accepted: with the executive at stage 2 they
+    // cannot also clear stage 3, so an OEA org needs a tier-3 approver of its
+    // own. This asserts the gap is real and is closed by APPOINTING one.
+    const e = await decide(big, tier3, 3);
+    e ? bad(`the tier-3 approver was refused - ${e.message.slice(0, 70)}`)
+      : ok("a tier-3 payment approver clears it (the appointed-approver answer)");
+  } finally {
+    // Leave the world as the board set it, whatever happened above.
+    await svc.from("orgs").update({ approval_tiers_enabled: false }).eq("id", oea.id);
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -74,15 +74,22 @@ export default async function StatementsPage() {
   const session = await getSessionProfile();
   if (!session) redirect("/login");
 
-  // Neither has a unit to be billed, and neither should see the org-wide
-  // financial view: a contractor is paid, not billed, and a regional manager
-  // holds "nothing financial, no org-wide read" (decision 9) — Statements is
-  // exactly the financial screen that sentence rules them out of. Both are
-  // sent to where they actually belong rather than shown a statement of
-  // charges that cannot exist. The nav no longer offers this to either; a
-  // bookmark or a typed URL should not reach it either.
+  // A contractor is paid, not billed, so there is no statement for them to
+  // read; they are sent to their work rather than shown an empty one.
+  //
+  // ⚠️ The REGIONAL MANAGER was redirected away from here too, on decision 9's
+  // "nothing financial, no org-wide read". Decision 26 superseded the first
+  // half of that on 30 Aug — they hold `sc.manage` and administer the service
+  // charge on the properties they hold — and the redirect was never revisited,
+  // so a role that can RAISE a budget could not read the invoices it produced.
+  //
+  // The second half of decision 9 still holds and is what makes letting them
+  // in safe: their reach is the PLACE, not the organisation.
+  // `service_charges_select` admits them through `budget_id` to
+  // `sc_budgets.property_id in current_user_property_ids()`, so the register
+  // below returns their own region and nothing else — no clause here decides
+  // that, and none should.
   if (session.profile?.role === "vendor") redirect("/dashboard/my-work");
-  if (session.profile?.role === "regional_manager") redirect("/dashboard");
 
   // ⚠️ `fm_ops_staff` was never in this list either, and unlike vendor/regional
   // it had no redirect at all — reaching this page directly would have dropped
@@ -99,7 +106,7 @@ export default async function StatementsPage() {
   // so the register they are entitled to (25 charges, measured) rendered as
   // an empty statement of their own. Another copy of `oversight_roles()`
   // written before that role existed — see OVERSIGHT_ROLES in lib/roles.ts.
-  const isStaff = [...FM_PM, ...OVERSIGHT_ROLES].includes(
+  const isStaff = [...FM_PM, "regional_manager", ...OVERSIGHT_ROLES].includes(
     (session.profile?.role ?? "") as never
   );
 

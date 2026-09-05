@@ -83,6 +83,10 @@ export default async function ApprovalsPage({
     approvalTier: me?.approval_tier ?? null,
   };
   const myTier = effectiveTier(actor.role, actor.approvalTier);
+  const { data: tiersOn } = await supabase.rpc("org_approval_tiers_enabled", {
+    p_org_id: session.profile.org_id,
+  });
+  const tiersEnabled = Boolean(tiersOn);
 
   // Vendor invoices that have passed the B4 gate, landlord payouts raised and
   // not yet sent, and FM/PM ops requisitions awaiting the same chain (0170).
@@ -365,9 +369,16 @@ export default async function ApprovalsPage({
           Every payment leaving the organisation — vendor invoices, landlord
           payouts and ops requisitions alike — passes three pairs of hands
           before the payment officer sends it.
-          {myTier
-            ? ` You approve up to ${tierLabel(myTier).toLowerCase()}.`
-            : " You hold no approval limit, so nothing waits on you here."}
+          {/* ⚠️ The band sentence is printed only where bands are actually in
+              force (0261). "You hold no approval limit, so nothing waits on you
+              here" was, on a tierless org, both wrong and the most discouraging
+              thing on the page — it told an approver who could clear every
+              payment in the queue that none of them were theirs. */}
+          {tiersEnabled
+            ? myTier
+              ? ` You approve up to ${tierLabel(myTier).toLowerCase()}.`
+              : " You hold no approval limit, so nothing waits on you here."
+            : " Approval bands are off for this organisation, so any approver at a stage can clear it."}
         </p>
       </div>
 

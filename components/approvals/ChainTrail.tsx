@@ -13,8 +13,14 @@ export default function ChainTrail({ state }: { state: ChainState }) {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        {/* ⚠️ Only when the org actually resolves bands (0261). Printing
+            "Requires Tier 2" where the database asks for no band tells somebody
+            they need something that is no longer being checked — and it was the
+            sentence people read as the thing blocking the payment. */}
         <span className="text-sm text-muted-foreground">
-          Requires {tierLabel(state.requiredTier)}
+          {state.tiersEnabled
+            ? `Requires ${tierLabel(state.requiredTier)}`
+            : `${state.stages.length} approval${state.stages.length === 1 ? "" : "s"} needed`}
         </span>
         <span className="text-lg font-medium tabular-nums">
           {formatNaira(state.amount)}

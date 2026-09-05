@@ -204,6 +204,16 @@ export interface ChainState {
   /** Approved at every stage, but at a different amount than the current one. */
   amountChangedAfterApproval: boolean;
   /**
+   * Whether this organisation's final stage checks the approver's BAND against
+   * the amount (0261). Off by default, board 5 Sept 2026.
+   *
+   * ⚠️ Read from the database per payable, never from `CHAIN_SHAPES`. The shape
+   * says a stage is *capable* of being tier-resolved; only the org says whether
+   * it currently is. Hardcoding `tierResolved: true` in the mirror is what would
+   * leave the screen demanding a band the database had stopped asking for.
+   */
+  tiersEnabled: boolean;
+  /**
    * Sent back for correction and not yet re-given (0250b). A return at stage
    * N>1 retires stage N-1, so the chain simply shows that rung outstanding
    * again; a return at stage 1 has no rung below it and the payable leaves the
@@ -450,10 +460,12 @@ export async function getChainState(
   // is resolved from the SAME org the amount was, rather than from the viewer's
   // own organisation — a payable is approved on its own org's chain and the
   // reader may be an operator looking at someone else's.
-  const [{ data: tier }, { data: shapeRow }] = await Promise.all([
+  const [{ data: tier }, { data: shapeRow }, { data: tiersOn }] = await Promise.all([
     supabase.rpc("resolve_required_tier", { p_org_id: orgId, p_amount: amount }),
     supabase.rpc("org_payment_chain", { p_org_id: orgId }),
+    supabase.rpc("org_approval_tiers_enabled", { p_org_id: orgId }),
   ]);
+  const tiersEnabled = Boolean(tiersOn);
   const requiredTier = (Number(tier) || 1) as ApprovalTier;
   const shape: ChainShape =
     shapeRow === "oea" ? "oea"
@@ -487,7 +499,11 @@ export async function getChainState(
       label: s.label,
       short: s.short,
       requiredRoles: s.requiredRoles,
-      tierResolved: s.tierResolved,
+      // The shape's capability AND the org's setting. `canActorAction`,
+      // `whyNotActionable`, `waitingOn` and `ChainTrail` all key off this one
+      // field, so switching it here switches off the band gate, its refusal
+      // message and its badge together — with no second rule to keep in step.
+      tierResolved: s.tierResolved && tiersEnabled,
       verb: s.verb,
       decision: live ? (a!.decision ?? null) : null,
       // The actor and the trail are kept even for a stale row: who signed the
@@ -498,7 +514,7 @@ export async function getChainState(
       actorRole: a?.actor_role ?? null,
       decidedAt: a?.created_at ?? null,
       reason: a?.reason ?? null,
-      requiredTier: s.tierResolved ? requiredTier : null,
+      requiredTier: s.tierResolved && tiersEnabled ? requiredTier : null,
       decidedAmount: a ? Number(a.amount) : null,
       staleDecision: a && !live ? a.decision : null,
     };
@@ -538,6 +554,7 @@ export async function getChainState(
     rejectedReason: rejectedRow?.reason ?? null,
     clearedForDisbursement,
     amountChangedAfterApproval: !rejected && stages.some((s) => s.staleDecision !== null),
+    tiersEnabled,
     returnedAtStage: (returnedRow?.stage_order as StageOrder | undefined) ?? null,
     returnedReason: returnedRow?.reason ?? null,
     returnedBy: returnedRow?.users?.full_name ?? null,
