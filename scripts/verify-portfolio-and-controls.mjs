@@ -297,6 +297,48 @@ for (const cap of ["sc.manage", "leases.write"]) {
     : bad("THE PROPERTY MANAGER CAN READ BANK ACCOUNTS — decision 16 breached");
 }
 
+// ── C2. The senior accounting desk can reach what RLS already gives it ─────
+console.log("\n\x1b[1m§C2 The payment approver desk is not blank\x1b[0m");
+{
+  const { OVERSIGHT_ROLES } = await import("../lib/roles.ts");
+  const { data: sqlRoles } = await svc.rpc("oversight_roles");
+  const sqlSet = new Set((sqlRoles ?? []).map(String));
+  const tsSet = new Set(OVERSIGHT_ROLES.map(String));
+  const same =
+    sqlSet.size === tsSet.size && [...sqlSet].every((r) => tsSet.has(r));
+  same
+    ? ok(`OVERSIGHT_ROLES matches the database exactly: ${[...tsSet].sort().join(", ")}`)
+    : bad(
+        `the TS mirror and oversight_roles() DISAGREE — SQL has {${[...sqlSet].sort()}}, ` +
+          `TS has {${[...tsSet].sort()}}. The nav will hide what RLS admits, which is ` +
+          "exactly the drift that left the payment approver looking at a blank desk."
+      );
+
+  // And the reads it implies actually work, in the approver's own seat.
+  const approver = await login("oea.approver@oegroup.test");
+  if (!approver) {
+    note("no OEA payment approver fixture — cannot measure their desk");
+  } else {
+    for (const [what, q] of [
+      ["the client-funds ledger", approver.from("ledger_accounts").select("id").limit(1)],
+      ["the audit trail", approver.from("audit_log").select("id").limit(1)],
+      ["the rent roll", approver.from("rent_roll").select("lease_id").limit(1)],
+      ["the tenancy schedule", approver.from("tenancy_schedule").select("lease_id").limit(1)],
+      ["the service-charge register", approver.from("service_charges").select("id").limit(1)],
+    ]) {
+      const { data, error } = await q;
+      error || (data ?? []).length === 0
+        ? bad(`the payment approver cannot read ${what}${error ? ": " + error.message : " (0 rows)"}`)
+        : ok(`the payment approver reads ${what}`);
+    }
+    // ⚠️ And still cannot WRITE a tenancy — the read is oversight, not authority.
+    const { data: canWrite } = await approver.rpc("has_permission", { p_capability: "leases.write" });
+    canWrite
+      ? bad("the payment approver holds leases.write — oversight became authority")
+      : ok("the payment approver still cannot write a tenancy — read-only oversight");
+  }
+}
+
 // ── D. A refusal returns it (0250b) ────────────────────────────────────────
 console.log("\n\x1b[1m§D A refusal returns the payment to the desk before it\x1b[0m");
 

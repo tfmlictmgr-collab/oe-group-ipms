@@ -4,7 +4,7 @@ import { getSessionProfile } from "@/lib/auth";
 import { orgForCurrentHost } from "@/lib/org-host";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/shell/app-shell";
-import { roleLabel, FM_PM } from "@/lib/roles";
+import { roleLabel, FM_PM, isOversight } from "@/lib/roles";
 import type { NavContext } from "@/components/shell/nav-config";
 import { seesBi, biScope } from "./bi/scope";
 
@@ -170,8 +170,18 @@ export default async function DashboardLayout({
     // and never appear as toggles" — they are what an auditor checks, not
     // preferences. `non_delegable_controls` lists them, so this is legible
     // rather than remembered.
-    seesAudit: ["admin", "finance_approver", "executive"].includes(role),
-    seesLedger: ["admin", "finance_approver", "executive"].includes(role),
+    // ⚠️ CORRECTED 5 Sept 2026. These were two hand-written copies of
+    // `oversight_roles()` that predated `payment_approver` existing (0151) and
+    // being admitted to oversight (0157/0246) — so the senior accounting desk
+    // could read 4,745 audit rows and the whole client-funds ledger through
+    // RLS while the menu offered neither link. Nothing was refused; nothing was
+    // offered. Decision 26's nav-versus-policy fault, two entries down.
+    //
+    // Still a hardcoded role list (decision 7 keeps ledger and audit
+    // visibility non-delegable), but now ONE list, in `lib/roles.ts`, asserted
+    // against the database function by the verification suite.
+    seesAudit: isOversight(role),
+    seesLedger: isOversight(role),
     isAdmin: role === "admin",
 
     // Identity, not privilege — which home screen a person gets.
@@ -216,7 +226,22 @@ export default async function DashboardLayout({
       can("assets.read") || can("assets.write") || can("assets.import") || role === "property_owner",
     seesVendors: can("vendors.read") || can("vendors.write"),
     reviewsVendorRegistrations: can("vendors.write"),
-    seesLettings: can("leases.write") || can("applications.review_all") || can("applications.recommend"),
+    // ⚠️ `|| isOversight(role)` added 5 Sept 2026, for the READ.
+    //
+    // `leases_select` and `tenancy_schedule` both admit `oversight_roles()`, so
+    // the payment approver already reads all 20 tenancies and the whole
+    // schedule — measured, not assumed. The menu offered neither, because this
+    // line asks only who may WRITE a lease. The head of accounts reconciling
+    // rent has every reason to open the rent roll and no way to reach it.
+    //
+    // Nothing is granted here: both pages gate their write controls on
+    // `leases.write` separately, which oversight does not hold, so they arrive
+    // read-only exactly as RLS intends.
+    seesLettings:
+      can("leases.write") ||
+      can("applications.review_all") ||
+      can("applications.recommend") ||
+      isOversight(role),
     // ⚠️ NOT derived from `sc.read_all` alone, and that was the whole defect
     // (0231). `sc_budgets_select` has admitted "oversight, or a property I
     // hold" since 0055, so an FM, a PM and a regional manager could always

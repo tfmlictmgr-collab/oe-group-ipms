@@ -19,7 +19,9 @@ import {
   TableCell,
 } from "@/components/ui/table";
 import ServiceCharges, { type ServiceChargeRow } from "./ServiceCharges";
-import { FM_PM } from "@/lib/roles";
+import StatementsRegister, { type RegisterRow } from "./StatementsRegister";
+import { unitDisplayLabel } from "@/lib/apportionment";
+import { FM_PM, OVERSIGHT_ROLES } from "@/lib/roles";
 
 // Statements, from both sides of the invoice.
 //
@@ -90,8 +92,15 @@ export default async function StatementsPage() {
   // the boundary.
   if (session.profile?.role === "fm_ops_staff") redirect("/dashboard/my-jobs");
 
-  const isStaff = ["admin", ...FM_PM, "finance_approver", "executive"].includes(
-    session.profile?.role ?? ""
+  // ⚠️ `payment_approver` was missing, and the consequence was not a refusal —
+  // it was a BLANK PAGE. A role not in this list falls to the `else` branch
+  // below and is served `my_service_charges()`, which is definer-scoped to
+  // charges billed to them personally. The head of accounts is billed nothing,
+  // so the register they are entitled to (25 charges, measured) rendered as
+  // an empty statement of their own. Another copy of `oversight_roles()`
+  // written before that role existed — see OVERSIGHT_ROLES in lib/roles.ts.
+  const isStaff = [...FM_PM, ...OVERSIGHT_ROLES].includes(
+    (session.profile?.role ?? "") as never
   );
 
   const supabase = await createClient();
@@ -110,8 +119,13 @@ export default async function StatementsPage() {
     isStaff
       ? supabase
           .from("service_charges")
+          // ⚠️ `units(...)` and `users(...)` embedded so the register can be
+          // grouped BY property, unit or tenant. `property_or_unit` is a text
+          // label frozen at invoicing; grouping on it alone would group on a
+          // string rather than on the thing it names.
           .select(
-            "id, property_or_unit, billing_period, amount, amount_paid, apportionment_pct, status, due_date"
+            "id, property_or_unit, billing_period, amount, amount_paid, apportionment_pct, status, due_date, " +
+            "units(label, description, properties(name)), users:billed_to_user_id(full_name)"
           )
           .order("billing_period", { ascending: false })
       : Promise.resolve({ data: [] as Charge[] }),
@@ -129,6 +143,30 @@ export default async function StatementsPage() {
   const outstanding = isStaff
     ? charges.reduce((a, c) => a + Math.max(0, Number(c.amount) - Number(c.amount_paid ?? 0)), 0)
     : mine.reduce((a, c) => a + Math.max(0, Number(c.outstanding)), 0);
+
+  // Flattened for the register: the label as invoiced, plus the property, unit
+  // and tenant it actually belongs to, so grouping is on the thing and not on
+  // the string.
+  const registerRows: RegisterRow[] = charges.map((c) => {
+    const u = (c as unknown as {
+      units?: { label?: string; description?: string | null; properties?: { name?: string } | null } | null;
+      users?: { full_name?: string } | null;
+    }).units ?? null;
+    const t = (c as unknown as { users?: { full_name?: string } | null }).users ?? null;
+    return {
+      id: c.id,
+      label: c.property_or_unit ?? "—",
+      propertyName: u?.properties?.name ?? null,
+      unitLabel: u ? unitDisplayLabel(u.label ?? "", u.description) : null,
+      tenantName: t?.full_name ?? null,
+      period: c.billing_period,
+      amount: Number(c.amount),
+      amountPaid: Number(c.amount_paid ?? 0),
+      pct: c.apportionment_pct == null ? null : Number(c.apportionment_pct),
+      status: c.status,
+      dueDate: c.due_date,
+    };
+  });
 
   const paymentHistory = history.length > 0 && (
     <Card>
@@ -255,59 +293,7 @@ export default async function StatementsPage() {
           </div>
 
           {isStaff ? (
-            <Card>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Property / Unit</TableHead>
-                    <TableHead>Period</TableHead>
-                    <TableHead className="text-right">Share</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Outstanding</TableHead>
-                    <TableHead className="text-right">Amount</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {charges.map((c) => (
-                    <TableRow key={c.id}>
-                      <TableCell className="font-medium">
-                        {c.property_or_unit ?? "—"}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {c.billing_period ?? "—"}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums text-muted-foreground">
-                        {c.apportionment_pct != null
-                          ? `${Number(c.apportionment_pct).toFixed(2)}%`
-                          : "—"}
-                      </TableCell>
-                      <TableCell>
-                        <StatusBadge status={c.status} />
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums text-muted-foreground">
-                        {formatNaira(
-                          Math.max(0, Number(c.amount) - Number(c.amount_paid ?? 0))
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right font-medium tabular-nums">
-                        {formatNaira(c.amount)}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  <TableRow className="bg-muted/40 hover:bg-muted/40">
-                    <TableCell colSpan={4} className="font-semibold">
-                      Total
-                    </TableCell>
-                    <TableCell className="text-right font-semibold tabular-nums">
-                      {formatNaira(outstanding)}
-                    </TableCell>
-                    <TableCell className="text-right font-semibold tabular-nums">
-                      {formatNaira(total)}
-                    </TableCell>
-                  </TableRow>
-                </TableBody>
-              </Table>
-            </Card>
+            <StatementsRegister rows={registerRows} />
           ) : (
             <ServiceCharges charges={mine} />
           )}

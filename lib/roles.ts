@@ -65,6 +65,46 @@ const BRAND_LABELS: Partial<Record<DeliveryBrand, Record<string, string>>> = {
 export const FM_PM = ["facility_manager", "property_manager"] as const;
 
 /**
+ * Who may see money and the audit trail — the TypeScript mirror of the SQL
+ * `oversight_roles()`.
+ *
+ * ⚠️ Decision 9 created that function for exactly one reason, in its own words:
+ * "Who may see money and the audit trail is now ONE definition,
+ * `oversight_roles()`, rather than the same role array repeated across 18
+ * policies." The array then got repeated anyway — in TypeScript, four times
+ * (`seesLedger`, `seesAudit`, Statements' `isStaff`, and the money-desk list) —
+ * and drifted, because every one of those copies was written before `0151`
+ * created `payment_approver` and before `0157`/`0246` admitted them to
+ * oversight.
+ *
+ * The measured consequence, 5 Sept 2026: the payment approver could read 4,745
+ * audit rows, 10 ledger accounts, 20 leases and 25 service charges through RLS,
+ * and the product showed them none of it — no Client Funds link, no Audit Trail
+ * link, and a Statements page that dropped them into the TENANT branch and
+ * rendered blank. Nothing was refused; nothing was offered either.
+ *
+ * ⚠️ Still a hardcoded role list, deliberately, and NOT capability-derived:
+ * decision 7 names ledger read and audit visibility among the non-delegable
+ * controls that "stay hardwired and never appear as toggles". The fix is for
+ * the hardcoded list to be RIGHT and to exist ONCE, not for it to become a
+ * preference.
+ *
+ * `scripts/verify-portfolio-and-controls.mjs` asserts this equals the database
+ * function, so the two cannot drift apart again in silence.
+ */
+export const OVERSIGHT_ROLES = [
+  "admin",
+  "finance_approver",
+  "executive",
+  "payment_approver",
+] as const;
+
+/** Does this role hold org-wide sight of money and the audit trail? */
+export function isOversight(role: string | null | undefined): boolean {
+  return (OVERSIGHT_ROLES as readonly string[]).includes(role ?? "");
+}
+
+/**
  * Roles that may be issued through an invitation, in the order they are offered.
  *
  * ONE list. This was previously duplicated — a server-side validation array and
