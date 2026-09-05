@@ -65,6 +65,32 @@ const fmtDate = (d: string | null) =>
       })
     : "—";
 
+/**
+ * What actually reached the payer, in one line.
+ *
+ * ⚠️ Says only what happened. "Payment request raised" beside a silent failure
+ * to email is how somebody concludes a tenant was told when they were not — the
+ * exact gap this delivery was built to close, reintroduced at the toast.
+ */
+function deliveryLine(d?: {
+  emailed: string | null;
+  nudged: "whatsapp" | "sms" | null;
+  belled: boolean;
+  problem: string | null;
+}): string {
+  if (!d) return "Checkout link copied to the clipboard.";
+  const sent: string[] = [];
+  if (d.emailed) sent.push(`emailed to ${d.emailed}`);
+  if (d.nudged) sent.push(d.nudged === "whatsapp" ? "sent on WhatsApp" : "sent by SMS");
+  if (d.belled) sent.push("shown in their portal");
+  if (sent.length === 0) {
+    return d.problem
+      ? `Not sent — ${d.problem}. The link is on your clipboard; send it yourself.`
+      : "Not sent. The link is on your clipboard; send it yourself.";
+  }
+  return `Sent to the payer — ${sent.join(", ")}. The link is also on your clipboard.`;
+}
+
 export default function CollectionsClient({
   intents, billable, returnedRef, returnedIntentId, mode, fxMode, fxCurrencies,
 }: {
@@ -173,7 +199,7 @@ export default function CollectionsClient({
       if (r.data.checkoutUrl) {
         await navigator.clipboard.writeText(absolute(r.data.checkoutUrl)).catch(() => {});
         toast.success("Payment request raised", {
-          description: `${r.data.reference} — checkout link copied to the clipboard.`,
+          description: `${r.data.reference} — ${deliveryLine(r.data.delivery)}`,
         });
       } else {
         toast.success("Payment request raised", { description: r.data.reference });
@@ -211,7 +237,7 @@ export default function CollectionsClient({
       if (r.data.checkoutUrl) {
         await navigator.clipboard.writeText(absolute(r.data.checkoutUrl)).catch(() => {});
         toast.success("International payment request raised", {
-          description: `${r.data.reference} — checkout link copied to the clipboard.`,
+          description: `${r.data.reference} — ${deliveryLine(r.data.delivery)}`,
         });
       } else {
         toast.success("International payment request raised", { description: r.data.reference });

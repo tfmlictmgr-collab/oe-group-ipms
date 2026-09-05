@@ -570,6 +570,32 @@ console.log("\n\x1b[1m§G The tenancy schedule\x1b[0m");
   }
 }
 
+// -- G2. A payment request is delivered, and says so honestly --------------
+console.log("\n\x1b[1m§G2 The payment request reaches the payer\x1b[0m");
+{
+  const { sendPaymentRequestNotice } = await import("../lib/payment-request-notice.ts");
+
+  // The branch that needs no credentials and must never lie: nobody to send to.
+  //
+  // ⚠️ This is the property the whole feature turns on. Before it, the link went
+  // to the RAISER's clipboard and the screen said "Payment request raised" —
+  // which reads as "the payer has been told". Claiming a send that did not
+  // happen is worse than the old silence, because nobody goes looking.
+  const nothing = await sendPaymentRequestNotice({
+    orgId: oea.id, intentId: null, reference: "OE-VERIFY-NOSEND",
+    purpose: "service_charge", amount: 1000, currency: "NGN",
+    propertyOrUnit: null, period: null, dueDate: null,
+    payerUserId: null, payerEmail: null, payerName: null,
+    payLink: "https://example.invalid/pay/OE-VERIFY-NOSEND",
+  });
+  nothing.emailed === null && nothing.nudged === null && nothing.belled === false
+    ? ok("with no contact details, nothing is claimed as sent")
+    : bad(`a notice with no recipient reported a delivery: ${JSON.stringify(nothing)}`);
+  nothing.problem
+    ? ok(`and it says why: "${nothing.problem}"`)
+    : bad("a notice that sent nothing gave no reason, so the screen cannot explain it");
+}
+
 // ── H. Nothing is callable by anon ─────────────────────────────────────────
 console.log("\n\x1b[1m§H The anon client, refused\x1b[0m");
 

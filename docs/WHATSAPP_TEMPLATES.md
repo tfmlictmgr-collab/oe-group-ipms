@@ -156,7 +156,52 @@ all three matter:
 
 ---
 
-## 5. What stays free text, and why
+## 5. `payment_request` — a payment has been requested
+
+Sent by `lib/payment-request-notice.ts`, from
+`app/dashboard/ledger/collections/actions.ts`.
+
+- **Name:** `payment_request`
+- **Category:** UTILITY · **Language:** `en`
+
+**Body**
+```
+Hello {{1}}, a {{2}} payment for {{3}} is now due. The amount is {{4}} and the payment reference is {{5}}. We have emailed you a secure link to pay. Please do not share it with anyone.
+```
+
+| Var | Value | Source |
+|---|---|---|
+| `{{1}}` | payer's first name | `users.full_name`, first word |
+| `{{2}}` | what it is for | "service charge", "rent", "deposit", "payment" |
+| `{{3}}` | property / unit | `service_charges.property_or_unit`, flattened |
+| `{{4}}` | amount | `formatMoney(amount, currency)` |
+| `{{5}}` | reference | `payment_intents.gateway_reference` |
+
+**⚠️ The link is deliberately NOT in the body.** Two reasons, and the second
+is the one that matters:
+
+1. Meta prefers a dynamic **URL button** to a raw link in body text, and a
+   template carrying an unexpected URL is a common rejection.
+2. A WhatsApp message containing a payment link is the exact shape of the
+   scam Nigerian tenants are most often targeted with. Telling them the link is
+   in their **email** — a channel they already associate with us, and which this
+   code sends first and always — makes the WhatsApp message a nudge that cannot
+   itself be spoofed into a payment page. "Please do not share it" is in the
+   body for the same reason.
+
+**When submitting:** add a URL button (`Pay now`, dynamic suffix) if the
+organisation would rather the link be tappable. `sendWhatsAppTemplate` does not
+pass button parameters today, so that is a code change as well as a submission
+change — not a copy tweak.
+
+**Until it is approved:** the cascade attempts WhatsApp, fails, and falls
+through to SMS, which carries the link as plain text. Email is sent regardless
+and independently. So the payer is reached either way; approval only upgrades
+which channel gets there first.
+
+---
+
+## 6. What stays free text, and why
 
 Do **not** convert these. `sendWhatsApp` / `sendReply` remain correct for them:
 
@@ -171,7 +216,7 @@ The rule to hold onto: **template when we speak first, text when we answer.**
 
 ---
 
-## 6. Submission checklist
+## 7. Submission checklist
 
 - [ ] Submit all four to **TFML**'s 360dialog Hub · category UTILITY, language `en`
 - [ ] Submit all four to **OEA**'s 360dialog Hub · same

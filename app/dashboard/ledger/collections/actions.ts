@@ -7,6 +7,9 @@ import { getGateway, getGatewayForOrg, gatewayConfigured, newPaymentReference } 
 import { unusableForCheckout } from "@/lib/email-address";
 import { SUPPORTED_CURRENCIES } from "@/lib/currency";
 import { ok, fail, failFromDb, type ActionResult } from "@/lib/action-result";
+import {
+  sendPaymentRequestNotice, type NoticeOutcome,
+} from "@/lib/payment-request-notice";
 
 // Raising a request for payment. Staff-only by RLS; this layer additionally
 // fixes the AMOUNT server-side from our own record before the gateway is ever
@@ -36,6 +39,11 @@ export type RaiseResult = ActionResult<{
   reference: string;
   checkoutUrl: string | null;
   simulated: boolean;
+  /**
+   * What was actually sent to the payer. Absent on the "someone already raised
+   * this" early return, where nothing new is sent because nothing new happened.
+   */
+  delivery?: NoticeOutcome;
 }>;
 
 export async function raisePaymentRequest(input: RaiseInput): Promise<RaiseResult> {
@@ -81,11 +89,17 @@ export async function raisePaymentRequest(input: RaiseInput): Promise<RaiseResul
   let payer = input.payerUserId ?? null;
   let propertyId: string | null = null;
   let unitId: string | null = null;
+  let chargeLabel: string | null = null;
+  let chargePeriod: string | null = null;
+  let chargeDue: string | null = null;
 
   if (input.serviceChargeId) {
     const { data: sc } = await supabase
       .from("service_charges")
-      .select("id, amount, status, billed_to_user_id, unit_id, org_id")
+      // `property_or_unit`, `billing_period` and `due_date` are read so the
+      // notice can say WHAT is being asked for. A demand that names only an
+      // amount is the kind people ignore, or pay twice.
+      .select("id, amount, status, billed_to_user_id, unit_id, org_id, property_or_unit, billing_period, due_date")
       .eq("id", input.serviceChargeId)
       .single();
     if (!sc) return fail("That service charge could not be found.");
@@ -94,6 +108,9 @@ export async function raisePaymentRequest(input: RaiseInput): Promise<RaiseResul
     amount = Number(sc.amount);
     payer = payer ?? sc.billed_to_user_id;
     unitId = sc.unit_id;
+    chargeLabel = (sc.property_or_unit as string | null) ?? null;
+    chargePeriod = (sc.billing_period as string | null) ?? null;
+    chargeDue = (sc.due_date as string | null) ?? null;
 
     if (unitId) {
       const { data: unit } = await supabase
@@ -174,7 +191,7 @@ export async function raisePaymentRequest(input: RaiseInput): Promise<RaiseResul
     );
   }
 
-  const { error } = await supabase.from("payment_intents").insert({
+  const { data: created, error } = await supabase.from("payment_intents").insert({
     org_id: me.org_id,
     purpose: input.purpose,
     service_charge_id: input.serviceChargeId ?? null,
@@ -192,7 +209,11 @@ export async function raisePaymentRequest(input: RaiseInput): Promise<RaiseResul
     gateway_reference: reference,
     checkout_url: init.checkoutUrl ?? null,
     created_by: user.id,
-  });
+  })
+    // The id, so the notice and its delivery log can name the intent they
+    // concern rather than being filed against nothing.
+    .select("id")
+    .single();
   if (error) {
     // 0045 enforces one live intent per invoice. Losing that race means someone
     // else raised the request a moment ago — hand back theirs rather than
@@ -215,11 +236,50 @@ export async function raisePaymentRequest(input: RaiseInput): Promise<RaiseResul
     return failFromDb(error, "save this payment request");
   }
 
+  // ── Tell the payer ────────────────────────────────────────────────────────
+  //
+  // ⚠️ Nothing was sent before this. The link went to the RAISER's clipboard and
+  // reached the payer only if a person pasted it somewhere — so "does the
+  // request get delivered?" had the answer "no, somebody delivers it".
+  //
+  // Best-effort and reported: the intent and the checkout link already exist,
+  // so a mail provider being down must not lose them. What actually happened
+  // comes back in `delivery` and the screen says so, rather than implying a
+  // send that did not occur.
+  let delivery: NoticeOutcome = {
+    emailed: null, nudged: null, belled: false, problem: null,
+  };
+  try {
+    delivery = await sendPaymentRequestNotice({
+      orgId: me.org_id,
+      intentId: created?.id ?? null,
+      reference,
+      purpose: input.purpose,
+      amount,
+      currency,
+      propertyOrUnit: chargeLabel,
+      period: chargePeriod,
+      dueDate: chargeDue,
+      payerUserId: payer,
+      payerEmail: receiptEmail || null,
+      payerName: null,
+      // The gateway's own hosted page where there is one; our simulated
+      // checkout otherwise. Absolute either way — a link that only resolves
+      // inside the dashboard is no use in an email.
+      payLink: init.checkoutUrl?.startsWith("http")
+        ? init.checkoutUrl
+        : `${origin}/pay/${encodeURIComponent(reference)}`,
+    });
+  } catch (e) {
+    delivery.problem = e instanceof Error ? e.message : "the notice could not be sent";
+  }
+
   revalidatePath("/dashboard/ledger/collections");
   return ok({
     reference,
     checkoutUrl: init.checkoutUrl ?? null,
     simulated: gateway.name === "simulated",
+    delivery,
   });
 }
 
