@@ -89,6 +89,45 @@ export default async function VendorDetailPage({
         .maybeSingle()
     : { data: null };
 
+  // ⚠️ What the vendor STATED on their own registration, read here so the
+  // person registering the payout account has it in front of them.
+  //
+  // 0164's rule is that finance "reads the number off the uploaded
+  // bank_evidence document" — and the product never showed either the stated
+  // details or the document on the screen carrying the form. So the one action
+  // that closes the gap required knowing, unprompted, that a different page
+  // held the source. Reading it is not a widening: `vendor_registrations` and
+  // `vendor_documents` are both selected through the CALLER's session, so RLS
+  // decides exactly as it does on the registrations queue.
+  const [statedRes, evidenceRes] = isFinanceOrAdmin
+    ? await Promise.all([
+        supabase
+          .from("vendor_registrations")
+          .select("bank_name, account_name, account_number_last4, status")
+          .eq("vendor_id", id)
+          .maybeSingle(),
+        supabase
+          .from("vendor_documents")
+          .select("storage_path, file_name")
+          .eq("vendor_id", id)
+          .eq("doc_type", "bank_evidence")
+          .is("superseded_at", null)
+          .order("uploaded_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ])
+    : [{ data: null }, { data: null }];
+  const stated = statedRes.data as {
+    bank_name: string | null;
+    account_name: string | null;
+    account_number_last4: string | null;
+    status: string | null;
+  } | null;
+  const evidence = evidenceRes.data as {
+    storage_path: string;
+    file_name: string | null;
+  } | null;
+
   const [legacyRes, jobRes] = await Promise.all([
     supabase
       .from("vendor_evaluations")
@@ -296,7 +335,9 @@ export default async function VendorDetailPage({
             <CardTitle className="text-base">Payout details</CardTitle>
             <CardDescription>
               A vendor cannot be remitted until a bank account has been verified
-              against their name.
+              against their name. What they stated on their registration is
+              evidence of who they are — it is not a payment instruction, and it
+              does not become one until it is registered here.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -305,6 +346,18 @@ export default async function VendorDetailPage({
               vendorName={vendor.name}
               existing={recipient ?? null}
               canEdit={session.profile?.role === "admin"}
+              stated={
+                stated
+                  ? {
+                      bankName: stated.bank_name,
+                      accountName: stated.account_name,
+                      last4: stated.account_number_last4,
+                      registrationStatus: stated.status,
+                      evidencePath: evidence?.storage_path ?? null,
+                      evidenceFileName: evidence?.file_name ?? null,
+                    }
+                  : null
+              }
             />
           </CardContent>
         </Card>

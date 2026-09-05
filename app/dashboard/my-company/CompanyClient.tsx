@@ -552,7 +552,24 @@ export default function CompanyClient({
             </div>
             <div className="grid gap-4 sm:grid-cols-3">
               <Field id="bankName" label="Bank" value={form.bankName} onChange={set} disabled={locked} />
-              <Field id="accountName" label="Account name" value={form.accountName} onChange={set} disabled={locked} />
+              <Field
+                id="accountName"
+                label="Account name"
+                value={form.accountName}
+                onChange={set}
+                disabled={locked}
+                placeholder="e.g. GreenLeaf Landscaping Ltd"
+                // ⚠️ Every registration on the platform that carried bank
+                // details had the ten-digit NUMBER in this field. The copy
+                // above already said "only the last four digits"; it was read
+                // as being about the box to its right. Said at the field
+                // itself, before the server refuses it (0262).
+                warn={
+                  /^[0-9][0-9 -]{5,}$/.test(form.accountName.trim())
+                    ? "That is an account number. This field is the NAME the bank holds the account in — the number goes on your bank letter below, and only its last four digits go in the next box."
+                    : null
+                }
+              />
               <Field id="accountNumberLast4" label="Last 4 digits" value={form.accountNumberLast4} onChange={set} disabled={locked} maxLength={4} />
             </div>
           </div>
@@ -1062,7 +1079,7 @@ export default function CompanyClient({
 }
 
 function Field({
-  id, label, value, onChange, disabled, maxLength,
+  id, label, value, onChange, disabled, maxLength, placeholder, warn,
 }: {
   id: string;
   label: string;
@@ -1070,6 +1087,9 @@ function Field({
   onChange: (k: never, v: string) => void;
   disabled?: boolean;
   maxLength?: number;
+  placeholder?: string;
+  /** Shown under the field. A warning, not a block — the save still refuses. */
+  warn?: string | null;
 }) {
   return (
     <div className="space-y-1.5">
@@ -1079,8 +1099,10 @@ function Field({
         value={value}
         disabled={disabled}
         maxLength={maxLength}
+        placeholder={placeholder}
         onChange={(e) => onChange(id as never, e.target.value)}
       />
+      {warn ? <p className="text-xs text-warning">{warn}</p> : null}
     </div>
   );
 }

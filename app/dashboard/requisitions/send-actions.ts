@@ -79,7 +79,17 @@ export async function sendRequisitionVendorLines(
     { p_requisition_id: requisitionId, p_vendor_id: vendorId, p_reference: reference, p_executed_by: g.userId }
   );
   if (error) {
-    return fail(error.message.replace(/^.*?:\s*/, ""), "Nothing has been sent.");
+    // The same refusal the vendor-invoice path raises, from the requisition
+    // side — a contractor on a requisition line is no more payable than one on
+    // an invoice until an administrator has registered where they get paid.
+    const raw = error.message.replace(/^.*?:\s*/, "");
+    const { payoutRefusal } = await import("@/lib/payout-account");
+    const { data: v } = await supabaseAdmin
+      .from("vendors").select("name").eq("id", vendorId).maybeSingle();
+    return (
+      payoutRefusal(raw, v?.name ?? "That contractor") ??
+      fail(raw, "Nothing has been sent.")
+    );
   }
 
   const { sendCreatedRemittance } = await import("@/lib/remittance-run");

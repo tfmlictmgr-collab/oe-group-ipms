@@ -106,6 +106,19 @@ export default async function PaymentDetailPage({
   // (0151). Shown on the payment itself as well as in the queue: someone
   // looking at an invoice that has stalled should see WHICH pair of hands it is
   // waiting on without being told to go and find another screen.
+  // ⚠️ Asked BEFORE the send button, not at COMMIT time. The B4 gate rendered
+  // four green stages and then refused on a fifth condition it had never
+  // mentioned — so "no verified bank recipient is on file for this vendor"
+  // arrived as a surprise, to the payment officer, who cannot register one.
+  // Same reasoning as `payable_funding_state` (0247): a person's first warning
+  // that money cannot move should not be an exception.
+  const { data: payoutAccount } = await supabase
+    .from("payout_recipients")
+    .select("id, display_name, bank_name, account_number_last4")
+    .eq("vendor_id", p.vendor_id)
+    .eq("active", true)
+    .maybeSingle();
+
   const chain = await getChainState(supabase, "vendor_payment", p.id);
   const chainActor = {
     id: session.profile?.id ?? "",
@@ -260,6 +273,31 @@ export default async function PaymentDetailPage({
               );
             })}
           </ol>
+
+          {!payoutAccount && !["remitted", "rejected"].includes(p.status) && (
+            <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-3 text-sm">
+              <AlertTriangle className="mt-0.5 size-4 flex-shrink-0 text-warning" />
+              <div className="space-y-1">
+                <p className="font-medium">
+                  {vendor?.name ?? "This vendor"} has no verified payout account,
+                  so this cannot be sent yet.
+                </p>
+                <p className="text-muted-foreground">
+                  The bank details on their registration are evidence of who they
+                  are, not payment instructions — nothing turns one into the
+                  other. An administrator registers the account on{" "}
+                  <Link
+                    href={`/dashboard/vendors/${p.vendor_id}`}
+                    className="font-medium text-brand underline-offset-2 hover:underline"
+                  >
+                    their vendor page
+                  </Link>
+                  , where their bank letter is shown, and the bank confirms the
+                  name before it is saved. Approval is unaffected.
+                </p>
+              </div>
+            </div>
+          )}
 
           {canAct && (
             <>

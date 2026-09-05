@@ -677,6 +677,74 @@ console.log("\nG. A vendor can actually attach a document (the demo failure)");
 }
 
 // ---------------------------------------------------------------------------
+console.log("\nH. The account number never lands in the account NAME (0262)");
+// ---------------------------------------------------------------------------
+{
+  // ⚠️ Every registration on the platform carrying bank details had the full
+  // ten-digit account number sitting in `account_name`, with the last four
+  // correctly derived from it — so the form was being read as "Account" by
+  // every person who filled it, and the product was storing exactly the value
+  // 0040b and 0164 both say it never holds.
+  //
+  // Asserted through the RPC as the VENDOR, not against the table as the
+  // service role: 0216's own lesson is that a suite writing through the
+  // service role proves the policy and never once sits in the vendor's seat.
+  // 📌 The first draft of this section passed H1 and H3 for a reason unrelated
+  // to intent — `vendorA`'s pack is APPROVED by the time section E has run, so
+  // every save was refused with "already approved" and the suite read the
+  // refusal it was hoping for. Exactly `verify-vendor-self-service` D6's own
+  // recorded failure, one section further down. The pack is put back to draft
+  // first, so what is being tested is the guard and not the edit lock.
+  await svc.from("vendor_registrations")
+    .update({ status: "draft" }).eq("vendor_id", vendorA);
+
+  const { error: numeric } = await ownerC.rpc("save_vendor_registration", {
+    p_vendor_id: vendorA,
+    p_legal_name: `Probe VSS Alpha ${S} Ltd`,
+    p_bank_name: "Probe Bank",
+    p_account_name: "3110958803",
+    p_account_number_last4: "8803",
+  });
+  refused("H1 an account NAME that is an account number is refused", numeric);
+  /not an account name/i.test(numeric?.message ?? "")
+    ? ok("H2 and the refusal says which box the number belongs in")
+    : bad(`H2 unhelpful refusal: ${numeric?.message ?? "none"}`);
+
+  // The neighbouring guard still holds, and a real name still saves — a
+  // pattern tight enough to catch the number must not catch "3 Sixty Ltd".
+  const { error: longNumber } = await ownerC.rpc("save_vendor_registration", {
+    p_vendor_id: vendorA,
+    p_legal_name: `Probe VSS Alpha ${S} Ltd`,
+    p_account_name: `Probe VSS Alpha ${S} Ltd`,
+    p_account_number_last4: "3110958803",
+  });
+  refused("H3 a full number in the last-four box is still refused", longNumber);
+
+  const { error: fine } = await ownerC.rpc("save_vendor_registration", {
+    p_vendor_id: vendorA,
+    p_legal_name: `Probe VSS Alpha ${S} Ltd`, p_cac_number: `RC-${S}`, p_tin: `TIN-${S}`,
+    p_address: "1 Probe Close, Ikeja", p_phone: "+2348000000000",
+    p_email: `probevss.${S}@example.com`,
+    p_bank_name: "Probe Bank", p_account_name: "3 Sixty Facilities Ltd",
+    p_account_number_last4: "1234",
+    p_compliance_statement: "Probe declaration recorded verbatim for the suite.",
+    p_declare_compliance: true,
+  });
+  !fine
+    ? ok("H4 a genuine name that merely starts with a digit still saves")
+    : bad(`H4 the guard is too wide — it refused "3 Sixty Facilities Ltd": ${fine.message}`);
+
+  // And nothing anywhere is still holding one.
+  const { data: leftovers } = await svc
+    .from("vendor_registrations")
+    .select("id")
+    .filter("account_name", "match", "^[0-9][0-9 -]{5,}$");
+  (leftovers?.length ?? 0) === 0
+    ? ok("H5 no registration anywhere still carries a number as its account name")
+    : bad(`H5 ${leftovers.length} registration(s) still hold a full account number in a text column`);
+}
+
+// ---------------------------------------------------------------------------
 // Teardown
 // ---------------------------------------------------------------------------
 if (madeObjects.length > 0) {

@@ -23,6 +23,8 @@ export type RecipientInput = {
   accountNumber: string;
   bankCode: string;
   accountName: string;
+  /** The bank's display name, from the picker — see the note on `bank_name`. */
+  bankName?: string;
 };
 
 export type SaveRecipientResult = ActionResult<{
@@ -112,12 +114,26 @@ export async function saveVendorPayoutRecipient(
     .eq("vendor_id", vendor.id)
     .eq("active", true);
 
+  // ⚠️ `bank_name` was in the table from 0040b, selected by the vendor page,
+  // rendered by the form — and written by nothing. So a correctly registered
+  // account still displayed as the placeholder "Bank on file", on the card
+  // whose whole job is letting a person recognise the account before money
+  // moves. The name comes from the gateway's own bank list, matched on the
+  // code that was actually verified, so it cannot name a different bank from
+  // the one the recipient was created against.
+  let bankName = input.bankName?.trim() || null;
+  if (!bankName) {
+    const list = await listBanks();
+    if (list.ok) bankName = list.data.find((b) => b.code === input.bankCode.trim())?.name ?? null;
+  }
+
   const { error } = await supabaseAdmin.from("payout_recipients").insert({
     org_id: vendor.org_id,
     party: "vendor",
     vendor_id: vendor.id,
     display_name: resolvedName,
     account_name: resolvedName,
+    bank_name: bankName,
     account_number_last4: last4,
     gateway: gateway.name === "simulated" ? "paystack" : gateway.name,
     recipient_code: created.recipientCode,
@@ -184,4 +200,24 @@ export async function listBanks(): Promise<ActionResult<{ code: string; name: st
   } catch {
     return fail("The list of banks could not be loaded. Try again shortly.");
   }
+}
+
+
+/**
+ * A short-lived link to a vendor's own KYC document — used here for the bank
+ * letter, which is where 0164 says the full account number is read from.
+ *
+ * The storage policy already gates the bucket to the caller's org; the signed
+ * URL is a convenience for the browser, not the security boundary. Kept narrow
+ * on purpose: it signs a path, it does not list them.
+ */
+export async function getVendorDocumentUrl(
+  storagePath: string
+): Promise<ActionResult<{ url: string }>> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.storage
+    .from("vendor-documents")
+    .createSignedUrl(storagePath, 300);
+  if (error || !data) return fail("Could not open that document.");
+  return ok({ url: data.signedUrl });
 }

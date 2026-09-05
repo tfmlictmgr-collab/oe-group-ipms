@@ -13,12 +13,16 @@ async function loadPayment(supabase: Awaited<ReturnType<typeof createClient>>, i
   const { data, error } = await supabase
     .from("payments")
     .select(
-      "id, org_id, vendor_id, amount, status, service_verified_at, performance_validated, approved_at"
+      "id, org_id, vendor_id, amount, status, service_verified_at, performance_validated, approved_at, vendors(name)"
     )
     .eq("id", id)
     .single();
   if (error || !data) return null;
-  return data;
+  // Named so a refusal can say WHO cannot be paid rather than "this vendor" —
+  // the payment officer works a queue, and a pronoun in a toast is not an
+  // instruction to anybody.
+  const vendor = data.vendors as unknown as { name: string } | null;
+  return { ...data, vendorName: vendor?.name ?? null };
 }
 
 // Stage 1 — Service verification (FM/admin, enforced by RLS update policy).
@@ -325,9 +329,16 @@ export async function executeRemittance(paymentId: string): Promise<RemittanceRe
     { p_payment_id: paymentId, p_reference: reference, p_executed_by: user.id }
   );
   if (createErr) {
-    return fail(
-      createErr.message.replace(/^.*?:\s*/, ""),
-      "Nothing has been sent. Resolve the reason above and try again."
+    const raw = createErr.message.replace(/^.*?:\s*/, "");
+    // ⚠️ One refusal out of this function is not about this payment at all —
+    // it is about the vendor never having been given a payout account. "Resolve
+    // the reason above" pointed at a sentence naming no reason and no screen,
+    // to the one role that cannot register one either. Everything else this
+    // function raises is already written for a person and is shown as-is.
+    const { payoutRefusal } = await import("@/lib/payout-account");
+    return (
+      payoutRefusal(raw, payment.vendorName ?? "This vendor") ??
+      fail(raw, "Nothing has been sent. Resolve the reason above and try again.")
     );
   }
 

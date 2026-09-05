@@ -3,13 +3,14 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Landmark, ShieldCheck, TriangleAlert, CheckCircle2 } from "lucide-react";
+import { Landmark, ShieldCheck, TriangleAlert, CheckCircle2, FileText, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { runAction, describeError } from "@/lib/run-action";
-import { saveVendorPayoutRecipient, listBanks } from "./payout-actions";
+import { looksLikeAnAccountNumber } from "@/lib/payout-account";
+import { saveVendorPayoutRecipient, listBanks, getVendorDocumentUrl } from "./payout-actions";
 
 export type ExistingRecipient = {
   display_name: string;
@@ -18,22 +19,42 @@ export type ExistingRecipient = {
   verified_at: string | null;
 } | null;
 
+/** What the vendor put on their own registration. Evidence, never instruction. */
+export type StatedDetails = {
+  bankName: string | null;
+  accountName: string | null;
+  last4: string | null;
+  registrationStatus: string | null;
+  evidencePath: string | null;
+  evidenceFileName: string | null;
+} | null;
+
 export default function PayoutRecipientForm({
   vendorId,
   vendorName,
   existing,
   canEdit,
+  stated,
 }: {
   vendorId: string;
   vendorName: string;
   existing: ExistingRecipient;
   canEdit: boolean;
+  stated?: StatedDetails;
 }) {
   const router = useRouter();
   const [banks, setBanks] = React.useState<{ code: string; name: string }[]>([]);
   const [bankCode, setBankCode] = React.useState("");
   const [accountNumber, setAccountNumber] = React.useState("");
-  const [accountName, setAccountName] = React.useState(vendorName);
+  // Prefilled from what the vendor stated — but only when that is a NAME. A
+  // registration whose "account name" is a run of digits is an account number
+  // in the wrong box (0262), and carrying it into this field would send it
+  // straight to the bank as the name to match against.
+  const [accountName, setAccountName] = React.useState(
+    stated?.accountName && !looksLikeAnAccountNumber(stated.accountName)
+      ? stated.accountName
+      : vendorName
+  );
   const [busy, setBusy] = React.useState(false);
   const [open, setOpen] = React.useState(!existing);
 
@@ -55,7 +76,12 @@ export default function PayoutRecipientForm({
     setBusy(true);
     try {
       const r = await runAction(
-        saveVendorPayoutRecipient({ vendorId, accountNumber, bankCode, accountName })
+        saveVendorPayoutRecipient({
+          vendorId, accountNumber, bankCode, accountName,
+          // The label the person actually chose, so the card can name the bank
+          // rather than saying "Bank on file".
+          bankName: banks.find((b) => b.code === bankCode)?.name,
+        })
       );
       if (r.nameMatches) {
         toast.success("Bank details verified", {
@@ -106,6 +132,73 @@ export default function PayoutRecipientForm({
             <ShieldCheck className="mt-0.5 size-3 flex-shrink-0" />
             The account number itself is held by the payment gateway, not by this
             system. Only the last four digits are stored here.
+          </p>
+        </div>
+      )}
+
+      {/* ── What the vendor stated ─────────────────────────────────────────
+          Shown whether or not an account is registered, and shown to finance
+          as well as to the administrator, because the question it answers —
+          "there IS a bank account on this vendor, why can't I pay them?" — is
+          asked by whoever is looking at the refusal.
+
+          Never prefilled into the gateway call: this is what somebody typed
+          about themselves. The number is read off the letter below and the
+          bank confirms the name. */}
+      {stated && (stated.bankName || stated.accountName || stated.last4) && (
+        <div className="rounded-md border border-dashed border-border p-3 text-sm">
+          <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+            <Info className="size-3.5" />
+            Stated by the vendor on their registration
+            {stated.registrationStatus ? ` · ${stated.registrationStatus}` : ""}
+          </p>
+          <dl className="mt-2 grid gap-x-6 gap-y-1 sm:grid-cols-2">
+            <div className="flex justify-between gap-3 sm:block">
+              <dt className="text-xs text-muted-foreground">Bank</dt>
+              <dd>{stated.bankName ?? "—"}</dd>
+            </div>
+            <div className="flex justify-between gap-3 sm:block">
+              <dt className="text-xs text-muted-foreground">Account name</dt>
+              <dd>
+                {stated.accountName ?? "—"}
+                {looksLikeAnAccountNumber(stated.accountName) && (
+                  <span className="ml-2 text-xs text-warning">
+                    — that is a number, not a name; confirm it against the letter
+                  </span>
+                )}
+              </dd>
+            </div>
+            <div className="flex justify-between gap-3 sm:block">
+              <dt className="text-xs text-muted-foreground">Last 4 digits</dt>
+              <dd>{stated.last4 ? `····${stated.last4}` : "—"}</dd>
+            </div>
+          </dl>
+          {stated.evidencePath ? (
+            <button
+              type="button"
+              className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-brand underline-offset-2 hover:underline"
+              onClick={async () => {
+                try {
+                  const r = await runAction(getVendorDocumentUrl(stated.evidencePath!));
+                  window.open(r.url, "_blank", "noopener");
+                } catch (e) {
+                  toast.error("Could not open that document", { description: describeError(e) });
+                }
+              }}
+            >
+              <FileText className="size-3.5" />
+              Open their bank letter{stated.evidenceFileName ? ` — ${stated.evidenceFileName}` : ""}
+            </button>
+          ) : (
+            <p className="mt-3 text-xs text-muted-foreground">
+              No bank letter is attached, so there is no document to read the full
+              account number from.
+            </p>
+          )}
+          <p className="mt-2 text-xs text-muted-foreground">
+            These are evidence of who this company is. They are not payment
+            instructions and nothing turns them into one — the account below is
+            registered separately and confirmed with the bank first.
           </p>
         </div>
       )}

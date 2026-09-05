@@ -103,7 +103,7 @@ export async function sendCreatedRemittance(opts: {
       // details" without saying where is the end of the road for them —
       // whichever screen they are on, the form is not on it. It lives on the
       // contractor's own page.
-      "Open Vendors → that contractor → Payout account and register their bank details first. Nothing has been sent."
+      "An administrator opens Vendors → that contractor → Payout details and registers the account from their bank letter. Nothing has been sent."
     );
   }
 
