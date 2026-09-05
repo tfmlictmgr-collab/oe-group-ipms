@@ -99,6 +99,27 @@ export async function GET(req: Request) {
     return new NextResponse("Unknown record type.", { status: 400 });
   }
 
+  // ⚠️ The STAFF roster is the administrator's alone (board, 5 Sept 2026).
+  //
+  // `records.export` is one capability over five rosters, so granting it to the
+  // property and regional managers handed them this one too — every colleague's
+  // name, email, role and APPROVAL TIER as a file, which is a map of who can
+  // clear what amount. Tenants, vendors and landlords are the counterparties a
+  // property manager already works with row by row; their own colleagues are
+  // not, and the board drew the line there.
+  //
+  // A role check rather than a second capability, deliberately: a new
+  // capability would seed OFF for every administrator and quietly remove
+  // something they have always had, until somebody noticed. The operator
+  // reaches this through `isOperator` above and never through this branch.
+  if (type === "staff" && !isOperator && profile.role !== "admin") {
+    return new NextResponse(
+      "The staff roster is an administrator's to download. The tenant, vendor and " +
+        "landlord rosters are available to you.",
+      { status: 403 }
+    );
+  }
+
   // Client-funds collections, for the audience actually being looked at —
   // tenants, or owners/vendors/other. Same rule as the schedule: a download
   // button under a filtered list must download the filtered list.

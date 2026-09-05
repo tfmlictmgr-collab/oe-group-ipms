@@ -3,8 +3,8 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { releaseMemberEmail } from "../actions";
-import { UserMinus, UserCheck, Search, MailX } from "lucide-react";
+import { releaseMemberEmail, sendMemberPasswordReset } from "../actions";
+import { UserMinus, UserCheck, Search, MailX, KeyRound } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { Badge } from "@/components/ui/badge";
@@ -114,6 +114,41 @@ export default function MemberList({
       router.refresh();
     } catch (e) {
       toast.error("Could not release the address", {
+        description: e instanceof Error ? e.message : "Unexpected error.",
+      });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  /**
+   * Send a member a reset link (0258).
+   *
+   * ⚠️ It sends a LINK to them; it does not set a password and show it here.
+   * An administrator who could choose somebody's password could sign in as
+   * them, and every approval that person has given would stop being evidence
+   * that they acted. The confirm text says so, because an administrator asked
+   * to "reset a password" reasonably expects to be handed one.
+   */
+  async function resetPassword(id: string, name: string, email: string) {
+    const confirmed = window.confirm(
+      `Send ${name} a password reset link?
+
+` +
+        `It goes to ${email}. They choose the new password themselves — you will ` +
+        `not see it, and their current password keeps working until they use the link.`
+    );
+    if (!confirmed) return;
+
+    setBusy(id);
+    try {
+      const res = await sendMemberPasswordReset(id);
+      if (!res.ok) throw new Error(res.message);
+      toast.success(`Reset link sent to ${res.data.email}`, {
+        description: "They set the new password themselves; nobody here can see it.",
+      });
+    } catch (e) {
+      toast.error("Could not send the reset link", {
         description: e instanceof Error ? e.message : "Unexpected error.",
       });
     } finally {
@@ -242,6 +277,21 @@ export default function MemberList({
                       </Badge>
                     )
                   )}
+                  {/* A live account only: a reset link to a closed one would
+                      let it back in, which the database also refuses. */}
+                  {isAdmin && !inactive && !m.email_released_at && m.id !== currentUserId && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={busy === m.id}
+                      onClick={() => resetPassword(m.id, name, m.email ?? "their address")}
+                      title="Email them a link to set a new password"
+                    >
+                      <KeyRound />
+                      Reset password
+                    </Button>
+                  )}
+
                   {/* Never offer an admin the button that would lock them out. */}
                   {isAdmin && m.id !== currentUserId && (
                     <Button
@@ -278,9 +328,18 @@ export default function MemberList({
         </ul>
       )}
 
+      {/* ⚠️ Stating the whole path, not just the prohibition.
+          The old note said only "never deleted", which reads as a missing
+          feature — an administrator wanting somebody gone had no way of knowing
+          the product can do exactly that, in two deliberate steps. It can:
+          Deactivate closes the account, then Free up email bans the login and
+          releases the address. What survives is the RECORD, not the access. */}
       <p className="text-xs text-muted-foreground">
-        Members are deactivated, never deleted — anyone who has acted in the
-        system is referenced by the audit trail, which must stay intact.
+        To remove somebody completely: <strong>Deactivate</strong> closes the
+        account, then <strong>Free up email</strong> bans the sign-in and frees
+        their address to be invited again. Their name stays on what they did —
+        66 records reference a person, from approvals to the audit trail, and a
+        decision nobody can be traced to is not a decision.
       </p>
     </div>
   );

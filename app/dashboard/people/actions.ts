@@ -12,6 +12,7 @@ import {
 } from "@/lib/invitation";
 import { roleLabel, INVITABLE_ROLES, ROLE_RANK, type InvitableRole, FM_PM } from "@/lib/roles";
 import { ok, fail, failFromDb, type ActionResult } from "@/lib/action-result";
+import { sendEmail } from "@/lib/email";
 
 // Enrolment writes go through the caller's own session so RLS decides what is
 // permitted. The one exception is acceptance itself (a SECURITY DEFINER function
@@ -223,6 +224,95 @@ export async function releaseMemberEmail(
 
   revalidatePath("/dashboard/people/members");
   return ok({ formerEmail });
+}
+
+/**
+ * Send a member a password-reset link (0258).
+ *
+ * ⚠️ It does NOT set a password and hand it to the administrator, and the
+ * distinction is the whole design. An administrator who can choose another
+ * person's password can sign in as them — and every approval that person has
+ * ever given stops being evidence that they, specifically, acted. The payment
+ * chain's value rests on `payment_approvals.actor_id` naming a human who alone
+ * could have done it. A reset link keeps that true: the member sets their own
+ * secret, and the administrator never learns it.
+ *
+ * Shaped like `releaseMemberEmail` above and for the same reason — authorise
+ * and audit in SQL where no write path can miss it, then do the auth-provider
+ * half here, because GoTrue's tables are not ours to write.
+ *
+ * The link is emailed through Resend, the org's own configured sender, rather
+ * than returned to the caller. Returning it would put a working credential on
+ * an administrator's screen, which is the thing this avoids.
+ */
+export async function sendMemberPasswordReset(
+  userId: string
+): Promise<ActionResult<{ email: string }>> {
+  const supabase = await createClient();
+
+  // Step 1. Every authorisation check lives in the function: an ACTIVE admin,
+  // same org, not themselves, and the target neither deactivated nor released.
+  const { data: email, error } = await supabase.rpc("authorise_member_password_reset", {
+    p_user_id: userId,
+  });
+  if (error) return fail(error.message);
+  const address = String(email);
+
+  // Step 2. The link itself. `generateLink` mints it without sending anything,
+  // so the message goes out through the org's own sender with its own branding
+  // rather than through the auth provider's default mailer.
+  const h = await headers();
+  const origin =
+    process.env.NEXT_PUBLIC_SITE_URL ??
+    `${h.get("x-forwarded-proto") ?? "https"}://${h.get("host")}`;
+
+  const { data: link, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
+    type: "recovery",
+    email: address,
+    options: { redirectTo: `${origin}/reset-password/confirm` },
+  });
+  if (linkError || !link?.properties?.action_link) {
+    return fail(
+      `The reset link could not be created: ${linkError?.message ?? "no link returned"}`,
+      "Nothing has been sent. The member's password is unchanged."
+    );
+  }
+
+  const { data: target } = await supabase
+    .from("users").select("full_name, org_id").eq("id", userId).maybeSingle();
+
+  const sent = await sendEmail({
+    to: address,
+    orgId: (target?.org_id as string | null) ?? null,
+    category: "account",
+    entityType: "user",
+    entityId: userId,
+    subject: (ctx) => `${ctx.brandName} — set a new password`,
+    text: (ctx) =>
+      [
+        `Dear ${target?.full_name ?? "colleague"},`,
+        ``,
+        `An administrator at ${ctx.brandName} has asked us to help you set a new password.`,
+        ``,
+        `Open this link to choose one:`,
+        link.properties.action_link,
+        ``,
+        `If you did not expect this, you can ignore it — your current password still works until you use the link.`,
+        `Nobody at ${ctx.brandName} can see your password, including the administrator who sent this.`,
+        ``,
+        `${ctx.brandName}`,
+      ].join("\n"),
+  });
+
+  if (!sent.sent) {
+    return fail(
+      `The link was created but could not be emailed: ${sent.reason ?? "the sender refused it"}.`,
+      `Check that ${address} is a deliverable address under People.`
+    );
+  }
+
+  revalidatePath("/dashboard/people/members");
+  return ok({ email: address });
 }
 
 export async function revokeInvitation(invitationId: string): Promise<ActionResult> {

@@ -42,7 +42,9 @@ export default async function MembersPage() {
 
   return (
     <div className="space-y-6">
-      {(isOperator || canExport) && <RecordDownloads />}
+      {(isOperator || canExport) && (
+        <RecordDownloads isAdmin={isOperator || profile.role === "admin"} />
+      )}
 
       <Card>
         <CardHeader className="pb-3">

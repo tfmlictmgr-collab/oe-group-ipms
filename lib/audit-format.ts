@@ -24,6 +24,8 @@ export const ACTION_STYLES: Record<string, string> = {
   "ops_requisition.status_change": "bg-emerald-100 text-emerald-700 ring-emerald-200",
   "payment.resubmitted_after_return": "bg-amber-100 text-amber-700 ring-amber-200",
   "payment_chain.shape_changed": "bg-rose-100 text-rose-700 ring-rose-200",
+  "member.password_reset_requested": "bg-violet-100 text-violet-700 ring-violet-200",
+  "member.email_released": "bg-slate-100 text-slate-700 ring-slate-200",
 };
 
 export const ENTITY_FILTERS = [
@@ -82,6 +84,16 @@ export function summarizeChange(entry: AuditEntry): string {
 
   if (entry.action === "payment.resubmitted_after_return") {
     return after.note ? `resent — ${String(after.note).slice(0, 80)}` : "resent after correction";
+  }
+
+  if (entry.action === "member.password_reset_requested") {
+    // "requested", not "sent" — this row is written when an administrator is
+    // authorised to ask, which is the only part the database witnesses (0259).
+    return `reset link requested for ${after.full_name ?? after.email ?? "a member"}`;
+  }
+
+  if (entry.action === "member.email_released") {
+    return `${before.email ?? "an address"} released — the login is closed and the address is free again`;
   }
 
   if (entry.action === "payment_chain.shape_changed") {
