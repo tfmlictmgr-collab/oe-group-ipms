@@ -573,10 +573,45 @@ export const ROLE_GUIDES: Record<string, RoleGuide> = {
           },
         ],
       },
+      {
+        heading: "Service charges, tenancies and rent",
+        intro:
+          "On the buildings in your region. A role that supersedes the property " +
+          "manager over a wider area cannot be unable to administer the service " +
+          "charge and the tenancies on those same buildings — so it does.",
+        steps: [
+          {
+            title: "Service charge budgets",
+            body:
+              "Raise and edit the budget for any property in your region, and issue " +
+              "its invoices. A budget on a building outside your region is refused.",
+          },
+          {
+            title: "Tenancies and rent",
+            body:
+              "Record a tenancy, set its term and rent, and raise the demand. If a " +
+              "property has no free unit you can add one from the tenancy form.",
+          },
+          {
+            title: "The tenancy schedule",
+            body:
+              "Under \"Tenancy Schedule\" — every tenancy in your region with its " +
+              "landlord, unit, term, rent, service charge and fee. Group it by " +
+              "property, landlord or tenant, narrow it to one of them, and print or " +
+              "download exactly that.",
+          },
+        ],
+      },
       GETTING_HELP,
     ],
     cannot: [
-      "See financial information — budgets, ledgers and payments are not yours.",
+      // ⚠️ Corrected (decision 26, then 29). This previously read "See financial
+      // information — budgets, ledgers and payments are not yours", which stopped
+      // being true when the regional manager was given sc.manage and
+      // leases.write. A manual that contradicts the product teaches people the
+      // product is broken.
+      "See service charges across the organisation — only on the properties you hold.",
+      "Post to the ledger, change a bank account, or release a payment.",
       "See properties outside your region.",
       "Invite an administrator.",
     ],
@@ -724,12 +759,71 @@ export const ROLE_GUIDES: Record<string, RoleGuide> = {
  * which of the two the reader is — OEA calls one of them "Properties Manager",
  * and a guide that calls itself the wrong thing is a guide nobody trusts.
  */
-export function managerGuide(roleLabel: string): RoleGuide {
+/**
+ * ⚠️ `handlesMoney` is why this takes more than a label now.
+ *
+ * Decision 18 split the facilities manager and the property manager into two
+ * roles that "hold identical grants on the day of the split, by construction",
+ * and this guide was written to that: one body, two names. Decision 29 ended
+ * it — OEA's property manager now administers service charges and tenancies on
+ * their own buildings, and TFML's facilities manager deliberately does not.
+ *
+ * A shared guide would now be wrong for one of them whichever way it was
+ * written: it would either promise the FM a screen they cannot open, or hide
+ * from the PM the authority they were just given.
+ */
+export function managerGuide(roleLabel: string, handlesMoney = false): RoleGuide {
+  const moneySections = handlesMoney
+    ? [
+        {
+          heading: "Service charges, tenancies and rent",
+          intro:
+            "On the buildings you hold — not across the organisation. Everything " +
+            "below is bounded to your own properties by the system itself, so " +
+            "there is nothing you need to remember to check.",
+          steps: [
+            {
+              title: "Service charge budgets",
+              body:
+                "Raise and edit the budget for a property you manage, and issue the " +
+                "invoices from it. A budget on a building that is not yours is " +
+                "refused — that is the boundary working, not a fault.",
+            },
+            {
+              title: "Tenancies and rent",
+              body:
+                "Record a tenancy, set its term and rent, and raise the rent demand. " +
+                "If the property has no free unit, you can add one from the tenancy " +
+                "form itself rather than going elsewhere and coming back.",
+            },
+            {
+              title: "Asking a tenant to pay",
+              body:
+                "You can raise a payment request against an outstanding charge and " +
+                "see whether it has been paid. You cannot move money out — releasing " +
+                "funds is the payment officer's, and always someone other than the " +
+                "person who approved it.",
+            },
+            {
+              title: "The tenancy schedule",
+              body:
+                "Under \"Tenancy Schedule\". Every tenancy on your buildings with its " +
+                "landlord, unit, term, rent, service charge and management fee — the " +
+                "schedule that used to be kept in a spreadsheet. Group it by " +
+                "property, landlord or tenant, filter it to one of them, then print " +
+                "or download exactly what is on screen.",
+            },
+          ],
+        },
+      ]
+    : [];
+
   return {
     title: `Your ${roleLabel.toLowerCase()} guide`,
     audience: `For the ${roleLabel} — running the buildings you are responsible for.`,
     sections: [
       SIGNING_IN,
+      ...moneySections,
       {
         heading: "Your buildings",
         steps: [
@@ -800,6 +894,15 @@ export function managerGuide(roleLabel: string): RoleGuide {
       "Approve or release payments — you sign off the WORK, which is a different thing.",
       "See properties you are not attached to.",
       "Invite administrators.",
+      ...(handlesMoney
+        ? [
+            "See service charges across the organisation — only on your own buildings.",
+            "Post to the ledger, or change a bank account.",
+          ]
+        : [
+            "Raise a service-charge budget or record a tenancy — that is the property " +
+              "manager's side of the group.",
+          ]),
     ],
   };
 }
@@ -807,7 +910,9 @@ export function managerGuide(roleLabel: string): RoleGuide {
 /** The guide for a role, or null if that role has none written yet. */
 export function guideForRole(role: string, roleLabel: string): RoleGuide | null {
   if (role === "facility_manager" || role === "property_manager") {
-    return managerGuide(roleLabel);
+    // Decision 29: the property manager administers the money on their own
+    // buildings; the facilities manager does not.
+    return managerGuide(roleLabel, role === "property_manager");
   }
   return ROLE_GUIDES[role] ?? null;
 }

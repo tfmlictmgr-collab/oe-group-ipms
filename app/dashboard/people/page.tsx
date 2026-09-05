@@ -19,7 +19,15 @@ export default async function MembersPage() {
       .select("id, full_name, email, role, deactivated_at, approval_tier, former_email, email_released_at")
       .order("full_name"),
     // Operator's own edition never needs this — see RecordDownloads / 0223.
-    profile.role === "admin"
+    //
+    // ⚠️ Widened past `admin` (5 Sept 2026), to match the route. This screen
+    // and `/api/records/export` disagreed: the route now admits the accounting
+    // desks and the property/regional managers, and a page that hides the
+    // button from someone the route would serve is the same nav-versus-policy
+    // split decision 26 found on Service Charges. The CAPABILITY still decides
+    // — it is off for everyone until an operator turns it on.
+    ["admin", "finance_approver", "payment_approver", "executive",
+     "property_manager", "regional_manager"].includes(profile.role)
       ? supabase.rpc("has_permission", { p_capability: "records.export" })
       : Promise.resolve({ data: false }),
   ]);

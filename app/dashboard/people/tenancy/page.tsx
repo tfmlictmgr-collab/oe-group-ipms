@@ -31,11 +31,52 @@ const STATUS_VARIANT: Record<string, "brand" | "outline" | "success" | "destruct
 // verification script wrote — so opening applications meant someone with
 // database access doing it by hand. An operational switch that lives outside
 // the product is not a switch, it is a support ticket.
+/**
+ * Which applications this page is showing.
+ *
+ * ⚠️ "Open" was not a view before today — it was the only thing that existed.
+ * The query filtered to `submitted, under_review, info_requested` and nothing
+ * else, so the instant a reviewer approved or rejected an application it left
+ * the page, the badge count and the product, with no list anywhere that still
+ * held it. Reported as "tenancy applications should not disappear. Tenants
+ * approved should remain accessible by the approver."
+ *
+ * A decided application is still the record of a decision a person made and has
+ * to be able to answer for — decision 10's whole basis is that the reviewer's
+ * own recorded reason is contestable, which requires it to be readable.
+ */
+const VIEWS = {
+  open: {
+    label: "Open",
+    statuses: ["submitted", "under_review", "info_requested"],
+    blurb: "Waiting on a reviewer or on the applicant.",
+  },
+  approved: {
+    label: "Approved",
+    statuses: ["approved"],
+    blurb: "Approved applications, kept for the tenancy plus six years (decision 3).",
+  },
+  rejected: {
+    label: "Rejected",
+    statuses: ["rejected"],
+    blurb: "Refused applications. Purged 90 days after the decision (decision 3).",
+  },
+  all: {
+    label: "All",
+    statuses: ["submitted", "under_review", "info_requested", "approved", "rejected"],
+    blurb: "Every application this organisation has received.",
+  },
+} as const;
+
+type ViewKey = keyof typeof VIEWS;
+
 export default async function TenancyApplicationsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ sort?: string }>;
+  searchParams: Promise<{ sort?: string; view?: string }>;
 }) {
+  const rawView = (await searchParams).view;
+  const view: ViewKey = rawView && rawView in VIEWS ? (rawView as ViewKey) : "open";
   // Newest first by default. "Oldest" stays reachable because a review queue is
   // legitimately worked FIFO — the application waiting longest is the one an
   // applicant is most likely to be chasing.
@@ -59,7 +100,7 @@ export default async function TenancyApplicationsPage({
       .select(
         "id, type, status, applicant_name, property_id, recommendation, approvals_count, approvals_needed, submitted_at, created_at"
       )
-      .in("status", ["submitted", "under_review", "info_requested"])
+      .in("status", [...VIEWS[view].statuses])
       // ⚠️ `nullsFirst` follows the direction rather than being pinned. A
       // submitted_at of NULL is a draft that has not been sent, and it belongs
       // at the END of a newest-first list, not stranded at the top of it.
@@ -159,9 +200,27 @@ export default async function TenancyApplicationsPage({
                 {applications.length > 0 && <Badge variant="brand">{applications.length}</Badge>}
               </CardTitle>
               <CardDescription>
-                {sortNewest ? "Newest first" : "Oldest first"}. Each one is read by
-                a person, never scored or ranked.
+                {VIEWS[view].blurb} {sortNewest ? "Newest first" : "Oldest first"}.
+                Each one is read by a person, never scored or ranked.
               </CardDescription>
+              {/* The views. A decided application stays reachable here rather
+                  than leaving the product the moment it is decided. */}
+              <div className="mt-2 flex flex-wrap gap-1 text-xs">
+                {(Object.keys(VIEWS) as ViewKey[]).map((k) => (
+                  <Link
+                    key={k}
+                    href={`/dashboard/people/tenancy?view=${k}${sortNewest ? "" : "&sort=oldest"}`}
+                    aria-current={k === view ? "true" : undefined}
+                    className={
+                      k === view
+                        ? "rounded-full border border-transparent bg-[var(--brand)] px-2.5 py-1 font-medium text-[var(--brand-fg)]"
+                        : "rounded-full border border-border px-2.5 py-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                    }
+                  >
+                    {VIEWS[k].label}
+                  </Link>
+                ))}
+              </div>
             </div>
             {/* Links rather than a control with state: this page is server
                 rendered, so the order is decided by the query and survives a
@@ -171,7 +230,11 @@ export default async function TenancyApplicationsPage({
                 ([key, label]) => (
                   <Link
                     key={key}
-                    href={`/dashboard/people/tenancy?sort=${key}`}
+                    // Carries the view. Without it, changing the order threw the
+                    // reader back to Open from whichever list they were reading
+                    // — the same "a control that navigates somewhere else"
+                    // fault decision 25 recorded about the period picker.
+                    href={`/dashboard/people/tenancy?view=${view}&sort=${key}`}
                     aria-current={(key === "newest") === sortNewest ? "true" : undefined}
                     className={
                       (key === "newest") === sortNewest
@@ -190,8 +253,20 @@ export default async function TenancyApplicationsPage({
           {applications.length === 0 ? (
             <EmptyState
               icon={<Inbox />}
-              title="Nothing waiting"
-              description="Submitted applications appear here as they arrive."
+              title={
+                view === "open"
+                  ? "Nothing waiting"
+                  : view === "approved"
+                    ? "No approved applications yet"
+                    : view === "rejected"
+                      ? "No refused applications"
+                      : "No applications yet"
+              }
+              description={
+                view === "open"
+                  ? "Submitted applications appear here as they arrive. Decided ones move to Approved or Rejected — they are not deleted."
+                  : "Applications stay here once decided, so the reviewer can always find what they decided and why."
+              }
             />
           ) : (
             <ul className="divide-y divide-border">

@@ -1,18 +1,20 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
-import { ChevronDown, Search, Inbox, Banknote } from "lucide-react";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
+import { ChevronDown, Search, Inbox, Banknote, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import ChainTrail from "@/components/approvals/ChainTrail";
 import StageActions from "@/components/approvals/StageActions";
+import ResubmitPanel from "@/components/approvals/ResubmitPanel";
 import PayableDetail, { type PayableDetailData } from "@/components/approvals/PayableDetail";
 import { refMatches } from "@/lib/acknowledgement";
 import {
-  canActorAction, whyNotActionable, waitingOn,
+  canActorAction, whyNotActionable, waitingOn, formatNaira,
   type Actor, type ChainState, type PayableType, type StageOrder,
 } from "@/lib/approvals/chain";
 
@@ -28,6 +30,23 @@ export type QueueRow = {
   detail?: PayableDetailData;
   /** Everything a search should match, lower-cased and pre-joined server-side. */
   haystack: string;
+  /**
+   * What this payable needs against what its property's fund holds (0247), for
+   * the rows the payment officer could actually send today.
+   *
+   * ⚠️ Shown BEFORE the send, because the guarantee fires at COMMIT: the officer
+   * who hit "account 2000 would be overpaid by 21000.00" met a correct control
+   * at the only moment it had no way to explain itself. Absent for rows nobody
+   * can send yet — asking the question for a payable three approvals away costs
+   * a query per row and answers nothing.
+   */
+  funding?: {
+    propertyName: string | null;
+    required: number;
+    available: number;
+    shortfall: number;
+    sufficient: boolean;
+  } | null;
   /**
    * When this payable was raised, ISO, for ordering.
    *
@@ -61,6 +80,10 @@ export default function ApprovalsBoard({
   rows,
   actor,
   inChain,
+  sort,
+  from,
+  to,
+  truncated,
 }: {
   rows: QueueRow[];
   actor: Actor;
@@ -70,15 +93,38 @@ export default function ApprovalsBoard({
    * other people's payments queue up.
    */
   inChain: boolean;
+  /**
+   * ⚠️ Sort and the date range are SERVER state now, passed down rather than
+   * held here. They decide which rows are fetched, and a control that only
+   * reorders what the server already chose is the bug this replaces: "Oldest
+   * first" sorted the newest hundred and could never return the oldest row.
+   */
+  sort: "newest" | "oldest";
+  from: string;
+  to: string;
+  /** The cap was reached, so this is a window rather than everything. */
+  truncated: boolean;
 }) {
   const [tab, setTab] = useState<"mine" | "others">("mine");
   const [query, setQuery] = useState("");
-  // Newest first by default, matching the server order. "Oldest" is kept
-  // because a queue is legitimately worked FIFO — the longest-waiting
-  // approval is the one most at risk of rotting — and taking that away to
-  // satisfy a default would trade one complaint for another.
-  const [sort, setSort] = useState<"newest" | "oldest">("newest");
   const [open, setOpen] = useState<Record<string, boolean>>({});
+
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
+  const [pending, startTransition] = useTransition();
+
+  // One helper for all three server-side controls. Empty means "not filtering",
+  // and is removed from the URL rather than sent as a blank — a `?from=` that
+  // means nothing still makes two identical views look like different pages.
+  const setParam = (key: string, value: string) => {
+    const next = new URLSearchParams(params.toString());
+    if (value) next.set(key, value);
+    else next.delete(key);
+    startTransition(() => {
+      router.replace(next.toString() ? `${pathname}?${next}` : pathname, { scroll: false });
+    });
+  };
 
   /**
    * ⚠️ "Waiting on you" means THERE IS SOMETHING FOR YOU TO DO — which is not
@@ -164,7 +210,7 @@ export default function ApprovalsBoard({
           ))}
         </div>
 
-        <div className="flex w-full items-center gap-2 sm:w-auto">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
           <div className="relative w-full sm:max-w-xs">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -177,7 +223,7 @@ export default function ApprovalsBoard({
           </div>
           <select
             value={sort}
-            onChange={(e) => setSort(e.target.value as "newest" | "oldest")}
+            onChange={(e) => setParam("sort", e.target.value)}
             aria-label="Order the approvals queue"
             className="h-9 flex-shrink-0 rounded-md border border-input bg-card px-2 text-xs text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]"
           >
@@ -186,6 +232,59 @@ export default function ApprovalsBoard({
           </select>
         </div>
       </div>
+
+      {/* Raised between — a second way to find one, asked for alongside the
+          reference search. Server-side, so it searches the whole table rather
+          than the rows that happened to be on the page. */}
+      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        <span className="font-medium">Raised between</span>
+        <input
+          type="date"
+          value={from}
+          max={to || undefined}
+          onChange={(e) => setParam("from", e.target.value)}
+          aria-label="Show approvals raised on or after this date"
+          className="h-9 rounded-md border border-input bg-card px-2 outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]"
+        />
+        <span>and</span>
+        <input
+          type="date"
+          value={to}
+          min={from || undefined}
+          onChange={(e) => setParam("to", e.target.value)}
+          aria-label="Show approvals raised on or before this date"
+          className="h-9 rounded-md border border-input bg-card px-2 outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]"
+        />
+        {(from || to) && (
+          <button
+            type="button"
+            onClick={() => {
+              const next = new URLSearchParams(params.toString());
+              next.delete("from");
+              next.delete("to");
+              startTransition(() => {
+                router.replace(next.toString() ? `${pathname}?${next}` : pathname, { scroll: false });
+              });
+            }}
+            className="rounded-md border border-border px-2 py-1 hover:bg-accent hover:text-foreground"
+          >
+            Clear dates
+          </button>
+        )}
+        {pending && <span className="opacity-70">updating…</span>}
+      </div>
+
+      {truncated && (
+        <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
+          <AlertTriangle className="mt-0.5 size-3.5 flex-shrink-0" />
+          <span>
+            More payables match than fit on one page, so this is the{" "}
+            {sort === "oldest" ? "oldest" : "newest"} 100 of them. Narrow the
+            date range to see the rest — the order above is applied before the
+            cut, so nothing is being hidden behind a sort.
+          </span>
+        </div>
+      )}
 
       {shown.length === 0 ? (
         <Card>
@@ -237,10 +336,54 @@ export default function ApprovalsBoard({
                         the product is broken rather than that they are the
                         wrong pair of hands. */}
                     <p className="mt-1.5 text-xs font-medium text-foreground">
-                      {waitingOn(r.state)}
+                      {r.state.returnedToRaiser
+                        ? "Sent back to whoever raised it — nothing can move until it is corrected and resent."
+                        : r.state.returnedAtStage
+                          ? `Sent back to stage ${r.state.returnedAtStage - 1} for correction.`
+                          : waitingOn(r.state)}
                     </p>
+                    {r.state.returnedReason && (
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {r.state.returnedBy ? `${r.state.returnedBy}: ` : ""}
+                        &ldquo;{r.state.returnedReason}&rdquo;
+                      </p>
+                    )}
                     {tab === "others" && blocked && (
                       <p className="mt-0.5 text-xs text-muted-foreground">{blocked}</p>
+                    )}
+                    {/* The fund, before the send rather than at COMMIT (0247).
+                        Shown whether it is short or not: "Osborne Tower's fund
+                        holds ₦405,927.73" is the fact that makes the refusal
+                        legible when it does come, and confidence when it does
+                        not. */}
+                    {r.funding && (
+                      <p
+                        className={cn(
+                          "mt-1 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs",
+                          r.funding.sufficient
+                            ? "bg-muted text-muted-foreground"
+                            : "bg-amber-50 text-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
+                        )}
+                      >
+                        <Banknote className="size-3.5 flex-shrink-0" />
+                        {r.funding.sufficient ? (
+                          <>
+                            {r.funding.propertyName ?? "The unattributed"} fund holds{" "}
+                            {formatNaira(r.funding.available)} — enough for this.
+                          </>
+                        ) : (
+                          <>
+                            {r.funding.propertyName
+                              ? `${r.funding.propertyName}'s`
+                              : "The unattributed"}{" "}
+                            service-charge fund holds{" "}
+                            {formatNaira(r.funding.available)} and this needs{" "}
+                            {formatNaira(r.funding.required)} —{" "}
+                            {formatNaira(r.funding.shortfall)} short. Collect
+                            before sending.
+                          </>
+                        )}
+                      </p>
                     )}
                   </div>
                   <button
@@ -275,6 +418,18 @@ export default function ApprovalsBoard({
                       {isOfficer ? "Open to release the payment" : "Open it"}
                     </Link>
                   )}
+                  {/* Returned all the way to the raiser: `nextStage` is null by
+                      design, so no stage action renders and — without this —
+                      the card would explain the situation and offer no way out
+                      of it. The server decides who may actually resend. */}
+                  {r.state.returnedToRaiser && (
+                    <ResubmitPanel
+                      payableType={r.payableType}
+                      payableId={r.payableId}
+                      returnedReason={r.state.returnedReason}
+                      returnedBy={r.state.returnedBy}
+                    />
+                  )}
                   {tab === "mine" && r.state.nextStage && (
                     <StageActions
                       payableType={r.payableType}
@@ -282,6 +437,13 @@ export default function ApprovalsBoard({
                       stage={r.state.nextStage.stageOrder as StageOrder}
                       stageLabel={r.state.nextStage.short}
                       verb={r.state.nextStage.verb}
+                      returnsTo={
+                        r.state.nextStage.stageOrder === 1
+                          ? "whoever raised it"
+                          : (r.state.stages.find(
+                              (s) => s.stageOrder === r.state.nextStage!.stageOrder - 1
+                            )?.short ?? "the desk below")
+                      }
                     />
                   )}
                 </CardContent>

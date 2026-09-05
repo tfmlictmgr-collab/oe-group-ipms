@@ -25,6 +25,7 @@ import {
   BookOpen,
   GraduationCap,
   Handshake,
+  ClipboardList,
 } from "lucide-react";
 
 // Role/permission context computed on the server (from the B7 matrix) and passed
@@ -283,6 +284,17 @@ export const NAV_GROUPS: NavGroup[] = [
         icon: FileSignature,
         // Lettings is OEA-only (B9), and the page itself says so for an org
         // without the module — scoped by RLS beyond that.
+        show: (c) => c.seesLettings,
+      },
+      {
+        // The MANAGEMENT PORTFOLIO workbook, as a live report (0254). Same
+        // audience as Leases & Rent, and deliberately its own entry rather than
+        // a tab inside it: this is the artefact a landlord, a client or an
+        // auditor is handed, and burying a deliverable one click inside an
+        // operational screen is how it goes on being kept in Excel instead.
+        label: "Tenancy Schedule",
+        href: "/dashboard/schedule",
+        icon: ClipboardList,
         show: (c) => c.seesLettings,
       },
       {

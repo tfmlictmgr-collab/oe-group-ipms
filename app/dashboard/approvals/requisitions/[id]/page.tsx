@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import ChainTrail from "@/components/approvals/ChainTrail";
 import StageActions from "@/components/approvals/StageActions";
+import ResubmitPanel from "@/components/approvals/ResubmitPanel";
 import { getChainState, canActorAction, formatNaira } from "@/lib/approvals/chain";
 import LinePayeeForm from "./LinePayeeForm";
 import SendLineGroup from "./SendLineGroup";
@@ -250,13 +251,34 @@ export default async function RequisitionDetailPage({
         </CardHeader>
         <CardContent className="space-y-4">
           <ChainTrail state={state} />
+
+          {/* Sent all the way back to the raiser (0250b). Rendered for anyone
+              who can see the requisition; `resubmit_returned_payable` decides
+              who may actually act, and a panel that explains why it is sitting
+              here is worth showing to the auditor waiting on it too. */}
+          {req.status === "returned_for_correction" && (
+            <ResubmitPanel
+              payableType="ops_requisition"
+              payableId={req.id}
+              returnedReason={state.returnedReason}
+              returnedBy={state.returnedBy}
+            />
+          )}
+
           {canAction && state.nextStage && (
             <StageActions
               payableType="ops_requisition"
               payableId={req.id}
               stage={state.nextStage.stageOrder}
               stageLabel={state.nextStage.short}
-                verb={state.nextStage.verb}
+              verb={state.nextStage.verb}
+              returnsTo={
+                state.nextStage.stageOrder === 1
+                  ? (raiser ?? "whoever raised it")
+                  : (state.stages.find(
+                      (s) => s.stageOrder === state.nextStage!.stageOrder - 1
+                    )?.short ?? "the desk below")
+              }
             />
           )}
         </CardContent>

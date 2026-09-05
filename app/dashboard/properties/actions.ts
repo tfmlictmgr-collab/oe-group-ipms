@@ -21,6 +21,90 @@ export type PropertyInput = {
   siteNodeId: string | null;
 };
 
+export type NewPropertyUnits = {
+  /** What kind of unit — "3 bedroom flat", "Shop". */
+  type: string;
+  /** How many of them. Blank means one. */
+  count: string;
+  /** Occupied space, the apportionment factor. */
+  space: string;
+};
+
+/**
+ * File a property and its units in one act (0252, decision 31).
+ *
+ * ⚠️ Replaces the deliberate two-write split this file used to carry. That
+ * comment argued a failed unit write should leave the property standing so the
+ * person could finish on its own page — which is reasonable until you notice
+ * what it produces: a property with no units, which is exactly the state the
+ * board has now forbidden, reached by accident rather than by choice. A
+ * property that cannot hold a tenancy is not a partial success.
+ *
+ * `create_property_with_units` is one function body and therefore one
+ * transaction: a unit that will not insert takes the property back out with it,
+ * and the person is returned to the form they were already looking at with what
+ * they typed still in it.
+ */
+export async function createPropertyWithUnits(
+  input: PropertyInput & { units: NewPropertyUnits }
+): Promise<ActionResult<{ id: string }>> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return fail("Your session expired. Please sign in again.");
+
+  const name = input.name.trim();
+  if (name.length < 2) return fail("Give the property a name.");
+
+  const type = input.units.type.trim();
+  if (!type) {
+    return fail(
+      "Say what kind of units this property has.",
+      "A property is filed with at least one unit — a flat, a shop, a suite. Without one it cannot be let, billed a service charge, or have a tenancy recorded against it."
+    );
+  }
+
+  const rawCount = (input.units.count ?? "").replace(/[,\s]/g, "");
+  const count = rawCount ? Number(rawCount) : 1;
+  if (!Number.isFinite(count) || !Number.isInteger(count) || count < 1) {
+    return fail("The number of units must be a whole number, at least 1.");
+  }
+
+  const space = Number((input.units.space ?? "").replace(/[,\s]/g, ""));
+  if (!Number.isFinite(space) || space <= 0) {
+    return fail(
+      "Give the occupied space for each unit.",
+      "It is what the service charge is apportioned on, so a zero would make every bill on this property zero."
+    );
+  }
+
+  const { data, error } = await supabase.rpc("create_property_with_units", {
+    p_name: name,
+    p_address: input.address.trim() || null,
+    p_reference: input.reference.trim() || null,
+    p_site_node_id: input.siteNodeId || null,
+    p_property_type: input.propertyType.trim() || null,
+    p_units: [{ label: type, factor: space, quantity: count, description: "" }],
+  });
+
+  if (error) {
+    if (error.message.includes("properties_org_reference_uidx")) {
+      return fail(
+        `Another property already uses the reference "${input.reference.trim()}".`,
+        "References must be unique so a conversation about one property cannot mean two."
+      );
+    }
+    if (error.message.includes("a property is filed under a site")) {
+      return fail("A property can only be filed under a Site, not a region, project or location.");
+    }
+    return failFromDb(error, "create this property");
+  }
+
+  if (!data) return fail("That property could not be created.");
+
+  revalidatePath("/dashboard/properties");
+  return ok({ id: data as string });
+}
+
 export async function saveProperty(
   input: PropertyInput
 ): Promise<ActionResult<{ id: string }>> {

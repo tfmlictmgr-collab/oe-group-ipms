@@ -42,3 +42,9 @@ PR_BODY.md
 
 # Supabase CLI's own local cache (just its own version pin, e.g. "v2.115.0")
 supabase/.temp/
+
+# Source documents carrying live tenant/landlord PII. Never in git, and never
+# under public/ — Next.js serves that directory statically to anyone.
+/private/
+public/*.xlsx
+public/*.csv

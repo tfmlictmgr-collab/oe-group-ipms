@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { toast } from "sonner";
-import { Check, X, MessageSquarePlus } from "lucide-react";
+import { Check, X, MessageSquarePlus, CornerUpLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { recordStageDecision } from "@/lib/approvals/actions";
@@ -22,6 +22,7 @@ export default function StageActions({
   stage,
   stageLabel,
   verb = "Approve",
+  returnsTo,
 }: {
   payableType: PayableType;
   payableId: string;
@@ -34,9 +35,17 @@ export default function StageActions({
    * fourth approver in a three-approver chain in the reader's head.
    */
   verb?: string;
+  /**
+   * Where a "send back" goes from here — "the desk below" for stage 2 and up,
+   * "whoever raised it" for stage 1. Passed in rather than derived, because
+   * this component knows its stage number and not which ladder it is on, and
+   * on `single_stage` (0248) stage 1 is the only rung there is.
+   */
+  returnsTo?: string;
 }) {
-  const [busy, setBusy] = React.useState<"approve" | "reject" | null>(null);
+  const [busy, setBusy] = React.useState<"approve" | "reject" | "return" | null>(null);
   const [refusing, setRefusing] = React.useState(false);
+  const [returning, setReturning] = React.useState(false);
   const [reason, setReason] = React.useState("");
   /**
    * An optional note carried with a POSITIVE decision.
@@ -50,16 +59,19 @@ export default function StageActions({
   const [note, setNote] = React.useState("");
   const [noting, setNoting] = React.useState(false);
 
-  async function submit(decision: "approved" | "rejected") {
-    setBusy(decision === "approved" ? "approve" : "reject");
+  async function submit(decision: "approved" | "rejected" | "returned") {
+    setBusy(
+      decision === "approved" ? "approve" : decision === "rejected" ? "reject" : "return"
+    );
     const res = await recordStageDecision({
       payableType,
       payableId,
       stage,
       decision,
-      // A refusal must say why; an approval may. Both land in the same column
-      // and both show on the trail.
-      reason: decision === "rejected" ? reason : (note.trim() || null),
+      // A refusal must say why and a return must say what to correct; an
+      // approval may. All three land in the same column and all three show on
+      // the trail.
+      reason: decision === "approved" ? (note.trim() || null) : reason,
     });
     setBusy(null);
 
@@ -68,9 +80,14 @@ export default function StageActions({
       return;
     }
     toast.success(
-      decision === "approved" ? `${stageLabel} approved.` : "Payment refused."
+      decision === "approved"
+        ? `${stageLabel} approved.`
+        : decision === "returned"
+          ? "Sent back for correction."
+          : "Payment refused."
     );
     setRefusing(false);
+    setReturning(false);
     setReason("");
     setNote("");
     setNoting(false);
@@ -108,6 +125,54 @@ export default function StageActions({
             disabled={busy !== null}
             onClick={() => {
               setRefusing(false);
+              setReason("");
+            }}
+          >
+            Cancel
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // Deliberately a separate panel from the refusal, in a different colour, with
+  // different words. They are different acts: one ends the payable, the other
+  // asks for a correction and expects it back. Collapsing them into one button
+  // with a dropdown is how somebody kills a requisition they meant to query.
+  if (returning) {
+    return (
+      <div className="space-y-3 rounded-lg border border-amber-300 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-950/30">
+        <div className="space-y-1.5">
+          <Label htmlFor={`return-${stage}`}>What needs correcting?</Label>
+          <textarea
+            id={`return-${stage}`}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            rows={3}
+            className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+            placeholder="e.g. The generator line is billed at 4 hours; the job card says 2. Please correct and resend."
+          />
+          <p className="text-xs text-muted-foreground">
+            This goes back to {returnsTo ?? "the desk below you"} and they can
+            only act on what you tell them — at least 10 characters. Nothing is
+            refused: the request stays alive and comes back to you once it is
+            corrected.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            disabled={busy !== null || reason.trim().length < 10}
+            onClick={() => submit("returned")}
+          >
+            {busy === "return" ? "Sending back…" : "Send back for correction"}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={busy !== null}
+            onClick={() => {
+              setReturning(false);
               setReason("");
             }}
           >
@@ -157,12 +222,26 @@ export default function StageActions({
           variant="outline"
           size="sm"
           disabled={busy !== null}
+          onClick={() => setReturning(true)}
+        >
+          <CornerUpLeft className="mr-1.5 size-4" />
+          Send back
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={busy !== null}
           onClick={() => setRefusing(true)}
         >
           <X className="mr-1.5 size-4" />
           Refuse
         </Button>
       </div>
+      <p className="text-xs text-muted-foreground">
+        <strong>Send back</strong> returns it to {returnsTo ?? "the desk below"}{" "}
+        to correct and resend — the request stays alive.{" "}
+        <strong>Refuse</strong> ends it.
+      </p>
     </div>
   );
 }

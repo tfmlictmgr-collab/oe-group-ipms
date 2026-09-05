@@ -181,6 +181,11 @@ export async function raisePaymentRequest(input: RaiseInput): Promise<RaiseResul
     property_id: propertyId,
     unit_id: unitId,
     payer_user_id: payer,
+    // 0253. Kept, not just handed to the gateway and dropped. This is the
+    // address the receipt is owed to, and for a collection raised against an
+    // unassigned unit it is the ONLY address that ever existed — there is no
+    // `users` row to recover it from later.
+    payer_email: receiptEmail || null,
     amount_expected: amount,
     currency,
     gateway: gateway.name,

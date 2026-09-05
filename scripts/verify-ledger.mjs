@@ -160,7 +160,17 @@ console.log("\nE. Invariant 3 — client funds cannot go negative");
     { account: BANK, amount: -900000 },
   ], "remittance");
   if (!error) bad("ALLOWED — disbursed funds that were never held");
-  else if (/client funds/i.test(error.message))
+  // ⚠️ `client[-\s]?funds`, not `client funds`. 0247 rewrote every refusal in
+  // `assert_funds_available` into language a person can act on, and "the NGN
+  // client-funds account would go overdrawn by 780,000.00" is the same rule
+  // saying the same thing with a hyphen — which failed this check and looked,
+  // in the output, exactly like the wrong rule having fired.
+  //
+  // The lesson is not the hyphen. It is that asserting WHICH rule refused by
+  // matching its prose makes the wording a contract that nobody knows they are
+  // bound by. Matched loosely here, and the tight assertion belongs on the
+  // behaviour above: the write was refused, and the balance did not move.
+  else if (/client[-\s]?funds/i.test(error.message))
     ok(`rejected by the funds rule (${error.message.slice(0, 60)})`);
   else bad(`rejected, but by the wrong rule: ${error.message.slice(0, 80)}`);
 }

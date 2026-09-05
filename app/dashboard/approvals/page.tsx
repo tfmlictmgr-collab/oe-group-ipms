@@ -28,12 +28,51 @@ export const dynamic = "force-dynamic";
  * for. Finance is included despite holding no stage: they disburse what the
  * chain clears (decision 16), so what is climbing toward them is their work.
  */
-export default async function ApprovalsPage() {
+/**
+ * ⚠️ SORT AND DATE ARE SERVER-SIDE, and that is a correctness fix rather than a
+ * preference (5 Sept 2026).
+ *
+ * Each of the three queries below is capped. The cap is necessary — every row
+ * costs a `getChainState`, which is three round trips — but while the sort was
+ * applied in the browser it was applied to *whichever rows the cap had already
+ * kept*, and the cap kept the NEWEST. So "Oldest first" re-ordered the newest
+ * hundred and confidently showed them oldest-first: the longest-waiting payment,
+ * the one the option exists to find, was the one row it could never return.
+ *
+ * Ordering in the query fixes it exactly: "oldest first" now fetches the oldest.
+ * The browser still re-sorts, harmlessly, over a set that is already the right
+ * one.
+ */
+const QUEUE_CAP = 100;
+
+export default async function ApprovalsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ sort?: string; from?: string; to?: string; q?: string }>;
+}) {
   const session = await getSessionProfile();
   if (!session?.profile) redirect("/login");
 
   const role = session.profile.role;
   const supabase = await createClient();
+
+  const sp = await searchParams;
+  const sort: "newest" | "oldest" = sp.sort === "oldest" ? "oldest" : "newest";
+  const ascending = sort === "oldest";
+  // Dates arrive as yyyy-mm-dd from a native date input. `to` is pushed to the
+  // end of its day so "to 5 Sept" includes the 5th — an exclusive upper bound on
+  // a date the person typed is the classic off-by-one that hides a whole day.
+  const from = /^\d{4}-\d{2}-\d{2}$/.test(sp.from ?? "") ? sp.from! : null;
+  const to = /^\d{4}-\d{2}-\d{2}$/.test(sp.to ?? "") ? sp.to! : null;
+
+  const dated = <T extends { gte: (c: string, v: string) => T; lte: (c: string, v: string) => T }>(
+    q: T
+  ): T => {
+    let out = q;
+    if (from) out = out.gte("created_at", `${from}T00:00:00.000Z`);
+    if (to) out = out.lte("created_at", `${to}T23:59:59.999Z`);
+    return out;
+  };
 
   const { data: me } = await supabase
     .from("users").select("id, role, approval_tier").eq("id", session.profile.id).single();
@@ -48,20 +87,29 @@ export default async function ApprovalsPage() {
   // Vendor invoices that have passed the B4 gate, landlord payouts raised and
   // not yet sent, and FM/PM ops requisitions awaiting the same chain (0170).
   const [{ data: payments }, { data: payouts }, { data: requisitions }] = await Promise.all([
-    supabase
-      .from("payments")
-      .select("id, amount, invoice_reference, status, created_at, invoice_attachment_path, vendors(name), tickets(id, summary, category, urgency, property_or_unit)")
-      .in("status", ["recommended", "approved"])
-      .order("created_at", { ascending: false })
-      .limit(100),
-    supabase
-      .from("remittances")
-      .select("id, net_amount, period, reference, status, created_at, properties(name)")
-      .eq("party", "landlord")
-      .eq("status", "queued")
-      .order("created_at", { ascending: false })
-      .limit(100),
-    supabase
+    dated(
+      supabase
+        .from("payments")
+        .select("id, amount, invoice_reference, status, created_at, invoice_attachment_path, vendors(name), tickets(id, summary, category, urgency, property_or_unit)")
+        // `returned_for_correction` belongs here (0250b): it is not a refusal
+        // and it has not left the pipeline — it is sitting with whoever raised
+        // it, and the desks above are entitled to see that is where it went
+        // rather than watch it disappear.
+        .in("status", ["recommended", "approved", "returned_for_correction"])
+    )
+      .order("created_at", { ascending })
+      .limit(QUEUE_CAP),
+    dated(
+      supabase
+        .from("remittances")
+        .select("id, net_amount, period, reference, status, created_at, properties(name)")
+        .eq("party", "landlord")
+        .eq("status", "queued")
+    )
+      .order("created_at", { ascending })
+      .limit(QUEUE_CAP),
+    dated(
+      supabase
       .from("ops_requisitions")
       .select("id, total_amount, reference, description, status, created_at, invoice_attachment_path, users!ops_requisitions_raised_by_fkey(full_name), tickets(id, summary, category, urgency, property_or_unit)")
       // ⚠️ `approved` as well as `pending_approval`. A requisition that clears
@@ -70,10 +118,19 @@ export default async function ApprovalsPage() {
       // requisitions list page and no nav entry, and the Send card renders only
       // on the detail page and only when status IS `approved`: the payable was
       // reachable by typed URL and nothing else. That is the dead end.
-      .in("status", ["pending_approval", "approved"])
-      .order("created_at", { ascending: false })
-      .limit(100),
+      .in("status", ["pending_approval", "approved", "returned_for_correction"])
+    )
+      .order("created_at", { ascending })
+      .limit(QUEUE_CAP),
   ]);
+
+  // Honest about the cap. If a bucket came back full, the page is showing a
+  // window rather than everything, and saying so is the difference between a
+  // bounded list and a wrong one.
+  const truncated =
+    (payments?.length ?? 0) >= QUEUE_CAP ||
+    (payouts?.length ?? 0) >= QUEUE_CAP ||
+    (requisitions?.length ?? 0) >= QUEUE_CAP;
 
   // ── The evidence, fetched in BATCHES rather than per row ────────────────
   //
@@ -247,7 +304,52 @@ export default async function ApprovalsPage() {
   // ⚠️ A refusal is terminal, so it leaves. A CLEARED payable does not: it is
   // waiting on the payment officer, which is a desk like any other. Dropping it
   // here is what left them with nothing to act on.
-  const rows: QueueRow[] = described.filter((r) => !r.state.rejected);
+  const openRows = described.filter((r) => !r.state.rejected);
+
+  // ── Can the fund actually bear this? Asked before the send, not at COMMIT ──
+  //
+  // Only for rows that have cleared the chain, which are the only rows anyone
+  // can send today. `payable_funding_state` (0247) is one query, and asking it
+  // for a payable three approvals away would cost one per row to answer a
+  // question nobody is holding yet.
+  //
+  // `landlord_payout` is excluded on purpose: a rent remittance is paid out of
+  // rent collected for that landlord, not out of a building's service-charge
+  // fund, and running it through this check would print a shortfall against a
+  // fund it never draws on. Decision 25's rule — the two are reported side by
+  // side and never added — applies to the guard as much as to the report.
+  const fundable = openRows.filter(
+    (r) => r.state.clearedForDisbursement && r.payableType !== "landlord_payout"
+  );
+  const fundingById = new Map<string, QueueRow["funding"]>();
+  await Promise.all(
+    fundable.map(async (r) => {
+      const { data } = await supabase
+        .rpc("payable_funding_state", {
+          p_payable_type: r.payableType,
+          p_payable_id: r.payableId,
+        })
+        .maybeSingle();
+      const f = data as {
+        property_name: string | null; required: number;
+        available: number; shortfall: number; sufficient: boolean;
+      } | null;
+      if (f) {
+        fundingById.set(r.payableId, {
+          propertyName: f.property_name,
+          required: Number(f.required),
+          available: Number(f.available),
+          shortfall: Number(f.shortfall),
+          sufficient: Boolean(f.sufficient),
+        });
+      }
+    })
+  );
+
+  const rows: QueueRow[] = openRows.map((r) => ({
+    ...r,
+    funding: fundingById.get(r.payableId) ?? null,
+  }));
 
   // Every role named at any stage of EITHER ladder, read from the shapes rather
   // than retyped — so a role added to a stage reaches this automatically and
@@ -272,7 +374,15 @@ export default async function ApprovalsPage() {
       {/* Tabs, search and collapse live in the board: they are view state, and
           view state belongs in the browser. The SCOPING — which rows exist at
           all — stayed on the server and in RLS. */}
-      <ApprovalsBoard rows={rows} actor={actor} inChain={inChain} />
+      <ApprovalsBoard
+        rows={rows}
+        actor={actor}
+        inChain={inChain}
+        sort={sort}
+        from={from ?? ""}
+        to={to ?? ""}
+        truncated={truncated}
+      />
     </div>
   );
 }

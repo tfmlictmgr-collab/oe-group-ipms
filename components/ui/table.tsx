@@ -17,11 +17,27 @@ const Table = React.forwardRef<
 ));
 Table.displayName = "Table";
 
+// The header stays put while the body scrolls. Done on the shared primitive
+// rather than per page, so every list in the dashboard gets it at once — the
+// alternative was the same three classes pasted into a dozen files and missing
+// from the thirteenth.
+//
+// `bg-card` is not decoration: without an opaque background the rows scroll
+// visibly underneath the header text. `z-10` clears the row content only; it is
+// deliberately below the app chrome's own stacking so a sticky header cannot
+// float over an open dropdown or dialog.
 const TableHeader = React.forwardRef<
   HTMLTableSectionElement,
   React.HTMLAttributes<HTMLTableSectionElement>
 >(({ className, ...props }, ref) => (
-  <thead ref={ref} className={cn("[&_tr]:border-b", className)} {...props} />
+  <thead
+    ref={ref}
+    className={cn(
+      "[&_tr]:border-b [&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-card",
+      className
+    )}
+    {...props}
+  />
 ));
 TableHeader.displayName = "TableHeader";
 

@@ -35,6 +35,16 @@ export async function recordStageDecision(input: {
     );
   }
 
+  // A return has to say what to correct, for the same reason a refusal has to
+  // say why — and more so: a refusal ends the matter, whereas a return asks
+  // somebody to do something and is useless if it does not say what.
+  if (input.decision === "returned" && reason.length < 10) {
+    return fail(
+      "Say what needs correcting, in at least 10 characters.",
+      "This goes back to the desk below you, and they can only act on what you tell them."
+    );
+  }
+
   const supabase = await createClient();
   const {
     data: { user },
@@ -55,6 +65,45 @@ export async function recordStageDecision(input: {
   revalidatePath(`/dashboard/payments/${input.payableId}`);
   revalidatePath("/dashboard/ledger/payouts");
   revalidatePath("/dashboard/approvals");
+  revalidatePath(`/dashboard/approvals/requisitions/${input.payableId}`);
+
+  return ok();
+}
+
+/**
+ * Put a payable that was returned to its raiser back into the chain (0250b).
+ *
+ * Only needed for a stage-1 return, where the payable left the chain entirely.
+ * A return at stage 2 or 3 needs nothing here: the rung below is simply
+ * outstanding again and its own desk approves as it always did.
+ *
+ * Who may call it is decided in `resubmit_returned_payable`, under the caller's
+ * own session — the raiser, a manager of the property, or an administrator for
+ * a requisition; the payment officer or an administrator for a vendor invoice.
+ */
+export async function resubmitReturnedPayable(input: {
+  payableType: PayableType;
+  payableId: string;
+  note?: string | null;
+}): Promise<ActionResult> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return fail("Your session expired. Please sign in again.");
+
+  const { error } = await supabase.rpc("resubmit_returned_payable", {
+    p_payable_type: input.payableType,
+    p_payable_id: input.payableId,
+    p_note: (input.note ?? "").trim() || null,
+  });
+
+  if (error) return failFromDb(error, "resend this for approval");
+
+  revalidatePath("/dashboard/approvals");
+  revalidatePath(`/dashboard/approvals/requisitions/${input.payableId}`);
+  revalidatePath("/dashboard/payments");
+  revalidatePath(`/dashboard/payments/${input.payableId}`);
 
   return ok();
 }

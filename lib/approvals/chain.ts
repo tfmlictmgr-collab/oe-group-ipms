@@ -17,7 +17,12 @@ import { FM_PM } from "@/lib/roles";
 
 export type PayableType = "vendor_payment" | "landlord_payout" | "ops_requisition";
 export type ApprovalTier = 1 | 2 | 3;
-export type Decision = "approved" | "rejected";
+/**
+ * `returned` is not a third kind of refusal — it is the opposite of terminal
+ * (0250b). A rejection ends the payable; a return sends it back one rung to be
+ * corrected and re-given. Mirrors `payment_approvals_decision_check`.
+ */
+export type Decision = "approved" | "rejected" | "returned";
 
 /**
  * Which ladder an organisation climbs. Mirrors `org_payment_chain()` (0211).
@@ -26,15 +31,24 @@ export type Decision = "approved" | "rejected";
  * audit → Managing Partner → payment approver, then the payment officer
  * disburses. Everyone else keeps the standard ladder, where the FM/PM sign-off
  * is the first rung rather than the precondition.
+ *
+ * `single_stage` is the shape decision 28 added: one rung, held by the payment
+ * approver or the executive, tier-resolved. It exists only where the OE Group
+ * operator has set it for an org — no org's own administrator can reach it.
  */
-export type ChainShape = "standard" | "oea";
+export type ChainShape = "standard" | "oea" | "single_stage";
 
 /**
  * Mirrors `payment_chain_stages(org_id)`. Hardwired there, hardwired here.
  *
- * ⚠️ Both shapes are THREE stages, exactly as the database has them — the
- * stage_order check, the one-live-row-per-stage index and every "% of 3
+ * ⚠️ `standard` and `oea` are THREE stages, exactly as the database has them —
+ * the stage_order check, the one-live-row-per-stage index and every "% of 3
  * stages" message depend on that and none of them had to be re-reasoned.
+ *
+ * `single_stage` (0248) is the exception, and it is why nothing here may
+ * hardcode a stage count: read the length of the array this returns. The
+ * database made the same change in `apply_chain_outcome_to_payment`, where
+ * "final stage" stopped meaning the literal 3.
  */
 export const CHAIN_SHAPES = {
   standard: [
@@ -97,6 +111,22 @@ export const CHAIN_SHAPES = {
     {
       stageOrder: 3 as const,
       requiredRoles: ["payment_approver"],
+      tierResolved: true,
+      label: "Payment approval",
+      short: "Payment approval",
+      verb: "Approve",
+    },
+  ],
+  // 0248. One rung, and it is the one that authorises money leaving — not the
+  // FM sign-off and not the audit review. Collapsing a ladder has to keep the
+  // stage that actually approves the payment; keeping stage 1 as written would
+  // have produced an org where a facilities manager's sign-off IS the whole
+  // authorisation. Disbursement is unaffected: the payment officer still
+  // releases, and still may not be the person who approved (decision 16).
+  single_stage: [
+    {
+      stageOrder: 1 as const,
+      requiredRoles: ["payment_approver", "executive"],
       tierResolved: true,
       label: "Payment approval",
       short: "Payment approval",
@@ -173,6 +203,39 @@ export interface ChainState {
   clearedForDisbursement: boolean;
   /** Approved at every stage, but at a different amount than the current one. */
   amountChangedAfterApproval: boolean;
+  /**
+   * Sent back for correction and not yet re-given (0250b). A return at stage
+   * N>1 retires stage N-1, so the chain simply shows that rung outstanding
+   * again; a return at stage 1 has no rung below it and the payable leaves the
+   * chain entirely, which is what `returnedToRaiser` marks.
+   */
+  returnedAtStage: StageOrder | null;
+  returnedReason: string | null;
+  returnedBy: string | null;
+  returnedToRaiser: boolean;
+  /**
+   * Every decision ever recorded on this payable, superseded ones included,
+   * oldest first.
+   *
+   * ⚠️ Deliberately separate from `stages`. `stages` is what is true NOW and
+   * decides what may happen next; this is what HAPPENED, and an approval that
+   * was later superseded by a return still belongs in it. Asked for directly:
+   * "even though an approval has been given the approvers should still be able
+   * to view the movement, it should not disappear."
+   */
+  history: ChainEvent[];
+}
+
+export interface ChainEvent {
+  stageOrder: number;
+  decision: Decision;
+  actorName: string | null;
+  actorRole: string | null;
+  amount: number;
+  reason: string | null;
+  at: string;
+  /** Retired — by a later amount change, or by a return to this stage. */
+  superseded: boolean;
 }
 
 /**
@@ -351,20 +414,37 @@ export async function getChainState(
       )
       .eq("payable_type", payableType)
       .eq("payable_id", payableId)
-      // Superseded rows are the record of a PREVIOUS round at a previous amount
-      // (0175). They stay in the table because an approval that can vanish is
-      // not evidence of anything, and they are excluded here because they
-      // authorise nothing.
-      .is("superseded_at", null)
-      .order("stage_order"),
+      // ⚠️ Superseded rows are NO LONGER excluded here (0250b). They authorise
+      // nothing and are filtered out of `approvals` below, exactly as before —
+      // but they are the record of a previous round (0175) or of an approval a
+      // return has since retired, and dropping them at the query meant the
+      // movement could not be shown at all. Two uses, one fetch: what counts,
+      // and what happened.
+      .order("created_at"),
   ]);
 
   const p = payable as { org_id: string; amount: string | number } | null;
   const amount = Number(p?.amount ?? 0);
   const orgId = p?.org_id ?? null;
 
-  const approvals = (rows ?? []) as unknown as ApprovalRow[];
+  const allRows = (rows ?? []) as unknown as ApprovalRow[];
+
+  // What counts. Everything downstream of this line behaves exactly as it did
+  // before 0250b widened the query.
+  const approvals = allRows.filter((a) => a.superseded_at === null);
   const byStage = new Map(approvals.map((a) => [a.stage_order, a]));
+
+  // What happened, oldest first — including the rounds that no longer count.
+  const history: ChainEvent[] = allRows.map((a) => ({
+    stageOrder: a.stage_order,
+    decision: a.decision,
+    actorName: a.users?.full_name ?? null,
+    actorRole: a.actor_role ?? null,
+    amount: Number(a.amount),
+    reason: a.reason ?? null,
+    at: a.created_at,
+    superseded: a.superseded_at !== null,
+  }));
 
   // Both in one round trip. The shape decides which ladder is rendered, so it
   // is resolved from the SAME org the amount was, rather than from the viewer's
@@ -375,7 +455,10 @@ export async function getChainState(
     supabase.rpc("org_payment_chain", { p_org_id: orgId }),
   ]);
   const requiredTier = (Number(tier) || 1) as ApprovalTier;
-  const shape: ChainShape = shapeRow === "oea" ? "oea" : "standard";
+  const shape: ChainShape =
+    shapeRow === "oea" ? "oea"
+    : shapeRow === "single_stage" ? "single_stage"
+    : "standard";
   const stageSpec = chainStagesFor(shape);
 
   /**
@@ -424,6 +507,11 @@ export async function getChainState(
   const rejectedRow = approvals.find((a) => a.decision === "rejected");
   const rejected = Boolean(rejectedRow);
 
+  // An outstanding return (0250b). At most one can be live: answering a stage
+  // supersedes its own return, and the return itself retires the rung below.
+  const returnedRow = approvals.find((a) => a.decision === "returned");
+  const returnedToRaiser = Boolean(returnedRow && returnedRow.stage_order === 1);
+
   const allApproved = stages.every((s) => s.decision === "approved");
   // Cleared only if every stage was approved AT THE CURRENT AMOUNT — which
   // `decision` now already encodes, since a stale row does not count as one.
@@ -437,12 +525,23 @@ export async function getChainState(
     amount,
     requiredTier,
     stages,
-    nextStage: rejected
-      ? null
-      : (stages.find((s) => s.decision === null) ?? null),
+    // ⚠️ A stage-1 return takes the payable OUT of the chain — it is with the
+    // person who raised it, and no approver can act until they resend. Without
+    // this branch `nextStage` would find stage 2 (the first undecided rung) and
+    // the queue would invite the Managing Partner to approve something that had
+    // just been sent back to the FM.
+    nextStage:
+      rejected || returnedToRaiser
+        ? null
+        : (stages.find((s) => s.decision === null) ?? null),
     rejected,
     rejectedReason: rejectedRow?.reason ?? null,
     clearedForDisbursement,
     amountChangedAfterApproval: !rejected && stages.some((s) => s.staleDecision !== null),
+    returnedAtStage: (returnedRow?.stage_order as StageOrder | undefined) ?? null,
+    returnedReason: returnedRow?.reason ?? null,
+    returnedBy: returnedRow?.users?.full_name ?? null,
+    returnedToRaiser,
+    history,
   };
 }

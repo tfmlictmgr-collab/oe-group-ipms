@@ -27,6 +27,15 @@ export default async function NewLeasePage() {
     supabase.rpc("org_has_module", { p_org_id: profile.org_id, p_module: "lettings" }),
   ]);
 
+  // For the inline "add a unit" the form offers when a property has none
+  // (decision 31). The SAME list the property form uses, deliberately: decision
+  // 20's lesson is that a free-text unit type produces "Shop", "shop" and
+  // "Shop Space" as three different things nothing can count.
+  const { data: unitTypes } = await supabase
+    .from("unit_types")
+    .select("id, label, category")
+    .order("label");
+
   if (!moduleRes.data || !canWriteRes.data) {
     return (
       <div className="space-y-6">
@@ -62,6 +71,11 @@ export default async function NewLeasePage() {
             tenants={(tenantsRes.data ?? []).map((t) => ({
               id: t.id,
               label: t.full_name ?? t.email ?? "Unnamed",
+            }))}
+            unitTypes={(unitTypes ?? []).map((t) => ({
+              id: t.id,
+              label: t.label,
+              category: t.category as "residential" | "commercial",
             }))}
           />
         </CardContent>

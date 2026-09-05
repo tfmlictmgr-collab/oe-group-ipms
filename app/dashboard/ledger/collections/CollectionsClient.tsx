@@ -80,6 +80,18 @@ export default function CollectionsClient({
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState<string | null>(null);
+
+  // Who is being asked to pay. `service_charge`, `rent` and `deposit` are
+  // billed to a tenant against their own unit; `other` is the ad-hoc/FX card,
+  // raised against a vendor, a landlord or a client. That is the actual
+  // difference between the two audiences, and it is already carried by the
+  // column — it had simply never been used to separate them.
+  const [audience, setAudience] = React.useState<"all" | "tenant" | "other">("all");
+  const TENANT_PURPOSES = ["service_charge", "rent", "deposit"];
+  const tenantIntents = intents.filter((i) => TENANT_PURPOSES.includes(i.purpose));
+  const otherIntents = intents.filter((i) => !TENANT_PURPOSES.includes(i.purpose));
+  const shownIntents =
+    audience === "tenant" ? tenantIntents : audience === "other" ? otherIntents : intents;
   const checkedRef = React.useRef(false);
   const [fxForm, setFxForm] = React.useState({ amount: "", currency: fxCurrencies[0] ?? "", email: "" });
   const drawer = useDrawer();
@@ -486,9 +498,56 @@ export default function CollectionsClient({
           <CardDescription>
             Every request, and whether the money has reached the ledger.
           </CardDescription>
+          {/*
+            ⚠️ Asked directly: "What is the client funds collection page for?
+            Whose funds are being collected? If tenant/owner, can they be
+            separated with tabs?"
+
+            They could not, and the page never said whose money it was. It mixed
+            three different payers under one heading: service charge, rent and
+            deposits are billed to a TENANT, while the "other" purpose and the
+            international-payment card are raised against a vendor, a landlord
+            or a client paying in another currency. The page's own copy admitted
+            this ("For a tenant, vendor or client paying in a currency other than
+            Naira") while the table above it showed them all together.
+
+            Split by who is being asked, not by purpose alone, and the split is
+            client-side over rows the server already scoped — no new query, and
+            nothing here widens what anyone can see.
+          */}
+          <div className="mt-2 flex flex-wrap gap-1 text-xs">
+            {(
+              [
+                ["all", "All", intents.length],
+                ["tenant", "Tenants", tenantIntents.length],
+                ["other", "Owners, vendors & other", otherIntents.length],
+              ] as const
+            ).map(([key, label, n]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setAudience(key)}
+                aria-pressed={audience === key}
+                className={
+                  audience === key
+                    ? "rounded-full border border-transparent bg-[var(--brand)] px-2.5 py-1 font-medium text-[var(--brand-fg)]"
+                    : "rounded-full border border-border px-2.5 py-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                }
+              >
+                {label} <span className="tabular-nums opacity-80">{n}</span>
+              </button>
+            ))}
+            <a
+              href={`/api/records/export?type=collections&audience=${audience}`}
+              download
+              className="ml-auto rounded-md border border-border px-2.5 py-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              Download this list (CSV)
+            </a>
+          </div>
         </CardHeader>
         <CardContent>
-          {intents.length === 0 ? (
+          {shownIntents.length === 0 ? (
             <EmptyState
               icon={<CreditCard />}
               title="No payment requests yet"
@@ -509,7 +568,7 @@ export default function CollectionsClient({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {intents.map((i) => {
+                  {shownIntents.map((i) => {
                     const st = STATUS[i.status] ?? { label: i.status, variant: "muted" as const };
                     const open = ["pending", "part_paid"].includes(i.status);
                     return (

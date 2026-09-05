@@ -82,6 +82,116 @@ export type Edition = "TFML" | "OEA" | "operator";
 
 export const PROCESS_CATALOGUE: Process[] = [
   {
+    id: "tenancy-schedule-and-records",
+    title: "Produce the tenancy schedule, and hand it to a landlord",
+    module: "Lettings",
+    requiresFeature: "lettings",
+    startsWhen:
+      "A landlord asks what their building is doing, an auditor asks for the " +
+      "portfolio in writing, or the monthly management report is due.",
+    steps: [
+      {
+        role: "property_manager",
+        action:
+          "Leases & Rent → Tenancy Schedule. Every tenancy you hold, with its " +
+          "landlord, unit, term, rent p.a., service charge, what has been " +
+          "received against it and the management fee at the rate that actually " +
+          "applied to that tenancy.",
+      },
+      {
+        role: "property_manager",
+        action:
+          "Group it: by property, by landlord, or by tenant. The grouping " +
+          "changes the question the page answers — \"how is this building " +
+          "doing\", \"what do I owe this landlord\", \"what does this tenant " +
+          "hold\" — rather than only re-ordering it.",
+      },
+      {
+        role: "property_manager",
+        action:
+          "Narrow it. Search by name, filter to a status, or set the term-start " +
+          "date range. Click a landlord, property or tenant chip to pin the " +
+          "view to that one.",
+      },
+      {
+        role: "property_manager",
+        action:
+          "Print, or download the CSV. Both act on WHAT IS ON SCREEN — the " +
+          "filters you set are carried through, so a report for one landlord " +
+          "contains that landlord and nobody else.",
+      },
+      {
+        role: "system",
+        action:
+          "Rent and service charge are shown side by side and never added. Rent " +
+          "is collected FOR the owner and remitted net of fees; service charge " +
+          "goes INTO the fund the building spends. A combined total would be a " +
+          "number that means nothing.",
+      },
+      {
+        role: "property_manager",
+        action:
+          "Click a tenant to open that tenancy's own statement — term, rent, " +
+          "every demand, every service charge and every receipt. Corrections to " +
+          "money are made there, against the record, never typed onto the " +
+          "schedule.",
+      },
+    ],
+    doneMeans:
+      "A schedule on paper or in a spreadsheet that matches the ledger, because " +
+      "it was drawn from it — and Tenancy Schedule shows the same figures to " +
+      "anyone who opens it.",
+    refusals: [
+      {
+        trigger:
+          "The download button is missing and a note about permissions appears " +
+          "instead.",
+        explanation:
+          "Bulk export is off for every organisation until it is switched on — " +
+          "for administrators too. It is a data-protection control rather than " +
+          "an oversight: pulling a whole roster out of the platform is a " +
+          "different act from reading one row on screen, so it has its own " +
+          "switch. Your OE Group contact enables it per role under Settings → " +
+          "Permissions. Printing needs no permission.",
+      },
+      {
+        trigger: "A tenancy you expected to see is not on the schedule.",
+        explanation:
+          "The schedule shows the properties you hold, resolved the same way " +
+          "every other screen resolves them. A tenancy on a building you are " +
+          "not attached to is not yours to report on — ask an administrator to " +
+          "attach you to that property.",
+      },
+    ],
+    trainer: {
+      demo:
+        "Open the schedule grouped by landlord, pin it to one landlord, then " +
+        "print. The printed page carries the organisation's masthead and only " +
+        "that landlord's tenancies — this is the artefact that replaces the " +
+        "spreadsheet, and showing it on paper is what lands it.",
+      commonMistake:
+        "Treating the schedule as somewhere to type. The money columns are " +
+        "drawn from the ledger; a figure that looks wrong is corrected on the " +
+        "tenancy or the charge, and the schedule follows.",
+      exercise:
+        "In the demo org: group the schedule by property, note a building's " +
+        "rent outstanding, open one of its tenancies, and find the same figure " +
+        "on the tenancy statement. Then filter to that landlord and download " +
+        "the CSV.",
+    },
+    capabilities: ["leases.write", "sc.manage", "records.export"],
+    routes: ["/dashboard/schedule", "/dashboard/leases", "/dashboard/people"],
+    roles: [
+      "property_manager",
+      "regional_manager",
+      "admin",
+      "finance_approver",
+      "payment_approver",
+      "executive",
+      "property_owner",
+    ],
+  },
+  {
     id: "request-raise-resolve",
     title: "Raise a request and see it through to close",
     module: "Requests",

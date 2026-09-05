@@ -79,10 +79,34 @@ for (const [label, c] of [["a property manager", pm], ["a facilities manager", f
   (await holds(c, "hierarchy.write"))
     ? ok(`${label} holds hierarchy.write — decision 8 delivered`)
     : bad(`${label} does not hold hierarchy.write`);
-  (await holds(c, "sc.manage"))
-    ? bad(`${label} holds sc.manage — only the regional manager was granted it`)
-    : ok(`${label} does not hold sc.manage — the grant went to the regional manager alone`);
 }
+
+// ⚠️ AMENDED by decision 29 (5 Sept 2026). This block asserted that NEITHER the
+// property manager nor the facilities manager holds `sc.manage`, which was
+// exactly right on 30 Aug: decision 26 granted it to the regional manager
+// alone. Decision 29 then gave it — and `leases.write` — to the PROPERTY
+// manager as well, and deliberately not to the facilities manager, the first
+// divergence between the two decision-18 peers.
+//
+// So the assertion is not weakened, it is SPLIT. The half that still carries
+// the weight is the facilities manager's, because the whole risk in decision 29
+// is granting a lettings capability to the wrong peer, and an accident there
+// would be silent.
+(await holds(pm, "sc.manage"))
+  ? ok("a property manager holds sc.manage — decision 29")
+  : bad("a property manager does not hold sc.manage — decision 29 was not delivered");
+(await holds(pm, "leases.write"))
+  ? ok("a property manager holds leases.write — decision 29")
+  : bad("a property manager does not hold leases.write — decision 29 was not delivered");
+
+for (const cap of ["sc.manage", "leases.write"]) {
+  (await holds(fm, cap))
+    ? bad(`a facilities manager holds ${cap} — it was granted to the wrong peer`)
+    : ok(`a facilities manager does not hold ${cap} — TFML's FM stays maintenance-scoped`);
+}
+(await holds(pm, "sc.read_all"))
+  ? bad("a property manager holds sc.read_all — that is the ORG-WIDE read")
+  : ok("a property manager does NOT hold sc.read_all — their reach is the place");
 
 // ── B ──────────────────────────────────────────────────────────────────────
 //

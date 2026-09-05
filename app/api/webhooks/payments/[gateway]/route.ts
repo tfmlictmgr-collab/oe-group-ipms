@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { checkRateLimit, clientIp } from "@/lib/rate-limit";
 import { getAdapterByName, getGatewayForOrg, type GatewayName } from "@/lib/gateway";
+import { sendEmail, type MailContext } from "@/lib/email";
 
 /**
  * The adapter whose credentials belong to THIS org, for verifying a webhook it
@@ -210,7 +211,99 @@ export async function POST(
   }
 
   await finishEvent(name, eventId, intent.id, `posted entry ${entryId}`);
+
+  // ── The receipt, actually sent ────────────────────────────────────────────
+  //
+  // 📌 Reported as "client fund payment receipt didn't get to the recipient's
+  // email". Measured: nothing was ever emailed by this codebase on a successful
+  // collection. A receipt PDF is rendered on demand at
+  // `/api/receipts/[intentId]`, which requires a signed-in session and is
+  // linked only from inside the dashboard — so a tenant who paid a link and has
+  // no portal account had no route to it at all. The help guide's claim that a
+  // verified payment "issues a receipt in real time" meant "makes one
+  // downloadable", which is not what a payer reads it as.
+  //
+  // ⚠️ AFTER `finishEvent`, and every failure swallowed. The money is already
+  // posted to the ledger; an email provider being down must never turn a
+  // settled collection into a webhook the gateway will retry.
+  try {
+    await sendCollectionReceipt(intent.id);
+  } catch (e) {
+    console.error("receipt email failed:", e instanceof Error ? e.message : e);
+  }
+
   return new NextResponse("OK", { status: 200 });
+}
+
+/**
+ * Emails the payer a receipt for a collection that has just posted.
+ *
+ * The figures are re-read from the intent AFTER `record_collection` rather than
+ * passed in, so what the receipt states and what the ledger holds are the same
+ * numbers by construction — the same rule `getChainState` follows for an
+ * amount, and the reason a receipt is generated from the ledger rather than
+ * from the gateway payload.
+ */
+async function sendCollectionReceipt(intentId: string): Promise<void> {
+  const { data } = await supabaseAdmin
+    .from("payment_intents")
+    .select(
+      "id, org_id, purpose, currency, amount_paid, amount_expected, paid_at, gateway_reference, payer_email, payer_user_id, users:payer_user_id(full_name, email)"
+    )
+    .eq("id", intentId)
+    .maybeSingle();
+
+  if (!data) return;
+
+  const payer = data.users as { full_name?: string; email?: string } | null;
+  const to = (data.payer_email as string | null) ?? payer?.email ?? null;
+  if (!to) return;
+
+  const paid = Number(data.amount_paid ?? 0);
+  const expected = Number(data.amount_expected ?? 0);
+  const currency = (data.currency as string) ?? "NGN";
+  const money = (n: number) =>
+    `${currency === "NGN" ? "₦" : `${currency} `}${n.toLocaleString("en-NG", {
+      minimumFractionDigits: 2, maximumFractionDigits: 2,
+    })}`;
+  const what = String(data.purpose ?? "payment").replace(/_/g, " ");
+
+  await sendEmail({
+    to,
+    orgId: data.org_id as string,
+    category: "finance",
+    entityType: "payment_intent",
+    entityId: data.id as string,
+    subject: (ctx: MailContext) => `${ctx.brandName} — receipt for your ${what} payment`,
+    text: (ctx: MailContext) =>
+      [
+        `Dear ${payer?.full_name ?? "Sir/Madam"},`,
+        ``,
+        `We have received your ${what} payment. Thank you.`,
+        ``,
+        `Amount received: ${money(paid)}`,
+        // Stated only when it differs. A receipt that says "invoiced ₦X" on a
+        // payment that settled it in full is noise; on a part payment it is the
+        // single most useful line on the page.
+        ...(paid < expected
+          ? [
+              `Invoiced:        ${money(expected)}`,
+              `Still outstanding: ${money(expected - paid)}`,
+            ]
+          : []),
+        `Reference:       ${data.gateway_reference ?? "—"}`,
+        `Date:            ${new Date(String(data.paid_at ?? Date.now())).toLocaleDateString("en-NG", {
+          day: "numeric", month: "long", year: "numeric",
+        })}`,
+        ``,
+        `This receipt is issued from our ledger, so it always states what has actually been recorded against your account.`,
+        ...(data.payer_user_id
+          ? [``, `You can see your full payment history any time by signing in to your ${ctx.brandName} portal.`]
+          : []),
+        ``,
+        `${ctx.brandName}`,
+      ].join("\n"),
+  });
 }
 
 /**

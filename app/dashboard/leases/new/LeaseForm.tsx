@@ -7,7 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { runAction, describeError } from "@/lib/run-action";
+import { Plus } from "lucide-react";
 import { createLease, vacantUnitsFor } from "../actions";
+import { saveUnit } from "../../properties/actions";
 
 type Option = { id: string; label: string };
 
@@ -22,14 +24,56 @@ type Option = { id: string; label: string };
 export default function LeaseForm({
   properties,
   tenants,
+  unitTypes,
 }: {
   properties: Option[];
   tenants: Option[];
+  unitTypes: { id: string; label: string; category: "residential" | "commercial" }[];
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
   const [units, setUnits] = React.useState<Option[]>([]);
   const [loadingUnits, setLoadingUnits] = React.useState(false);
+
+  /**
+   * The inline add-a-unit (decision 31).
+   *
+   * ⚠️ The state this closes was a genuine dead end, and the form said so in
+   * plain text without doing anything about it: "End one first, or add a unit
+   * to the property" was a sentence, not a link. A property filed before 0252
+   * made units compulsory can have none at all, and the person meeting that is
+   * standing on this form with a tenancy to record and nowhere to record it.
+   */
+  const [addingUnit, setAddingUnit] = React.useState(false);
+  const [newUnit, setNewUnit] = React.useState({ type: "", count: "1", space: "" });
+  const [savingUnit, setSavingUnit] = React.useState(false);
+
+  async function addUnit() {
+    setSavingUnit(true);
+    try {
+      await runAction(
+        saveUnit({
+          propertyId: form.propertyId,
+          label: newUnit.type,
+          apportionmentFactor: newUnit.space,
+          unitQuantity: newUnit.count || "1",
+          description: "",
+          occupantUserId: null,
+        })
+      );
+      toast.success("Unit added");
+      setAddingUnit(false);
+      setNewUnit({ type: "", count: "1", space: "" });
+      // Re-ask rather than splice the new row in: `vacantUnitsFor` applies
+      // `unit_is_vacant` (decision 22's one rule), and a list this form built
+      // for itself would be a second opinion on vacancy.
+      await onProperty(form.propertyId);
+    } catch (err) {
+      toast.error("Could not add that unit", { description: describeError(err) });
+    } finally {
+      setSavingUnit(false);
+    }
+  }
 
   const today = new Date().toISOString().slice(0, 10);
   const inAYear = (() => {
@@ -136,13 +180,88 @@ export default function LeaseForm({
               <option key={u.id} value={u.id}>{u.label}</option>
             ))}
           </Select>
-          {form.propertyId && !loadingUnits && units.length === 0 && (
-            <p className="text-xs text-muted-foreground">
-              Every unit here already has a live tenancy. End one first, or add a
-              unit to the property.
-            </p>
+          {form.propertyId && !loadingUnits && units.length === 0 && !addingUnit && (
+            <div className="space-y-1.5">
+              <p className="text-xs text-muted-foreground">
+                Nothing here is free — either every unit already has a live
+                tenancy, or this property has none recorded yet.
+              </p>
+              <button
+                type="button"
+                onClick={() => setAddingUnit(true)}
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--brand)] hover:underline"
+              >
+                <Plus className="size-3.5" /> Add a unit to this property
+              </button>
+            </div>
           )}
         </div>
+
+        {addingUnit && (
+          <div className="space-y-3 rounded-lg border border-border bg-muted/30 p-4 sm:col-span-2">
+            <p className="text-sm font-medium">Add a unit to this property</p>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="nu-type">Type</Label>
+                <Select
+                  id="nu-type"
+                  value={newUnit.type}
+                  onChange={(e) => setNewUnit((u) => ({ ...u, type: e.target.value }))}
+                >
+                  <option value="">Choose…</option>
+                  <optgroup label="Residential">
+                    {unitTypes.filter((t) => t.category === "residential").map((t) => (
+                      <option key={t.id} value={t.label}>{t.label}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Commercial">
+                    {unitTypes.filter((t) => t.category === "commercial").map((t) => (
+                      <option key={t.id} value={t.label}>{t.label}</option>
+                    ))}
+                  </optgroup>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="nu-count">How many</Label>
+                <Input
+                  id="nu-count" inputMode="numeric" value={newUnit.count}
+                  onChange={(e) => setNewUnit((u) => ({ ...u, count: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="nu-space">Occupied space</Label>
+                <Input
+                  id="nu-space" inputMode="decimal" value={newUnit.space}
+                  onChange={(e) => setNewUnit((u) => ({ ...u, space: e.target.value }))}
+                  placeholder="e.g. 32.5"
+                />
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Each unit is created as its own row and starts vacant. Occupied
+              space is what the service charge is apportioned on.
+            </p>
+            <div className="flex gap-2">
+              <Button
+                type="button" size="sm"
+                disabled={
+                  savingUnit ||
+                  !newUnit.type.trim() ||
+                  !(Number((newUnit.space || "").replace(/[,\s]/g, "")) > 0)
+                }
+                onClick={addUnit}
+              >
+                {savingUnit ? "Adding…" : "Add unit"}
+              </Button>
+              <Button
+                type="button" variant="ghost" size="sm" disabled={savingUnit}
+                onClick={() => setAddingUnit(false)}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
 
         <div className="space-y-1.5 sm:col-span-2">
           <Label htmlFor="l-tenant">

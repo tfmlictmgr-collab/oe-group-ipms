@@ -87,9 +87,11 @@ export default function ChainTrail({ state }: { state: ChainState }) {
                   <p className="text-xs text-muted-foreground">
                     {refused
                       ? "Refused"
-                      : stale
-                        ? "Needs approving again — was approved"
-                        : "Approved"}{" "}
+                      : s.decision === "returned"
+                        ? "Sent back for correction"
+                        : stale
+                          ? "Needs approving again — was approved"
+                          : "Approved"}{" "}
                     by {s.actorName ?? "someone no longer listed"}
                     {s.decidedAt
                       ? ` · ${new Date(s.decidedAt).toLocaleDateString("en-NG", {
@@ -114,6 +116,58 @@ export default function ChainTrail({ state }: { state: ChainState }) {
           );
         })}
       </ol>
+
+      {/* ── The movement ───────────────────────────────────────────────────
+          Asked for directly: "even though an approval has been given the
+          approvers should still be able to view the movement, it should not
+          disappear."
+
+          The list above is what is TRUE NOW and decides what happens next; this
+          is what HAPPENED. They differ whenever a round has been retired — by
+          an amount change (0175) or by a return (0250b) — and the difference is
+          exactly the part somebody wants to read. Rendered only when there is
+          more history than the current state already shows, so an ordinary
+          three-approval payment does not grow a redundant second list. */}
+      {state.history.length > state.stages.filter((s) => s.decision).length && (
+        <details className="rounded-lg border border-border bg-muted/30 px-3 py-2">
+          <summary className="cursor-pointer text-xs font-medium">
+            Movement — every decision on this payment ({state.history.length})
+          </summary>
+          <ol className="mt-2 space-y-1.5">
+            {state.history.map((h, i) => (
+              <li
+                key={`${h.stageOrder}-${h.at}-${i}`}
+                className={cn(
+                  "text-xs",
+                  h.superseded ? "text-muted-foreground line-through decoration-muted-foreground/40" : "text-foreground"
+                )}
+              >
+                <span className="font-medium">Stage {h.stageOrder}</span>{" "}
+                {h.decision === "returned"
+                  ? "sent back"
+                  : h.decision === "rejected"
+                    ? "refused"
+                    : "approved"}{" "}
+                by {h.actorName ?? "someone no longer listed"} ·{" "}
+                {new Date(h.at).toLocaleDateString("en-NG", {
+                  day: "numeric",
+                  month: "short",
+                  year: "numeric",
+                })}{" "}
+                · {formatNaira(h.amount)}
+                {h.superseded && (
+                  <span className="ml-1 no-underline"> (no longer counts)</span>
+                )}
+                {h.reason && (
+                  <span className="block pl-3 italic no-underline">
+                    &ldquo;{h.reason}&rdquo;
+                  </span>
+                )}
+              </li>
+            ))}
+          </ol>
+        </details>
+      )}
 
       <p className="text-xs text-muted-foreground">
         Disbursement is a fourth step held by finance alone — it is not an
