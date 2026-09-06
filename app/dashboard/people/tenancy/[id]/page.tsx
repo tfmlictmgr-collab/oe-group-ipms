@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import ReviewPanel from "./ReviewPanel";
+import OfferPanel, { type OfferRow } from "./OfferPanel";
 import AttachmentList from "./AttachmentList";
 import DocumentChecks, { type Finding } from "./DocumentChecks";
 
@@ -51,7 +52,7 @@ export default async function ApplicationReviewPage({
   const application = appRes.data;
   if (!application) notFound();
 
-  const [attachRes, decisionsRes, requirementsRes, unitsRes, findingsRes, propRes] =
+  const [attachRes, decisionsRes, requirementsRes, unitsRes, findingsRes, propRes, offerRes] =
     await Promise.all([
     supabase
       .from("application_attachments")
@@ -95,9 +96,51 @@ export default async function ApplicationReviewPage({
     application.property_id
       ? supabase.from("properties").select("name").eq("id", application.property_id).maybeSingle()
       : Promise.resolve({ data: null }),
+    // The letter of offer (0263). RLS-scoped like everything else here — the
+    // policy delegates to `tenant_applications`, so whoever may read the
+    // application may read its offer and nobody else can.
+    supabase
+      .from("tenancy_offers")
+      .select(
+        "id, status, rent_amount, service_charge_amount, deposit_amount, other_charges_amount, " +
+        "other_charges_label, term_months, commences_on, expires_on, conditions, issued_at, " +
+        "responded_at, decline_reason, withdrawn_reason"
+      )
+      .eq("application_id", id)
+      .order("issued_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ]);
 
   const propertyName = (propRes.data as { name: string } | null)?.name ?? null;
+
+  // ⚠️ Whether THIS approval completes the application, which is what decides
+  // whether the offer terms are asked for. Counted the same way
+  // `record_application_approval` counts — DISTINCT approvers, because a
+  // corporate application needs two different people and not two decisions.
+  const approversSoFar = new Set(
+    (decisionsRes.data ?? [])
+      .filter((d) => d.kind === "approve")
+      .map((d) => d.decided_by)
+  ).size;
+  const approvalsRequired = application.type === "corporate" ? 2 : 1;
+  const willComplete = approversSoFar + 1 >= approvalsRequired;
+
+  // `lapsed` is arithmetic and never a stored status — nothing sweeps these
+  // rows, so a column would still read `issued` on an offer that expired in
+  // March. The same test `accept_tenancy_offer` applies, so this screen and the
+  // database cannot disagree about whether an offer can still be taken up.
+  const offerRow = offerRes.data as (Omit<OfferRow, "state"> & { status: string }) | null;
+  const offer: OfferRow | null = offerRow
+    ? {
+        ...offerRow,
+        state:
+          offerRow.status === "issued" &&
+          offerRow.expires_on < new Date().toISOString().slice(0, 10)
+            ? "lapsed"
+            : (offerRow.status as OfferRow["state"]),
+      }
+    : null;
   const sections: Section[] = sectionsFor(application.type);
   const form = (application.form ?? {}) as Record<string, unknown>;
   const attachments = attachRes.data ?? [];
@@ -297,6 +340,24 @@ export default async function ApplicationReviewPage({
         </Card>
       )}
 
+      {offer && (
+        <OfferPanel
+          offer={offer}
+          applicationId={application.id}
+          applicantEmail={application.applicant_email}
+          applicantName={application.applicant_name}
+          orgId={application.org_id}
+          canApprove={canApprove}
+          // Prefilled from the offer, so the tenancy that gets recorded is the
+          // one that was actually agreed rather than one retyped from memory.
+          leaseHref={
+            offer.state === "accepted"
+              ? `/dashboard/leases/new?offer=${offer.id}`
+              : null
+          }
+        />
+      )}
+
       <ReviewPanel
         applicationId={application.id}
         status={application.status}
@@ -313,6 +374,7 @@ export default async function ApplicationReviewPage({
         ).map((u) => ({ id: u.id, label: u.display_label }))}
         propertyId={application.property_id}
         propertyName={propertyName}
+        willComplete={willComplete}
       />
     </div>
   );

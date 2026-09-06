@@ -13,7 +13,9 @@ import {
   type FormClaims,
 } from "@/lib/document-verification";
 import { hashToken, newResumeToken, resumeUrl, DRAFT_DAYS } from "@/lib/application-resume";
-import { generateInviteToken, hashInviteToken, buildInviteUrl } from "@/lib/invitation";
+import { hashOfferToken, newOfferToken, offerUrl } from "@/lib/tenancy-offer-token";
+import { type OfferTerms } from "@/lib/tenancy-offer";
+import { sendOfferLetter, sendRejectionNotice } from "@/lib/application-mail";
 import { ok, fail, failFromDb, type ActionResult } from "@/lib/action-result";
 
 // Every action here is a thin wrapper: the state machine, the maker-checker
@@ -114,69 +116,253 @@ export async function requestMoreInfo(
   return ok();
 }
 
+export type OfferInput = {
+  rentAmount: string;
+  serviceChargeAmount: string;
+  depositAmount: string;
+  otherChargesAmount: string;
+  otherChargesLabel: string;
+  termMonths: string;
+  commencesOn: string;
+  expiresOn: string;
+  conditions: string;
+};
+
+const money = (v: string): number => {
+  const n = Number((v ?? "").replace(/[,\s₦]/g, "") || "0");
+  return Number.isFinite(n) ? n : NaN;
+};
+
+/** Every rule the offer form has to satisfy, in one place — the panel disables
+ *  its button on the same answers, so what is offered and what is accepted
+ *  cannot disagree. The database re-checks all of it regardless. */
+function checkTerms(offer: OfferInput): string | null {
+  const rent = money(offer.rentAmount);
+  if (!Number.isFinite(rent) || rent <= 0) return "Give the rent as a number greater than zero.";
+  const rest = [offer.serviceChargeAmount, offer.depositAmount, offer.otherChargesAmount].map(money);
+  if (rest.some((n) => !Number.isFinite(n) || n < 0)) {
+    return "The service charge, deposit and other charges must be zero or more.";
+  }
+  if (money(offer.otherChargesAmount) > 0 && offer.otherChargesLabel.trim().length < 2) {
+    return "Say what the other charges are for.";
+  }
+  const term = Number(offer.termMonths);
+  if (!Number.isInteger(term) || term < 1 || term > 120) {
+    return "The term has to be between 1 and 120 months.";
+  }
+  if (!offer.commencesOn) return "Say when the tenancy commences.";
+  if (!offer.expiresOn) return "Say by when the offer has to be accepted.";
+  if (offer.expiresOn < new Date().toISOString().slice(0, 10)) {
+    return "The acceptance deadline has to be today or later.";
+  }
+  return null;
+}
+
+function termsOf(offer: OfferInput): OfferTerms {
+  return {
+    rentAmount: money(offer.rentAmount),
+    serviceChargeAmount: money(offer.serviceChargeAmount),
+    depositAmount: money(offer.depositAmount),
+    otherChargesAmount: money(offer.otherChargesAmount),
+    otherChargesLabel: offer.otherChargesLabel.trim() || null,
+    termMonths: Number(offer.termMonths),
+    commencesOn: offer.commencesOn,
+    expiresOn: offer.expiresOn,
+    conditions: offer.conditions.trim() || null,
+  };
+}
+
+/** Where the offer is FOR, read back from the record rather than passed in:
+ *  the page that rendered the button is not the authority on which unit was
+ *  assigned, and an offer letter naming the wrong flat is worse than a slow one. */
+async function offerPlace(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  applicationId: string
+) {
+  const { data } = await supabase
+    .from("tenant_applications")
+    .select("properties(name, address), units(label)")
+    .eq("id", applicationId)
+    .maybeSingle();
+  const property = data?.properties as unknown as { name: string; address: string | null } | null;
+  const unit = data?.units as unknown as { label: string } | null;
+  return {
+    propertyName: property?.name ?? null,
+    propertyAddress: property?.address ?? null,
+    unitLabel: unit?.label ?? null,
+  };
+}
+
+/**
+ * Tier-2 approval — which now issues a LETTER OF OFFER, not an account.
+ *
+ * ⚠️ The sequence changed here (0263). This used to create the tenant's portal
+ * invitation and email "your application was approved, set up your account" —
+ * an account, naming no rent, no term, no deposit and nothing to accept,
+ * because none of those figures existed anywhere at the moment of approval.
+ * The offer is what a tenant actually agrees to, and the invitation is what
+ * ACCEPTING it produces.
+ *
+ * For a corporate applicant this may be the first of two approvals, in which
+ * case no offer is made: terms stated by one approver before the second has
+ * looked would be an offer the organisation had not finished making.
+ */
 export async function approveApplication(
   applicationId: string,
   applicantEmail: string,
   applicantName: string,
   orgId: string,
-  reason: string
-): Promise<ActionResult<{ completed: boolean }>> {
-  const supabase = await createClient();
+  reason: string,
+  offer: OfferInput
+): Promise<ActionResult<{ completed: boolean; emailed: boolean }>> {
+  const problem = checkTerms(offer);
+  if (problem) return fail(problem, "An offer states what the tenant is agreeing to; it cannot be left blank.");
 
-  // Generated here, the same way `inviteMember` generates one — only the caller
-  // ever holds the raw value, so only the caller can email it. The RPC stores
-  // just the hash and tells us whether THIS call was the one that completed the
-  // application (corporate needs two; this may be the first of them).
-  const token = generateInviteToken();
-  const { data: invitationId, error } = await supabase.rpc("record_application_approval", {
+  const supabase = await createClient();
+  const terms = termsOf(offer);
+
+  // Generated here, so only the caller ever holds the raw value and only the
+  // caller can email it — the rule every invitation in this system follows.
+  const token = newOfferToken();
+
+  const { data: offerId, error } = await supabase.rpc("record_application_approval", {
     p_application_id: applicationId,
     p_reason: reason,
-    p_invite_token_hash: hashInviteToken(token),
+    p_accept_token_hash: hashOfferToken(token),
+    p_rent_amount: terms.rentAmount,
+    p_service_charge_amount: terms.serviceChargeAmount,
+    p_deposit_amount: terms.depositAmount,
+    p_other_charges_amount: terms.otherChargesAmount,
+    p_other_charges_label: terms.otherChargesLabel,
+    p_term_months: terms.termMonths,
+    p_commences_on: terms.commencesOn,
+    p_expires_on: terms.expiresOn,
+    p_conditions: terms.conditions,
   });
   if (error) return failFromDb(error, "record that approval");
 
-  if (invitationId) {
+  let emailed = false;
+  if (offerId) {
     try {
-      const url = buildInviteUrl(await origin(), token);
-      await sendEmail({
-        to: applicantEmail,
-        orgId,
-        category: "account",
-        entityType: "invitation",
-        entityId: invitationId,
-        subject: (ctx) => `Your ${ctx.brandName} tenancy application was approved`,
-        text: (ctx) =>
-          [
-            `Hello ${applicantName},`,
-            ``,
-            `Good news — your tenancy application with ${ctx.brandName} has been approved.`,
-            ``,
-            `Set up your account to get started:`,
-            url,
-            ``,
-            `This link expires in 14 days and can only be used once.`,
-          ].join("\n"),
-      });
+      emailed = await sendOfferLetter(
+        { applicationId, orgId, email: applicantEmail, name: applicantName },
+        terms,
+        await offerPlace(supabase, applicationId),
+        offerUrl(await origin(), token)
+      );
     } catch (err) {
-      console.error("Could not email the approval invitation:", err);
+      // The offer is recorded and its link is on the application page. A failed
+      // send must never roll back a decision two people made.
+      console.error("Could not email the offer letter:", err);
     }
   }
 
   revalidatePath(`/dashboard/people/tenancy/${applicationId}`);
   revalidatePath("/dashboard/people/tenancy");
-  return ok({ completed: Boolean(invitationId) });
+  return ok({ completed: Boolean(offerId), emailed });
 }
 
-export async function rejectApplication(applicationId: string, reason: string): Promise<ActionResult> {
+/**
+ * Withdrawing an offer, so a corrected one can be made.
+ *
+ * ⚠️ Without this an offer with a mistyped rent is terminal: the application is
+ * already `approved`, so the approval path cannot be walked again, and the one
+ * live offer holds the unit. That is the dead end decision 30 was written
+ * about, reached from the lettings side instead of the payment side.
+ */
+export async function withdrawOffer(
+  offerId: string,
+  applicationId: string,
+  reason: string
+): Promise<ActionResult> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("withdraw_tenancy_offer", {
+    p_offer_id: offerId,
+    p_reason: reason,
+  });
+  if (error) return failFromDb(error, "withdraw that offer");
+  revalidatePath(`/dashboard/people/tenancy/${applicationId}`);
+  return ok();
+}
+
+/** A corrected offer, on an application that is already approved. */
+export async function reissueOffer(
+  applicationId: string,
+  applicantEmail: string,
+  applicantName: string,
+  orgId: string,
+  offer: OfferInput
+): Promise<ActionResult<{ emailed: boolean }>> {
+  const problem = checkTerms(offer);
+  if (problem) return fail(problem);
+
+  const supabase = await createClient();
+  const terms = termsOf(offer);
+  const token = newOfferToken();
+
+  const { error } = await supabase.rpc("issue_tenancy_offer", {
+    p_application_id: applicationId,
+    p_accept_token_hash: hashOfferToken(token),
+    p_rent_amount: terms.rentAmount,
+    p_service_charge_amount: terms.serviceChargeAmount,
+    p_deposit_amount: terms.depositAmount,
+    p_other_charges_amount: terms.otherChargesAmount,
+    p_other_charges_label: terms.otherChargesLabel,
+    p_term_months: terms.termMonths,
+    p_commences_on: terms.commencesOn,
+    p_expires_on: terms.expiresOn,
+    p_conditions: terms.conditions,
+  });
+  if (error) return failFromDb(error, "make that offer");
+
+  let emailed = false;
+  try {
+    emailed = await sendOfferLetter(
+      { applicationId, orgId, email: applicantEmail, name: applicantName },
+      terms,
+      await offerPlace(supabase, applicationId),
+      offerUrl(await origin(), token)
+    );
+  } catch (err) {
+    console.error("Could not email the offer letter:", err);
+  }
+
+  revalidatePath(`/dashboard/people/tenancy/${applicationId}`);
+  return ok({ emailed });
+}
+
+export async function rejectApplication(
+  applicationId: string,
+  reason: string,
+  applicant?: { email: string; name: string; orgId: string }
+): Promise<ActionResult<{ emailed: boolean }>> {
   const supabase = await createClient();
   const { error } = await supabase.rpc("record_application_rejection", {
     p_application_id: applicationId,
     p_reason: reason,
   });
   if (error) return failFromDb(error, "record that rejection");
+
+  // ⚠️ Nothing was ever sent here. A rejection that reaches nobody is not a
+  // rejection — decision 10's whole basis is that the reviewer's recorded reason
+  // is CONTESTABLE, and a person cannot contest a decision they were never told
+  // about. The reviewer's own words travel with it, which is also what makes the
+  // 90-day retention meaningful rather than merely true.
+  let emailed = false;
+  if (applicant?.email) {
+    try {
+      emailed = await sendRejectionNotice(
+        { applicationId, orgId: applicant.orgId, email: applicant.email, name: applicant.name },
+        reason
+      );
+    } catch (err) {
+      console.error("Could not email the rejection notice:", err);
+    }
+  }
+
   revalidatePath(`/dashboard/people/tenancy/${applicationId}`);
   revalidatePath("/dashboard/people/tenancy");
-  return ok();
+  return ok({ emailed });
 }
 
 /**

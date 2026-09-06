@@ -6,6 +6,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ok, fail, type ActionResult } from "@/lib/action-result";
 import { checkRateLimit, clientIp } from "@/lib/rate-limit";
 import { sendEmail } from "@/lib/email";
+import { sendSubmissionAcknowledgement } from "@/lib/application-mail";
 import { hashToken, newResumeToken, resumeUrl, DRAFT_DAYS } from "@/lib/application-resume";
 import { headers } from "next/headers";
 import {
@@ -221,7 +222,30 @@ export async function submitApplication(
     return fail("The application could not be submitted. Please try again.");
   }
 
-  return ok({ reference: String(submitted).slice(0, 8).toUpperCase() });
+  const reference = String(submitted).slice(0, 8).toUpperCase();
+
+  // ⚠️ Until now this was silent. A person hands over their identity documents,
+  // their bank statements and their employer's details, and heard nothing back
+  // at all — their reference appeared once on the screen behind them and
+  // nowhere afterwards, so there was no record on their side that anything had
+  // been received. Sent AFTER the submission is recorded and never allowed to
+  // fail it: a mail outage must not turn an accepted application into an error.
+  try {
+    await sendSubmissionAcknowledgement(
+      {
+        applicationId: applicationId,
+        orgId: draft.org_id as string,
+        email: draft.applicant_email as string,
+        name: draft.applicant_name as string,
+      },
+      reference,
+      draft.status === "info_requested"
+    );
+  } catch (error) {
+    console.error("Could not acknowledge the submission:", error);
+  }
+
+  return ok({ reference });
 }
 
 /**

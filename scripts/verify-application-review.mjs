@@ -169,11 +169,35 @@ const indApp = await mkApp(propA, "individual", "ind");
     : bad(`status=${after.status} rec=${after.recommendation} by=${after.recommended_by}`);
 }
 
+// ── The offer's terms (0263) ───────────────────────────────────────────────
+//
+// ⚠️ `record_application_approval` no longer takes an invitation token and no
+// longer creates an invitation. The completing approval issues a LETTER OF
+// OFFER, and ACCEPTING that offer is what creates the account. The old
+// three-argument signature was dropped rather than left callable with defaults,
+// so a suite still passing `p_invite_token_hash` fails loudly here — which is
+// the point of dropping it.
+const dayFromNow = (n) =>
+  new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
+
+const TERMS = () => ({
+  p_rent_amount: 4_500_000,
+  p_service_charge_amount: 1_200_000,
+  p_deposit_amount: 450_000,
+  p_other_charges_amount: 0,
+  p_other_charges_label: null,
+  p_term_months: 12,
+  p_commences_on: dayFromNow(30),
+  p_expires_on: dayFromNow(14),
+  p_conditions: null,
+});
+
 console.log("\nB. Maker-checker — the recommender can never also decide");
 {
   const c1 = await login(fm1.email);
   const { error } = await c1.rpc("record_application_approval", {
     p_application_id: indApp, p_reason: "I already reviewed this myself, approving it too",
+    p_accept_token_hash: hash("unused"), ...TERMS(),
   });
   error ? ok("the recommender is refused when trying to approve their own recommendation")
         : bad("THE RECOMMENDER APPROVED THEIR OWN RECOMMENDATION");
@@ -185,7 +209,7 @@ console.log("\nC. Approval refuses with no unit assigned");
   const admin = await login(adminUser.email);
   const { error } = await admin.rpc("record_application_approval", {
     p_application_id: indApp, p_reason: "documents verified independently, approving",
-    p_invite_token_hash: hash("unused"),
+    p_accept_token_hash: hash("unused"), ...TERMS(),
   });
   error && /unit/i.test(error.message)
     ? ok("refused with no unit assigned, and says so")
@@ -206,17 +230,17 @@ console.log("\nD. Assigning the unit is scoped the same way");
   await c1.auth.signOut();
 }
 
-console.log("\nE. Individual: one approval completes it and issues a tenant invitation");
-let indInviteToken, indInviteId;
+console.log("\nE. Individual: one approval completes it and issues an OFFER — not an account");
+let indInviteToken, indInviteId, indOfferId, indOfferToken;
 {
-  indInviteToken = crypto.randomBytes(24).toString("base64url");
+  indOfferToken = crypto.randomBytes(24).toString("base64url");
   const admin = await login(adminUser.email);
-  const { data: inviteId, error } = await admin.rpc("record_application_approval", {
+  const { data: offerId, error } = await admin.rpc("record_application_approval", {
     p_application_id: indApp, p_reason: "independently verified — income, ID and guarantor all check out",
-    p_invite_token_hash: hash(indInviteToken),
+    p_accept_token_hash: hash(indOfferToken), ...TERMS(),
   });
-  !error && inviteId ? ok("approved, and an invitation id was returned") : bad(`approval failed — ${error?.message.slice(0, 70)}`);
-  indInviteId = inviteId;
+  !error && offerId ? ok("approved, and an offer id was returned") : bad(`approval failed — ${error?.message.slice(0, 70)}`);
+  indOfferId = offerId;
   await admin.auth.signOut();
 
   const { data: after } = await svc.from("tenant_applications")
@@ -228,14 +252,114 @@ let indInviteToken, indInviteId;
     ? ok("no purge date set on approval — retention runs from tenancy end, not this")
     : bad(`purge_after was set on an approval: ${after.purge_after}`);
 
+  const { data: o } = await svc.from("tenancy_offers")
+    .select("status, unit_id, rent_amount, service_charge_amount, deposit_amount, term_months, issued_by")
+    .eq("id", indOfferId).single();
+  o && o.status === "issued" && o.unit_id === unit1
+    ? ok("an offer stands against the assigned unit, awaiting the applicant")
+    : bad(`offer status=${o?.status} unit=${o?.unit_id}`);
+  Number(o.rent_amount) === 4_500_000 && Number(o.service_charge_amount) === 1_200_000
+    ? ok("it carries the rent and the service charge as separate figures, never one total")
+    : bad(`rent=${o?.rent_amount} sc=${o?.service_charge_amount}`);
+  o.issued_by === adminUser.id
+    ? ok("and names who made it")
+    : bad(`issued_by=${o?.issued_by}, expected the approver`);
+
+  // ⚠️ The regression this whole change exists to hold. Approval used to create
+  // the portal invitation and email "set up your account" — an account, before
+  // anybody had told the applicant the rent. An account must not exist yet.
+  const { count } = await svc.from("invitations")
+    .select("id", { count: "exact", head: true })
+    .eq("email", `probeapp-ind-${S}@example.com`);
+  (count ?? 0) === 0
+    ? ok("and NO invitation exists yet — an account is what accepting produces")
+    : bad(`${count} invitation(s) were issued at approval, before the applicant saw any terms`);
+
+  // A second live offer would be two sets of terms with two working links.
+  //
+  // 📌 Asked as the APPROVER, not through the service role. The first draft used
+  // `svc` and "failed" with "no such application" — because `issue_tenancy_offer`
+  // scopes on `current_user_org_id()`, which is null for the service role. It
+  // would have passed the moment somebody loosened the regex, having never once
+  // exercised the rule it names. The same fault `verify-vendor-self-service`
+  // records about fixtures that only ever write as the service role.
+  const admin2 = await login(adminUser.email);
+  const { error: dupOffer } = await admin2.rpc("issue_tenancy_offer", {
+    p_application_id: indApp, p_accept_token_hash: hash("second"), ...TERMS(),
+  });
+  dupOffer && /outstanding/i.test(dupOffer.message)
+    ? ok("a second live offer is refused while one is outstanding")
+    : bad(`a second live offer was allowed: ${dupOffer?.message ?? "no error"}`);
+  await admin2.auth.signOut();
+}
+
+console.log("\nE2. The applicant answers their own offer, by token alone");
+{
+  // What a stranger's guess gets. The token is the whole authority, so this is
+  // the one thing that must never resolve.
+  const { data: nothing } = await svc.rpc("tenancy_offer_by_token", { p_token_hash: hash("not-a-token") });
+  (nothing ?? []).length === 0
+    ? ok("an unknown token resolves to nothing and cannot be made to list")
+    : bad(`an unknown token returned ${(nothing ?? []).length} row(s)`);
+
+  const { data: seen } = await svc.rpc("tenancy_offer_by_token", { p_token_hash: hash(indOfferToken) });
+  const row = Array.isArray(seen) ? seen[0] : seen;
+  row && row.state === "issued" && Number(row.rent_amount) === 4_500_000
+    ? ok("the applicant's own token renders the terms, the unit and the brand")
+    : bad(`the offer page would render: ${JSON.stringify(row)?.slice(0, 90)}`);
+
+  // ⚠️ These three answer for a person with NO ACCOUNT, so no signed-in session
+  // should reach them either. Supabase's default privileges grant EXECUTE to
+  // anon AND authenticated on every new function, and a `revoke ... from public,
+  // anon` leaves the middle one standing — which is exactly what happened on
+  // the first run of 0263 and is 0204/0209/0210's lesson one role over.
+  const anonC = createClient(URL_, ANON);
+  for (const fn of ["tenancy_offer_by_token", "accept_tenancy_offer", "decline_tenancy_offer"]) {
+    const { error } = await anonC.rpc(fn, { p_token_hash: hash(indOfferToken), p_invite_token_hash: hash("x"), p_reason: null });
+    error && /permission denied|not find the function|schema cache/i.test(error.message)
+      ? ok(`${fn} is unreachable by anon`)
+      : bad(`ANON CAN CALL ${fn}: ${error?.message ?? "no error at all"}`);
+  }
+  const signedIn = await login(fm2.email);
+  for (const fn of ["tenancy_offer_by_token", "accept_tenancy_offer", "decline_tenancy_offer"]) {
+    const { error } = await signedIn.rpc(fn, { p_token_hash: hash(indOfferToken), p_invite_token_hash: hash("x"), p_reason: null });
+    error && /permission denied|not find the function|schema cache/i.test(error.message)
+      ? ok(`${fn} is unreachable by a signed-in user either`)
+      : bad(`AN ARBITRARY SIGNED-IN USER CALLED ${fn}: ${error?.message ?? "no error at all"}`);
+  }
+  await signedIn.auth.signOut();
+
+  // And now, accepted — which is what creates the account.
+  indInviteToken = crypto.randomBytes(24).toString("base64url");
+  const { data: accepted, error: acceptErr } = await svc.rpc("accept_tenancy_offer", {
+    p_token_hash: hash(indOfferToken), p_invite_token_hash: hash(indInviteToken),
+  });
+  !acceptErr && accepted?.invitation_id
+    ? ok("accepting the offer creates the tenant invitation")
+    : bad(`accept failed — ${acceptErr?.message.slice(0, 90)}`);
+  indInviteId = accepted?.invitation_id;
+
   const { data: inv } = await svc.from("invitations")
-    .select("role, unit_id, email").eq("id", indInviteId).single();
+    .select("role, unit_id, email, invited_by").eq("id", indInviteId).single();
   inv.role === "tenant" && inv.unit_id === unit1
     ? ok("the invitation carries role=tenant and the assigned unit")
     : bad(`invitation role=${inv.role} unit=${inv.unit_id}`);
+  // ⚠️ There is no session when an offer is accepted, so `auth.uid()` is null
+  // by definition. Stamping it would leave the invitation with no author — the
+  // fault 0142 had to go back and fix on remittances.
+  inv.invited_by === adminUser.id
+    ? ok("and is attributed to whoever made the offer, not to nobody")
+    : bad(`invited_by=${inv.invited_by}, expected the approver who issued the offer`);
+
+  const { error: twice } = await svc.rpc("accept_tenancy_offer", {
+    p_token_hash: hash(indOfferToken), p_invite_token_hash: hash("again"),
+  });
+  twice && /already been accepted/i.test(twice.message)
+    ? ok("and it cannot be accepted twice")
+    : bad(`a second acceptance gave: ${twice?.message ?? "NO ERROR — two invitations from one offer"}`);
 }
 
-console.log("\nF. The invitation, accepted, makes them a tenant occupying the unit");
+console.log("\nF. That invitation, redeemed, makes them a tenant occupying the unit");
 {
   const email = `probereview.newtenant.${S}@example.com`;
   const { data: created, error } = await svc.auth.admin.createUser({ email, password: PW, email_confirm: true });
@@ -289,12 +413,21 @@ const corpApp = await mkApp(propA, "corporate", "corp");
   const tok1 = crypto.randomBytes(24).toString("base64url");
   const { data: firstResult, error: e1 } = await admin.rpc("record_application_approval", {
     p_application_id: corpApp, p_reason: "verified independently, this is the first of two approvals",
-    p_invite_token_hash: hash(tok1),
+    p_accept_token_hash: hash(tok1), ...TERMS(),
   });
   !e1 ? ok("the first of two approvals is accepted") : bad(`first approval failed — ${e1.message.slice(0, 70)}`);
   firstResult === null
     ? ok("and returns null — it decides nothing on its own")
     : bad(`the first corporate approval returned ${firstResult}, expected null`);
+
+  // ⚠️ Terms stated by one approver before the second has looked would be an
+  // offer the organisation had not finished making. The arguments are accepted
+  // and deliberately discarded.
+  const { count: earlyOffers } = await svc.from("tenancy_offers")
+    .select("id", { count: "exact", head: true }).eq("application_id", corpApp);
+  (earlyOffers ?? 0) === 0
+    ? ok("and makes NO offer — a business application needs both approvers first")
+    : bad(`${earlyOffers} offer(s) were made on one of two corporate approvals`);
 
   const { data: mid } = await svc.from("tenant_applications").select("status").eq("id", corpApp).single();
   mid.status === "under_review"
@@ -303,7 +436,7 @@ const corpApp = await mkApp(propA, "corporate", "corp");
 
   const { error: dupErr } = await admin.rpc("record_application_approval", {
     p_application_id: corpApp, p_reason: "approving again with the same account to see what happens",
-    p_invite_token_hash: hash("dup"),
+    p_accept_token_hash: hash("dup"), ...TERMS(),
   });
   dupErr ? ok("the SAME approver cannot approve a second time")
          : bad("ONE PERSON APPROVED A CORPORATE APPLICATION TWICE");
@@ -313,9 +446,9 @@ const corpApp = await mkApp(propA, "corporate", "corp");
   const tok2 = crypto.randomBytes(24).toString("base64url");
   const { data: secondResult, error: e2 } = await fin.rpc("record_application_approval", {
     p_application_id: corpApp, p_reason: "independently verified, second and completing approval",
-    p_invite_token_hash: hash(tok2),
+    p_accept_token_hash: hash(tok2), ...TERMS(),
   });
-  !e2 && secondResult ? ok("a DISTINCT second approver completes it, and an invitation id is returned")
+  !e2 && secondResult ? ok("a DISTINCT second approver completes it, and an OFFER id is returned")
                       : bad(`second approval failed — ${e2?.message.slice(0, 70)}`);
   await fin.auth.signOut();
 
@@ -503,6 +636,7 @@ console.log("\nI. An approval needs a unit, and the screen says so");
   const admin = await login(adminUser.email);
   const { error } = await admin.rpc("record_application_approval", {
     p_application_id: appEmpty, p_reason: "Approving with nowhere to put them.",
+    p_accept_token_hash: hash("unused"), ...TERMS(),
   });
   error && /assign a unit/.test(error.message)
     ? ok("and the database refuses the approval, as it always did")
@@ -552,6 +686,112 @@ console.log("\nJ. The vacancy test is the database's, not the screen's");
   await svc.from("leases").delete().eq("unit_id", unitOcc);
 }
 
+console.log("\nOFF. An offer can be refused, can lapse, and can be corrected");
+{
+  // A fresh application, taken to the point of an offer.
+  // Its own unit, so nothing here depends on what an earlier section left
+  // behind — a suite whose sections share a unit is a suite whose failures move
+  // when somebody reorders it.
+  const unitOff = await mkUnit(propA, `off-${S}`);
+  const declApp = await mkApp(propA, "individual", "decl");
+  const c1 = await login(fm1.email);
+  await c1.rpc("record_application_recommendation", {
+    p_application_id: declApp, p_approve: true, p_reason: "references check out, recommending approval",
+  });
+  const { error: assignErr } = await c1.rpc("assign_application_unit", {
+    p_application_id: declApp, p_unit_id: unitOff,
+  });
+  assignErr && bad(`could not set up the offer-lifecycle case — ${assignErr.message.slice(0, 80)}`);
+  await c1.auth.signOut();
+
+  const tok = crypto.randomBytes(24).toString("base64url");
+  const admin = await login(adminUser.email);
+  const { data: offerId, error: apprErr } = await admin.rpc("record_application_approval", {
+    p_application_id: declApp, p_reason: "independently verified, approving and offering",
+    p_accept_token_hash: hash(tok), ...TERMS(),
+  });
+  apprErr && bad(`could not set up the decline case — ${apprErr.message.slice(0, 80)}`);
+
+  // Declined, with no reason — which an applicant is not obliged to give.
+  const { error: decErr } = await svc.rpc("decline_tenancy_offer", {
+    p_token_hash: hash(tok), p_reason: null,
+  });
+  !decErr ? ok("an applicant can decline, and owes no explanation for it")
+          : bad(`decline failed — ${decErr.message.slice(0, 80)}`);
+
+  const { error: lateAccept } = await svc.rpc("accept_tenancy_offer", {
+    p_token_hash: hash(tok), p_invite_token_hash: hash("late"),
+  });
+  lateAccept && /already been declined/i.test(lateAccept.message)
+    ? ok("and a declined offer cannot then be accepted")
+    : bad(`a declined offer accepted: ${lateAccept?.message ?? "NO ERROR"}`);
+
+  // ⚠️ Lapsing is arithmetic, not a swept status. Nothing runs a job over these
+  // rows, so a stored `lapsed` would be a lie the day after a cron failed.
+  const tok2 = crypto.randomBytes(24).toString("base64url");
+  const { data: reissued, error: reErr } = await admin.rpc("issue_tenancy_offer", {
+    p_application_id: declApp, p_accept_token_hash: hash(tok2), ...TERMS(),
+  });
+  !reErr && reissued
+    ? ok("a corrected offer can be made once the first is answered")
+    : bad(`re-issue failed — ${reErr?.message.slice(0, 80)}`);
+
+  // ⚠️ `issued_at` moves too. `tenancy_offers_deadline_sane` refuses a deadline
+  // before the issue date — an offer cannot be MADE already expired — so
+  // backdating only `expires_on` is silently rejected and the check that
+  // follows tests nothing. What is being simulated is time passing, not an
+  // impossible offer.
+  const { error: ageErr } = await svc.from("tenancy_offers")
+    .update({
+      issued_at: new Date(Date.now() - 30 * 86_400_000).toISOString(),
+      expires_on: dayFromNow(-1),
+    })
+    .eq("id", reissued);
+  ageErr && bad(`could not age the offer for the lapse check — ${ageErr.message.slice(0, 80)}`);
+  const { data: lapsedRow } = await svc.rpc("tenancy_offer_by_token", { p_token_hash: hash(tok2) });
+  (Array.isArray(lapsedRow) ? lapsedRow[0] : lapsedRow)?.state === "lapsed"
+    ? ok("an offer past its deadline reads as lapsed without anything sweeping it")
+    : bad("an expired offer still reads as issued");
+  const { error: staleAccept } = await svc.rpc("accept_tenancy_offer", {
+    p_token_hash: hash(tok2), p_invite_token_hash: hash("stale"),
+  });
+  staleAccept && /lapsed/i.test(staleAccept.message)
+    ? ok("and the database refuses it too, saying when it lapsed")
+    : bad(`a lapsed offer was accepted: ${staleAccept?.message ?? "NO ERROR"}`);
+
+  // Withdrawal kills the link, which is the whole point of withdrawing.
+  await svc.from("tenancy_offers").update({ status: "issued", expires_on: dayFromNow(7) }).eq("id", reissued);
+  const { error: wErr } = await admin.rpc("withdraw_tenancy_offer", {
+    p_offer_id: reissued, p_reason: "the rent was entered incorrectly, re-issuing",
+  });
+  !wErr ? ok("an offer can be withdrawn, with a stated reason")
+        : bad(`withdrawal failed — ${wErr.message.slice(0, 80)}`);
+  const { error: shortReason } = await admin.rpc("withdraw_tenancy_offer", {
+    p_offer_id: offerId, p_reason: "no",
+  });
+  shortReason ? ok("and a withdrawal with no real reason is refused")
+              : bad("AN OFFER WAS WITHDRAWN WITH A ONE-WORD REASON");
+  await admin.auth.signOut();
+
+  const { data: dead } = await svc.rpc("tenancy_offer_by_token", { p_token_hash: hash(tok2) });
+  (dead ?? []).length === 0
+    ? ok("a withdrawn offer's link resolves to nothing at all")
+    : bad("A WITHDRAWN OFFER'S ACCEPTANCE LINK STILL WORKS");
+
+  // ⚠️ Decision 34: an offer is a commercial commitment, so its life is in the
+  // audit trail — which `payment_approvals` did not have until 0251 and nobody
+  // noticed until somebody asked where the record was.
+  const { data: trail } = await svc.from("audit_log")
+    .select("action").eq("entity_type", "tenancy_offers").eq("entity_id", reissued);
+  const actions = (trail ?? []).map((t) => t.action);
+  actions.includes("tenancy_offer.issued") && actions.includes("tenancy_offer.status_change")
+    ? ok("its issue and its withdrawal are both in the audit trail")
+    : bad(`audit trail for that offer holds: ${actions.join(", ") || "nothing"}`);
+
+  await svc.from("tenancy_offers").delete().eq("application_id", declApp);
+}
+
+await svc.from("tenancy_offers").delete().in("application_id", madeApps);
 await svc.from("invitations").delete().eq("org_id", oea.id).like("email", "probeapp-%");
 await svc.from("application_decisions").delete().in("application_id", madeApps);
 await svc.from("application_attachments").delete().in("application_id", madeApps);

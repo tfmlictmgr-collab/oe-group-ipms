@@ -15,7 +15,9 @@ import {
   requestMoreInfo,
   approveApplication,
   rejectApplication,
+  type OfferInput,
 } from "./actions";
+import OfferTermsFields, { blankOffer, offerIsReady } from "./OfferTerms";
 
 type Unit = { id: string; label: string };
 
@@ -40,6 +42,7 @@ export default function ReviewPanel({
   vacantUnits,
   propertyId,
   propertyName,
+  willComplete,
 }: {
   applicationId: string;
   status: string;
@@ -55,11 +58,23 @@ export default function ReviewPanel({
   /** For the link out when there is nothing to assign. */
   propertyId: string | null;
   propertyName: string | null;
+  /**
+   * Whether THIS approval is the one that completes the application.
+   *
+   * ⚠️ A corporate applicant needs two approvers, and the offer is made on the
+   * second. Terms stated by the first — before the second has looked — would be
+   * an offer the organisation had not finished making, so the fields are not
+   * even shown. `record_application_approval` discards them in that case
+   * regardless; this stops somebody typing a rent that is then thrown away
+   * without being told.
+   */
+  willComplete: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState<string | null>(null);
   const [reason, setReason] = React.useState("");
   const [selectedUnit, setSelectedUnit] = React.useState(unitId ?? "");
+  const [offer, setOffer] = React.useState<OfferInput>(blankOffer);
 
   // ⚠️ An approval REQUIRES a unit (`record_application_approval`, 0082) and a
   // property on the `open` window accepts applications with nothing vacant
@@ -193,6 +208,25 @@ export default function ReviewPanel({
         </Card>
       )}
 
+      {/* ── The terms being offered ────────────────────────────────────────
+          Rendered only for the approver whose decision completes the
+          application, because only that decision makes an offer. */}
+      {canApprove && status === "under_review" && !isRecommender && willComplete && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">The offer</CardTitle>
+            <CardDescription>
+              Approving sends the applicant a letter of offer carrying these
+              terms and a link to accept or decline. It is not a tenancy — the
+              tenancy is recorded once they accept.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <OfferTermsFields value={offer} onChange={setOffer} disabled={busy !== null} />
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Your decision</CardTitle>
@@ -260,7 +294,10 @@ export default function ReviewPanel({
                 <>
                   <Button
                     type="button" size="sm" variant="brand"
-                    disabled={busy !== null || !documentsComplete || needsUnit}
+                    disabled={
+                      busy !== null || !documentsComplete || needsUnit ||
+                      (willComplete && !offerIsReady(offer))
+                    }
                     title={
                       !documentsComplete
                         ? "Documents are still outstanding"
@@ -268,13 +305,31 @@ export default function ReviewPanel({
                           ? nothingToAssign
                             ? "No unit is available on this property to assign"
                             : "Assign a unit above before approving"
-                          : undefined
+                          : willComplete && !offerIsReady(offer)
+                            ? "State the terms of the offer above"
+                            : undefined
                     }
                     onClick={() =>
                       run(
                         "Approve",
-                        () => runAction(approveApplication(applicationId, applicantEmail, applicantName, orgId, reason)),
-                        "Approved"
+                        async () => {
+                          const r = await runAction(
+                            approveApplication(applicationId, applicantEmail, applicantName, orgId, reason, offer)
+                          );
+                          // ⚠️ Said out loud rather than assumed. The offer is
+                          // recorded either way, but the applicant only knows
+                          // about it if the email went — and an approval that
+                          // reached nobody looks identical to one that did.
+                          if (r.completed && !r.emailed) {
+                            toast.warning("Approved — but the offer letter was not sent", {
+                              description:
+                                "The offer is recorded. Withdraw and re-issue it from this page to try the email again; the acceptance link exists only in that email.",
+                              duration: Infinity,
+                              closeButton: true,
+                            });
+                          }
+                        },
+                        willComplete ? "Approved — offer sent to the applicant" : "Approved"
                       )
                     }
                   >
@@ -283,7 +338,16 @@ export default function ReviewPanel({
                   <Button
                     type="button" size="sm" variant="destructive" disabled={busy !== null}
                     onClick={() =>
-                      run("Reject", () => runAction(rejectApplication(applicationId, reason)), "Rejected")
+                      run(
+                        "Reject",
+                        // The applicant's details travel with it: nothing was
+                        // ever sent on a rejection, and a decision nobody is
+                        // told about cannot be contested (decision 10).
+                        () => runAction(rejectApplication(applicationId, reason, {
+                          email: applicantEmail, name: applicantName, orgId,
+                        })),
+                        "Rejected — the applicant has been told"
+                      )
                     }
                   >
                     Reject
@@ -296,6 +360,20 @@ export default function ReviewPanel({
           {canApprove && status === "under_review" && !isRecommender && !documentsComplete && (
             <p className="text-xs text-muted-foreground">
               Approval is disabled until every required document is uploaded.
+            </p>
+          )}
+          {canApprove && status === "under_review" && !isRecommender && documentsComplete &&
+            !needsUnit && willComplete && !offerIsReady(offer) && (
+            <p className="text-xs text-muted-foreground">
+              Approval is disabled until the offer above states a rent, a term
+              and the two dates. An approval with no terms leaves nothing for the
+              applicant to accept.
+            </p>
+          )}
+          {canApprove && status === "under_review" && !isRecommender && !willComplete && (
+            <p className="text-xs text-muted-foreground">
+              This is a business application and needs two approvers. The offer
+              and its terms are stated by whoever approves second.
             </p>
           )}
           {!canRecommend && !canApprove && (

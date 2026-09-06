@@ -315,11 +315,21 @@ console.log("\nF. Findings never substitute for the reviewer's own reason");
   const c = await login("oea.admin@oegroup.test");
   if (!c) { console.log("  \x1b[33mSKIP\x1b[0m"); }
   else {
+    // Full offer terms passed (0263), so what is being tested is the REASON
+    // check and not a missing argument — a refusal for the wrong cause is a
+    // check that passes while proving nothing.
     const { error } = await c.rpc("record_application_approval", {
-      p_application_id: APP_ID, p_reason: "ok", p_invite_token_hash: "x".repeat(64),
+      p_application_id: APP_ID, p_reason: "ok",
+      p_accept_token_hash: "x".repeat(64),
+      p_rent_amount: 1_000_000, p_service_charge_amount: 0, p_deposit_amount: 0,
+      p_other_charges_amount: 0, p_other_charges_label: null, p_term_months: 12,
+      p_commences_on: new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10),
+      p_expires_on: new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10),
+      p_conditions: null,
     });
-    error ? ok("approval with a two-character reason is still refused, whatever the findings say")
-          : bad("AN APPLICATION WAS APPROVED WITHOUT A REAL REASON");
+    error && /reason/i.test(error.message)
+      ? ok("approval with a two-character reason is still refused, whatever the findings say")
+      : bad(`expected a REASON refusal, got: ${error?.message ?? "NO ERROR — approved without a real reason"}`);
     await c.auth.signOut();
   }
 }

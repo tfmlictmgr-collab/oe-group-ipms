@@ -21,14 +21,40 @@ type Option = { id: string; label: string };
  * almost every tenancy typed into it, and the person typing would have to
  * correct it every single time.
  */
+/**
+ * A tenancy prefilled from an ACCEPTED offer (0263).
+ *
+ * ⚠️ The point of carrying it through rather than letting someone retype it:
+ * the offer is what the tenant agreed to, in writing, and a lease keyed in
+ * afterwards from memory is a second set of figures with nothing tying it to
+ * the first. The fields stay editable — a deposit waived at the last minute is
+ * ordinary — but the default is what was actually offered.
+ */
+export type OfferPrefill = {
+  offerId: string;
+  propertyId: string;
+  propertyName: string | null;
+  unitId: string;
+  unitLabel: string;
+  applicantName: string;
+  tenantUserId: string | null;
+  startDate: string;
+  endDate: string;
+  rentAmount: string;
+  depositAmount: string;
+  serviceCharge: string;
+};
+
 export default function LeaseForm({
   properties,
   tenants,
   unitTypes,
+  prefill,
 }: {
   properties: Option[];
   tenants: Option[];
   unitTypes: { id: string; label: string; category: "residential" | "commercial" }[];
+  prefill?: OfferPrefill | null;
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
@@ -83,12 +109,15 @@ export default function LeaseForm({
   })();
 
   const [form, setForm] = React.useState({
-    propertyId: "",
-    unitId: "",
-    tenantUserId: "",
-    startDate: today,
-    endDate: inAYear,
-    rentAmount: "",
+    propertyId: prefill?.propertyId ?? "",
+    unitId: prefill?.unitId ?? "",
+    // Empty when the tenant has not yet redeemed their invitation, which is the
+    // ordinary case the day after an offer is accepted. `createLease` accepts a
+    // tenancy with no portal user — a company let has none either (decision 22).
+    tenantUserId: prefill?.tenantUserId ?? "",
+    startDate: prefill?.startDate ?? today,
+    endDate: prefill?.endDate ?? inAYear,
+    rentAmount: prefill?.rentAmount ?? "",
     rentFrequency: "annual" as "annual" | "quarterly" | "monthly",
     escalationPct: "0",
     // "" means follow the org default (decision 14's default-plus-override,
@@ -96,12 +125,36 @@ export default function LeaseForm({
     // of the org's current value, so a later change to the default still
     // reaches every lease that never departed from it.
     adminFeeBasis: "" as "" | "per_tenancy" | "per_demand",
-    depositAmount: "",
-    notes: "",
+    depositAmount: prefill?.depositAmount ?? "",
+    notes: prefill
+      ? `Recorded from the tenancy offer accepted by ${prefill.applicantName}.`
+      : "",
   });
 
   const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
+
+  // ⚠️ Deliberately NOT `onProperty()`, which clears the unit — the whole
+  // reason we are here is that the unit is already decided. The offered unit is
+  // also added to the list explicitly below, because `vacantUnitsFor` could
+  // legitimately not return it (an occupant recorded on acceptance would make
+  // it non-vacant, and the tenancy still has to be recordable).
+  React.useEffect(() => {
+    if (!prefill?.propertyId) return;
+    let cancelled = false;
+    setLoadingUnits(true);
+    void (async () => {
+      try {
+        const r = await runAction(vacantUnitsFor(prefill.propertyId));
+        if (!cancelled) setUnits(r.units.map((u) => ({ id: u.id, label: u.label })));
+      } catch {
+        // The offered unit is still selectable from the explicit option below.
+      } finally {
+        if (!cancelled) setLoadingUnits(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [prefill?.propertyId]);
 
   // Only units with no live tenancy are offered. The database refuses a double
   // let regardless; not offering it is how someone avoids discovering that
@@ -176,6 +229,9 @@ export default function LeaseForm({
                     ? "No vacant units"
                     : "Choose a unit…"}
             </option>
+            {prefill && !units.some((u) => u.id === prefill.unitId) && (
+              <option value={prefill.unitId}>{prefill.unitLabel} (offered)</option>
+            )}
             {units.map((u) => (
               <option key={u.id} value={u.id}>{u.label}</option>
             ))}
