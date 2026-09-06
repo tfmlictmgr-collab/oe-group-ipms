@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { ShieldCheck, CalendarClock, CheckCircle2, XCircle, Clock } from "lucide-react";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBrandTheme } from "@/lib/brands";
+import { publicOrgName } from "@/lib/org-public";
 import { formatNaira } from "@/lib/currency";
 import { hashOfferToken } from "@/lib/tenancy-offer-token";
 import {
@@ -78,7 +79,11 @@ export default async function OfferPage({
   // the same 404 — the alternative tells a stranger which of the three it was.
   if (!offer || offer.state === "withdrawn") notFound();
 
-  const brandName = offer.portal_name || offer.org_name;
+  // `name`, never `portal_name` — see `publicOrgName`. On this page in
+  // particular: "pay only into an account in this name" is the whole defence
+  // against the advance-fee fraud these letters attract, and "PM PORTAL" is not
+  // a name anybody can check a bank account against.
+  const brandName = publicOrgName({ name: offer.org_name, portal_name: offer.portal_name });
   const brand = getBrandTheme(offer.delivery_brand, {
     theme_primary: offer.theme_primary,
   }).primary;
@@ -179,12 +184,20 @@ export default async function OfferPage({
         {/* ⚠️ Stated on the page, not only in the email. Advance-fee fraud
             against prospective tenants is ordinary in this market, and the
             defence is a person who knows the real figures and expects them in
-            writing. This page IS the writing. */}
+            writing. This page IS the writing.
+
+            Only while the offer is live: on a declined or lapsed one it tells
+            somebody to pay "after accepting here", which they cannot do. A
+            warning that does not apply is how the ones that do get skipped. */}
+        {offer.state === "issued" && (
         <p className="border-t border-border pt-4 text-xs text-muted-foreground">
-          Pay only to {brandName}&rsquo;s own account, and only after accepting
-          here. If anything above does not match what you were told, reply to the
-          email this link came from <span className="font-medium">before paying anything</span>.
+          Pay only into a bank account in the name of{" "}
+          <span className="font-medium">{brandName}</span>, and only after
+          accepting here. If anything above does not match what you were told,
+          reply to the email this link came from{" "}
+          <span className="font-medium">before paying anything</span>.
         </p>
+        )}
       </div>
     </Shell>
   );

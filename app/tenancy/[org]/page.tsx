@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { Building2, User, ShieldCheck, ChevronRight } from "lucide-react";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { resolvePublicOrg } from "@/lib/org-public";
+import { resolvePublicOrg, publicOrgName } from "@/lib/org-public";
 import { getBrandTheme } from "@/lib/brands";
 import { hashToken } from "@/lib/application-resume";
 import StartApplication from "./StartApplication";
@@ -42,7 +42,7 @@ export async function generateMetadata({
   const organisation = await resolvePublicOrg(org);
   if (!organisation) return { title: "Not found", robots: { index: false, follow: false } };
 
-  const name = organisation.portal_name || organisation.name;
+  const name = publicOrgName(organisation);
   const description = `Apply for a tenancy with ${name}. Every application is read by a person.`;
 
   return {
@@ -91,7 +91,10 @@ export default async function ApplyPage({
     p_module: "lettings",
   });
 
-  const brandName = organisation.portal_name || organisation.name;
+  // ⚠️ `name`, not `portal_name` — OEA's is "PM PORTAL", which named nobody to
+  // every prospective tenant who ever opened this form. One resolver, so this
+  // page and the offer letter cannot disagree about whose it is.
+  const brandName = publicOrgName(organisation);
   // Was hardcoded to TFML's own navy for any org with no theme_primary set —
   // an unbranded OEA applicant link rendered in TFML's colour. Same fix as
   // the sign-in door (0179's application-layer half): fall back to THIS
