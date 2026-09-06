@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { replyInboxFor as sharedReplyInbox } from "@/lib/mail-routes";
 
 // Single outbound-mail path. Every email the system sends goes through here so
 // the From/Reply-To policy is decided in one place rather than re-derived at
@@ -16,11 +17,11 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 // A missing Resend key degrades rather than breaks: callers treat `sent: false`
 // as "share the link another way", never as an error.
 
-export type MailCategory =
-  | "account"    // invitations, sign-up, vendor applications
-  | "finance"    // invoices, statements, remittance advice
-  | "operations" // job/notice updates
-  | "it";        // system + technical notices
+// ⚠️ Re-exported, not redeclared. Two copies of this union would let somebody
+// add a category on one side and have the routing rule silently treat it as
+// `account` — which is how a finance email ends up replyable to the wrong desk.
+export type { MailCategory } from "@/lib/mail-routes";
+import type { MailCategory } from "@/lib/mail-routes";
 
 /**
  * `sent` means the PROVIDER ACCEPTED the message — not that it arrived. Nothing
@@ -60,17 +61,13 @@ function senderFor(identity: OrgMailIdentity | null): string | null {
   return name ? `"${name.replace(/"/g, "")}" <${address}>` : address;
 }
 
-/** Category → the org's configured inbox, falling back to support. */
+// The reply-routing rule itself lives in `lib/mail-routes.ts` — pure, so the
+// Settings form can read the SAME rule live as somebody types into it. Importing
+// it from here would pull the service-role client into a browser bundle.
+export { replyInboxFor, type ReplyRoute } from "@/lib/mail-routes";
+
 function replyToFor(category: MailCategory, routes: OrgMailIdentity | null): string | null {
-  if (!routes) return null;
-  const chosen =
-    category === "finance"
-      ? routes.finance_email
-      : category === "it"
-        ? routes.it_email
-        : routes.support_email;
-  // Fall back to support rather than sending an unreplyable email.
-  return (chosen || routes.support_email || null)?.trim() || null;
+  return sharedReplyInbox(category, routes).address;
 }
 
 async function loadMailIdentity(orgId: string | null): Promise<OrgMailIdentity | null> {

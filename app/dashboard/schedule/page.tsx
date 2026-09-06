@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Download, ShieldAlert, Inbox, Plus } from "lucide-react";
+import { Download, ShieldAlert, Inbox, Plus, Upload } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
 import { PageHeader } from "@/components/patterns/page-header";
@@ -220,6 +220,18 @@ export default async function SchedulePage({
             </Link>
           </Button>
         )}
+        {/* ⚠️ Gated on the same capability as recording ONE tenancy, not on
+            `records.export`. Export is a DPA control about PII leaving the
+            platform; this is the opposite direction, and it is the letting act
+            at scale. `import_tenancies` runs as the caller, so RLS applies the
+            identical clause to every imported row. */}
+        {canWrite && (
+          <Button asChild size="sm" variant="outline">
+            <Link href="/dashboard/schedule/import">
+              <Upload className="size-4" /> Import tenancies (CSV)
+            </Link>
+          </Button>
+        )}
         <Button asChild size="sm" variant="outline">
           <Link href="/dashboard/properties/new">
             <Plus className="size-4" /> Add a property
@@ -268,7 +280,19 @@ export default async function SchedulePage({
           description={
             q || from || to || status || sp.owner || sp.property || sp.tenant
               ? "Nothing matches those filters. Clear them to see the whole portfolio."
-              : "Record a tenancy and it appears here, with its landlord, rent and fee."
+              : "Record a tenancy and it appears here, with its landlord, rent and fee. If the portfolio is already let and kept in a spreadsheet, import it instead of typing it in."
+          }
+          // The empty schedule is exactly the state somebody holding a
+          // spreadsheet of live tenancies is looking at, so the way in belongs
+          // on it rather than only in the toolbar above.
+          action={
+            canWrite && !(q || from || to || status || sp.owner || sp.property || sp.tenant) ? (
+              <Button asChild size="sm" variant="brand">
+                <Link href="/dashboard/schedule/import">
+                  <Upload className="size-4" /> Import tenancies from a spreadsheet
+                </Link>
+              </Button>
+            ) : undefined
           }
         />
       ) : (

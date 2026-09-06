@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { updateOrgContent } from "./actions";
 import { runAction, describeError } from "@/lib/run-action";
+import { replyInboxFor, CATEGORY_CARRIES, type MailCategory } from "@/lib/mail-routes";
 
 export default function ContentForm({
   orgId,
@@ -160,6 +161,12 @@ export default function ContentForm({
         </div>
       </div>
 
+      <ReplyRouting
+        supportEmail={form.supportEmail}
+        financeEmail={form.financeEmail}
+        itEmail={form.itEmail}
+      />
+
       <div className="grid gap-4 border-t border-border pt-4 sm:grid-cols-2">
         <div className="space-y-1.5">
           <Label htmlFor="from-name">Sender name</Label>
@@ -200,5 +207,78 @@ export default function ContentForm({
         {saving ? "Saving…" : "Save portal text"}
       </Button>
     </form>
+  );
+}
+
+/**
+ * Where a reply to each kind of email actually lands, given what is in the
+ * boxes above — recomputed as somebody types, from the SAME rule the sender
+ * uses (`replyInboxFor`).
+ *
+ * ⚠️ Why this exists. Every client-facing email is sent From
+ * `no-reply@notify.<brand>` — a dedicated sending subdomain that is deliberately
+ * not a mailbox — and made replyable by a `Reply-To` header pointing at one of
+ * these three inboxes. An administrator had no way to see that: leaving
+ * "Finance / accounts email" blank silently routes every invoice, statement,
+ * receipt and payment-request reply into the general support inbox. Measured on
+ * staging when this was written — OEA had no finance address, so a tenant
+ * replying "I have already paid this" landed in `info@` beside everything else.
+ *
+ * Nothing here is a refusal: the fallback is correct, and an unreplyable email
+ * would be far worse. It is only that a fallback nobody can see is a fallback
+ * nobody chose.
+ */
+function ReplyRouting({
+  supportEmail,
+  financeEmail,
+  itEmail,
+}: {
+  supportEmail: string;
+  financeEmail: string;
+  itEmail: string;
+}) {
+  const routes = {
+    support_email: supportEmail,
+    finance_email: financeEmail,
+    it_email: itEmail,
+  };
+  const shown: MailCategory[] = ["account", "finance", "it"];
+
+  return (
+    <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-4">
+      <p className="text-sm font-medium">Where replies to your emails go</p>
+      <p className="text-xs text-muted-foreground">
+        Everything is sent from a no-reply address on your notification
+        subdomain, so the reputation of app mail stays separate from your real
+        business mail. What makes it replyable is the reply-to address below.
+      </p>
+      <dl className="space-y-1.5 pt-1">
+        {shown.map((c) => {
+          const route = replyInboxFor(c, routes);
+          return (
+            <div key={c} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 text-sm">
+              <dt className="text-muted-foreground">{CATEGORY_CARRIES[c]}</dt>
+              <dd className="text-right">
+                {route.address ? (
+                  <>
+                    <span className="font-medium">{route.address}</span>
+                    {route.fellBack && (
+                      <span className="ml-2 text-xs text-warning">
+                        — no {c === "finance" ? "finance" : "IT"} address set, so
+                        support is catching these
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <span className="text-destructive">
+                    nowhere — set a support email, or these cannot be replied to
+                  </span>
+                )}
+              </dd>
+            </div>
+          );
+        })}
+      </dl>
+    </div>
   );
 }
