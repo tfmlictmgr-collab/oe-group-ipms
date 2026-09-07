@@ -258,6 +258,82 @@ console.log("\nF. Every org can reach this journey");
   }
 }
 
+
+// ---------------------------------------------------------------------------
+console.log("\nG. The contractor can find the building — for as long as the job is live");
+// ---------------------------------------------------------------------------
+//
+// Measured before 0269 as a signed-in vendor: 4 assigned jobs, 0 readable
+// properties, and `tickets → properties` embedding as null. A contractor was
+// dispatched to a building the product would not name. What 0269 adds is reach
+// to the JOB's place, and it LAPSES; the job history does not, which is the
+// distinction this whole section exists to hold.
+{
+  const { data: prop } = await svc.from("properties")
+    .select("id, name").eq("org_id", ctx.org.id).is("deleted_at", null)
+    .limit(1).maybeSingle();
+
+  if (!prop) { note("no property on this org — the place rules are not exercisable here"); }
+  else {
+    const jobId = await newAssignedJob("place");
+    await svc.from("tickets").update({ property_id: prop.id }).eq("id", jobId);
+
+    // ⚠️ `error`, not `ok`. This file's asUser returns { rows, error } while
+    // verify-fm-journey's returns { ok, rows, n } — reading the wrong one made
+    // every check in this section fail on `undefined`, including two that
+    // contradict each other. A suite that fails for the wrong reason is the
+    // fault this repo has recorded three times; it is cheap to make here too.
+    const reads = async () => {
+      const r = await asUser(ctx.vendor.user_id,
+        `select count(*)::int n from properties where id = '${prop.id}'`);
+      if (r.error) { bad(`reading properties as the vendor errored — ${r.error.slice(0, 70)}`); return -1; }
+      return r.rows[0]?.n;
+    };
+
+    (await reads()) === 1
+      ? ok(`reads the building while the job is live (${prop.name})`)
+      : bad("CANNOT READ THE BUILDING OF A LIVE JOB");
+
+    // ⚠️ Sign-off alone is not the end of it, and a test that stopped here
+    // would pass while asserting half the rule: money still in flight keeps
+    // the place readable, because the contractor may still have to attend.
+    await svc.from("tickets").update({ status: "resolved", resolved_at: new Date().toISOString() }).eq("id", jobId);
+    const { data: pay } = await svc.from("payments").insert({
+      org_id: ctx.org.id, vendor_id: ctx.vendor.id, amount: 1000,
+      status: "pending_verification", ticket_id: jobId,
+      invoice_reference: `${MARK}-${S}-place`,
+    }).select("id").single();
+    if (pay) made.payments.push(pay.id);
+
+    (await reads()) === 1
+      ? ok("and still reads it after sign-off while the invoice is unsettled")
+      : bad("the building lapsed while money for the job was still in flight");
+
+    await svc.from("payments").update({ status: "rejected", rejected_reason: "probe: settling the fixture" }).eq("id", pay.id);
+    (await reads()) === 0
+      ? ok("and loses it once the job is signed off and its money has settled")
+      : bad("!!! THE BUILDING IS STILL READABLE AFTER THE JOB CLOSED AND SETTLED");
+
+    // The half that must NOT lapse. Losing the building is not losing the work.
+    const hist = await asUser(ctx.vendor.user_id,
+      `select count(*)::int n from tickets where id = '${jobId}'`);
+    !hist.error && hist.rows[0]?.n === 1
+      ? ok("the job itself stays readable — history is evidence, not access")
+      : bad("!!! THE VENDOR LOST THE RECORD OF THEIR OWN COMPLETED JOB");
+
+    // And it was never a general grant.
+    const { data: other } = await svc.from("properties")
+      .select("id, name").eq("org_id", ctx.org.id).is("deleted_at", null)
+      .neq("id", prop.id).limit(1).maybeSingle();
+    if (other) {
+      const r = await asUser(ctx.vendor.user_id,
+        `select count(*)::int n from properties where id = '${other.id}'`);
+      !r.error && r.rows[0]?.n === 0
+        ? ok("a building they hold no job on stays invisible throughout")
+        : bad("!!! A VENDOR READ A BUILDING THEY HAVE NO JOB ON");
+    }
+  }
+}
 // ── Cleanup ───────────────────────────────────────────────────────────────
 await svc.from("payments").delete().like("invoice_reference", `${MARK}%`);
 await svc.from("ticket_messages").delete().in("ticket_id", made.tickets);

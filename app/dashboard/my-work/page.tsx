@@ -109,7 +109,16 @@ export default async function MyWorkPage() {
     // runs the same policy, it just returns no rows.
     supabase
       .from("tickets")
-      .select("id, summary, message_text, category, urgency, status, created_at, resolved_at, property_or_unit, acknowledged_at")
+      .select(
+        // 0269. `properties`/`units` are EMBEDS, and until that migration both
+        // resolved to null for a contractor — `properties_select` had no branch
+        // for them and `tickets.unit_id` did not exist at all. So this screen
+        // showed `property_or_unit`, a free-text column somebody may or may not
+        // have typed, and a job with nothing in it named no location whatsoever.
+        // The embeds lapse on their own when the job is signed off and paid,
+        // which is the point: the address is for attending, not for keeping.
+        "id, summary, message_text, category, urgency, status, created_at, resolved_at, property_or_unit, acknowledged_at, properties(name, address), units(label)"
+      )
       .order("created_at", { ascending: false })
       .limit(100),
     supabase
@@ -139,9 +148,16 @@ export default async function MyWorkPage() {
     id: string; summary: string | null; message_text: string | null;
     category: string | null; urgency: string | null; status: string;
     created_at: string; resolved_at: string | null; property_or_unit: string | null;
+    properties: { name: string | null; address: string | null } | null;
+    units: { label: string | null } | null;
     acknowledged_at: string | null;
   };
-  const jobs = (jobsRes.data ?? []) as Job[];
+  // ⚠️ `as unknown as` for the embeds, the convention this repo already uses
+  // in app/dashboard/approvals/page.tsx. PostgREST returns a many-to-one
+  // embed as an OBJECT (verified against the live response) while the
+  // generated types describe it as an array, so the direct cast is the one
+  // tsc rejects and the runtime shape is the one written above.
+  const jobs = (jobsRes.data ?? []) as unknown as Job[];
   const open = jobs.filter((j) => OPEN_STATES.includes(j.status));
   const inProgress = jobs.filter((j) => j.status === "in_progress").length;
 
@@ -277,7 +293,17 @@ export default async function MyWorkPage() {
                     category: j.category,
                     urgency: j.urgency,
                     status: j.status,
-                    where: j.property_or_unit,
+                    where:
+                      // The real place first, the typed note only as a
+                      // fallback. A contractor needs the address they are
+                      // attending, and "Flat 3" on its own is not one.
+                      [
+                        j.units?.label,
+                        j.properties?.name,
+                        j.properties?.address,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ") || j.property_or_unit,
                     raised: fmtDate(j.created_at),
                     acknowledged: Boolean(j.acknowledged_at),
                   }}
