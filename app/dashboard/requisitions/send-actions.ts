@@ -1,7 +1,8 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { fail } from "@/lib/action-result";
+import { fail, ok, failFromDb, type ActionResult } from "@/lib/action-result";
 import { checkRateLimit, REMITTANCE_LIMIT } from "@/lib/rate-limit";
 import type { RemittanceOutcome } from "@/lib/remittance-run";
 
@@ -126,4 +127,60 @@ export async function sendRequisitionPayeeLines(
     reasonFor: (name, ref) => `Requisition ${ref} — ${name}`,
     revalidate: [`/dashboard/approvals/requisitions/${requisitionId}`, "/dashboard/approvals", "/dashboard/ledger"],
   });
+}
+
+
+/**
+ * Authorise ONE payment a property's service-charge fund cannot cover (0272).
+ *
+ * ⚠️ Board decision, 7 Sept 2026, and it is an exception to decisions 2 and 27
+ * rather than an ordinary feature. The alternative offered — a recorded
+ * inter-property transfer, visible on both properties' statements — was
+ * declined in favour of this. So it exists, and it is attributable: only the
+ * payment officer, a stated reason, an audit row, and single use.
+ *
+ * The authority check is `authorise_fund_override` under the caller's own
+ * session, never the service-role client — `auth.uid()` is the whole basis of
+ * "only the payment officer", and 0142 recorded what happens when a money path
+ * runs as service-role: the actor is null by definition and the control
+ * silently does nothing.
+ */
+export async function authoriseShortFund(
+  payableType: "vendor_payment" | "ops_requisition",
+  payableId: string,
+  reason: string
+): Promise<ActionResult> {
+  const trimmed = (reason ?? "").trim();
+  if (trimmed.length < 20) {
+    return fail(
+      "Say where the money is coming from, in at least 20 characters.",
+      "This is read by whoever asks why one property's fund paid another's bill."
+    );
+  }
+
+  const supabase = await createClient();
+  const { data: state, error: stateErr } = await supabase.rpc("payable_fund_override_state", {
+    p_payable_type: payableType,
+    p_payable_id: payableId,
+  });
+  if (stateErr) return failFromDb(stateErr, "check this payment's fund");
+
+  const accountId = (state as { account_id: string | null }[] | null)?.[0]?.account_id ?? null;
+  if (!accountId) {
+    return fail(
+      "This payment has no property fund to authorise against.",
+      "Attach it to a property with a service request first — an unattached payment draws on the organisation-wide fund."
+    );
+  }
+
+  const { error } = await supabase.rpc("authorise_fund_override", {
+    p_account_id: accountId,
+    p_reason: trimmed,
+  });
+  if (error) return failFromDb(error, "authorise this payment");
+
+  revalidatePath(`/dashboard/approvals/requisitions/${payableId}`);
+  revalidatePath(`/dashboard/payments/${payableId}`);
+  revalidatePath("/dashboard/approvals");
+  return ok();
 }
