@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/patterns/empty-state";
 import { getBrandTheme } from "@/lib/brands";
 import DomainField from "./DomainField";
+import ApprovalChainField from "./ApprovalChainField";
 import CreateOrgForm from "./CreateOrgForm";
 
 // The OE Group operator launcher: every organisation on the platform as a card,
@@ -37,6 +38,10 @@ type Row = {
   retired: boolean;
   member_count: number;
   property_count: number;
+  // 0268. Operator-governed, and readable on no screen until now — the two
+  // setters shipped without one, so the levers existed and could not be pulled.
+  approval_chain_shape: string | null;
+  approval_tiers_enabled: boolean;
 };
 
 export default async function OrgLauncherPage() {
@@ -202,6 +207,17 @@ function OrgCard({ org }: { org: Row }) {
           {org.slug ? `/o/${org.slug}` : "No address set"}
         </p>
         {!org.retired && <DomainField orgId={org.id} domain={org.custom_domain} />}
+        {!org.retired && !org.is_platform_operator && (
+          // ⚠️ Not offered on the operator's OWN row. OE Group administers the
+          // platform; it is not a client whose payables climb a ladder, and a
+          // control that appears to set one there invites somebody to try.
+          <ApprovalChainField
+            orgId={org.id}
+            orgName={org.name}
+            shape={org.approval_chain_shape}
+            bandsEnabled={org.approval_tiers_enabled}
+          />
+        )}
       </div>
 
       <div className="relative flex items-center gap-4 text-xs text-muted-foreground">

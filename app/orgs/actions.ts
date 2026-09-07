@@ -120,3 +120,48 @@ export async function createOrg(
   revalidatePath("/orgs");
   return ok({ orgId, url, emailed });
 }
+
+/**
+ * The approval ladder an organisation climbs, and whether its final stage
+ * checks an amount band.
+ *
+ * ⚠️ Both authority checks live in the database — `operator_set_approval_chain`
+ * (0248) and `operator_set_approval_tiers` (0261) gate on
+ * `caller_is_operator_admin()` and write their own audit row naming the change
+ * in words rather than as a column diff. This layer adds nothing but the
+ * refusal a person can read, exactly like `setOrgDomain` above.
+ *
+ * 📌 Why it is here and not in an organisation's own Settings: decision 7 lists
+ * payment approval among the controls that "stay hardwired and never appear as
+ * toggles", and decision 23 took `delivery_brand` out of the org-writable
+ * allowlist the moment it began selecting a ladder. An administrator who can
+ * switch off the band they approve against is approving against nothing. The
+ * operator portal is the only surface either of these may appear on.
+ */
+export async function setApprovalChainShape(
+  orgId: string,
+  shape: "standard" | "oea" | "single_stage" | null
+): Promise<ActionResult> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("operator_set_approval_chain", {
+    p_org_id: orgId,
+    p_shape: shape,
+  });
+  if (error) return failFromDb(error, "set this organisation's approval chain");
+  revalidatePath("/orgs");
+  return ok();
+}
+
+export async function setApprovalBands(
+  orgId: string,
+  enabled: boolean
+): Promise<ActionResult> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("operator_set_approval_tiers", {
+    p_org_id: orgId,
+    p_enabled: enabled,
+  });
+  if (error) return failFromDb(error, "change this organisation's approval bands");
+  revalidatePath("/orgs");
+  return ok();
+}

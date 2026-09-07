@@ -110,6 +110,14 @@ console.log("A. Only an administrator OF the operator org");
     ["provision_org", { p_name: `PROBEOP-Nope-${S}`, p_delivery_brand: "OEA", p_admin_email: "x@example.com", p_admin_name: "X", p_reason: "should not work at all", p_token_hash: tok() }],
     ["operator_suspend_user", { p_user_id: victim.id, p_reason: "should not work at all" }],
     ["operator_break_glass_admin", { p_org_id: oea.id, p_email: "x@example.com", p_reason: "should not work at all", p_token_hash: tok() }],
+    // 0268 put a SCREEN on these two for the first time, so the door they
+    // already had is worth attempting rather than assuming. Decision 7 keeps
+    // payment approval off an organisation's own settings, and a brand
+    // administrator who could set either would be choosing the ladder they are
+    // approved against — decision 23's `delivery_brand` escalation with the
+    // middle step removed.
+    ["operator_set_approval_chain", { p_org_id: oea.id, p_shape: "single_stage" }],
+    ["operator_set_approval_tiers", { p_org_id: oea.id, p_enabled: true }],
   ]) {
     const { error } = await b.rpc(fn, args);
     error ? ok(`a brand administrator is refused ${fn}`) : bad(`A BRAND ADMIN CALLED ${fn.toUpperCase()}`);
@@ -382,11 +390,100 @@ console.log("\nG. Org retirement — audit 0729d-M1");
     : bad("OEA WAS LEFT RETIRED AFTER THE SUITE FINISHED");
 }
 
+// ---------------------------------------------------------------------------
+console.log("\nH. The approval chain's two levers, and the switch they shipped without");
+// ---------------------------------------------------------------------------
+//
+// 0248 and 0261 each put an operator-governed control in the database and
+// neither put one on a screen — `grep -rn operator_set_approval_ app lib`
+// returned nothing until 0268. This exercises both AS AN OPERATOR through the
+// same RPCs that screen calls, and proves the directory it reads reports their
+// position: a control whose current state cannot be read is a switch with no
+// indicator.
+{
+  const c = await login(opAdmin.email);
+
+  const before = await svc.from("orgs")
+    .select("approval_chain_shape, approval_tiers_enabled").eq("id", oea.id).single();
+
+  const row = async () => {
+    const { data } = await c.rpc("operator_org_directory");
+    return (data ?? []).find((o) => o.id === oea.id);
+  };
+
+  const row0 = await row();
+  row0 && "approval_chain_shape" in row0 && "approval_tiers_enabled" in row0
+    ? ok("the operator directory carries the chain shape and the band flag")
+    : bad("THE DIRECTORY DOES NOT REPORT THE LADDER — the screen has a switch with no indicator");
+
+  const { error: onErr } = await c.rpc("operator_set_approval_tiers", { p_org_id: oea.id, p_enabled: true });
+  onErr ? bad(`an operator could not switch bands on — ${onErr.message.slice(0, 70)}`)
+        : ok("an operator switches the amount bands ON");
+  (await row())?.approval_tiers_enabled === true
+    ? ok("and the directory says so")
+    : bad("the flag moved and the directory still reports the old value");
+
+  const { error: offErr } = await c.rpc("operator_set_approval_tiers", { p_org_id: oea.id, p_enabled: false });
+  offErr ? bad(`an operator could not switch bands off — ${offErr.message.slice(0, 70)}`)
+         : ok("and OFF again — the board's default since 0261");
+  (await row())?.approval_tiers_enabled === false
+    ? ok("and the directory says so")
+    : bad("the flag moved and the directory still reports the old value");
+
+  // `single_stage` is one rung and that rung is the PAYMENT approval —
+  // asserted rather than commented, because a collapse that kept stage 1 would
+  // have made an FM's sign-off the whole authorisation.
+  const { error: shErr } = await c.rpc("operator_set_approval_chain", { p_org_id: oea.id, p_shape: "single_stage" });
+  shErr ? bad(`an operator could not set the shape — ${shErr.message.slice(0, 70)}`)
+        : ok("an operator collapses the chain to a single stage");
+
+  const { data: stages } = await svc.rpc("payment_chain_stages", { p_org_id: oea.id });
+  (stages ?? []).length === 1
+    ? ok("the ladder really is one rung now")
+    : bad(`single_stage produced ${(stages ?? []).length} stage(s)`);
+  ((stages ?? [])[0]?.required_roles ?? []).includes("payment_approver")
+    ? ok("and that rung is the payment approval, never the FM's sign-off")
+    : bad(`the single stage is held by ${JSON.stringify((stages ?? [])[0]?.required_roles)}`);
+
+  const { error: unknownErr } = await c.rpc("operator_set_approval_chain", { p_org_id: oea.id, p_shape: "whatever" });
+  unknownErr ? ok("an unknown shape is refused") : bad("AN UNKNOWN CHAIN SHAPE WAS ACCEPTED");
+
+  // Restored to what was READ at the top of this section, not to the default.
+  // This section writes to a real organisation's money controls; leaving OEA on
+  // a collapsed ladder because a probe ran is the fixture-that-changes-a-
+  // permission fault, one table over.
+  await c.rpc("operator_set_approval_chain", { p_org_id: oea.id, p_shape: before.data?.approval_chain_shape ?? null });
+  await c.rpc("operator_set_approval_tiers", { p_org_id: oea.id, p_enabled: before.data?.approval_tiers_enabled ?? false });
+  const after = await svc.from("orgs")
+    .select("approval_chain_shape, approval_tiers_enabled").eq("id", oea.id).single();
+  after.data?.approval_chain_shape === (before.data?.approval_chain_shape ?? null)
+    && after.data?.approval_tiers_enabled === (before.data?.approval_tiers_enabled ?? false)
+    ? ok("and the organisation is left exactly as it was found")
+    : bad(`LEFT OEA CHANGED: ${JSON.stringify(after.data)} (was ${JSON.stringify(before.data)})`);
+
+  // "Operator-governed" means attributable, so the trail is part of the rule.
+  const { data: trail } = await svc.from("audit_log")
+    .select("action, actor_id").eq("org_id", oea.id)
+    .in("action", ["payment_chain.shape_changed", "payment_chain.tiers_changed"])
+    .order("created_at", { ascending: false }).limit(8);
+  (trail ?? []).some((r) => r.actor_id === opAdmin.id)
+    ? ok("every change is in the audit trail, naming the operator who made it")
+    : bad("A MONEY CONTROL CHANGED WITH NO ATTRIBUTABLE AUDIT ROW");
+
+  await c.auth.signOut();
+}
+
 // ── Cleanup ────────────────────────────────────────────────────────────────
 await svc.from("invitations").delete().in("org_id", [...madeOrgs, oea.id]).like("email", "probeop-%");
 await svc.from("operator_actions").delete().in("target_org", [...madeOrgs, oea.id]);
 await svc.from("audit_log").delete().eq("action", "operator.break_glass");
 await svc.from("audit_log").delete().in("action", ["operator.suspend_user", "operator.unsuspend_user"]);
+// Section H's own rows. Deleted for the same reason the two above are: they
+// name a probe operator who is about to stop existing, and an audit row whose
+// actor cannot be resolved is worse than no row.
+await svc.from("audit_log").delete()
+  .in("action", ["payment_chain.shape_changed", "payment_chain.tiers_changed"])
+  .in("actor_id", madeUsers);
 await svc.from("user_notifications").delete().ilike("title", "%emergency administrator%");
 await svc.from("user_notifications").delete().ilike("title", "%suspended by OE Group%");
 for (const id of madeUsers) {
