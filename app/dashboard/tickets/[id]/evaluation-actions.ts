@@ -17,7 +17,13 @@ export type EvaluationAnswer = { criterionId: string; value: string };
 export async function submitEvaluation(
   ticketId: string,
   source: "tenant" | "fm_pm",
-  answers: EvaluationAnswer[]
+  answers: EvaluationAnswer[],
+  /**
+   * The evaluator's own words (0271). Optional, and it never scores — the
+   * composite is the rubric. It records WHY a number moved, which five scores
+   * have never been able to say.
+   */
+  comment?: string | null
 ): Promise<ActionResult<{ evaluationId: string }>> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -27,6 +33,7 @@ export async function submitEvaluation(
     p_ticket_id: ticketId,
     p_source: source,
     p_responses: answers.map((a) => ({ criterionId: a.criterionId, value: a.value })),
+    p_comment: (comment ?? "").trim() || null,
   });
 
   if (error) {

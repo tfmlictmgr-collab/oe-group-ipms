@@ -403,7 +403,8 @@ export default function ApprovalsBoard({
               {isOpen && (
                 <CardContent className="space-y-4">
                   {r.detail && <PayableDetail data={r.detail} />}
-                  <ChainTrail state={r.state} />
+                  {/* The card prints waitingOn above; not twice. */}
+                  <ChainTrail state={r.state} showWaitingOn={false} />
                   {/* ⚠️ The payment officer's action lives on the payable's own
                       screen (SendLineGroup for a requisition, Send on a vendor
                       payment, the payouts ledger for a landlord). Nothing here

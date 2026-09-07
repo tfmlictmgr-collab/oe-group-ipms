@@ -8,6 +8,8 @@ import { averageComposite, scoreBand } from "@/lib/vendor-score";
 import { cn } from "@/lib/utils";
 import { GATE_STAGES, statusLabel, type PaymentRow } from "@/lib/payment";
 import { PageHeader } from "@/components/patterns/page-header";
+import { PrintButton } from "@/components/patterns/print-button";
+import { PrintMasthead } from "@/components/patterns/print-masthead";
 import { StatusBadge } from "@/components/patterns/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -141,18 +143,34 @@ export default async function PaymentDetailPage({
   ];
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
-      <PageHeader
-        title={vendor?.name ?? "Payment"}
-        description={p.invoice_reference ?? "no reference"}
-        actions={
-          <Button asChild variant="ghost" size="sm">
-            <Link href="/dashboard/payments">
-              <ArrowLeft /> Back
-            </Link>
-          </Button>
-        }
+    // Printable for physical filing — same treatment as the requisition sheet.
+    // `.printable button { display: none }` takes the approve/refuse controls
+    // out of the printed copy, which is right: a decision on paper is a record,
+    // not an instrument.
+    <div className="printable mx-auto max-w-3xl space-y-6">
+      <PrintMasthead
+        org={session?.org?.name ?? "Payment"}
+        title="Payment approval record"
+        subtitle={`${vendor?.name ?? "Payment"} · ${p.invoice_reference ?? "no reference"}`}
+        by={session?.profile?.full_name || session?.profile?.email || undefined}
       />
+
+      <div data-print="screen-only">
+        <PageHeader
+          title={vendor?.name ?? "Payment"}
+          description={p.invoice_reference ?? "no reference"}
+          actions={
+            <div className="flex items-center gap-2">
+              <PrintButton label="Print for filing" />
+              <Button asChild variant="ghost" size="sm">
+                <Link href="/dashboard/payments">
+                  <ArrowLeft /> Back
+                </Link>
+              </Button>
+            </div>
+          }
+        />
+      </div>
 
       <Card>
         <CardContent className="space-y-5 pt-5">

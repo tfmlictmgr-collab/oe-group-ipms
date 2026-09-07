@@ -356,6 +356,23 @@
     display: block !important;
   }
 
+  /* ⚠️ A collapsed <details> renders nothing at all, so the approval chain's
+     "Movement — every decision on this payment" block printed as a heading and
+     a blank space. On paper the retired rounds are the most valuable half of
+     the record: they are what shows a figure was revised, by whom, and what the
+     desk below had signed before it moved. Forced open, and the disclosure
+     triangle dropped since nothing can be clicked in ink. */
+  .printable details > summary {
+    list-style: none;
+    font-weight: 600;
+  }
+  .printable details > summary::-webkit-details-marker {
+    display: none;
+  }
+  .printable details > *:not(summary) {
+    display: block !important;
+  }
+
   /* Cards keep their outline but lose the elevation, which prints as a smear,
      and are kept off page boundaries where they fit on one sheet. */
   .printable .rounded-lg {

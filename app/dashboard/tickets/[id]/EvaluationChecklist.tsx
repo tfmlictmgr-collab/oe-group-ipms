@@ -105,6 +105,12 @@ export default function EvaluationChecklist({
   const [answers, setAnswers] = React.useState<Record<string, string>>({});
   const [busy, setBusy] = React.useState(false);
   const [done, setDone] = React.useState(false);
+  /**
+   * The evaluator's own words (0271). Optional, never scores, and the box says
+   * who reads it — a comment field that does not tell you its audience is the
+   * same fault as consent copy that does not say what it consents to.
+   */
+  const [comment, setComment] = React.useState("");
 
   const totalPoints = criteria.reduce((s, c) => s + Number(c.max_points), 0);
   const earnedPreview = criteria.reduce((s, c) => {
@@ -120,7 +126,8 @@ export default function EvaluationChecklist({
       await runAction(
         submitEvaluation(
           ticketId, source,
-          criteria.map((c) => ({ criterionId: c.id, value: answers[c.id] }))
+          criteria.map((c) => ({ criterionId: c.id, value: answers[c.id] })),
+          comment
         )
       );
       setDone(true);
@@ -164,6 +171,31 @@ export default function EvaluationChecklist({
             />
           </div>
         ))}
+      </div>
+
+      <div className="space-y-1.5">
+        <label htmlFor={`eval-comment-${source}`} className="text-sm font-medium">
+          Anything you want to add?{" "}
+          <span className="font-normal text-muted-foreground">(optional)</span>
+        </label>
+        <textarea
+          id={`eval-comment-${source}`}
+          value={comment}
+          onChange={(e) => setComment(e.target.value)}
+          rows={3}
+          maxLength={2000}
+          className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+          placeholder={
+            source === "tenant"
+              ? "e.g. The work itself was fine, but they arrived three weeks after I reported it."
+              : "e.g. Second visit needed — the first fix did not hold."
+          }
+        />
+        <p className="text-xs text-muted-foreground">
+          {source === "tenant"
+            ? "Read by the managers handling your request and by the contractor who did the work, so keep it about the job. It does not change the score — that comes from your answers above."
+            : "Recorded with your scores, and read by the desks further along and by the contractor. It does not change the score."}
+        </p>
       </div>
 
       {totalPoints > 0 && (

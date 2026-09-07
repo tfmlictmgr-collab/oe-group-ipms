@@ -4,6 +4,8 @@ import { ArrowLeft, CircleAlert, Paperclip } from "lucide-react";
 import { getSessionProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/patterns/page-header";
+import { PrintButton } from "@/components/patterns/print-button";
+import { PrintMasthead } from "@/components/patterns/print-masthead";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -119,16 +121,35 @@ export default async function RequisitionDetailPage({
   const raiser = (req.users as unknown as { full_name: string | null } | null)?.full_name;
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
-      <PageHeader
-        title={req.reference}
-        description={`Raised by ${raiser ?? "someone no longer listed"}${ticket ? ` · for ${ticket.summary ?? "a job"}` : ""}`}
-        actions={
-          <Button asChild variant="ghost" size="sm">
-            <Link href="/dashboard/approvals"><ArrowLeft /> Back to Approvals</Link>
-          </Button>
-        }
+    // ⚠️ `printable` is what makes this sheet legible on paper (globals.css):
+    // the nav goes, every button goes — including the approve/refuse controls,
+    // which cannot be clicked in ink — and the card tints that carry meaning
+    // survive. Asked for as "print approvals made by an approver at any stage
+    // for physical filing", and the thing worth filing is this page: the
+    // reference, the amount, the lines, and every decision with its author and
+    // its timestamp.
+    <div className="printable mx-auto max-w-3xl space-y-6">
+      <PrintMasthead
+        org={session.org?.name ?? "Approvals"}
+        title="Requisition approval record"
+        subtitle={`${req.reference} · ${formatNaira(req.total_amount)}`}
+        by={session.profile?.full_name || session.profile?.email || undefined}
       />
+
+      <div data-print="screen-only">
+        <PageHeader
+          title={req.reference}
+          description={`Raised by ${raiser ?? "someone no longer listed"}${ticket ? ` · for ${ticket.summary ?? "a job"}` : ""}`}
+          actions={
+            <div className="flex items-center gap-2">
+              <PrintButton label="Print for filing" />
+              <Button asChild variant="ghost" size="sm">
+                <Link href="/dashboard/approvals"><ArrowLeft /> Back to Approvals</Link>
+              </Button>
+            </div>
+          }
+        />
+      </div>
 
       {req.status === "rejected" && req.rejected_reason && (
         <Card className="border-destructive/30">

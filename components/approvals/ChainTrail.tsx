@@ -1,6 +1,32 @@
-import { Check, X, Circle, AlertTriangle } from "lucide-react";
+import { Check, X, Circle, AlertTriangle, Hourglass } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { formatNaira, tierLabel, type ChainState } from "@/lib/approvals/chain";
+import { formatNaira, tierLabel, waitingOn, type ChainState } from "@/lib/approvals/chain";
+
+/**
+ * When a decision was taken, to the minute.
+ *
+ * ⚠️ Asked for directly: "time stamp on when money approval was made, not just
+ * date." A date alone cannot order two decisions taken on the same day, which
+ * is the ordinary case on a chain that moves in an afternoon — the live portal
+ * has three stages all stamped "7 Sept 2026" and no way to read the sequence
+ * off the screen. `payment_approvals.created_at` has always been a timestamptz;
+ * only the rendering threw the time away.
+ *
+ * 24-hour, because "2:46" without an am/pm on a payment record is worse than no
+ * time at all, and Nigerian business convention reads the 24-hour clock.
+ */
+function decidedAtLabel(iso: string): string {
+  const d = new Date(iso);
+  return `${d.toLocaleDateString("en-NG", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  })}, ${d.toLocaleTimeString("en-NG", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  })}`;
+}
 
 /**
  * The three stages of a payment, and where it has got to.
@@ -9,7 +35,17 @@ import { formatNaira, tierLabel, type ChainState } from "@/lib/approvals/chain";
  * those differ the chain is broken and the difference is the whole explanation,
  * so hiding it would leave "awaiting re-approval" looking like a glitch.
  */
-export default function ChainTrail({ state }: { state: ChainState }) {
+export default function ChainTrail({
+  state,
+  showWaitingOn = true,
+}: {
+  state: ChainState;
+  /**
+   * The Approvals queue prints `waitingOn` on its own card already, so it turns
+   * this off rather than saying the same sentence twice in the same box.
+   */
+  showWaitingOn?: boolean;
+}) {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
@@ -26,6 +62,46 @@ export default function ChainTrail({ state }: { state: ChainState }) {
           {formatNaira(state.amount)}
         </span>
       </div>
+
+      {/* ── What is actually outstanding ──────────────────────────────────
+          ⚠️ Reported as "all approvals were made yet the last approval didn't
+          check, blocking the payment officer". Reading the three screenshots
+          against the data: two of them HAD all three stages approved and were
+          blocked by something else entirely (a short service-charge fund, an
+          invalid gateway recipient), and the third had stage 3 SENT BACK — a
+          person's decision, not a missing tick.
+
+          Nothing on this screen said so. `waitingOn()` has computed exactly
+          this sentence since 0212 and was rendered only on the Approvals QUEUE
+          — so the detail page, which is where somebody stares at a payment they
+          cannot release, showed three rows and a dot and left them to infer it.
+          A tick that means "superseded" and a dot that means "sent back" look
+          the same to anyone not reading the small print. */}
+      {showWaitingOn && (
+        <div
+          className={cn(
+            "flex items-start gap-2 rounded-lg border px-3 py-2 text-sm",
+            state.rejected
+              ? "border-destructive/40 bg-destructive/5"
+              : state.clearedForDisbursement
+                ? "border-success/40 bg-success/8"
+                : "border-border bg-muted/40"
+          )}
+        >
+          <Hourglass className="mt-0.5 size-4 flex-shrink-0 text-muted-foreground" />
+          <p className="text-muted-foreground">
+            <span className="font-medium text-foreground">{waitingOn(state)}</span>
+            {!state.rejected && state.nextStage && (
+              <>
+                {" "}
+                {state.stages.filter((s) => s.decision === "approved").length} of{" "}
+                {state.stages.length} stage
+                {state.stages.length === 1 ? "" : "s"} approved.
+              </>
+            )}
+          </p>
+        </div>
+      )}
 
       {state.amountChangedAfterApproval && (
         <div className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/8 px-3 py-2 text-sm">
@@ -99,13 +175,7 @@ export default function ChainTrail({ state }: { state: ChainState }) {
                           ? "Needs approving again — was approved"
                           : "Approved"}{" "}
                     by {s.actorName ?? "someone no longer listed"}
-                    {s.decidedAt
-                      ? ` · ${new Date(s.decidedAt).toLocaleDateString("en-NG", {
-                          day: "numeric",
-                          month: "short",
-                          year: "numeric",
-                        })}`
-                      : ""}
+                    {s.decidedAt ? ` · ${decidedAtLabel(s.decidedAt)}` : ""}
                     {stale && s.decidedAmount != null
                       ? ` · at ${formatNaira(s.decidedAmount)}`
                       : ""}
@@ -155,11 +225,7 @@ export default function ChainTrail({ state }: { state: ChainState }) {
                     ? "refused"
                     : "approved"}{" "}
                 by {h.actorName ?? "someone no longer listed"} ·{" "}
-                {new Date(h.at).toLocaleDateString("en-NG", {
-                  day: "numeric",
-                  month: "short",
-                  year: "numeric",
-                })}{" "}
+                {decidedAtLabel(h.at)}{" "}
                 · {formatNaira(h.amount)}
                 {h.superseded && (
                   <span className="ml-1 no-underline"> (no longer counts)</span>

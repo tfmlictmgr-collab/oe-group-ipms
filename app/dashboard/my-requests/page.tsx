@@ -10,7 +10,7 @@ import { EmptyState } from "@/components/patterns/empty-state";
 import { StatusBadge } from "@/components/patterns/status-badge";
 import { ChatWithUs } from "@/components/patterns/chat-with-us";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 // A tenant's own requests, with the timeline they are actually owed.
@@ -99,8 +99,35 @@ export default async function MyRequestsPage() {
   if (session.profile?.role === "viewer") redirect("/dashboard/overview");
 
   const supabase = await createClient();
-  const { data, error } = await supabase.rpc("my_requests");
+  const [{ data, error }, tenanciesRes] = await Promise.all([
+    supabase.rpc("my_requests"),
+    // ⚠️ The tenant's own home screen did not say where they live. Asked for
+    // directly — "tenant should see their allocated apartment" — and the data
+    // has been there the whole time: `my_tenancies()` has returned
+    // `property_name` and `unit_label` since 0110, and only /dashboard/my-rent
+    // ever read it. So a resident's landing page listed their complaints and
+    // named neither their flat nor their building, and the one screen that did
+    // was filed under RENT, which is not where somebody looks for their address.
+    //
+    // Read through the definer function, not the register: a tenant reaches
+    // `properties` and `units` through their tenancy (0226) and this needs no
+    // wider door than the one that already exists.
+    supabase.rpc("my_tenancies"),
+  ]);
   const rows = (data ?? []) as RequestRow[];
+
+  type Tenancy = {
+    lease_id: string;
+    property_name: string | null;
+    unit_label: string | null;
+    status: string;
+    end_date: string | null;
+  };
+  // Live tenancies only. An expired one is a fact about the past and printing
+  // it beside "your home" would tell somebody they live somewhere they left.
+  const tenancies = ((tenanciesRes.data ?? []) as Tenancy[]).filter(
+    (t) => t.status === "active" || t.status === "renewed"
+  );
 
   const openCount = rows.filter((r) => !DONE.has(r.status)).length;
 
@@ -121,6 +148,45 @@ export default async function MyRequestsPage() {
         }
         actions={newRequest}
       />
+
+      {tenancies.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">
+              {tenancies.length === 1 ? "Your home" : "Your tenancies"}
+            </CardTitle>
+            <CardDescription>
+              What you rent, and where. Raise a request against it from the
+              button above.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {tenancies.map((t) => (
+              <div
+                key={t.lease_id}
+                className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 rounded-lg border border-border bg-muted/30 px-3 py-2.5"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">
+                    {t.unit_label ?? "Your unit"}
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {t.property_name ?? "—"}
+                  </p>
+                </div>
+                {t.end_date && (
+                  <p className="text-xs text-muted-foreground">
+                    Tenancy to{" "}
+                    {new Date(t.end_date).toLocaleDateString("en-NG", {
+                      day: "numeric", month: "short", year: "numeric",
+                    })}
+                  </p>
+                )}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {error ? (
         <EmptyState
