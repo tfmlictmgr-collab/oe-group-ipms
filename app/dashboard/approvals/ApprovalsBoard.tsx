@@ -437,6 +437,7 @@ export default function ApprovalsBoard({
                       stage={r.state.nextStage.stageOrder as StageOrder}
                       stageLabel={r.state.nextStage.short}
                       verb={r.state.nextStage.verb}
+                      amount={r.state.amount}
                       returnsTo={
                         r.state.nextStage.stageOrder === 1
                           ? "whoever raised it"

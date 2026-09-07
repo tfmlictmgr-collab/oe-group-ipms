@@ -2,7 +2,9 @@
 
 import * as React from "react";
 import { toast } from "sonner";
-import { Check, X, MessageSquarePlus, CornerUpLeft } from "lucide-react";
+import { Check, X, MessageSquarePlus, CornerUpLeft, PencilLine } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { formatNaira } from "@/lib/currency";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { recordStageDecision } from "@/lib/approvals/actions";
@@ -23,6 +25,7 @@ export default function StageActions({
   stageLabel,
   verb = "Approve",
   returnsTo,
+  amount,
 }: {
   payableType: PayableType;
   payableId: string;
@@ -42,6 +45,13 @@ export default function StageActions({
    * on `single_stage` (0248) stage 1 is the only rung there is.
    */
   returnsTo?: string;
+  /**
+   * What the payable currently says. Shown, and used to prefill the revision
+   * field — NOT sent as the decision's amount. `record_payment_approval` reads
+   * the figure from the payable itself, and only a DELIBERATE revision typed by
+   * this approver is ever transmitted.
+   */
+  amount?: number | null;
 }) {
   const [busy, setBusy] = React.useState<"approve" | "reject" | "return" | null>(null);
   const [refusing, setRefusing] = React.useState(false);
@@ -58,8 +68,19 @@ export default function StageActions({
    */
   const [note, setNote] = React.useState("");
   const [noting, setNoting] = React.useState(false);
+  /**
+   * A revised figure (0270). Reported from the live portal: three desks wrote
+   * "MP approve 150,000" into the comment box while the payable went on saying
+   * ₦166,000, and the payment officer was left reconciling prose against a
+   * number. This is the field that was missing.
+   */
+  const [revising, setRevising] = React.useState(false);
+  const [amountText, setAmountText] = React.useState("");
 
-  async function submit(decision: "approved" | "rejected" | "returned") {
+  async function submit(
+    decision: "approved" | "rejected" | "returned",
+    revisedAmount?: number | null
+  ) {
     setBusy(
       decision === "approved" ? "approve" : decision === "rejected" ? "reject" : "return"
     );
@@ -68,10 +89,16 @@ export default function StageActions({
       payableId,
       stage,
       decision,
+      approvedAmount: revisedAmount ?? null,
       // A refusal must say why and a return must say what to correct; an
       // approval may. All three land in the same column and all three show on
       // the trail.
-      reason: decision === "approved" ? (note.trim() || null) : reason,
+      reason:
+        decision === "approved"
+          ? // A revision's justification is required and lives in the same box
+            // a return's does, because that is what the database records it as.
+            (revisedAmount ? reason : note.trim() || null)
+          : reason,
     });
     setBusy(null);
 
@@ -79,15 +106,29 @@ export default function StageActions({
       toast.error(res.message, { description: res.hint ?? undefined });
       return;
     }
+    // ⚠️ The revision toast must not say "approved". The database records it as
+    // a RETURN and every desk below has to sign the new figure — telling
+    // somebody their ₦150,000 is approved when it has just gone back to stage 1
+    // is the same fault as writing the number in a comment box.
     toast.success(
-      decision === "approved"
-        ? `${stageLabel} approved.`
-        : decision === "returned"
-          ? "Sent back for correction."
-          : "Payment refused."
+      revisedAmount
+        ? `Sent back at ${formatNaira(revisedAmount)}.`
+        : decision === "approved"
+          ? `${stageLabel} approved.`
+          : decision === "returned"
+            ? "Sent back for correction."
+            : "Payment refused.",
+      revisedAmount
+        ? {
+            description:
+              "Changing the amount voids every approval already given — they were given for a different figure. The chain re-climbs from the first stage at the new one.",
+          }
+        : undefined
     );
     setRefusing(false);
     setReturning(false);
+    setRevising(false);
+    setAmountText("");
     setReason("");
     setNote("");
     setNoting(false);
@@ -183,6 +224,78 @@ export default function StageActions({
     );
   }
 
+  // A revision is its own panel, in its own colour, like the refusal and the
+  // return beside it. It is not a variant of Approve: it changes what is being
+  // authorised, and the person doing it should be in no doubt that the ladder
+  // starts again.
+  if (revising) {
+    const parsed = Number(amountText.replace(/[^\d.]/g, ""));
+    const valid = Number.isFinite(parsed) && parsed > 0;
+    const unchanged = valid && amount != null && Number(amount) === parsed;
+    return (
+      <div className="space-y-3 rounded-lg border border-sky-300 bg-sky-50 p-4 dark:border-sky-900/50 dark:bg-sky-950/30">
+        <div className="space-y-1.5">
+          <Label htmlFor={`amount-${stage}`}>What amount are you approving?</Label>
+          {amount != null && (
+            <p className="text-xs text-muted-foreground">
+              Currently {formatNaira(amount)}.
+            </p>
+          )}
+          <Input
+            id={`amount-${stage}`}
+            inputMode="decimal"
+            value={amountText}
+            onChange={(e) => setAmountText(e.target.value)}
+            placeholder={amount != null ? String(amount) : "150000"}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor={`revreason-${stage}`}>Why is it changing?</Label>
+          <textarea
+            id={`revreason-${stage}`}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            rows={3}
+            className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+            placeholder="e.g. Transport is not chargeable on this contract — approving materials and labour only."
+          />
+        </div>
+        <p className="text-xs text-muted-foreground">
+          ⚠️ Changing the amount <strong>voids every approval already given</strong> —
+          they were given for a different figure — and the request climbs the
+          chain again from the first stage at the new one. The payment officer
+          pays what the chain finally approves and cannot edit it.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            disabled={busy !== null || !valid || unchanged || reason.trim().length < 10}
+            onClick={() => submit("approved", parsed)}
+          >
+            {busy === "approve" ? "Recording…" : "Send back at this amount"}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={busy !== null}
+            onClick={() => {
+              setRevising(false);
+              setAmountText("");
+              setReason("");
+            }}
+          >
+            Cancel
+          </Button>
+        </div>
+        {unchanged && (
+          <p className="text-xs text-muted-foreground">
+            That is the amount already in front of you — approve it instead.
+          </p>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-3">
       {noting ? (
@@ -217,6 +330,18 @@ export default function StageActions({
         <Button size="sm" disabled={busy !== null} onClick={() => submit("approved")}>
           <Check className="mr-1.5 size-4" />
           {busy === "approve" ? "Recording…" : `${verb} — ${stageLabel}`}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={busy !== null}
+          onClick={() => {
+            setRevising(true);
+            setAmountText(amount != null ? String(amount) : "");
+          }}
+        >
+          <PencilLine className="mr-1.5 size-4" />
+          Approve a different amount
         </Button>
         <Button
           variant="outline"

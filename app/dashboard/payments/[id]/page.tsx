@@ -216,6 +216,7 @@ export default async function PaymentDetailPage({
                 stage={chain.nextStage.stageOrder}
                 stageLabel={chain.nextStage.short}
                 verb={chain.nextStage.verb}
+                amount={chain.amount}
               />
             )}
           </CardContent>

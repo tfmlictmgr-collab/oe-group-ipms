@@ -40,7 +40,7 @@ export default async function RequisitionDetailPage({
   const { data: req } = await supabase
     .from("ops_requisitions")
     .select(
-      "id, org_id, reference, total_amount, status, raised_by, created_at, rejected_reason, invoice_attachment_path, tickets(id, summary, category, urgency, property_or_unit), users!ops_requisitions_raised_by_fkey(full_name)"
+      "id, org_id, reference, total_amount, requested_amount, status, raised_by, created_at, rejected_reason, invoice_attachment_path, tickets(id, summary, category, urgency, property_or_unit), users!ops_requisitions_raised_by_fkey(full_name)"
     )
     .eq("id", id)
     .maybeSingle();
@@ -147,7 +147,21 @@ export default async function RequisitionDetailPage({
         <CardHeader>
           <CardTitle className="text-base">The requisition as raised</CardTitle>
           <CardDescription>
-            {formatNaira(req.total_amount)} · raised by {raiser ?? "someone no longer listed"}
+            {formatNaira(req.total_amount)}
+            {req.requested_amount != null &&
+              Number(req.requested_amount) !== Number(req.total_amount) && (
+                // 0270. Both figures, because one of them is a decision
+                // somebody made and the other is what was asked for. Until
+                // now the revision lived in a comment ("MP approve 150,000")
+                // and the header went on showing the claim.
+                <>
+                  {" "}
+                  <span className="text-muted-foreground">
+                    (approved, down from {formatNaira(req.requested_amount)})
+                  </span>
+                </>
+              )}{" "}
+            · raised by {raiser ?? "someone no longer listed"}
             {req.created_at
               ? ` on ${new Date(req.created_at).toLocaleDateString("en-NG", {
                   day: "numeric", month: "long", year: "numeric",
@@ -272,6 +286,7 @@ export default async function RequisitionDetailPage({
               stage={state.nextStage.stageOrder}
               stageLabel={state.nextStage.short}
               verb={state.nextStage.verb}
+              amount={state.amount}
               returnsTo={
                 state.nextStage.stageOrder === 1
                   ? (raiser ?? "whoever raised it")

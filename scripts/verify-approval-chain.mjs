@@ -697,6 +697,94 @@ console.log("\n13. With bands off — the board's default — the chain still ru
 }
 
 // ---------------------------------------------------------------------------
+console.log("\n14. An approver states the sum, and the ladder re-climbs at it");
+// ---------------------------------------------------------------------------
+//
+// Reported from the live portal: "I cannot pay the required amount… MP approve
+// 150,000", "Go ahead with ₦150,000.00", and the payable still said ₦166,000.
+// The figure lived in PROSE and nothing acted on it (0270).
+//
+// ⚠️ Driven through `record_payment_approval` under a REAL SESSION, not by
+// inserting into payment_approvals as the service role like the sections above.
+// The amount branch lives in that function and `auth.uid()` is the whole basis
+// of it — a service-role fixture would prove the trigger and skip the act.
+{
+  const signIn = async (email) => {
+    const c = createClient(URL_, ANON, { auth: { persistSession: false } });
+    const { error } = await c.auth.signInWithPassword({ email, password: PW });
+    if (error) throw new Error(`${email}: ${error.message}`);
+    return c;
+  };
+
+  const p = await mkPayment(200000);
+  await decide(p, fm, 1);
+
+  const auditorC = await signIn(auditor.email);
+
+  // A refusal carries no figure: there is nothing left to authorise.
+  const { error: rejErr } = await auditorC.rpc("record_payment_approval", {
+    p_payable_type: "vendor_payment", p_payable_id: p, p_stage: 2,
+    p_decision: "rejected", p_reason: "too expensive for this scope of work",
+    p_amount: 150000,
+  });
+  rejErr ? ok("a refusal cannot name an amount") : bad("A REFUSAL CARRIED AN APPROVED AMOUNT");
+
+  // And a revision has to say why, because every desk below has to re-approve.
+  const { error: noWhy } = await auditorC.rpc("record_payment_approval", {
+    p_payable_type: "vendor_payment", p_payable_id: p, p_stage: 2,
+    p_decision: "approved", p_reason: "cheap", p_amount: 150000,
+  });
+  noWhy ? ok("a revision with no reason is refused") : bad("THE AMOUNT MOVED WITH NO REASON GIVEN");
+
+  const { error: revErr } = await auditorC.rpc("record_payment_approval", {
+    p_payable_type: "vendor_payment", p_payable_id: p, p_stage: 2,
+    p_decision: "approved",
+    p_reason: "Transport is not chargeable on this contract — materials and labour only.",
+    p_amount: 150000,
+  });
+  revErr ? bad(`the revision was refused — ${revErr.message.slice(0, 70)}`)
+         : ok("an approver states ₦150,000 against a ₦200,000 claim");
+
+  const { data: after } = await svc.from("payments")
+    .select("amount, requested_amount, status").eq("id", p).single();
+  Number(after?.amount) === 150000
+    ? ok("the payable now says what was approved")
+    : bad(`the payable still says ${after?.amount}`);
+  Number(after?.requested_amount) === 200000
+    ? ok("and still remembers what was claimed — both figures survive")
+    : bad(`requested_amount was ${after?.requested_amount}`);
+
+  // Recorded as a RETURN, whatever the caller asked for.
+  const { data: rows } = await svc.from("payment_approvals")
+    .select("stage_order, decision, amount, approved_amount, superseded_at")
+    .eq("payable_id", p).order("created_at");
+  const rev = (rows ?? []).find((r) => r.approved_amount !== null);
+  rev?.decision === "returned"
+    ? ok("recorded as a return — an approval here would stand on signatures it just voided")
+    : bad(`the revision was recorded as ${rev?.decision}`);
+  Number(rev?.approved_amount) === 150000
+    ? ok("and the row itself names the figure that moved")
+    : bad(`approved_amount was ${rev?.approved_amount}`);
+
+  // ⚠️ The whole point: stage 1 signed for ₦200,000 and is now void.
+  const stage1 = (rows ?? []).find((r) => r.stage_order === 1 && r.decision === "approved");
+  stage1?.superseded_at
+    ? ok("stage 1's approval is superseded — it was given for a different figure")
+    : bad("!!! A SIGNATURE GIVEN AT ₦200,000 IS STILL LIVE AT ₦150,000");
+
+  eq("and the payment is not cleared for disbursement", await cleared(p, 150000), false);
+
+  // It re-climbs, and clears at the NEW figure.
+  await decide(p, fm, 1);
+  await decide(p, auditor, 2);
+  await decide(p, tier3, 3);
+  eq("re-climbed at the approved figure, it clears", await cleared(p, 150000), true);
+  const { data: fin } = await svc.from("payments").select("status, amount").eq("id", p).single();
+  eq("and the payment is approved at the revised amount", `${fin?.status}/${Number(fin?.amount)}`, "approved/150000");
+
+  await auditorC.auth.signOut();
+}
+// ---------------------------------------------------------------------------
 // Teardown
 // ---------------------------------------------------------------------------
 // ⚠️ `payment_approvals` CANNOT be deleted — not by the service role, not by

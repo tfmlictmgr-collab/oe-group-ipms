@@ -25,8 +25,33 @@ export async function recordStageDecision(input: {
   stage: StageOrder;
   decision: Decision;
   reason?: string | null;
+  /**
+   * The sum this approver actually authorises, where it differs from what is
+   * in front of them (0270). Optional, and deliberately NOT the amount that
+   * gets paid by itself: the database amends the payable, records the decision
+   * as a RETURN whatever was asked for, and the ladder re-climbs at the new
+   * figure — because a signature on ₦200,000 is not a signature on ₦150,000.
+   */
+  approvedAmount?: number | null;
 }): Promise<ActionResult> {
   const reason = (input.reason ?? "").trim();
+  const revised =
+    input.approvedAmount === null || input.approvedAmount === undefined
+      ? null
+      : Number(input.approvedAmount);
+
+  if (revised !== null && (!Number.isFinite(revised) || revised <= 0)) {
+    return fail("Enter the amount you are approving.", "It has to be more than nothing.");
+  }
+
+  // Said here as well as in the database, because the database's version
+  // arrives as a raw error and this one arrives beside the field they typed in.
+  if (revised !== null && reason.length < 10) {
+    return fail(
+      "Say why the amount is changing, in at least 10 characters.",
+      "Changing the figure sends this back down the chain — every desk below has to approve the new number, and they can only do that if they know why it moved."
+    );
+  }
 
   if (input.decision === "rejected" && reason.length < 10) {
     return fail(
@@ -57,6 +82,7 @@ export async function recordStageDecision(input: {
     p_stage: input.stage,
     p_decision: input.decision,
     p_reason: reason || null,
+    p_amount: revised,
   });
 
   if (error) return failFromDb(error, "record this decision");
