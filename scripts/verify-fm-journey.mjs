@@ -204,8 +204,21 @@ for (const o of tenantOrgs) {
   }
 
   // 3. The gate: verify yes, approve no.
-  const { data: pay } = await svc.from("payments")
-    .select("id").eq("org_id", o.id).limit(1).maybeSingle();
+  //
+  // ⚠️ Which payment this picks decides what the approve check MEANS, and for
+  // as long as it was `limit(1)` with no ordering it did not decide it
+  // deliberately. A payment already at `approved` has no transition to make, so
+  // `enforce_payment_transition` returns early having policed nothing and the
+  // update succeeds — which is how this reported "AN FM APPROVED A PAYMENT"
+  // against a row approved days earlier by an administrator. Both halves were
+  // worth knowing: the FM really could reach `approved` on a `recommended`
+  // payment (0266's subject), and they really could rewrite `approved_by` on an
+  // already-approved one (0266's second finding). So: prefer a payment at
+  // `recommended`, and say which case is being tested rather than reading a row
+  // count that means different things in each.
+  const { data: payables } = await svc.from("payments")
+    .select("id, status, approved_by").eq("org_id", o.id).limit(50);
+  const pay = (payables ?? []).find((p) => p.status === "recommended") ?? (payables ?? [])[0] ?? null;
   if (!pay) { note("no payment on this org — gate step not testable"); }
   else {
     // ⚠️ An FM's write on payments is scoped to vendors they manage
@@ -227,11 +240,34 @@ for (const o of tenantOrgs) {
         : bad(`cannot verify service on a vendor they manage: ${verify.err ?? "0 rows"}`);
     }
 
-    const approve = await tryAs(fm.id,
-      `update payments set status = 'approved', approved_by = '${fm.id}' where id = '${pay.id}' returning id`);
-    (approve.ok && approve.n === 0) || !approve.ok
-      ? ok("and cannot approve it — authorising the money is finance's, not theirs")
-      : bad("!!! AN FM APPROVED A PAYMENT");
+    // Two statements in one rolled-back transaction, so the stamp can be READ
+    // BACK after the attempt. A row count alone cannot tell "refused" from
+    // "succeeded and changed nothing that matters", and on the already-approved
+    // path those are the two possibilities.
+    const approve = await tryAsSteps(fm.id, [
+      `update payments set status = 'approved', approved_by = '${fm.id}' where id = '${pay.id}'`,
+      `select status, approved_by from payments where id = '${pay.id}'`,
+    ]);
+
+    // Judged on the STATE afterwards, never on whether the statement ran. An
+    // update refused by RLS affects zero rows and raises nothing, so "it did
+    // not throw" and "it approved a payment" are not the same claim — reading
+    // them as the same is what made the first version of this fix report a
+    // refusal as an approval.
+    if (!approve.ok) {
+      ok(`and cannot approve it — ${approve.err.split("\n")[0].slice(0, 70)}`);
+    } else {
+      const after = approve.steps[1]?.[0] ?? null;
+      const nowApproved = after?.status === "approved" && pay.status !== "approved";
+      const stampMoved = after && after.approved_by === fm.id && pay.approved_by !== fm.id;
+      if (nowApproved) {
+        bad("!!! AN FM APPROVED A PAYMENT");
+      } else if (stampMoved) {
+        bad(`!!! AN FM REWROTE approved_by ON AN ALREADY-${String(pay.status).toUpperCase()} PAYMENT`);
+      } else {
+        ok(`and cannot approve it — the payment is still ${after?.status ?? "unreadable"}, approved by nobody new`);
+      }
+    }
   }
 
   // 4/5/6. The registers they oversee.

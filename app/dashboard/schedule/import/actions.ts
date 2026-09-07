@@ -22,18 +22,28 @@ import {
  * minutes between the two.
  */
 
-/** The lookups the validator resolves names against, scoped to this caller. */
+/**
+ * The lookups the validator resolves names against, scoped to this caller.
+ *
+ * ⚠️ Returns null rather than throwing when there is no session or no profile
+ * row. Both are unreachable behind the dashboard layout, and "unreachable" is
+ * exactly the argument that puts a `throw` in a server action — where Next
+ * replaces the message with an opaque digest IN PRODUCTION ONLY, so the person
+ * sees "an error occurred" and the developer, on `next dev`, never sees it at
+ * all. `verify-action-errors` exists for that asymmetry; this is one of the two
+ * calls it caught.
+ */
 async function buildContext(): Promise<{
   ctx: ImportContext;
   propertyNames: string[];
   canWrite: boolean;
-}> {
+} | null> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error("buildContext called without a session");
+  if (!user) return null;
   const { data: me } = await supabase
     .from("users").select("org_id, role").eq("id", user.id).single();
-  if (!me) throw new Error("buildContext: signed-in user has no profile row");
+  if (!me) return null;
 
   const [canWriteRes, propsRes, unitsRes, tenantsRes, leasesRes] = await Promise.all([
     supabase.rpc("has_permission", { p_capability: "leases.write" }),
@@ -114,7 +124,9 @@ export async function previewTenancyImport(csvText: string): Promise<
     linkedToAccounts: number;
   }>
 > {
-  const { ctx, canWrite } = await buildContext();
+  const context = await buildContext();
+  if (!context) return fail("Your session expired. Please sign in again.");
+  const { ctx, canWrite } = context;
   if (!canWrite) {
     return fail(
       "You cannot record tenancies.",
@@ -143,7 +155,9 @@ export async function commitTenancyImport(csvText: string): Promise<
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return fail("Your session expired. Please sign in again.");
 
-  const { ctx, canWrite } = await buildContext();
+  const context = await buildContext();
+  if (!context) return fail("Your session expired. Please sign in again.");
+  const { ctx, canWrite } = context;
   if (!canWrite) return fail("You cannot record tenancies.");
 
   // Re-validated here, never taken from the preview.

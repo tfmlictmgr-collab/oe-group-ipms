@@ -38,6 +38,21 @@ const SLOW = new Set([
   "verify-access-matrix",
   "verify-bi-scoping",
   "verify-finance-journey",
+  // Added 7 Sept 2026, after all three were killed at 300s in a full run and
+  // then PASSED standalone. A budget that fails a working suite is worse than
+  // no budget: it produces a red that survives investigation only until
+  // somebody re-runs the file, which is how a runner teaches people to
+  // re-run rather than to read.
+  //
+  //   conversational-intelligence — calls the router MODEL once per message,
+  //     33 checks, ~5 minutes of real API latency that no amount of local
+  //     speed changes;
+  //   notification-links, role-workflows — both walk every role in every org,
+  //     so like `verify-finance-journey` their runtime grows with the client
+  //     list rather than with the code.
+  "verify-conversational-intelligence",
+  "verify-notification-links",
+  "verify-role-workflows",
 ]);
 
 const suites = readdirSync(here)

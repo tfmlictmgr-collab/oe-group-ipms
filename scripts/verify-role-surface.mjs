@@ -110,7 +110,12 @@ const REQUIRED = {
   admin:            ["seesProperties", "seesVendors", "seesServiceCharges", "canEnroll"],
   executive:        ["seesProperties", "seesVendors", "seesServiceCharges"],
   facility_manager: ["seesProperties", "seesVendors", "canEnroll"],
-  regional_manager: ["seesProperties", "seesVendors", "canEnroll"],
+  // Decision 26 (30 Aug 2026) added SC and lettings on the places they hold, so
+  // the module is now REQUIRED where it was once forbidden. The reported
+  // symptom that decision was written about was the menu, not the policy: an
+  // FM/PM/RM could always READ the budgets on their own buildings, and
+  // `seesServiceCharges` was hiding the module from them.
+  regional_manager: ["seesProperties", "seesVendors", "canEnroll", "seesServiceCharges", "seesLettings"],
   finance_approver: ["seesServiceCharges"],
   property_owner:   ["seesProperties"],
   fm_ops_staff:     [],
@@ -120,9 +125,13 @@ const REQUIRED = {
 };
 
 const FORBIDDEN = {
-  // Decision 9's boundary, and the sharpest line in this file: a regional
-  // manager runs operations and touches nothing financial.
-  regional_manager: ["seesServiceCharges"],
+  // ⚠️ `regional_manager` USED to be here, for decision 9's "nothing
+  // financial". Decision 26 amended that: they administer the service charge
+  // and the tenancies on the buildings they hold, bounded by place. What
+  // replaces it is not a menu flag but the capability check in section B —
+  // `sc.read_all`, the org-wide read, is still denied. A menu boolean cannot
+  // express "bounded to their own properties", and asserting the wrong one here
+  // is what made this file argue against a board decision for a week.
   // Enrolment is a write. Oversight oversees; it does not staff the org.
   executive:        ["canEnroll"],
   finance_approver: ["canEnroll"],
@@ -179,11 +188,29 @@ console.log("\nB. The roles with no lane in the deck are nonetheless real");
         ? ok(`${org.slug}: regional manager holds the operational set decision 9 promises`)
         : bad(`${org.slug}: regional manager is missing ${missing.join(", ")}`);
 
-      // And the financial half it must NOT hold.
-      const forbidden = ["sc.manage", "sc.read_all"].filter((c) => caps.includes(c));
-      forbidden.length === 0
-        ? ok(`${org.slug}: and nothing financial — decision 9's boundary`)
-        : bad(`${org.slug}: regional manager holds ${forbidden.join(", ")}`);
+      // ⚠️ AMENDED BY DECISION 26 (board, 30 Aug 2026). This asserted "nothing
+      // financial" on both `sc.manage` and `sc.read_all`, which was decision 9
+      // as written. The board has since given the regional manager `sc.manage`
+      // and `leases.write` on the buildings they hold — `role_rank` has put
+      // them above the FM/PM since 0183, and a role that supersedes the FM/PM
+      // over a wider place cannot be unable to administer the service charge on
+      // it.
+      //
+      // The boundary did not disappear, it MOVED, and the half that moved is
+      // the half worth asserting: `sc.manage` is bounded to
+      // `current_user_property_ids()` by the clause 0236 put on `sc_budgets_*`,
+      // while `sc.read_all` is the ORG-WIDE capability whose own description is
+      // "read every service charge, not only their own" — that one is still
+      // denied, and granting it to make a menu item appear is the mistake
+      // decision 26 records in its own words.
+      const need2 = ["sc.manage", "leases.write"].filter((c) => !caps.includes(c));
+      need2.length === 0
+        ? ok(`${org.slug}: and administers SC and lettings on their own places — decision 26`)
+        : bad(`${org.slug}: regional manager is missing ${need2.join(", ")} (decision 26)`);
+
+      caps.includes("sc.read_all")
+        ? bad(`${org.slug}: regional manager holds sc.read_all — the org-wide read decision 26 keeps denied`)
+        : ok(`${org.slug}: and no org-wide read — their reach is the place, not a blanket`);
     }
 
     const { data: ops } = await svc.from("users").select("id, email")

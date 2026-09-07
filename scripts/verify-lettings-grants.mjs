@@ -104,6 +104,14 @@ console.log("\nB. The deliberate exclusions still hold");
     // point is that the administrator approves nothing — and onto one where
     // they might. It reads like branding and behaves like a control.
     delivery_brand: "TFML",
+    // The same escalation reached one step more directly. `delivery_brand`
+    // chose the ladder indirectly; these two ARE the ladder — its shape (0248)
+    // and whether its final stage requires a band at all (0261). Both are set
+    // through `operator_set_approval_*` behind `caller_is_operator_admin()`,
+    // and an administrator who could write either could rewrite the control
+    // they are approved against.
+    approval_chain_shape: "single_stage",
+    approval_tiers_enabled: true,
   };
   for (const [col, value] of Object.entries(forbidden)) {
     const { error } = await admin.from("orgs").update({ [col]: value }).eq("id", me.org_id);
@@ -147,6 +155,21 @@ console.log("\nC. Every orgs column is either allowed or deliberately excluded")
     // 📌 The column did not change. Its READERS did — which is what moved it
     // across this line, and is the reason section C exists at all.
     "delivery_brand",
+    // The two operator toggles for the approval chain, and they were NEVER on
+    // the allowlist — decision 28 (0248) and 0261 both say so in their own
+    // migrations, and each ends with a guard asserting the column is absent
+    // from `information_schema.column_privileges` for `authenticated`. They are
+    // named here because "not granted" and "nobody decided" look identical from
+    // this side of the line, and this section exists to tell them apart.
+    //
+    // ⚠️ `approval_chain_shape` is the SHAPE of the ladder (standard / oea /
+    // single_stage) and `approval_tiers_enabled` is whether its final stage
+    // checks a band at all. Decision 7 lists payment approval among the
+    // controls that "stay hardwired and never appear as toggles" in an org's
+    // own settings — an administrator who can switch off the band they approve
+    // against is approving against nothing. Section B attempts both.
+    "approval_chain_shape",
+    "approval_tiers_enabled",
   ]);
 
   // ⚠️ THE CALLER'S OWN ROW. Not `.limit(1)`.

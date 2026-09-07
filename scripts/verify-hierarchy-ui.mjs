@@ -100,11 +100,47 @@ let region, location, project, prop;
 
 console.log("\nB. Retiring is gated on hierarchy.write, same as every other write here");
 {
+  // ⚠️ AMENDED BY DECISION 26 (board, 30 Aug 2026). This asserted that an FM/PM
+  // is REFUSED, because `hierarchy.write` had been granted to `admin` and
+  // nobody else — against decision 8's own words, recorded 29 July 2026 and
+  // never implemented: "the FM/PM builds the tree while filing a property … a
+  // picker that can only select is a dead end for the first property in a new
+  // city." Nothing failed loudly; the inline creation simply was not offered,
+  // and this check was quietly asserting the omission.
+  //
+  // So the gate is still the subject — it is the SIDE that moved. An FM/PM now
+  // holds the capability and a role that does not still cannot retire a node.
   const c = createClient(URL_, ANON);
   await c.auth.signInWithPassword({ email: "oe-group-foundation-poc.facilitymanager@oegroup.test", password: PW });
+  const { data: holds } = await c.rpc("has_permission", { p_capability: "hierarchy.write" });
+  holds === true
+    ? ok("an FM/PM holds hierarchy.write — decision 8, implemented by decision 26")
+    : bad("an FM/PM does NOT hold hierarchy.write — they cannot file a property in a new city");
   const { error } = await c.rpc("retire_org_node", { p_node_id: location.id });
-  error ? ok("an FM/PM without hierarchy.write is refused") : bad("AN FM/PM RETIRED A NODE WITHOUT THE CAPABILITY");
+  error ? bad(`an FM/PM with hierarchy.write was refused — ${error.message.slice(0, 70)}`)
+        : ok("and can retire an empty node, the same write every other one here is");
   await c.auth.signOut();
+
+  // The gate itself, proven against a role that genuinely does not hold it.
+  // A check that only ever watches the permitted side is not a gate check.
+  const t = createClient(URL_, ANON);
+  const { error: tErr } = await t.auth.signInWithPassword({
+    email: "oe-group-foundation-poc.tenant@oegroup.test", password: PW,
+  });
+  if (tErr) { console.log("  (no tenant login on this org — the refused side is untested)"); }
+  else {
+    // A node of its own, live and empty. Pointing this at an ALREADY-retired
+    // node would prove nothing: `retire_org_node` treats that as a no-op, so a
+    // refusal and a no-op would be indistinguishable and the check would pass
+    // for the wrong reason.
+    const spare = (await mkNode(null, "region", `PROBE-UI-Refused-${S}`)).data;
+    const { error: e } = await t.rpc("retire_org_node", { p_node_id: spare.id });
+    e ? ok("a tenant is refused — the capability is what decides, not the sign-in")
+      : bad("A TENANT RETIRED A HIERARCHY NODE");
+    const { data: still } = await svc.from("org_nodes").select("deleted_at").eq("id", spare.id).single();
+    still?.deleted_at ? bad("the node was retired despite the refusal") : ok("and the node is still live");
+    await t.auth.signOut();
+  }
 }
 
 console.log("\nC. org_nodes_overview's counts are correct, not just present");

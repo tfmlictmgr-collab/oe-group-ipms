@@ -149,6 +149,17 @@ for (const o of tenantOrgs) {
     .select("tier1_threshold_amount, approval_threshold_amount").eq("org_id", o.id).maybeSingle();
   const tier1 = Number(gate?.tier1_threshold_amount ?? 100000);
 
+  // ⚠️ Whether the band is checked AT ALL is now per-organisation (0261, board
+  // 5 Sept 2026), and OFF by default. This suite walks every org, so it asks
+  // each one rather than assuming — an expectation hardcoded to the ladder was
+  // eight red checks here on the day the default changed, every one of them
+  // asserting a rule the board had just replaced. Note what does NOT vary: the
+  // three stages, the maker-checker, and the ungated-payment refusal below are
+  // asserted identically in both modes.
+  const { data: orgRow } = await svc.from("orgs")
+    .select("approval_tiers_enabled").eq("id", o.id).maybeSingle();
+  const bands = orgRow?.approval_tiers_enabled === true;
+
   // ── B. A mixed batch ────────────────────────────────────────────────────
   //
   // Three payments: two approvable, one above the threshold, one still at
@@ -265,18 +276,30 @@ for (const o of tenantOrgs) {
       ? ok("approves the two within the approver's band")
       : bad(`the approvable ones were refused: ${JSON.stringify([by.small1, by.small2])}`);
 
-    // The refusal now names the TIER rather than the role, because the ladder
-    // decides it per band instead of at one cut-off.
-    by.big?.approved === false && /tier \d|approver or above/i.test(by.big?.reason ?? "")
-      ? ok("refuses the one above the band, in the ladder's own words")
-      : bad(`the over-threshold payment was not refused correctly: ${JSON.stringify(by.big)}`);
+    // The refusal names the TIER rather than the role, because the ladder
+    // decides it per band instead of at one cut-off — WHERE the org has bands.
+    if (bands) {
+      by.big?.approved === false && /tier \d|approver or above/i.test(by.big?.reason ?? "")
+        ? ok("refuses the one above the band, in the ladder's own words")
+        : bad(`the over-threshold payment was not refused correctly: ${JSON.stringify(by.big)}`);
+    } else {
+      by.big?.approved === true
+        ? ok("the amount above the band is approved — bands are off here (0261), and only the band was switched off")
+        : bad(`bands are off for this org, so nothing should refuse on amount: ${JSON.stringify(by.big)}`);
+    }
 
     by.notready?.approved === false
       ? ok("and skips one that is not at 'recommended'")
       : bad(`a payment not awaiting approval was approved: ${JSON.stringify(by.notready)}`);
 
     // The whole point: a refusal in the middle did NOT roll back the rest.
-    by.small1?.approved && by.small2?.approved && !by.big?.approved
+    //
+    // ⚠️ Asserted against `notready`, not against `big`. `big` is refused only
+    // where the org has bands, so using it made this check silently depend on a
+    // setting it is not about — and it went red on every org the day the
+    // default changed. "Not at `recommended`" refuses in both modes, which is
+    // what a check about BATCH SEMANTICS needs.
+    by.small1?.approved && by.small2?.approved && !by.notready?.approved
       ? ok("PARTIAL SUCCESS — one refusal did not undo the others")
       : bad("the batch behaved as all-or-nothing");
   }

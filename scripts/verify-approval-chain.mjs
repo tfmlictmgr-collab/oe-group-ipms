@@ -59,6 +59,37 @@ const madeUsers = [];
 const madePayments = [];
 const madeVendors = [];
 
+// ── The bands this suite is about are OFF by default (0261) ────────────────
+//
+// ⚠️ Read this before changing anything below. On 5 Sept 2026 the board made
+// the tier BANDS opt-in and defaulted them OFF for every organisation — the
+// chain still runs in full, but the final approver's band is no longer checked
+// against the amount. Thirteen checks in this file went red overnight and every
+// one of them was correct on the day it was written.
+//
+// The answer is not to relax them. This suite IS the ladder's suite, so it
+// turns the bands ON for the POC org for the duration of the run and asserts
+// them exactly as before, then section 13 asserts the DEFAULT — that with the
+// flag off, the same amount that tier 1 could not approve goes through. Both
+// modes are live in the product; testing one of them proves half a rule.
+//
+// The flag is set through the SERVICE ROLE deliberately. Who may set it is
+// `operator_set_approval_tiers`, and that is `verify-operator-governance`'s
+// subject, not this one — a fixture here should not need an operator session.
+//
+// ⚠️ Teardown restores it to `false`, which is the board's stated default,
+// rather than to whatever it happened to be at start. If a run dies mid-way the
+// column is left ON, and restoring "what we found" would then make the next run
+// preserve the damage. POC is a demo org; an operator who genuinely wants bands
+// on for it will find this suite turning them back off, which is a visible
+// answer rather than a silent one.
+const setBands = async (on) => {
+  const { error } = await svc.from("orgs")
+    .update({ approval_tiers_enabled: on }).eq("id", org.id);
+  if (error) { console.error(`could not set approval_tiers_enabled: ${error.message}`); process.exit(1); }
+};
+await setBands(true);
+
 // Start-of-run sweep — end-of-run cleanup cannot repair end-of-run cleanup.
 //
 // ⚠️ Does NOT attempt to delete `payment_approvals`. It cannot be done by
@@ -629,6 +660,43 @@ console.log("\n12. The status machine no longer takes approval on trust");
 }
 
 // ---------------------------------------------------------------------------
+console.log("\n13. With bands off — the board's default — the chain still runs");
+// ---------------------------------------------------------------------------
+//
+// Everything above ran with `approval_tiers_enabled = true`. This is the other
+// mode, and the one every organisation is actually in today (0261): the three
+// stages, the maker-checker and the separation of duties are unchanged, and the
+// ONLY thing that stops applying is the amount-to-band check.
+{
+  await setBands(false);
+
+  const { data: required } = await svc.rpc("resolve_required_tier", {
+    p_org_id: org.id, p_amount: T2 + 1_000_000,
+  });
+  eq("no band is required of any amount", required, 1);
+
+  // The exact payment section 4 refused tier 1, now accepted.
+  const a = await mkPayment(T1 + 0.01);
+  await decide(a, fm, 1); await decide(a, auditor, 2);
+  const e = await decide(a, tier1, 3);
+  e ? bad(`tier 1 was still refused with bands off — ${e.message.slice(0, 70)}`)
+    : ok("tier 1 clears ₦100,000.01 — the band is what was switched off");
+
+  const { data: pay } = await svc.from("payments").select("status").eq("id", a).single();
+  eq("and the payment is approved by the chain completing, as before", pay?.status, "approved");
+
+  // ⚠️ The half that must NOT move. Turning bands off is a reduction, and the
+  // reduction has to stop exactly at the band — 0261's own header says so, and
+  // this is what proves it rather than restating it.
+  const b = await mkPayment(T1);
+  (await decide(b, finance, 3)) ? ok("finance still holds no stage") : bad("FINANCE GAVE FINAL APPROVAL WITH BANDS OFF");
+  (await decide(b, fm2, 3)) ? ok("an FM still cannot give final approval") : bad("AN FM GAVE FINAL APPROVAL WITH BANDS OFF");
+  (await decide(b, admin, 3)) ? ok("an administrator still approves nothing (decision 23)") : bad("ADMIN APPROVED WITH BANDS OFF");
+  await decide(b, fm, 1);
+  (await decide(b, fm, 2)) ? ok("and one person still cannot hold two stages") : bad("ONE PERSON HELD TWO STAGES WITH BANDS OFF");
+}
+
+// ---------------------------------------------------------------------------
 // Teardown
 // ---------------------------------------------------------------------------
 // ⚠️ `payment_approvals` CANNOT be deleted — not by the service role, not by
@@ -647,6 +715,10 @@ console.log("\n12. The status machine no longer takes approval on trust");
 // account that has done anything cannot be erased without orphaning the record
 // of what it did, and every picker filters `deactivated_at is null`, so a
 // deactivated probe disappears from the product without breaking the trail.
+// The bands go back to the board's default first, so a failure in the loops
+// below cannot leave the organisation carrying this suite's fixture setting.
+await setBands(false);
+
 for (const id of madePayments) {
   await svc.from("payments").delete().eq("id", id);
 }

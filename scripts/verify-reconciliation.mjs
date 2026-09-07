@@ -8,6 +8,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
+import pg from "pg";
 import { validateStatementCsv, buildStatementTemplateCsv } from "../lib/statement-import.ts";
 import { parseCsv } from "../lib/asset-schema.ts";
 
@@ -226,10 +227,52 @@ await purge("statement lines", () =>
   svc.from("bank_statement_lines").delete().eq("bank_account_id", cleanup.bank));
 await purge("bank account", () =>
   svc.from("bank_accounts").delete().eq("id", cleanup.bank));
-await purge("postings", () =>
-  svc.from("ledger_postings").delete().in("entry_id", cleanup.entries));
-await purge("entries", () =>
-  svc.from("ledger_entries").delete().in("id", cleanup.entries));
+// ⚠️ The postings and the entry go in ONE TRANSACTION, which is why this drops
+// to a direct connection instead of using PostgREST like everything else here.
+//
+// `0256` closed the gap that let a cleanup delete an entry's postings and leave
+// the entry standing — 63 such rows had accumulated on staging, rendering in
+// the Journal as movements of nothing. Its guard is a DEFERRED constraint
+// trigger, so "delete the postings and delete the entry" passes and "delete the
+// postings and stop" does not. Two PostgREST calls are two transactions, so
+// this teardown was the second of those and had been failing since 0256 landed:
+//
+//   ledger entry … would be left with no postings. An entry that posts nothing
+//   is not a record of anything — delete the entry too, or post a reversing pair.
+//
+// The refusal was correct and the suite was wrong. It is stated here rather
+// than worked around because the same shape will catch the next teardown: a
+// fixture that writes a balanced pair must remove it as a pair.
+{
+  const db = new pg.Client({
+    host: process.env.SUPABASE_DB_HOST,
+    port: Number(process.env.SUPABASE_DB_PORT || 5432),
+    database: process.env.SUPABASE_DB_NAME,
+    user: process.env.SUPABASE_DB_USER,
+    password: process.env.SUPABASE_DB_PASSWORD,
+    ssl: { rejectUnauthorized: false },
+  });
+  try {
+    await db.connect();
+    await db.query("begin");
+    await db.query("delete from ledger_postings where entry_id = any($1::uuid[])", [cleanup.entries]);
+    await db.query("delete from ledger_entries where id = any($1::uuid[])", [cleanup.entries]);
+    await db.query("commit");
+  } catch (e) {
+    failures++;
+    console.log(`  \x1b[31mFAIL\x1b[0m cleanup — ledger entries: ${e.message.slice(0, 140)}`);
+    try { await db.query("rollback"); } catch {}
+  } finally {
+    await db.end().catch(() => {});
+  }
+
+  // Proven, not assumed — the same standard the account check below holds to.
+  const { data: leftEntries } = await svc
+    .from("ledger_entries").select("id").in("id", cleanup.entries);
+  (leftEntries ?? []).length === 0
+    ? ok("cleanup — the entry and its postings went together")
+    : bad(`cleanup left ${(leftEntries ?? []).length} ledger entr(ies) behind`);
+}
 await purge("accounts", () =>
   svc.from("ledger_accounts").delete().in("id", cleanup.accounts));
 

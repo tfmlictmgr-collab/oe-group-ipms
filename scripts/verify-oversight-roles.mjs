@@ -243,9 +243,22 @@ console.log("\nE. A regional manager is operational, never financial");
   holds["tickets.assign"] && holds["people.invite"] && holds["properties.write"]
     ? ok("holds the operational capabilities, including inviting staff for their region")
     : bad(`missing operational capabilities: ${JSON.stringify(holds)}`);
-  !holds["sc.manage"] && !holds["sc.read_all"]
-    ? ok("holds nothing financial")
-    : bad("A REGIONAL MANAGER HOLDS A FINANCIAL CAPABILITY");
+  // ⚠️ AMENDED BY DECISION 26 (board, 30 Aug 2026). This read "holds nothing
+  // financial", from decision 9. The board has since given the regional manager
+  // `sc.manage` on the buildings they hold, because `role_rank` has placed them
+  // above the FM/PM since 0183 and a role that supersedes that desk over a
+  // wider place cannot be unable to administer the service charge on it.
+  //
+  // What did NOT move, and is the line this section now holds: `sc.read_all`,
+  // the ORG-WIDE read ("read every service charge, not only their own"), and
+  // the ledger below. `sc.manage` is bounded to `current_user_property_ids()`
+  // by the clause 0236 added to `sc_budgets_*` — a capability, never a reach.
+  holds["sc.manage"]
+    ? ok("administers the service charge on their own places — decision 26")
+    : bad("a regional manager cannot manage a service charge — decision 26 granted it");
+  !holds["sc.read_all"]
+    ? ok("and not org-wide — the blanket read stays denied")
+    : bad("A REGIONAL MANAGER HOLDS THE ORG-WIDE SERVICE CHARGE READ");
   !holds["tickets.read_all"]
     ? ok("and no org-wide read — they are bounded to their own region")
     : bad("A REGIONAL MANAGER READS THE WHOLE ORGANISATION");

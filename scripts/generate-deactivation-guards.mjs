@@ -53,6 +53,14 @@ const SUBSTITUTE = [
   "my_notifications", "vendor_user_can", "ticket_attachment_deletable",
 ];
 
+// 📌 `my_notifications` is in that list and was correctly rewritten by 0195 —
+// and came back. A later `create or replace` (the `target_live` column, 0221)
+// was written from the pre-0195 body, so the substitution was silently undone.
+// Exactly what 0210 recorded about `remember_conversation` and its revoke: a
+// replace re-states the WHOLE function, and anything a previous migration put
+// there that the author did not know about is gone. Being re-runnable is what
+// lets this generator answer that; the suite is what notices.
+
 // ── Group 2. `language plpgsql`, an action taken by a person ──────────────
 // These get a stated refusal rather than an empty result, because a write that
 // silently does nothing is the defect 0194 was written about.
@@ -63,6 +71,21 @@ const GUARD = [
   "update_my_profile", "update_my_notification_prefs",
   "record_my_channel_consent", "withdraw_my_channel_consent",
   "apply_reporter_urgency",
+  // ⚠️ Added by 0267, all three found by verify-deactivation.mjs section E and
+  // none of them by anybody reading a diff. Two are `operator_set_*`: the
+  // operator toggles for the approval chain's SHAPE (0248) and its TIER BANDS
+  // (0261). `caller_is_operator_admin()` reads a role and an org and never asks
+  // whether the account is still live, so a removed operator administrator kept
+  // the ability to change another organisation's money controls — which is a
+  // strictly worse thing to leave open than the reads 0195 was written about.
+  //
+  // `accept_tenancy_offer` (0263) is the third, and the guard is a no-op on its
+  // ordinary path by design: the person accepting has no account yet, so
+  // auth.uid() is null and the guard passes straight through. It is here rather
+  // than in EXEMPT because "this one cannot be reached by a signed-in caller"
+  // is an argument about today's callers, and the rule is about the class.
+  "accept_tenancy_offer",
+  "operator_set_approval_chain", "operator_set_approval_tiers",
   // ⚠️ Added by 0197, found by verify-deactivation.mjs section E rather than by
   // reading. Its fm_pm branch is `if not (current_user_role() = any (...) or
   // ...) then raise`, which is NULL for a deactivated caller — so the IF never
@@ -91,6 +114,7 @@ const GUARD_SQL = `  -- Deactivation guard. Null-safe by construction: current_u
 
 const out = [];
 const missing = [];
+const touched = [];
 
 async function fetchDef(name) {
   const { rows } = await client.query(
@@ -122,6 +146,7 @@ for (const name of SUBSTITUTE) {
     `-- ${name}: auth.uid() -> active_uid(), ${hits} occurrence(s).\n` +
     def.replaceAll("auth.uid()", "active_uid()") + ";\n"
   );
+  touched.push(name);
 }
 
 for (const name of GUARD) {
@@ -143,6 +168,7 @@ for (const name of GUARD) {
     `-- ${name}: guard injected after the opening begin.\n` +
     lines.join("\n") + ";\n"
   );
+  touched.push(name);
 }
 
 // ── Group 3. resolve_chat_sender ──────────────────────────────────────────
@@ -175,8 +201,53 @@ const CHAT_ANCHOR = "where u.org_id = p_org_id";
           `${CHAT_ANCHOR}\n     and u.deactivated_at is null                       -- 0195`
         ) + ";\n"
       );
+      touched.push("resolve_chat_sender");
     }
   }
+}
+
+// ── Whatever grants these functions already carry, re-stated ──────────────
+//
+// ⚠️ Added after 0267. Every body above is a `create or replace`, and this repo
+// has now been bitten four times by what that does to privileges — 0204, 0209,
+// 0210 and 0264, the last of which records that the reflex formed around `anon`
+// and so misses `authenticated`, which Supabase grants by default. A generator
+// that rewrites twenty-two function bodies is the single most likely place for
+// that to happen at scale, and it cannot be reasoned about per function: it is
+// read off the catalogue, per function, and re-stated.
+//
+// `postgres` is the owner and is skipped — it holds these by ownership, and
+// granting to it says nothing. Anything the function does NOT hold today is
+// revoked rather than left to a default, which is what makes this a lock and
+// not a copy.
+//
+// The argument list is spelled out rather than left to `on function <name>`,
+// which is only legal while the name is unique — true of all of these today and
+// not a property to depend on.
+const grantLines = [];
+for (const name of touched) {
+  const { rows: sig } = await client.query(
+    `select pg_get_function_identity_arguments(p.oid) as args
+       from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.prokind = 'f' and p.proname = $1`,
+    [name]
+  );
+  if (sig.length !== 1) { missing.push(`${name}: ${sig.length} signatures, cannot state its grants`); continue; }
+  const ident = `${name}(${sig[0].args})`;
+
+  const { rows } = await client.query(
+    `select distinct grantee from information_schema.routine_privileges
+      where specific_schema = 'public' and routine_name = $1
+        and grantee <> 'postgres' order by grantee`,
+    [name]
+  );
+  const holders = rows.map((r) => r.grantee);
+  grantLines.push(
+    `revoke all on function ${ident} from public, anon, authenticated;` +
+    (holders.length
+      ? `\ngrant execute on function ${ident} to ${holders.join(", ")};`
+      : "")
+  );
 }
 
 if (missing.length) {
@@ -304,6 +375,16 @@ begin
 ${exemptSql}
     ]);
 
+    -- A function that refuses EVERY signed-in caller outright is not a gap: it
+    -- cannot be reached by a deactivated account because it cannot be reached
+    -- by any account. Asking it to also read \`deactivated_at\` would be asking
+    -- it to look up a row it has already refused to serve.
+    -- \`escalate_stale_unassigned_requests\` (0212) is the first of these, and it
+    -- is recognised as a RULE rather than named, so the next one needs no edit
+    -- here. verify-deactivation.mjs section E carries the same rule — the two
+    -- must agree, and a disagreement is worth the failure it causes.
+    continue when r.def ~* 'if\\s+auth\\.uid\\(\\)\\s+is\\s+not\\s+null\\s+then\\s+raise';
+
     if r.def !~ '(deactivated_at\\s+is\\s+null|active_uid\\(\\)|current_user_is_active\\(\\)|current_user_org_id\\(\\)|current_user_role\\(\\)|current_user_property_ids\\(\\)|current_user_vendor_ids\\(\\))'
     then
       v_bad := v_bad || r.proname;
@@ -345,7 +426,14 @@ if (out.length === 0) {
   process.exit(0);
 }
 
-const sql = (isFirstRun ? header : compactHeader) + out.join("\n") + footer;
+const grantsBlock =
+  "\n-- ── The privileges each of them held before this migration ───────────────\n" +
+  "--\n" +
+  "-- Read from the catalogue and re-stated, because `create or replace` is where\n" +
+  "-- a closed door quietly reopens (0204, 0209, 0210, 0264).\n" +
+  grantLines.join("\n") + "\n";
+
+const sql = (isFirstRun ? header : compactHeader) + out.join("\n") + grantsBlock + footer;
 const target = path.join(rootDir, "supabase", "migrations", outName);
 writeFileSync(target, sql, "utf8");
 console.log(`Wrote ${path.relative(rootDir, target)}`);

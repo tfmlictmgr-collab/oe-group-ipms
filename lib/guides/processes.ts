@@ -679,6 +679,169 @@ export const PROCESS_CATALOGUE: Process[] = [
     ],
   },
   {
+    id: "vendor-recommended-then-approved",
+    title: "A contractor is put forward by one desk and approved by another",
+    module: "Vendors",
+    startsWhen:
+      "A vendor applies through the organisation's public application link, " +
+      "or an FM/PM puts a contractor they want to use forward.",
+    steps: [
+      {
+        role: "vendor",
+        action:
+          "Applies through the public link. Nothing can be assigned to them " +
+          "and nothing can be paid to them until a person decides.",
+      },
+      {
+        role: "facility_manager",
+        action:
+          "People → Applications, reads the application and RECOMMENDS the " +
+          "ones worth taking on. Recommending is a view, not a decision — no " +
+          "vendor record exists yet.",
+      },
+      {
+        role: "regional_manager",
+        action:
+          "Reads the same application and APPROVES or declines it. That is " +
+          "the act that creates the vendor. An administrator can do this too, " +
+          "and is the fallback where a region has nobody free.",
+      },
+      {
+        role: "system",
+        action:
+          "Refuses the approval if it is the same person who recommended it — " +
+          "per application, per person, not merely per role.",
+      },
+    ],
+    doneMeans:
+      "The vendor appears in Vendors with a record of who recommended them " +
+      "and who approved them — two names, never one.",
+    refusals: [
+      {
+        trigger:
+          "A regional manager recommends an application and then tries to " +
+          "approve the same one.",
+        explanation:
+          "Refused. They genuinely hold both capabilities, and that is not a " +
+          "contradiction: it lets a region run without an administrator in " +
+          "the loop for every contractor. What it is not is permission to do " +
+          "both on the SAME application — hand it to a colleague or the " +
+          "administrator (0238).",
+      },
+      {
+        trigger: "An FM/PM asks why their recommendation did not create the vendor.",
+        explanation:
+          "It is not supposed to. They hold `vendors.recommend` and not " +
+          "`vendors.approve` — the whole point of the split is that the desk " +
+          "that wants the contractor is not the desk that admits them.",
+      },
+    ],
+    trainer: {
+      demo:
+        "Open People → Applications as the demo FM and recommend one, then " +
+        "sign in as the regional manager and approve it. Show both names on " +
+        "the vendor afterwards.",
+      commonMistake:
+        "Reading the missing Approve button as a broken screen. The buttons " +
+        "are drawn from `has_permission`, so what is on screen is what the " +
+        "database will accept — an absent button is an answer, not a fault.",
+      exercise:
+        "In the demo org: recommend an application as the FM, then try to " +
+        "approve it as the same person and read the refusal aloud.",
+    },
+    capabilities: ["vendors.recommend", "vendors.approve"],
+    routes: ["/dashboard/people/applications", "/dashboard/vendors"],
+    roles: [
+      "admin",
+      "facility_manager",
+      "property_manager",
+      "regional_manager",
+      "vendor",
+    ],
+  },
+  {
+    id: "vendor-introduction-between-brands",
+    title: "A contractor already registered elsewhere introduces themselves here",
+    module: "Vendors",
+    startsWhen:
+      "A vendor with an approved registration somewhere on the platform wants " +
+      "to work for another organisation without assembling the pack again.",
+    steps: [
+      {
+        role: "vendor",
+        action:
+          "My Company → Contracts & introductions. Enters the receiving " +
+          "organisation's own link name and consents, in words that are " +
+          "stored exactly as they were shown. The vendor starts this — " +
+          "nobody can offer their documents on their behalf.",
+      },
+      {
+        role: "facility_manager",
+        action:
+          "Vendors → Introductions. Sees that a contractor holds an approved " +
+          "registration elsewhere on the platform and has consented to share " +
+          "it, with the pack and its documents attached.",
+      },
+      {
+        role: "facility_manager",
+        action:
+          "Verifies and approves it FOR THIS ORGANISATION, exactly as for a " +
+          "pack submitted directly. The copy arrives unverified; somebody " +
+          "else's verification is not this organisation's.",
+      },
+      {
+        role: "vendor",
+        action:
+          "Can withdraw the consent at any time, which withdraws the offer.",
+      },
+    ],
+    doneMeans:
+      "This organisation holds its OWN vendor record, its own copy of the " +
+      "pack and its own approval decision — and the audit trail on both sides " +
+      "records the introduction, each redacted of the other.",
+    refusals: [
+      {
+        trigger: "Somebody asks which organisation the offer came from.",
+        explanation:
+          "The screen does not say and cannot be made to. B1's rule is that " +
+          "an organisation must not learn of another's DATA OR EXISTENCE; the " +
+          "offer says a contractor is registered elsewhere on the platform, " +
+          "never with whom. Naming it needs a recorded board exception, the " +
+          "same bar a public organisation directory needs (decision 17).",
+      },
+      {
+        trigger:
+          "A reviewer expects the pack to arrive already verified, since it " +
+          "was approved elsewhere.",
+        explanation:
+          "It arrives as submitted. Verification status, machine findings and " +
+          "the other organisation's user ids do not cross — what crosses is " +
+          "the contractor's own evidence.",
+      },
+    ],
+    trainer: {
+      demo:
+        "Show the Introductions screen and point out what it does NOT name. " +
+        "Then open one and walk the same review as a directly submitted pack.",
+      commonMistake:
+        "Approving an introduced pack without opening the documents, on the " +
+        "grounds that another brand already did. This organisation is the one " +
+        "that will be asked why it took the contractor on.",
+      exercise:
+        "As the demo vendor, offer an introduction to the demo organisation " +
+        "by its link name; as the demo FM, review and approve it.",
+    },
+    capabilities: ["vendors.read", "vendors.write"],
+    routes: ["/dashboard/vendors/introductions"],
+    roles: [
+      "admin",
+      "facility_manager",
+      "property_manager",
+      "regional_manager",
+      "vendor",
+    ],
+  },
+  {
     id: "service-charge-budget-to-collection",
     title: "Build a service-charge budget, collect it, and report to the owner",
     module: "Service charge",

@@ -100,10 +100,35 @@ console.log("\nC. The two manager roles are told apart by name, not by brand alo
       ? ok(`titled separately — "${fmTfml.title}" vs "${pmOea.title}"`)
       : bad("both manager roles produce an identical title");
 
-    // Same job, different discipline: the guidance should be the same shape.
-    fmTfml.sections.length === pmOea.sections.length
-      ? ok("same body, since they hold identical grants (decision 18)")
-      : bad("the two manager guides have diverged in structure");
+    // ⚠️ AMENDED BY DECISION 29 (board, 5 Sept 2026). This asserted the two
+    // bodies were IDENTICAL, quoting 0183's "they hold identical grants on the
+    // day of the split, by construction". That day has passed: the property
+    // manager now holds `sc.manage` and `leases.write` and the facilities
+    // manager deliberately does not — the first intended divergence between the
+    // decision-18 peers.
+    //
+    // So the shape is still asserted, and what is asserted is that they differ
+    // by EXACTLY the money section and by nothing else. "They are different"
+    // would pass on any drift at all; "the PM has one more section, and it is
+    // the one about service charges and tenancies" is the actual rule.
+    const extra = pmOea.sections.filter(
+      (s) => !fmTfml.sections.some((f) => f.heading === s.heading)
+    );
+    const lost = fmTfml.sections.filter(
+      (s) => !pmOea.sections.some((p) => p.heading === s.heading)
+    );
+    extra.length === 1 && /service charge|tenanc/i.test(extra[0].heading) && lost.length === 0
+      ? ok(`the PM guide adds exactly one section and it is the right one — "${extra[0].heading}"`)
+      : bad(
+          `the manager guides differ by ${extra.length} added / ${lost.length} missing section(s): ` +
+          `+${extra.map((s) => s.heading).join(", ") || "none"} / -${lost.map((s) => s.heading).join(", ") || "none"}`
+        );
+
+    // And the other half of decision 29, said on the page a person actually
+    // reads: the facilities manager's guide must not promise money work.
+    /service charge budget|record a tenancy/i.test(JSON.stringify(fmTfml.sections))
+      ? bad("the FACILITIES manager's guide describes service charge or tenancy work — decision 29 excludes them")
+      : ok("and the facilities manager's guide promises none of it — decision 29");
   }
 }
 

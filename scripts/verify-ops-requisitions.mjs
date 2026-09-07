@@ -56,10 +56,22 @@ const poc = orgs.find((o) => o.slug === "oe-group-foundation-poc");
 const oea = orgs.find((o) => o.slug === "oea");
 if (!poc) { console.error("Need the POC org seeded."); process.exit(2); }
 
+// ⚠️ The SEEDED person for a role, never "whoever a `.limit(1)` returns".
+//
+// This suite signs in as what it picks, and staging carries a couple of hundred
+// live `probe*@oegroup.test` accounts left behind by suites that died before
+// their teardown — with roles in real orgs. An unordered pick returned
+// `probevss.otheradmin.7KF9J@…`, whose password is not this file's, and the run
+// ended on "Invalid login credentials": one suite failing on another suite's
+// litter, which is the failure `scripts/lib/org-lookup.mjs` already records
+// about `delivery_brand`. Excluded by name and ordered, so the answer is the
+// same on every run.
 const pick = async (orgId, role, tier) => {
-  let q = svc.from("users").select("id, email").eq("org_id", orgId).eq("role", role).is("deactivated_at", null);
+  let q = svc.from("users").select("id, email")
+    .eq("org_id", orgId).eq("role", role).is("deactivated_at", null)
+    .not("email", "like", "probe%");
   if (tier) q = q.eq("approval_tier", tier);
-  return (await q.limit(1).maybeSingle()).data;
+  return (await q.order("created_at").limit(1).maybeSingle()).data;
 };
 
 const fm = await pick(poc.id, "facility_manager");
@@ -182,16 +194,43 @@ console.log("\n2. It actually reaches the shared chain");
   selfErr ? ok("separation of duties holds — the FM cannot also audit their own requisition") : bad("ONE PERSON SATISFIED TWO STAGES");
 
   await walkChain(reqId, [[2, auditor.id]]);
+
+  // ⚠️ Whether a BAND applies at stage 3 is per-organisation and OFF by default
+  // since 0261 (board, 5 Sept 2026). This asserted the band unconditionally,
+  // and when it stopped holding the tier-1 approver's stage-3 row LANDED — so
+  // the next line's stage-3 insert hit `payment_approvals_live_stage_uidx` and
+  // took the whole suite down, hiding sections 3 to 8 behind a duplicate-key
+  // stack trace. A failed expectation should cost one check, never the file.
+  //
+  // What this suite is actually about is that a REQUISITION reaches the same
+  // chain a vendor invoice does. The band is `verify-approval-chain`'s subject,
+  // and it turns the flag on to test both modes rather than reading whichever
+  // one the org happens to be in.
+  const { data: orgRow } = await svc.from("orgs")
+    .select("approval_tiers_enabled").eq("id", poc.id).maybeSingle();
+  const banded = orgRow?.approval_tiers_enabled === true;
+
   const { error: tierErr } = await svc.from("payment_approvals").insert({
     org_id: poc.id, payable_type: "ops_requisition", payable_id: reqId,
     stage_order: 3, actor_id: approver1.id, actor_role: "viewer", actor_tier: null, amount: 1, decision: "approved",
   });
-  tierErr ? ok("₦50,000 exceeds tier 1 — refused, same ladder as a vendor invoice") : bad("TIER 1 CLEARED AN AMOUNT ABOVE ITS BAND");
+  if (banded) {
+    tierErr ? ok("₦150,000 exceeds tier 1 — refused, same ladder as a vendor invoice")
+            : bad("TIER 1 CLEARED AN AMOUNT ABOVE ITS BAND");
+  } else {
+    !tierErr ? ok("tier 1 clears it — bands are off for this org (0261), and a requisition follows the same rule as an invoice")
+             : bad(`bands are off, so nothing should refuse on amount: ${tierErr.message.slice(0, 70)}`);
+  }
 
-  await walkChain(reqId, [[3, approver3.id]]);
+  // Stage 3 by tier 3 only if it is still open. With bands off the row above
+  // IS stage 3, and inserting a second one is the duplicate that used to crash
+  // this file — the fixture has to follow the state it just created.
+  const stage3Actor = tierErr ? approver3.id : null;
+  if (stage3Actor) await walkChain(reqId, [[3, stage3Actor]]);
+  const finalApprover = tierErr ? approver3.id : approver1.id;
   const { data: cleared } = await svc.from("ops_requisitions").select("status, approved_by, approved_at").eq("id", reqId).single();
   cleared.status === "approved" ? ok("clears to approved once stage 3 lands") : bad(`status was ${cleared.status}`);
-  cleared.approved_by === approver3.id
+  cleared.approved_by === finalApprover
     ? ok("and records the stage-3 approver as approved_by")
     : bad(`approved_by was ${cleared.approved_by}`);
 }

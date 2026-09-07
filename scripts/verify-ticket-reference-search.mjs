@@ -61,9 +61,38 @@ const { data: othersB } = await svc.from("users").select("id, email")
   .neq("id", tenantA.id).limit(1);
 const tenantB = othersB?.[0] ?? null;
 
-// A ticket belonging to tenant A, filed against a property.
-const { data: filedProp } = await svc.from("tickets")
-  .select("property_id").not("property_id", "is", null).eq("org_id", poc.id).limit(1).single();
+// A ticket belonging to tenant A, filed against a property THIS FM MANAGES.
+//
+// ⚠️ It used to take the property off any ticket in the org, and the FM/PM in
+// the POC org manages none of them — so `find_tickets_by_reference` correctly
+// returned nothing and six checks failed reporting a working scope as a broken
+// lookup. Section C is the one that matters here and it kept passing throughout,
+// which is exactly how a fixture fault gets read as a product fault: the alarm
+// went off on the half that was never the point.
+//
+// So the manager's own reach is established rather than assumed — read from
+// `current_user_property_ids()` under their own session, and staked for the run
+// if they hold nothing. Same lesson `verify-tenancy-import` records: prove the
+// scope decides by MOVING it, never by hoping the seed data lines up.
+const fmClient = await login("oe-group-foundation-poc.facilitymanager@oegroup.test");
+const { data: reach } = await fmClient.rpc("current_user_property_ids");
+await fmClient.auth.signOut();
+
+let stakedId = null;
+let scopedPropertyId = (reach ?? [])[0] ?? null;
+if (!scopedPropertyId) {
+  const { data: anyProp } = await svc.from("properties")
+    .select("id").eq("org_id", poc.id).is("deleted_at", null).limit(1).single();
+  const { data: fmUser } = await svc.from("users").select("id")
+    .eq("email", "oe-group-foundation-poc.facilitymanager@oegroup.test").single();
+  const { data: stake } = await svc.from("property_stakeholders")
+    .insert({ org_id: poc.id, property_id: anyProp.id, user_id: fmUser.id, relation: "manager" })
+    .select("id").single();
+  stakedId = stake?.id ?? null;
+  scopedPropertyId = anyProp.id;
+  console.log(`(staked the FM onto one property for this run — they managed none)`);
+}
+const filedProp = { property_id: scopedPropertyId };
 
 const { data: t } = await svc.from("tickets").insert({
   org_id: poc.id, channel: "whatsapp", channel_sender_ref: `234700${MARK}`,
@@ -164,6 +193,10 @@ console.log("\nF. Bounded, so one character cannot ask for the whole table");
 
 // ── Cleanup ────────────────────────────────────────────────────────────────
 await svc.from("tickets").delete().in("id", made);
+// The stake, if this run had to create one. Left behind it would widen a real
+// manager's reach permanently — a fixture that grants access is not litter, it
+// is a permission change.
+if (stakedId) await svc.from("property_stakeholders").delete().eq("id", stakedId);
 console.log("\n(cleaned up)");
 
 console.log(

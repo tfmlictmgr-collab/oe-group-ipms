@@ -88,9 +88,17 @@ console.log("S1. A regional manager is regional");
     // The whole shape, not just the one that was found. Every capability whose
     // meaning is "organisation-wide" must be absent from a role defined by its
     // region, or the next one added slips through the same gap.
+    // ⚠️ `sc.manage` LEFT this list, decision 26 (board, 30 Aug 2026), and its
+    // being here was a mis-classification even before that: it is not an
+    // org-wide capability. `sc_budgets_insert/update/delete` test the
+    // capability AND `property_id in (select current_user_property_ids())`
+    // (0236), so holding it reaches the buildings you hold and no others. The
+    // org-wide one is `sc.read_all` — "read every service charge, not only your
+    // own" — and that one is still listed, still denied, and is the check that
+    // actually expresses this section's rule.
     const ORG_WIDE = [
       "applications.review_all", "tickets.read_all", "assets.read",
-      "sc.read_all", "properties.read_all", "sc.manage",
+      "sc.read_all", "properties.read_all",
       "audit.read", "ledger.read", "ledger.write",
       "payment.approve", "payment.remit", "bank.configure",
       "permissions.edit", "invitation.create_admin", "channel.credentials",
@@ -133,7 +141,7 @@ console.log("S1. A regional manager is regional");
   }
 }
 
-console.log("\nS1b. …but an executive still reads everything, as B7 says");
+console.log("\nS1b. …and the org-wide fallback is the administrator, not the executive");
 {
   const email = `probe0729b.exec.${S}@oegroup.test`;
   const { data: created } = await svc.auth.admin.createUser({ email, password: PW, email_confirm: true });
@@ -143,9 +151,43 @@ console.log("\nS1b. …but an executive still reads everything, as B7 says");
   });
   const c = await login(email);
   const { data: reviewAll } = await c.rpc("has_permission", { p_capability: "applications.review_all" });
-  reviewAll === true
-    ? ok("an executive holds applications.review_all — oversight sees the whole brand")
-    : bad("the executive lost org-wide application review");
+
+  // ⚠️ REVERSED BY 0225/0245. This asserted that an executive holds
+  // `applications.review_all` — "oversight sees the whole brand" — and it was
+  // right when it was written. 0225 moved tenancy approval onto the REGION and
+  // 0245 restored the rows to match the seeder, and both say plainly that the
+  // executive loses it. Tenant applications carry identity documents and
+  // special-category data; the executive's B7 oversight is over MONEY and the
+  // audit trail, and this is the one org-wide read that was never part of it.
+  //
+  // The org-wide fallback did not vanish — it is the administrator, asserted
+  // below rather than assumed, because a rule with no holder at all would be a
+  // different defect wearing the same result.
+  reviewAll === false || reviewAll === null
+    ? ok("an executive does NOT hold applications.review_all — 0225/0245 moved it to the region")
+    : bad("the executive holds org-wide application review — 0245 removed it");
+
+  // ⚠️ The SEEDED administrator, not "an administrator". An unordered
+  // `.limit(1)` on role alone returned a leftover `probevss.*` fixture from
+  // another suite, whose password is not this file's, and the run died on
+  // "Invalid login credentials" — a suite failing on another suite's litter,
+  // which is the failure mode `scripts/lib/org-lookup.mjs` was written about.
+  const { data: adm } = await svc.from("users").select("id, email")
+    .eq("org_id", oea.id).eq("role", "admin").is("deactivated_at", null)
+    .not("email", "like", "probe%").order("created_at").limit(1).maybeSingle();
+  if (adm) {
+    // A sign-in that cannot be completed is not a finding about permissions.
+    let ac = null;
+    try { ac = await login(adm.email); }
+    catch { console.log(`  (could not sign in as ${adm.email} — the fallback half is untested)`); }
+    if (ac) {
+      const { data: admReview } = await ac.rpc("has_permission", { p_capability: "applications.review_all" });
+      admReview === true
+        ? ok("and the administrator still holds it — the org-wide fallback has a holder")
+        : bad("NOBODY holds applications.review_all in this org");
+      await ac.auth.signOut();
+    }
+  }
   await c.auth.signOut();
 }
 

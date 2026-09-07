@@ -49,8 +49,17 @@ const login = async (email) => {
 
 // Mirrors lib/approvals/chain.ts — if these drift, the queue shows a person a
 // row they will then be refused, which is the failure this pairing prevents.
+//
+// ⚠️ And it HAD drifted, in the direction that matters: this file still mapped
+// `admin` to tier 2, which decision 23 removed from the product on 28 Aug 2026
+// and `lib/approvals/chain.ts` records in its own comment as "DELIBERATELY
+// ABSENT". So the mirror was offering an administrator a payment the database
+// would refuse — the exact failure the pairing exists to catch, sitting inside
+// the thing doing the catching.
 const effectiveTier = (role, tier) =>
-  role === "payment_approver" ? tier : role === "executive" ? 3 : role === "admin" ? 2 : null;
+  role === "payment_approver" ? (tier === 1 || tier === 2 || tier === 3 ? tier : null)
+  : role === "executive" ? 3
+  : null;
 
 const { data: orgs } = await svc.from("orgs").select("id, slug").is("deleted_at", null);
 const poc = orgs.find((o) => o.slug === "oe-group-foundation-poc");
@@ -172,29 +181,56 @@ console.log("\n4. The approval queue is scoped to what each tier can action");
   const t1 = Number(gate?.tier1_threshold_amount ?? 100000);
   const t2 = Number(gate?.approval_threshold_amount ?? 1000000);
 
+  // ⚠️ Whether the band is checked at all is per-organisation and OFF by
+  // default (0261). `canActorAction` reads `stage.tierResolved` before it
+  // consults any tier, and this mirror did not — so with bands off it computed
+  // refusals the database had stopped making, and three checks here went red
+  // asserting a rule the board had replaced. Read the stage, do not assume it.
+  const { data: stages } = await svc.rpc("payment_chain_stages", { p_org_id: poc.id });
+  const final = (stages ?? []).reduce((a, s) => (a && a.stage_order > s.stage_order ? a : s), null);
+  const finalRoles = final?.required_roles ?? [];
+  const banded = final?.tier_resolved === true;
+  console.log(`  (this org's final stage: ${final?.label} — ${finalRoles.join(", ")}${banded ? ", banded" : ", no band"})`);
+
   // What the QUEUE would offer each person, computed the way canActorAction
   // does, checked against what the DATABASE actually permits.
+  // ⚠️ The expectation is WRITTEN OUT, per mode, and is not the mirror's own
+  // formula with the org's flag substituted in — that would be the same
+  // expression on both sides of the comparison and would pass whatever either
+  // side did. `banded` / `unbanded` are what the board decided; `queueOffers`
+  // below is what the code would do.
+  //
+  //                                         bands on   bands off
   const cases = [
-    ["payment_approver", 1, t1, true, "tier 1 at its own ceiling"],
-    ["payment_approver", 1, t1 + 0.01, false, "tier 1 one kobo above it"],
-    ["payment_approver", 2, t2, true, "tier 2 at its ceiling"],
-    ["payment_approver", 2, t2 + 0.01, false, "tier 2 above the threshold"],
-    ["payment_approver", 3, t2 + 1_000_000, true, "tier 3, unlimited"],
-    ["executive", null, t2 + 1_000_000, true, "an executive above the threshold (decision 9)"],
-    ["admin", null, t2 + 0.01, false, "an administrator above it (decision 16)"],
-    ["admin", null, t2, true, "an administrator within it"],
-    ["finance_approver", null, 1000, false, "finance, which holds no approval at all"],
+    ["payment_approver", 1, t1,                true,     true,   "tier 1 at its own ceiling"],
+    ["payment_approver", 1, t1 + 0.01,         false,    true,   "tier 1 one kobo above it"],
+    ["payment_approver", 2, t2,                true,     true,   "tier 2 at its ceiling"],
+    ["payment_approver", 2, t2 + 0.01,         false,    true,   "tier 2 above the threshold"],
+    ["payment_approver", 3, t2 + 1_000_000,    true,     true,   "tier 3, unlimited"],
+    ["executive",     null, t2 + 1_000_000,    true,     true,   "an executive above the threshold (decision 9)"],
+    // Decision 23 took the administrator out of money approval on both ladders,
+    // at every amount. Not "a person with too small a limit" — a person with no
+    // place in the chain, which is why both rows are false in both modes.
+    ["admin",         null, t2 + 0.01,         false,    false,  "an administrator above it (decision 23)"],
+    ["admin",         null, t2,                false,    false,  "an administrator within it (decision 23)"],
+    ["finance_approver", null, 1000,           false,    false,  "finance, which approves nothing — it disburses"],
   ];
 
-  for (const [role, tier, amount, shouldOffer, label] of cases) {
+  for (const [role, tier, amount, whenBanded, whenNot, label] of cases) {
     const { data: required } = await svc.rpc("resolve_required_tier", {
       p_org_id: poc.id, p_amount: amount,
     });
+    const shouldOffer = banded ? whenBanded : whenNot;
+
+    // canActorAction, as the queue runs it: hold the stage, and satisfy the
+    // band only where the stage resolves one.
     const mine = effectiveTier(role, tier);
-    const queueOffers = mine !== null && mine >= Number(required);
+    const queueOffers =
+      finalRoles.includes(role) && (!banded || (mine !== null && mine >= Number(required)));
+
     queueOffers === shouldOffer
       ? ok(`${label} — queue ${shouldOffer ? "offers" : "withholds"} it, matching the ladder`)
-      : bad(`${label}: queue would ${queueOffers ? "offer" : "withhold"}, database says tier ${required} needed and they are ${mine}`);
+      : bad(`${label}: queue would ${queueOffers ? "offer" : "withhold"}, the board says ${shouldOffer ? "offer" : "withhold"} (required tier ${required}, theirs ${mine}, banded ${banded})`);
   }
 }
 

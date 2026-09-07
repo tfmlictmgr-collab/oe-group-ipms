@@ -40,6 +40,28 @@ const ok = (m) => console.log(`  \x1b[32mPASS\x1b[0m ${m}`);
 const bad = (m) => { failures++; console.log(`  \x1b[31mFAIL\x1b[0m ${m}`); };
 const warn = (m) => { degraded++; console.log(`  \x1b[33mNOTE\x1b[0m ${m}`); };
 
+// ── Is the app actually up? ────────────────────────────────────────────────
+//
+// ⚠️ This suite posts to the live WhatsApp webhook, so with no dev server the
+// FIRST fetch threw an unhandled ECONNREFUSED and the run ended in a Node stack
+// trace. `verify-all` then reported `Error.captureStackTrace(err);` as the
+// suite's summary — which reads as a broken suite rather than a missing
+// precondition, and sends whoever sees it hunting through the classifier.
+//
+// `verify-checkout-e2e` has said this properly since 0114: print "Cannot reach
+// <url>" and the runner marks it SKIP and lists it separately, so a suite that
+// did not run stays visible instead of masquerading as a failure. Same words,
+// deliberately — the runner matches on them.
+try {
+  await fetch(`${TARGET}/api/webhooks/whatsapp`, { method: "GET" });
+} catch (e) {
+  console.error(
+    `\nCannot reach ${TARGET} — this suite drives the real intake webhook, ` +
+    `so start the dev server first (npm run dev).\n${e.message}`
+  );
+  process.exit(1);
+}
+
 // ⚠️ Ticket counts alone cannot tell a healthy primary from a dead one caught
 // by fallback — both look identical from "did a ticket get created". This
 // asserts what actually answered, for every ticket in this run that carries a
