@@ -131,14 +131,32 @@ export async function classifyAndCreateTicket(
   // could see any of them. Resolution is org-scoped and refuses ambiguity, so a
   // number we do not recognise simply stays unresolved rather than being
   // attached to the nearest plausible person.
+  //
+  // ⚠️ unit_id and role, added by 0273. `resolve_chat_sender` now tries the
+  // sender's live LEASE before falling back to recorded occupancy — the same
+  // fix decision 226 already made for a tenant's own portal access, applied
+  // here to who the AI classifier is even told is texting. `role` is not
+  // trusted from this call in the way a client could tamper with it (this is
+  // a service-role RPC the browser never touches), so it is stamped straight
+  // onto the insert below rather than re-verified — the trigger 0273 also adds
+  // guards the column regardless, for any path that ever writes it.
   let senderId: string | null = null;
   let propertyId: string | null = null;
+  let unitId: string | null = null;
+  let senderRole: string | null = null;
   try {
     const { data: who } = await supabaseAdmin
       .rpc("resolve_chat_sender", { p_org_id: orgId, p_sender_ref: chatId })
-      .maybeSingle<{ user_id: string | null; property_id: string | null }>();
+      .maybeSingle<{
+        user_id: string | null;
+        property_id: string | null;
+        unit_id: string | null;
+        role: string | null;
+      }>();
     senderId = who?.user_id ?? null;
     propertyId = who?.property_id ?? null;
+    unitId = who?.unit_id ?? null;
+    senderRole = who?.role ?? null;
   } catch (error) {
     // Never block intake on this. An unresolved request is visible to whoever
     // holds `tickets.triage_unassigned`; a dropped request is visible to nobody.
@@ -152,7 +170,9 @@ export async function classifyAndCreateTicket(
       channel,
       channel_sender_ref: chatId,
       sender_id: senderId,
+      sender_role: senderRole,
       property_id: propertyId,
+      unit_id: unitId,
       message_text: messageText,
       // Which model actually produced this (0113). 'none' means both providers
       // were unreachable and this row carries the safe human-review default —

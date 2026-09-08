@@ -21,6 +21,10 @@ export async function raiseWorkOrder(input: {
   urgency: string;
   assetId: string | null;
   vendorId: string | null;
+  /** Optional (0273) — a generator or a gate genuinely has no unit; a job
+   *  about one flat can now name it. Validated against propertyId inside
+   *  `raise_work_order` itself, same as assetId already was. */
+  unitId: string | null;
 }): Promise<ActionResult<{ id: string }>> {
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("raise_work_order", {
@@ -31,6 +35,7 @@ export async function raiseWorkOrder(input: {
     p_urgency: input.urgency,
     p_asset_id: input.assetId,
     p_vendor_id: input.vendorId,
+    p_unit_id: input.unitId,
   });
   if (error) return fail(error.message.replace(/^.*?:\s*/, ""));
 

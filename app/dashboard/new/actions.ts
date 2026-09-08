@@ -47,6 +47,21 @@ export async function raiseRequest(input: {
   /** Optional: the reporter insisted on a category. Blank means "you decide". */
   category?: string | null;
   propertyOrUnit?: string | null;
+  /**
+   * A tenant with more than one live tenancy naming WHICH ONE this is about.
+   * Ignored for anyone who is not a tenant. Re-verified below against
+   * `leases.tenant_user_id = auth.uid()` — never trusted as a bare id, since
+   * that would let a tenant name a unit that is not theirs.
+   */
+  leaseId?: string | null;
+  /**
+   * A landlord or staff member naming a property/unit they hold. Ignored for
+   * a tenant (their place always comes from their own verified lease, never
+   * from client input — 0273). Re-verified below under the caller's own RLS
+   * session before being trusted.
+   */
+  propertyId?: string | null;
+  unitId?: string | null;
 }): Promise<ActionResult<RaisedRequest>> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -62,16 +77,61 @@ export async function raiseRequest(input: {
   }
 
   const { data: me } = await supabase
-    .from("users").select("org_id").eq("id", user.id).single();
+    .from("users").select("org_id, role").eq("id", user.id).single();
   if (!me?.org_id) return fail("Your account is not attached to an organisation.");
 
-  // Link the request to the property of the unit they occupy, so the FM/PM who
-  // manages it sees the request under property-scoped RLS. Best-effort: an
-  // unfiled request is visible to whoever holds `tickets.triage_unassigned`,
-  // which is a worse route but not a lost one.
-  const { data: unit } = await supabase
-    .from("units").select("property_id").eq("occupant_user_id", user.id)
-    .limit(1).maybeSingle();
+  // ── Where this is about, resolved reliably (0273) ─────────────────────────
+  //
+  // Was: `units.occupant_user_id = user.id`, LIMIT 1 — the same occupancy join
+  // decision 22/0226 already found unreliable for exactly this population (16
+  // of 18 real tenancies then had no matching occupant), and one that resolves
+  // to NOTHING at all for a landlord, who never occupies a unit even though
+  // decision 19 explicitly gives them their own raise path through this same
+  // form.
+  let propertyId: string | null = null;
+  let unitId: string | null = null;
+
+  if (me.role === "tenant") {
+    // Only a live lease belonging to THIS caller — never the client-supplied
+    // propertyId/unitId, which for a tenant is trusted from nowhere but their
+    // own verified tenancy. A picked leaseId is re-checked here rather than
+    // assumed correct: the browser chose it from a list this same query
+    // produces, but the browser is not the one deciding.
+    const { data: leases } = await supabase
+      .from("leases")
+      .select("id, property_id, unit_id")
+      .eq("tenant_user_id", user.id)
+      .is("deleted_at", null)
+      .in("status", ["active", "renewed"]);
+
+    const live = leases ?? [];
+    const chosen = input.leaseId
+      ? live.find((l) => l.id === input.leaseId)
+      : live.length === 1
+        ? live[0]
+        : undefined;
+    // More than one live tenancy and no (or an unrecognised) choice: left
+    // unresolved rather than guessed — the same "exactly one, or nobody" rule
+    // `resolve_chat_sender` applies to an ambiguous match.
+    propertyId = chosen?.property_id ?? null;
+    unitId = chosen?.unit_id ?? null;
+  } else if (input.propertyId) {
+    // A landlord or staff member. Re-fetched under THEIR OWN session — RLS
+    // (`properties_select`/`units_select`) already decides what this query can
+    // ever return, so a client-supplied id that is not genuinely theirs comes
+    // back empty and is silently dropped rather than trusted.
+    const { data: prop } = await supabase
+      .from("properties").select("id").eq("id", input.propertyId).maybeSingle();
+    if (prop) {
+      propertyId = prop.id;
+      if (input.unitId) {
+        const { data: unitRow } = await supabase
+          .from("units").select("id, property_id")
+          .eq("id", input.unitId).maybeSingle();
+        if (unitRow && unitRow.property_id === propertyId) unitId = unitRow.id;
+      }
+    }
+  }
 
   const { classification, provider } = await classifyMessageWithProvider(messageText);
 
@@ -93,6 +153,11 @@ export async function raiseRequest(input: {
     .insert({
       org_id: me.org_id,
       sender_id: user.id,
+      // Snapshot, not a live join (0273) — matches this schema's own pattern
+      // for a fact that must not silently reinterpret itself later if the
+      // person's role changes (decision 14's fee %, decision 30's superseded
+      // approvals).
+      sender_role: me.role,
       channel: "portal",
       message_text: messageText,
       classified_by: provider,
@@ -100,7 +165,8 @@ export async function raiseRequest(input: {
       urgency: classification.urgency,
       summary: classification.summary ?? messageText.slice(0, 140),
       property_or_unit: (input.propertyOrUnit ?? "").trim() || classification.property_or_unit,
-      property_id: unit?.property_id ?? null,
+      property_id: propertyId,
+      unit_id: unitId,
       requires_human_review: classification.requires_human_review,
     })
     .select("id, category, urgency, summary")

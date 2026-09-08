@@ -14,6 +14,8 @@ import { raiseRequest, correctMyUrgency, type RaisedRequest } from "./actions";
 const CATEGORIES = ["maintenance", "billing", "vendor", "complaint", "general"];
 const URGENCIES = ["low", "normal", "high", "critical"];
 
+export type Option = { id: string; label: string; propertyId?: string };
+
 /**
  * Report an issue, then see what we made of it.
  *
@@ -26,13 +28,49 @@ const URGENCIES = ["low", "normal", "high", "critical"];
  * got it wrong. That exchange existed on WhatsApp since 0075 and on the web
  * not at all.
  */
-export default function NewRequestForm() {
+export default function NewRequestForm({
+  tenancyOptions = [],
+  propertyOptions = [],
+  unitOptions = [],
+}: {
+  /**
+   * A tenant with MORE THAN ONE live tenancy — each option IS a specific
+   * (property, unit) pair, so picking one is unambiguous. Empty for a tenant
+   * with 0 or 1 (resolved automatically server-side, the common case) and
+   * for anyone who is not a tenant.
+   *
+   * ⚠️ 0273. Measured against a real staging account before this was built:
+   * 18 live tenancies on one seeded commercial lessee. A generic free-text
+   * "Property / Unit" hint cannot disambiguate that, and the request landed
+   * with no property attached at all — invisible to property-scoped RLS
+   * until someone with `tickets.triage_unassigned` found it by hand.
+   */
+  tenancyOptions?: { id: string; label: string }[];
+  /**
+   * A landlord or staff member raising an ad hoc request through this
+   * generic form (not `raise_work_order`, which already has its own
+   * property field). Optional, because a general question is not always
+   * about one building — sourced from `current_user_property_ids()`, the
+   * same resolver `raise_work_order` trusts, and RE-VERIFIED server-side
+   * before being trusted here too.
+   */
+  propertyOptions?: Option[];
+  unitOptions?: Option[];
+}) {
   const router = useRouter();
   const [messageText, setMessageText] = useState("");
   const [category, setCategory] = useState("");
   const [propertyOrUnit, setPropertyOrUnit] = useState("");
+  const [leaseId, setLeaseId] = useState("");
+  const [propertyId, setPropertyId] = useState("");
+  const [unitId, setUnitId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // Only units ON the chosen property — the same cascade RaiseWorkForm uses
+  // for assets, and for the same reason: a picker offering units elsewhere
+  // is a control built to be silently dropped server-side.
+  const unitsHere = unitOptions.filter((u) => u.propertyId === propertyId);
 
   const [raised, setRaised] = useState<RaisedRequest | null>(null);
   const [urgency, setUrgency] = useState<string>("");
@@ -48,6 +86,9 @@ export default function NewRequestForm() {
       messageText,
       category: category || null,
       propertyOrUnit: propertyOrUnit || null,
+      leaseId: leaseId || null,
+      propertyId: propertyId || null,
+      unitId: unitId || null,
     });
 
     setLoading(false);
@@ -158,6 +199,9 @@ export default function NewRequestForm() {
                 setMessageText("");
                 setCategory("");
                 setPropertyOrUnit("");
+                setLeaseId("");
+                setPropertyId("");
+                setUnitId("");
                 setCorrection(null);
               }}
             >
@@ -217,21 +261,77 @@ export default function NewRequestForm() {
                 ))}
               </Select>
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="property">
-                Property / Unit{" "}
-                <span className="font-normal text-muted-foreground">
-                  (optional)
-                </span>
-              </Label>
-              <Input
-                id="property"
-                type="text"
-                value={propertyOrUnit}
-                onChange={(e) => setPropertyOrUnit(e.target.value)}
-                placeholder="e.g. Block B, Unit 12"
-              />
-            </div>
+            {/* ⚠️ 0273. Three mutually exclusive states, never stacked:
+                a tenant with more than one home picks WHICH one (required —
+                nothing else can tell them apart); a landlord or staff member
+                picks a property they hold and optionally narrows to a unit;
+                anyone else — the common single-tenancy case, unchanged — gets
+                the plain free-text hint this form has always had. Showing more
+                than one at once would ask the same question twice. */}
+            {tenancyOptions.length > 0 ? (
+              <div className="space-y-1.5">
+                <Label htmlFor="tenancy">Which of your homes is this about?</Label>
+                <Select
+                  id="tenancy"
+                  required
+                  value={leaseId}
+                  onChange={(e) => setLeaseId(e.target.value)}
+                >
+                  <option value="">Choose one</option>
+                  {tenancyOptions.map((t) => (
+                    <option key={t.id} value={t.id}>{t.label}</option>
+                  ))}
+                </Select>
+              </div>
+            ) : propertyOptions.length > 0 ? (
+              <div className="space-y-1.5">
+                <Label htmlFor="property-select">
+                  Property{" "}
+                  <span className="font-normal text-muted-foreground">
+                    (optional)
+                  </span>
+                </Label>
+                <Select
+                  id="property-select"
+                  value={propertyId}
+                  onChange={(e) => { setPropertyId(e.target.value); setUnitId(""); }}
+                >
+                  <option value="">Not about one property</option>
+                  {propertyOptions.map((p) => (
+                    <option key={p.id} value={p.id}>{p.label}</option>
+                  ))}
+                </Select>
+                {unitsHere.length > 0 && (
+                  <Select
+                    id="unit-select"
+                    value={unitId}
+                    onChange={(e) => setUnitId(e.target.value)}
+                    className="mt-1.5"
+                  >
+                    <option value="">Whole property</option>
+                    {unitsHere.map((u) => (
+                      <option key={u.id} value={u.id}>{u.label}</option>
+                    ))}
+                  </Select>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                <Label htmlFor="property">
+                  Property / Unit{" "}
+                  <span className="font-normal text-muted-foreground">
+                    (optional)
+                  </span>
+                </Label>
+                <Input
+                  id="property"
+                  type="text"
+                  value={propertyOrUnit}
+                  onChange={(e) => setPropertyOrUnit(e.target.value)}
+                  placeholder="e.g. Block B, Unit 12"
+                />
+              </div>
+            )}
           </div>
 
           {error && (

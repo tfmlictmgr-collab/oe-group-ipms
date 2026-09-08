@@ -23,10 +23,13 @@ const URGENCIES = [
 export default function RaiseWorkForm({
   properties,
   assets,
+  units,
   vendors,
 }: {
   properties: Option[];
   assets: Option[];
+  /** Optional (0273) — a generator or a gate genuinely has no unit. */
+  units: Option[];
   vendors: Option[];
 }) {
   const router = useRouter();
@@ -37,15 +40,18 @@ export default function RaiseWorkForm({
   const [category, setCategory] = React.useState<string>("maintenance");
   const [urgency, setUrgency] = React.useState<string>("normal");
   const [assetId, setAssetId] = React.useState("");
+  const [unitId, setUnitId] = React.useState("");
   const [vendorId, setVendorId] = React.useState("");
 
-  // Only assets ON the chosen property — the function refuses others, and a
-  // picker offering them would be a control built to be rejected.
+  // Only assets/units ON the chosen property — the function refuses others,
+  // and a picker offering them would be a control built to be rejected.
   const assetsHere = assets.filter((a) => a.propertyId === propertyId);
+  const unitsHere = units.filter((u) => u.propertyId === propertyId);
 
   React.useEffect(() => {
     if (assetId && !assetsHere.some((a) => a.id === assetId)) setAssetId("");
-  }, [propertyId, assetId, assetsHere]);
+    if (unitId && !unitsHere.some((u) => u.id === unitId)) setUnitId("");
+  }, [propertyId, assetId, assetsHere, unitId, unitsHere]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -58,6 +64,7 @@ export default function RaiseWorkForm({
           category, urgency,
           assetId: assetId || null,
           vendorId: vendorId || null,
+          unitId: unitId || null,
         })
       );
       toast.success(vendorId ? "Work raised and dispatched" : "Work raised", {
@@ -136,6 +143,23 @@ export default function RaiseWorkForm({
           </select>
         </div>
       </div>
+
+      {unitsHere.length > 0 && (
+        <div className="space-y-2">
+          <Label htmlFor="w-unit">
+            Against a unit <span className="font-normal text-muted-foreground">(optional)</span>
+          </Label>
+          <select
+            id="w-unit" value={unitId} onChange={(e) => setUnitId(e.target.value)}
+            className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm"
+          >
+            {/* A generator, a gate, a car park — most planned work genuinely
+                belongs to the building, not one flat. */}
+            <option value="">— the whole property —</option>
+            {unitsHere.map((u) => <option key={u.id} value={u.id}>{u.label}</option>)}
+          </select>
+        </div>
+      )}
 
       {assetsHere.length > 0 && (
         <div className="space-y-2">

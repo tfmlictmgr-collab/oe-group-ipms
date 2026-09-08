@@ -34,9 +34,13 @@ export default async function RaiseWorkPage() {
   // Everything here is read under the caller's own RLS, so the pickers can
   // only ever offer what `raise_work_order` would accept — properties they
   // hold, assets on those properties, vendors in their org.
-  const [{ data: props }, { data: assets }, { data: vendors }] = await Promise.all([
+  const [{ data: props }, { data: assets }, { data: units }, { data: vendors }] = await Promise.all([
     supabase.from("properties").select("id, name").order("name"),
     supabase.from("assets").select("id, name, asset_tag, property_id").order("name"),
+    // 0273. Same RLS as everything else here — `units_select` admits a
+    // property-scoped reader, so this can only ever list units on properties
+    // they already hold.
+    supabase.from("units").select("id, label, property_id").order("label"),
     supabase.from("vendors").select("id, name").order("name"),
   ]);
 
@@ -45,6 +49,11 @@ export default async function RaiseWorkPage() {
     id: a.id,
     label: a.asset_tag ? `${a.name} (${a.asset_tag})` : a.name,
     propertyId: a.property_id as string,
+  }));
+  const unitOptions: Option[] = (units ?? []).map((u) => ({
+    id: u.id,
+    label: u.label,
+    propertyId: u.property_id as string,
   }));
   const vendorOptions: Option[] = (vendors ?? []).map((v) => ({ id: v.id, label: v.name }));
 
@@ -64,6 +73,7 @@ export default async function RaiseWorkPage() {
           <RaiseWorkForm
             properties={properties}
             assets={assetOptions}
+            units={unitOptions}
             vendors={vendorOptions}
           />
         </CardContent>

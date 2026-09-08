@@ -28,7 +28,11 @@ type AssignableTicket = Ticket & {
   acknowledged_at: string | null;
   reviewed_at: string | null;
   sender_id: string | null;
+  sender_role: string | null;
   property_id: string | null;
+  unit_id: string | null;
+  properties: { name: string | null } | null;
+  units: { label: string | null } | null;
 };
 
 const DONE_STATES = ["resolved", "closed"];
@@ -71,13 +75,21 @@ export default async function TicketDetailPage({
   const { data: ticket } = await supabase
     .from("tickets")
     .select(
-      "id, channel, message_text, category, urgency, summary, property_or_unit, requires_human_review, status, created_at, assigned_vendor_id, assigned_to_user_id, assigned_at, acknowledged_at, reviewed_at, sender_id, property_id"
+      // properties/units embeds and sender_role/unit_id added by 0273 — the
+      // "Property / Unit" field below had only ever shown the AI's free-text
+      // GUESS (`property_or_unit`), never the resolved, reliable value, even
+      // on a ticket where one now exists.
+      "id, channel, message_text, category, urgency, summary, property_or_unit, requires_human_review, status, created_at, assigned_vendor_id, assigned_to_user_id, assigned_at, acknowledged_at, reviewed_at, sender_id, sender_role, property_id, unit_id, properties(name), units(label)"
     )
     .eq("id", id)
     .single();
 
   if (!ticket) notFound();
-  const t = ticket as AssignableTicket;
+  // ⚠️ `as unknown as` for the embeds — PostgREST returns a many-to-one embed
+  // as an OBJECT while the generated types describe it as an array (the same
+  // shape app/dashboard/my-work/page.tsx and approvals/page.tsx already work
+  // around; a direct cast is what tsc rejects here).
+  const t = ticket as unknown as AssignableTicket;
 
   // For the dispatch control (admin/FM): available vendors + ops staff.
   const [vendorsRes, opsRes, myVendorRes] = await Promise.all([
@@ -264,7 +276,25 @@ export default async function TicketDetailPage({
               </span>
             </Field>
             <Field label="Channel">{CHANNEL_LABELS[t.channel] ?? t.channel}</Field>
-            <Field label="Property / Unit">{t.property_or_unit ?? "—"}</Field>
+            <Field label="Property / Unit">
+              {/* The RESOLVED value first — reliable since 0273, sourced from
+                  the reporter's own lease/occupancy or a validated pick,
+                  never a free-typed guess. Falls back to the AI's own
+                  property_or_unit text only when nothing resolved, which is
+                  exactly the cases this whole change could not close (no
+                  live tenancy, no property named by the raiser). */}
+              {t.units?.label && t.properties?.name
+                ? `${t.units.label}, ${t.properties.name}`
+                : t.properties?.name ?? t.property_or_unit ?? "—"}
+            </Field>
+            <Field label="Raised by">
+              {/* Snapshotted at creation (0273), so this reads correctly even
+                  if the person's role has since changed — the same reasoning
+                  0218 already established for "who counts as the tenant". */}
+              {t.sender_role
+                ? roleLabel(t.sender_role, session.org?.delivery_brand)
+                : "—"}
+            </Field>
             <Field label="Created">{formatDateTime(t.created_at)}</Field>
             <Field label="Assigned to">
               <span className="flex flex-wrap items-center gap-2">
