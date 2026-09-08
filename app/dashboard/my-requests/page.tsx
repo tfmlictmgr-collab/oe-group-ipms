@@ -174,18 +174,26 @@ export default async function MyRequestsPage() {
         description={
           tenancies.length > 0 ? (
             <>
-              <span className="inline-flex flex-wrap items-center gap-1 font-medium text-foreground">
+              {/* ⚠️ The WHOLE indicator is the link, not just the overflow
+                  count. It named a place and did nothing when clicked, which
+                  is the one thing a line of text styled as a heading invites
+                  — and My Rent is where the rest of it already lives (the
+                  term, the end date, what is demanded and what is owed). A
+                  `<Link>` renders an `<a>`, which is inline: `PageHeader`
+                  puts `description` inside a `<p>`, so nothing block-level
+                  can go here. */}
+              <Link
+                href="/dashboard/my-rent"
+                className="inline-flex flex-wrap items-center gap-1 font-medium text-foreground underline-offset-2 hover:underline"
+              >
                 <Home className="size-3.5 shrink-0" />
                 {homeLabel}
                 {overflowCount > 0 && (
-                  <Link
-                    href="/dashboard/my-rent"
-                    className="font-normal text-muted-foreground underline-offset-2 hover:underline"
-                  >
+                  <span className="font-normal text-muted-foreground">
                     +{overflowCount} more
-                  </Link>
+                  </span>
                 )}
-              </span>
+              </Link>
               {"  ·  "}
               {statsLabel}
             </>

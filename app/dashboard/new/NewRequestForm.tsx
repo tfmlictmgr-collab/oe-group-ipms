@@ -32,6 +32,9 @@ export default function NewRequestForm({
   tenancyOptions = [],
   propertyOptions = [],
   unitOptions = [],
+  initialMessage = "",
+  initialCategory = "",
+  initialLeaseId = "",
 }: {
   /**
    * A tenant with MORE THAN ONE live tenancy — each option IS a specific
@@ -56,12 +59,21 @@ export default function NewRequestForm({
    */
   propertyOptions?: Option[];
   unitOptions?: Option[];
+  /**
+   * A first draft the page composed for a tenant arriving from their own
+   * renewal notice — server-composed from that tenancy's own row, never from
+   * the URL, and always editable here before it is sent. Empty for every
+   * other arrival, which is the form exactly as it has always been.
+   */
+  initialMessage?: string;
+  initialCategory?: string;
+  initialLeaseId?: string;
 }) {
   const router = useRouter();
-  const [messageText, setMessageText] = useState("");
-  const [category, setCategory] = useState("");
+  const [messageText, setMessageText] = useState(initialMessage);
+  const [category, setCategory] = useState(initialCategory);
   const [propertyOrUnit, setPropertyOrUnit] = useState("");
-  const [leaseId, setLeaseId] = useState("");
+  const [leaseId, setLeaseId] = useState(initialLeaseId);
   const [propertyId, setPropertyId] = useState("");
   const [unitId, setUnitId] = useState("");
   const [error, setError] = useState<string | null>(null);

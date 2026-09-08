@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ArrowLeft, FileText, Receipt, Home } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarClock, FileText, Receipt, Home } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
 import { formatMoney } from "@/lib/currency";
@@ -216,7 +216,7 @@ export default async function LeaseDetailPage({
   // "you may not see this" is indistinguishable from one that means "nothing
   // was billed". Both reads now run for a staff tenant, and the fee-bearing
   // rows are used only if RLS actually returned them.
-  const [staffChargesRes, ownChargesRes, scRes, canWriteRes] = await Promise.all([
+  const [staffChargesRes, ownChargesRes, scRes, canWriteRes, orgRes] = await Promise.all([
     isStaff || !viewerIsTenant
       ? supabase
           .from("rent_charges")
@@ -241,6 +241,12 @@ export default async function LeaseDetailPage({
       .is("deleted_at", null)
       .order("billing_period", { ascending: false }),
     supabase.rpc("has_permission", { p_capability: "leases.write" }),
+    // The org's own notice thresholds (decision 15), read rather than assumed:
+    // the renewal panel below must appear on the same schedule the notices
+    // actually go out on, and a hardcoded 90 would be wrong for any org that
+    // has set its own. `orgs_select` is `id = current_user_org_id()`, so the
+    // tenant reads their own org's row and nothing else.
+    supabase.from("orgs").select("renewal_notice_days").maybeSingle(),
   ]);
 
   // `my_rent_charges()` answers for every tenancy the caller holds and names the
@@ -343,6 +349,34 @@ export default async function LeaseDetailPage({
   );
   const live = lease.status === "active" || lease.status === "renewed";
 
+  // ── Where a renewal notice actually lands (0093's notification) ──────────
+  //
+  // ⚠️ `notify_user` in the lease-notices job pointed at `/dashboard` — a
+  // destination in the sense that it resolves, and a dead end in the sense
+  // that mattered: the tenant was told their tenancy ends in 60 days and put
+  // on a screen that says nothing about it and offers nothing to do about it.
+  // The notice already names its lease (`entity_type = 'lease'`), and this
+  // page is that lease — `leases_select` (0090) has admitted the tenancy's
+  // own tenant since it was written, so no access is being widened to bring
+  // them here, only a link pointed at the row it was already about.
+  //
+  // The ACTION is the part that had to exist for the destination to be worth
+  // pointing at. There is no self-service renewal in this product and there
+  // should not be one invented here — a renewal is an offer the organisation
+  // makes (decision 36), on terms a person states. What a tenant can do is
+  // say which way they are going, in writing, against this specific tenancy,
+  // early enough to matter. That is a service request, which is the channel
+  // the portal already gives them and the one the letting desk already
+  // watches — raised here PRE-ADDRESSED to this lease, so it arrives with the
+  // property and unit attached (0273) rather than as "hi, about my flat".
+  const noticeDays = ((orgRes.data?.renewal_notice_days as number[] | null) ?? [90, 60, 30]);
+  const noticeWindow = Math.max(...noticeDays, 0) || 90;
+  // Inside the window, or already run over — a tenancy holding over is
+  // ordinary here (decision 22) and is exactly when someone needs to say
+  // something.
+  const inNoticeWindow = live && daysToExpiry <= noticeWindow;
+  const showRenewalPanel = viewerIsTenant && inNoticeWindow;
+
   const unitName = lease.units?.label ?? "Unit";
   const propertyName = lease.properties?.name ?? "Property";
   const tenantName = lease.users?.full_name ?? lease.users?.email ?? null;
@@ -367,13 +401,69 @@ export default async function LeaseDetailPage({
           actions={
             <div className="flex items-center gap-2">
               <PrintButton />
+              {/* ⚠️ A tenant arriving from the renewal notice cannot reach
+                  `/dashboard/leases` — the rent roll is gated to the letting
+                  desk and oversight — so "Back" was a second dead end waiting
+                  at the end of the first. My Rent is the tenant's own tenancy
+                  surface and the one the nav actually offers them. */}
               <Button asChild variant="ghost" size="sm">
-                <Link href="/dashboard/leases"><ArrowLeft /> Back</Link>
+                <Link href={viewerIsTenant ? "/dashboard/my-rent" : "/dashboard/leases"}>
+                  <ArrowLeft /> Back
+                </Link>
               </Button>
             </div>
           }
         />
       </div>
+
+      {/* ── The renewal decision, where the notice sends them ─────────────
+          Screen-only: a printed tenancy statement is a record, and a record
+          does not carry buttons. */}
+      {showRenewalPanel && (
+        <Card data-print="screen-only" className="border-warning/40 bg-warning/5">
+          <CardContent className="space-y-4 pt-5">
+            <div className="flex items-start gap-3">
+              <span className="flex size-9 flex-shrink-0 items-center justify-center rounded-full bg-warning/15 text-warning">
+                <CalendarClock className="size-5" />
+              </span>
+              <div className="min-w-0 space-y-1">
+                <p className="font-medium">
+                  {daysToExpiry >= 0
+                    ? `Your tenancy ends on ${fmtDate(lease.end_date)}`
+                    : `Your tenancy ran to ${fmtDate(lease.end_date)}`}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {daysToExpiry >= 0
+                    ? `${daysToExpiry} day${daysToExpiry === 1 ? "" : "s"} to run. `
+                    : `That was ${Math.abs(daysToExpiry)} day${Math.abs(daysToExpiry) === 1 ? "" : "s"} ago. `}
+                  Tell us which way you are going and the letting team will pick
+                  it up from here — a renewal is prepared and offered to you in
+                  writing, with the rent stated, before anything is signed.
+                  {Number(lease.escalation_pct) > 0 &&
+                    ` The tenancy records a ${Number(lease.escalation_pct).toFixed(2)}% escalation on renewal; the offer states the actual figure.`}
+                </p>
+              </div>
+            </div>
+            {/* Both land on the ordinary request form, pre-addressed to THIS
+                tenancy — so the request arrives carrying the property and the
+                unit (0273) instead of as an unattached message about "my
+                flat", which is what the notice's old destination would have
+                produced if a tenant had found their way to raising one. */}
+            <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <Button asChild variant="ghost" size="sm">
+                <Link href={`/dashboard/new?lease=${lease.id}&about=not_renewing`}>
+                  I am not renewing
+                </Link>
+              </Button>
+              <Button asChild variant="brand" size="sm">
+                <Link href={`/dashboard/new?lease=${lease.id}&about=renewal`}>
+                  Ask about renewing <ArrowRight />
+                </Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* The tenancy itself: the terms someone signed, on one card. */}
       <Card>

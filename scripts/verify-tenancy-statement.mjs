@@ -34,6 +34,7 @@ let failures = 0;
 const ok = (m) => console.log(`  \x1b[32mPASS\x1b[0m ${m}`);
 const bad = (m) => { failures++; console.log(`  \x1b[31mFAIL\x1b[0m ${m}`); };
 const head = (m) => console.log(`\n\x1b[1m${m}\x1b[0m`);
+const note = (m) => console.log(`  \x1b[33mNOTE\x1b[0m ${m}`);
 
 const svc = createClient(URL_, SVCK, { auth: { persistSession: false } });
 
@@ -452,13 +453,76 @@ if (tenant) {
   }
 }
 
-// Someone with no tenancy at all must gain nothing from 0226. A vendor is the
+// Someone with no tenancy at all must gain nothing FROM 0226. A vendor is the
 // clearest case: an authenticated user of the same org, holding no lease.
+//
+// ⚠️ This check used to read "a vendor still reads no properties" and it went
+// red on 8 Sept, correctly, against `0269` — the board asked on 7 Sept that a
+// contractor be able to see the building they are dispatched to, for as long
+// as the job is live. The assertion was written when 0226 was the only branch
+// beside the staff ones and was never re-read when a fourth arrived. That is
+// decision 38's own subject: **a board decision is not delivered when the
+// migration lands, it is delivered when every suite asserting the old rule has
+// been re-read**, and this suite is the only place in the estate that watches
+// this boundary at all (0269 shipped without one of its own).
+//
+// So it now tests the rule that exists, in both directions: a vendor reads a
+// building they hold a LIVE job on, and reads no other. Leaving it as "zero
+// properties" would have been a suite asserting the absence of a feature the
+// board asked for; relaxing it to "any number is fine" would have stopped
+// watching the boundary entirely, which is worse than the red.
 const vendor = await login("oea.vendor@oegroup.test");
 if (vendor) {
-  const { data: vp } = await vendor.c.from("properties").select("id");
-  if ((vp ?? []).length === 0) ok("a vendor still reads no properties — 0226 grants nothing without a tenancy");
-  else bad(`a vendor reads ${vp.length} property/ies — 0226 widened more than a tenancy`);
+  const { data: vp } = await vendor.c.from("properties").select("id, name");
+
+  // What the rule says they may reach, computed independently of the policy:
+  // a property carrying a ticket assigned to one of their vendor companies
+  // that is either not signed off, or signed off with money still in flight.
+  const { data: myVendorIds } = await svc
+    .from("vendor_users").select("vendor_id").eq("user_id", vendor.id);
+  const vendorIds = (myVendorIds ?? []).map((v) => v.vendor_id);
+  const { data: myJobs } = vendorIds.length
+    ? await svc.from("tickets")
+        .select("id, property_id, status")
+        .in("assigned_vendor_id", vendorIds)
+        .not("property_id", "is", null)
+    : { data: [] };
+
+  const liveProps = new Set();
+  for (const t of myJobs ?? []) {
+    if (!["resolved", "closed"].includes(t.status)) { liveProps.add(t.property_id); continue; }
+    const { data: pays } = await svc.from("payments")
+      .select("id").eq("ticket_id", t.id).not("status", "in", "(remitted,rejected)").limit(1);
+    if ((pays ?? []).length > 0) liveProps.add(t.property_id);
+  }
+
+  const stray = (vp ?? []).filter((p) => !liveProps.has(p.id));
+  if (stray.length === 0) {
+    ok(
+      `a vendor reads ${(vp ?? []).length} property/ies, every one a live job of theirs ` +
+      `(0269) — and nothing from 0226, which grants nothing without a tenancy`
+    );
+  } else {
+    bad(
+      `a vendor reads ${stray.length} property/ies with no live job of theirs: ` +
+      stray.map((p) => p.name).join(", ")
+    );
+  }
+
+  // And the reach LAPSES. Any property in the org they hold no live job on
+  // must come back as no row — the half of 0269 that a "reads some properties"
+  // check on its own would never exercise.
+  const { data: orgProps } = await svc
+    .from("properties").select("id, name").eq("org_id", oea.id).is("deleted_at", null);
+  const unreachable = (orgProps ?? []).find((p) => !liveProps.has(p.id));
+  if (!unreachable) {
+    note("this vendor holds a live job on every property in the org — the lapse half cannot be exercised here");
+  } else {
+    const { data: probe } = await vendor.c
+      .from("properties").select("id").eq("id", unreachable.id).maybeSingle();
+    if (!probe) ok(`and "${unreachable.name}", where they hold no live job, comes back as no row`);
+    else bad(`a vendor reads "${unreachable.name}" with no live job on it — 0269's reach does not lapse`);
+  }
 }
 
 // And staff must be untouched. The branch was added beside the existing ones,

@@ -69,6 +69,13 @@ async function run(req: NextRequest) {
   let failed = 0;
   const problems: string[] = [];
 
+  // Where the portal actually is, for the link in the letter. There is no
+  // request from a person here — a scheduler calls this — so the configured
+  // site URL comes first and the invoked origin is the fallback, which is the
+  // same order every other send in this codebase uses.
+  const origin =
+    process.env.NEXT_PUBLIC_SITE_URL ?? req.nextUrl.origin;
+
   for (const org of orgs ?? []) {
     const { data: due, error } = await supabaseAdmin.rpc("leases_needing_notice", {
       p_org_id: org.id,
@@ -112,6 +119,22 @@ async function run(req: NextRequest) {
       }
 
       // In-portal notification, which needs no address and always works.
+      //
+      // ⚠️ The link was `/dashboard`. That is a destination in the sense that
+      // it resolves and a dead end in the sense that matters: the tenant was
+      // told their tenancy ends in 60 days and dropped on a screen that says
+      // nothing about that tenancy and offers nothing to do about it. The
+      // notice has always NAMED its lease (`p_entity_type`/`p_entity_id`
+      // below) — it simply pointed somewhere else.
+      //
+      // It now points at that lease's own page, which `leases_select` (0090)
+      // has admitted the tenancy's own tenant to since it was written, and
+      // which now carries the renewal panel: the term, the end date, the
+      // escalation recorded against a renewal, and the two things a tenant can
+      // actually do about it — say they want to renew, or say they are
+      // leaving — each raised as a request pre-addressed to this tenancy.
+      // Nothing about who may see what changed; a link was pointed at the row
+      // it was already about.
       if (lease.tenant_user_id) {
         await supabaseAdmin.rpc("notify_user", {
           p_user_id: lease.tenant_user_id,
@@ -119,8 +142,8 @@ async function run(req: NextRequest) {
           p_title: `Your tenancy ends in ${lease.days_remaining} days`,
           p_body:
             `${lease.unit_label} at ${lease.property_name}. ` +
-            `Speak to the letting team if you would like to renew.`,
-          p_link: "/dashboard",
+            `Open it to tell us whether you would like to renew.`,
+          p_link: `/dashboard/leases/${lease.lease_id}`,
           p_entity_type: "lease",
           p_entity_id: lease.lease_id,
         });
@@ -160,6 +183,18 @@ async function run(req: NextRequest) {
             `If you would like to renew, reply to this email or speak to the letting`,
             `team and they will prepare the papers. If you are not renewing, this note`,
             `is simply so the date does not take you by surprise.`,
+            // ⚠️ Offered only to a tenant who HAS a portal account. A company
+            // let and an imported tenancy of record carry no user (decisions
+            // 22 and 37), and handing those a sign-in link is the same dead
+            // end this change exists to close, one channel over.
+            ...(lease.tenant_user_id
+              ? [
+                  ``,
+                  `You can also do it in the portal, where the tenancy, the dates and`,
+                  `the rent already are:`,
+                  `${origin}/dashboard/leases/${lease.lease_id}`,
+                ]
+              : []),
             ``,
             `— ${brandName}`,
           ].join("\n"),
