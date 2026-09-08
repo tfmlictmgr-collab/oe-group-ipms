@@ -65,23 +65,80 @@ const madeObjects = [];
 let carriedVendorId = null;   // the vendor created in the receiving org by section E
 
 // Start-of-run sweep — end-of-run cleanup cannot repair end-of-run cleanup.
+//
+// ⚠️ **This sweep was the reason the suite "timed out", and it could never
+// have succeeded.** It was written per-row — five serial round-trips per stale
+// user against a remote pooler — and its third call, `delete from users`, is
+// REFUSED for any probe account that ever did anything:
+//
+//     update or delete on table "users" violates foreign key constraint
+//     "audit_log_actor_id_fkey"
+//
+// which is the audit trail being immutable, exactly as designed (A3, decision
+// 34). So the backlog is not a queue that drains — it is permanent, and the
+// sweep re-attempted all 137 of them, at ~1.9s each, on every single run:
+// ~260 seconds of guaranteed failure before the first check printed. The
+// runner killed it at 300s and the kill meant its own teardown never ran
+// either, so each run added a few more rows to a list that only grows. From
+// the outside this read as "verify-vendor-self-service hangs".
+//
+// 📌 Decision 38 already recorded the same fact one table over — 12 probe
+// vendors "permanently unerasable (FK from payout_recipients/tickets)". What
+// was missing is that a sweep written to DELETE has no fallback when the
+// schema says a row is a record now.
+//
+// So the sweep does what the platform actually supports, in a fixed handful of
+// calls whatever the backlog:
+//
+//   * skip anything already neutralised — a deactivated account needs nothing
+//     further, and re-attempting it is the whole of the old cost;
+//   * try the delete ONCE, in bulk, because a probe account that did nothing
+//     genuinely can be erased and should be;
+//   * DEACTIVATE whatever the audit trail refuses to release. That is this
+//     repo's own answer (0194/0195) and it removes what actually matters —
+//     the access grant — rather than the row.
 {
-  const { data: stale } = await svc.from("users").select("id").like("email", "probevss.%@oegroup.test");
-  for (const u of stale ?? []) {
-    await svc.from("vendor_users").delete().eq("user_id", u.id);
-    await svc.from("invitations").delete().eq("invited_by", u.id);
-    await svc.from("users").delete().eq("id", u.id);
-    await svc.auth.admin.deleteUser(u.id).catch(() => {});
+  const { data: stale } = await svc.from("users")
+    .select("id").like("email", "probevss.%@oegroup.test").is("deactivated_at", null);
+  const staleIds = (stale ?? []).map((u) => u.id);
+  if (staleIds.length > 0) {
+    await svc.from("vendor_users").delete().in("user_id", staleIds);
+    await svc.from("invitations").delete().in("invited_by", staleIds);
+
+    const { error: delErr } = await svc.from("users").delete().in("id", staleIds);
+    if (delErr) {
+      // At least one carries an audit row, so the batch is refused whole.
+      // Neutralise them all rather than picking through one at a time — the
+      // per-row walk is the cost this is here to avoid.
+      await svc.from("users").update({ deactivated_at: new Date().toISOString() }).in("id", staleIds);
+    } else {
+      // Only the ones actually gone from `users` should leave Auth. Bounded
+      // concurrency: an unbounded Promise.all over hundreds of Auth calls is
+      // how a sweep becomes a rate-limit incident.
+      for (let i = 0; i < staleIds.length; i += 20) {
+        await Promise.all(
+          staleIds.slice(i, i + 20).map((id) => svc.auth.admin.deleteUser(id).catch(() => {}))
+        );
+      }
+    }
   }
-  const { data: staleV } = await svc.from("vendors").select("id").like("name", "Probe VSS%");
-  for (const v of staleV ?? []) {
-    await svc.from("vendor_introductions").delete().eq("source_vendor_id", v.id);
-    await svc.from("vendor_documents").delete().eq("vendor_id", v.id);
-    await svc.from("vendor_registrations").delete().eq("vendor_id", v.id);
-    await svc.from("vendor_users").delete().eq("vendor_id", v.id);
-    await svc.from("tickets").delete().eq("assigned_vendor_id", v.id);
-    await svc.from("payments").delete().eq("vendor_id", v.id);
-    await svc.from("vendors").delete().eq("id", v.id);
+
+  const { data: staleV } = await svc.from("vendors")
+    .select("id").like("name", "Probe VSS%").is("deleted_at", null);
+  const staleVIds = (staleV ?? []).map((v) => v.id);
+  if (staleVIds.length > 0) {
+    await svc.from("vendor_introductions").delete().in("source_vendor_id", staleVIds);
+    await svc.from("vendor_documents").delete().in("vendor_id", staleVIds);
+    await svc.from("vendor_registrations").delete().in("vendor_id", staleVIds);
+    await svc.from("vendor_users").delete().in("vendor_id", staleVIds);
+    await svc.from("tickets").delete().in("assigned_vendor_id", staleVIds);
+    await svc.from("payments").delete().in("vendor_id", staleVIds);
+    const { error: vDelErr } = await svc.from("vendors").delete().in("id", staleVIds);
+    // Same rule, same reason: a vendor named on a ticket or a payout recipient
+    // is a record. Retire it instead of retrying it forever.
+    if (vDelErr) {
+      await svc.from("vendors").update({ deleted_at: new Date().toISOString() }).in("id", staleVIds);
+    }
   }
 }
 
@@ -762,9 +819,21 @@ for (const id of madeVendors) {
   await svc.from("invitations").delete().eq("vendor_id", id);
   await svc.from("vendors").delete().eq("id", id);
 }
+// ⚠️ And this is where the 137 came from. `delete from users` is refused for
+// any probe account that acted during the run — `audit_log_actor_id_fkey`, the
+// trail being immutable by design — and the failure was ignored, so the row
+// stayed, holding a real role in a real organisation. Decision 38's own words:
+// **a fixture that holds a role is not litter, it is an access grant nobody
+// decided to make.** What cannot be erased is deactivated, which is this
+// repo's own remedy (0194/0195) and is what the start-of-run sweep now expects
+// to find rather than re-attempting forever.
 for (const id of madeUsers) {
-  await svc.from("users").delete().eq("id", id);
-  await svc.auth.admin.deleteUser(id).catch(() => {});
+  const { error } = await svc.from("users").delete().eq("id", id);
+  if (error) {
+    await svc.from("users").update({ deactivated_at: new Date().toISOString() }).eq("id", id);
+  } else {
+    await svc.auth.admin.deleteUser(id).catch(() => {});
+  }
 }
 
 console.log(failures === 0

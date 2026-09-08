@@ -55,6 +55,17 @@ const SLOW = new Set([
   "verify-role-workflows",
 ]);
 
+// 📌 `verify-vendor-self-service` is deliberately NOT here, though it was
+// killed at 300s on 8 Sept 2026. Naming it would have been the wrong remedy
+// and would have hidden the fault: it was not doing 300 seconds of work, it
+// was spending ~260 of them re-attempting 137 deletions the schema forbids
+// (`audit_log_actor_id_fkey` — the trail is immutable, so a probe account that
+// ever acted cannot be erased), on a backlog that only ever grew. Fixed where
+// it was broken — the sweep is bulk, skips what is already neutralised, and
+// deactivates what cannot be deleted — it now runs in **72 seconds**. A budget
+// that fails a working suite is worse than no budget; a budget raised to
+// accommodate a suite that is failing at something is worse still.
+
 const suites = readdirSync(here)
   .filter((f) => f.startsWith("verify-") && f.endsWith(".mjs") && f !== "verify-all.mjs")
   .filter((f) => !filter || f.includes(filter))
