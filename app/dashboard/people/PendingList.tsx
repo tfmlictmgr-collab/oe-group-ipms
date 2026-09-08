@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { X, Check, Ban } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { roleLabel } from "@/lib/roles";
+import { portfolioLabel } from "@/lib/roles";
 import { revokeInvitation, setVendorApproval } from "./actions";
 import { runAction, describeError } from "@/lib/run-action";
 
@@ -21,6 +21,12 @@ export function PendingInvites({
     expires_at: string;
     /** What became of the invitation email. Null when none was attempted. */
     delivery: { status: string; detail: string | null } | null;
+    /**
+     * The region a `regional_manager` invitation names — the node it carries
+     * (0078c), resolved to a readable path. Null for every other role, and
+     * for a regional-manager invitation issued with no node at all.
+     */
+    region: string | null;
   }[];
   brand: string | null;
 }) {
@@ -58,7 +64,7 @@ export function PendingInvites({
             <div className="min-w-0">
               <p className="truncate text-sm font-medium">{i.email}</p>
               <p className="text-xs text-muted-foreground">
-                {roleLabel(i.role, brand)} · expires in {days} day{days === 1 ? "" : "s"}
+                {portfolioLabel(i.role, brand, i.region ? [i.region] : null)} · expires in {days} day{days === 1 ? "" : "s"}
               </p>
               {i.delivery && <DeliveryNote delivery={i.delivery} />}
             </div>

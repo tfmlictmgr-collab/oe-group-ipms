@@ -16,7 +16,7 @@ export default async function InvitationsPage() {
   const [invitesRes, vendorsRes, unitsRes, props, deliveriesRes, nodesRes] = await Promise.all([
     supabase
       .from("invitations")
-      .select("id, email, role, expires_at")
+      .select("id, email, role, expires_at, node_id")
       .eq("status", "pending")
       .order("created_at", { ascending: false }),
     supabase.from("vendors").select("id, name").order("name"),
@@ -51,6 +51,25 @@ export default async function InvitationsPage() {
       label: `${u.label} — ${(u.properties as unknown as { name: string } | null)?.name ?? "—"}`,
     }));
 
+  // ⚠️ The region a PENDING regional-manager invitation names — the same
+  // "portfolio in bracket" the roster now shows, one step earlier: before
+  // acceptance, `stakeholder_assignments` has no row yet, and `invitations
+  // .node_id` is the only record of what was actually offered. Built from
+  // `nodesRes`, already fetched whole for the HierarchyPicker below, rather
+  // than a round-trip to `node_full_name()` per invitation — a flat tree of a
+  // few dozen rows is cheaper to walk in JS once than to ask the database once
+  // per pending invite.
+  const nodeById = new Map((nodesRes.data ?? []).map((n) => [n.id, n]));
+  function nodeFullName(id: string | null): string | null {
+    const chain: string[] = [];
+    let cur = id ? nodeById.get(id) : undefined;
+    while (cur) {
+      chain.unshift(cur.name);
+      cur = cur.parent_id ? nodeById.get(cur.parent_id) : undefined;
+    }
+    return chain.length > 0 ? chain.join(" / ") : null;
+  }
+
   return (
     <div className="space-y-4">
       <InviteDialog
@@ -72,6 +91,7 @@ export default async function InvitationsPage() {
             invites={(invitesRes.data ?? []).map((i) => ({
               ...i,
               delivery: delivery.get(i.id) ?? null,
+              region: i.role === "regional_manager" ? nodeFullName(i.node_id) : null,
             }))}
             brand={brand}
           />

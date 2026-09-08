@@ -265,6 +265,44 @@ export function roleLabel(
 }
 
 /**
+ * The role label with a regional manager's assigned portfolio in brackets —
+ * "Regional Manager (North)" — asked for directly (8 Sept 2026): a region is
+ * who a regional manager IS in this system (decentralised administration
+ * bounded to one place, decision 9), and it read only on the hierarchy screen,
+ * three clicks from the roster that names the person.
+ *
+ * Takes the resolved region NAMES rather than a node id, on purpose: the
+ * caller already has them from one query against `stakeholder_assignments`
+ * for a whole roster, and resolving here — one `node_full_name()` round-trip
+ * per row — would turn a single list render into N.
+ *
+ * Silent for every other role, and for a regional manager who holds no
+ * assignment yet: "when assigned" is the request's own qualifier, and
+ * inventing a placeholder ("Unassigned") for a person who may be one hierarchy
+ * edit away from having a region is the fourth-line hint that already exists
+ * ("no properties available"), not the badge.
+ *
+ * A regional manager CAN hold more than one node (0067's uniqueness is per
+ * node, not per person), so this is deliberately a LIST — "(North, South)" —
+ * rather than assuming one. Each entry is `stakeholder_assignments.scope_label`
+ * (`node_full_name()`), which is the node's own name for a region-level
+ * assignment and the full ancestor path — "North / Ikeja Project" — for a
+ * narrower one (decision 9 also allows project- or site-level assignment),
+ * so the bracket always says the actual portfolio rather than only its top.
+ */
+export function portfolioLabel(
+  role: string | null | undefined,
+  brand: string | null | undefined,
+  regions: readonly string[] | null | undefined
+): string {
+  const base = roleLabel(role, brand);
+  if (role !== "regional_manager") return base;
+  const list = (regions ?? []).filter((r): r is string => Boolean(r && r.trim()));
+  if (list.length === 0) return base;
+  return `${base} (${list.join(", ")})`;
+}
+
+/**
  * Short form used where space is tight.
  *
  * No longer brand-dependent: the two are separate roles now, so "FM" and "PM"
