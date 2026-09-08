@@ -280,7 +280,7 @@ try {
 
 console.log(
   failures === 0
-    ? "\n\x1b[32mAll request-visibility checks passed.\x1b[0m"
+    ? "\n\x1b[32mALL CHECKS PASSED\x1b[0m — a request reaches the desk it belongs to, and no other."
     : `\n\x1b[31m${failures} check(s) failed.\x1b[0m`
 );
 process.exit(failures === 0 ? 0 : 1);

@@ -170,6 +170,6 @@ if (made.length) console.log("\n(cleaned up)");
 console.log(
   failures
     ? `\n\x1b[31m✖ ${failures} check(s) failed\x1b[0m`
-    : "\n\x1b[32m✔ property types: all checks passed\x1b[0m"
+    : "\n\x1b[32mALL CHECKS PASSED\x1b[0m — a property carries its type through creation and edit.\x1b[32m\x1b[0m"
 );
 process.exit(failures ? 1 : 0);

@@ -55,7 +55,7 @@ export default async function InvitationsPage() {
     <div className="space-y-4">
       <InviteDialog
         brand={brand}
-        isAdmin={profile.role === "admin"}
+        myRole={profile.role ?? null}
         properties={props.map((p) => ({ id: p.id, label: p.name }))}
         units={units}
         vendors={(vendorsRes.data ?? []).map((v) => ({ id: v.id, label: v.name }))}

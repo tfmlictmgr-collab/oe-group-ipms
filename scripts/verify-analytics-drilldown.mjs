@@ -235,6 +235,6 @@ console.log("\n4. The approval queue is scoped to what each tier can action");
 }
 
 console.log(failures === 0
-  ? "\n\x1b[32mAll drill-down scoping checks passed.\x1b[0m\n"
+  ? "\n\x1b[32mALL CHECKS PASSED\x1b[0m — the queue and the drill-down agree with the database, in both tier modes.\n"
   : `\n\x1b[31m${failures} check(s) failed.\x1b[0m\n`);
 process.exit(failures === 0 ? 0 : 1);

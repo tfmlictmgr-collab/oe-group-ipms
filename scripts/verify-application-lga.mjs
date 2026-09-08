@@ -189,6 +189,6 @@ if (error) {
 console.log(
   failures
     ? `\n\x1b[31m✖ ${failures} check(s) failed\x1b[0m`
-    : "\n\x1b[32m✔ LGA and applicant statement: all checks passed\x1b[0m"
+    : "\n\x1b[32mALL CHECKS PASSED\x1b[0m — an applicant's LGA and statement are recorded as given.\x1b[32m\x1b[0m"
 );
 process.exit(failures ? 1 : 0);

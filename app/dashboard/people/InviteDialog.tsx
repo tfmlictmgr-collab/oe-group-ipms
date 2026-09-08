@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { roleLabel, INVITABLE_ROLES, ROLE_HINTS, FM_PM } from "@/lib/roles";
+import { roleLabel, invitableBy, ROLE_HINTS, FM_PM } from "@/lib/roles";
 import HierarchyPicker, { type OrgNode } from "@/components/patterns/hierarchy-picker";
 import { inviteMember } from "./actions";
 import { runAction, describeError } from "@/lib/run-action";
@@ -17,14 +17,15 @@ type Option = { id: string; label: string; propertyId?: string };
 
 export default function InviteDialog({
   brand,
-  isAdmin,
+  myRole,
   properties,
   units,
   vendors,
   nodes,
 }: {
   brand: string | null;
-  isAdmin: boolean;
+  /** The signed-in person's own role — what they may issue is derived from it. */
+  myRole: string | null;
   properties: Option[];
   units: Option[];
   vendors: Option[];
@@ -57,7 +58,29 @@ export default function InviteDialog({
   // tier the invitation violates its own constraint (0153) and fails only when
   // the person clicks the link, which is the worst moment to find out.
   const needsTier = role === "payment_approver";
-  const roles = isAdmin ? INVITABLE_ROLES : INVITABLE_ROLES.filter((r) => r !== "admin");
+  // ⚠️ This read `isAdmin ? INVITABLE_ROLES : INVITABLE_ROLES.filter(r => r !== "admin")`
+  // — the one special case `0078c` was written to abolish, reintroduced in the
+  // UI. It offered a facilities manager, a property manager and a regional
+  // manager EVERY role except `admin`: the Managing Partner, the payment
+  // officer, the payment auditor and the payment approver among them. Not an
+  // escalation — `invitations_insert` refuses every one of them — but the
+  // person picks "Managing Partner", fills the form, and is told no at the
+  // end. That is decision 26's fault exactly: the offer and the rule
+  // disagreed, and the offer was the wrong one.
+  //
+  // `invitableBy()` is the mirror of the database's `invitable_roles()` and
+  // exists for precisely this. It was written, exported, and never called
+  // here.
+  const roles = React.useMemo(() => invitableBy(myRole), [myRole]);
+
+  // Never leave the form holding a role this person cannot issue — including
+  // the initial `facility_manager`, which a facilities manager themselves may
+  // not invite (equal rank is not below it).
+  React.useEffect(() => {
+    if (roles.length > 0 && !(roles as readonly string[]).includes(role)) {
+      setRole(roles[0]);
+    }
+  }, [roles, role]);
 
   function toggleProperty(id: string) {
     setPropertyIds((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
@@ -151,9 +174,16 @@ export default function InviteDialog({
               {ROLE_HINTS[role] && (
                 <p className="text-xs text-muted-foreground">{ROLE_HINTS[role]}</p>
               )}
-              {!isAdmin && (
+              {/* ⚠️ The old line read "Only an administrator can invite
+                  another administrator", which was true and, sitting under a
+                  list that offered every other senior role, read as though
+                  everything else on it was fair game. The list is now the
+                  truth; this says what is missing from it and whose it is. */}
+              {myRole !== "admin" && (
                 <p className="text-xs text-muted-foreground">
-                  Only an administrator can invite another administrator.
+                  {myRole === "regional_manager"
+                    ? `Managers, owners, tenants and vendors are yours to invite. An administrator, the ${roleLabel("executive", brand)} and the payment desks are an administrator's.`
+                    : `You can invite the roles below your own. An administrator, the ${roleLabel("executive", brand)} and the payment desks are an administrator's.`}
                 </p>
               )}
             </div>

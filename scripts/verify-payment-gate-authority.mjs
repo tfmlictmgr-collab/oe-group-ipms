@@ -261,6 +261,6 @@ for (const id of made) {
 }
 
 console.log(failures === 0
-  ? "\n\x1b[32mAll payment gate authority checks passed.\x1b[0m\n"
+  ? "\n\x1b[32mALL CHECKS PASSED\x1b[0m — the gate is the operator's to open, and it records who opened it.\n"
   : `\n\x1b[31m${failures} check(s) failed.\x1b[0m\n`);
 process.exit(failures === 0 ? 0 : 1);

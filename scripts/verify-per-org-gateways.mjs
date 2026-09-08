@@ -263,6 +263,6 @@ if (KEY) {
 }
 
 console.log(failures === 0
-  ? "\n\x1b[32mAll per-org gateway checks passed.\x1b[0m\n"
+  ? "\n\x1b[32mALL CHECKS PASSED\x1b[0m — each org's gateway credentials are its own, and only its administrator connects them.\n"
   : `\n\x1b[31m${failures} check(s) failed.\x1b[0m\n`);
 process.exit(failures === 0 ? 0 : 1);

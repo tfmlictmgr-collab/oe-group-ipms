@@ -836,6 +836,6 @@ console.log(
 );
 
 console.log(failures === 0
-  ? "\n\x1b[32mAll approval chain checks passed.\x1b[0m\n"
+  ? "\n\x1b[32mALL CHECKS PASSED\x1b[0m — every payment out climbs the same ladder, banded or not.\n"
   : `\n\x1b[31m${failures} check(s) failed.\x1b[0m\n`);
 process.exit(failures === 0 ? 0 : 1);

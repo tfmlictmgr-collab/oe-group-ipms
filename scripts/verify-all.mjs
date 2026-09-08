@@ -132,12 +132,25 @@ const run = (file) =>
           // the summary column, which is the column that tells you whether a
           // suite asserted anything at all. Same argument as the DEMO marker
           // below it.
-          : out.match(/ALL \d* ?CHECKS? PASSED[^\n]*/i)?.[0] ??
-            out.match(/^All [^\n]*checks? passed[^\n]*/im)?.[0] ??
-            out.match(/\d+ (?:CHECK\(S\) )?FAIL(?:URE\(S\)|ED)?[^\n]*/i)?.[0] ??
-            out.match(/\d+ check\(s\) failed[^\n]*/i)?.[0] ??
-            out.match(/Error[^\n]*/)?.[0] ??
-            "(no summary line — the suite printed nothing recognisable)";
+          // 📌 And strip the colour BEFORE matching, not after. Every one of
+          // these lines is printed as `\n\x1b[32mAll … passed.\x1b[0m`, so the
+          // `^` in the second pattern anchored to the ESCAPE SEQUENCE and
+          // never to `All` — which is why fourteen green suites reported "the
+          // suite printed nothing recognisable" while the pattern written to
+          // catch them looked correct. A regex against text that still carries
+          // its formatting is matching something other than what it reads
+          // like.
+          : (() => {
+              const plain = out.replace(/\x1b\[[0-9;]*m/g, "");
+              return (
+                plain.match(/ALL \d* ?CHECKS? PASSED[^\n]*/i)?.[0] ??
+                plain.match(/^\s*All [^\n]*checks? passed[^\n]*/im)?.[0]?.trim() ??
+                plain.match(/\d+ (?:CHECK\(S\) )?FAIL(?:URE\(S\)|ED)?[^\n]*/i)?.[0] ??
+                plain.match(/\d+ check\(s\) failed[^\n]*/i)?.[0] ??
+                plain.match(/Error[^\n]*/)?.[0] ??
+                "(no summary line — the suite printed nothing recognisable)"
+              );
+            })();
       resolve({
         name,
         ok: code === 0,

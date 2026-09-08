@@ -329,7 +329,7 @@ if (!finance) {
 // ── ───────────────────────────────────────────────────────────────────────
 console.log(
   failures === 0
-    ? "\n\x1b[32mAll checks passed.\x1b[0m\n"
+    ? "\n\x1b[32mALL CHECKS PASSED\x1b[0m — every money function is callable by exactly the roles its migration granted.\x1b[32m\x1b[0m\n"
     : `\n\x1b[31m${failures} check(s) failed.\x1b[0m\n`
 );
 process.exit(failures === 0 ? 0 : 1);

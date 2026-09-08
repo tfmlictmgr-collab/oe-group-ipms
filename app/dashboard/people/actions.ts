@@ -10,7 +10,7 @@ import {
   buildInviteUrl,
   sendInviteEmail,
 } from "@/lib/invitation";
-import { roleLabel, INVITABLE_ROLES, ROLE_RANK, type InvitableRole, FM_PM } from "@/lib/roles";
+import { roleLabel, INVITABLE_ROLES, invitableBy, type InvitableRole, FM_PM } from "@/lib/roles";
 import { ok, fail, failFromDb, type ActionResult } from "@/lib/action-result";
 import { sendEmail } from "@/lib/email";
 
@@ -67,12 +67,6 @@ export async function inviteMember(
   if (!INVITABLE_ROLES.includes(input.role as InvitableRole)) {
     return fail("That role cannot be invited.");
   }
-  // Strictly below your own rank — defence in depth; `invitations_insert`
-  // enforces the same rule via `role_rank()`.
-  //
-  // This replaced `input.role === "admin" && me.role !== "admin"`, which named
-  // the one privileged role that existed when it was written. It left `executive`
-  // and `regional_manager` issuable by a facility manager.
   if (input.role === "payment_approver" && ![1, 2, 3].includes(Number(input.approvalTier))) {
     return fail(
       "Choose a tier for this payment approver.",
@@ -80,11 +74,19 @@ export async function inviteMember(
     );
   }
 
-  const peerAdmin = me.role === "admin" && input.role === "admin";
-  if (!peerAdmin && (ROLE_RANK[input.role] ?? 0) >= (ROLE_RANK[me.role] ?? 0)) {
+  // ⚠️ One list, asked once. This was a rank comparison plus a peer-admin
+  // special case, restated here from the same rule the policy expresses —
+  // two independent statements of one rule, which is what decision 8 forbids
+  // and what let the board's 8 Sept narrowing of the regional manager be a
+  // change in three places instead of one. `invitableBy()` is now the single
+  // client-side answer and it mirrors `invitable_roles()` in the database,
+  // which remains the enforcement.
+  if (!(invitableBy(me.role) as readonly string[]).includes(input.role)) {
     return fail(
       `You cannot invite someone as ${roleLabel(input.role)}.`,
-      "You may only invite roles below your own."
+      me.role === "regional_manager"
+        ? "A regional manager may invite facilities and property managers, owners, tenants and vendors. Administrators, the executive and the payment desks are an administrator's to appoint."
+        : "You may only invite roles below your own."
     );
   }
 

@@ -837,6 +837,6 @@ for (const id of madeUsers) {
 }
 
 console.log(failures === 0
-  ? "\n\x1b[32mAll vendor self-service checks passed.\x1b[0m\n"
+  ? "\n\x1b[32mALL CHECKS PASSED\x1b[0m — a vendor registers, evidences and corrects their own pack, and forges nothing.\n"
   : `\n\x1b[31m${failures} check(s) failed.\x1b[0m\n`);
 process.exit(failures === 0 ? 0 : 1);

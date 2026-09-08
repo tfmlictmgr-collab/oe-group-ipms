@@ -151,6 +151,6 @@ if (ent) {
 console.log(
   failures
     ? `\n\x1b[31m✖ ${failures} check(s) failed\x1b[0m`
-    : "\n\x1b[32m✔ payment approver reach: all checks passed\x1b[0m"
+    : "\n\x1b[32mALL CHECKS PASSED\x1b[0m — an approver sees the payments at their own stage, and no more.\x1b[32m\x1b[0m"
 );
 process.exit(failures ? 1 : 0);

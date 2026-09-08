@@ -561,7 +561,7 @@ if (/amount_paid\s*\/\s*Number\(c\.amount\)/.test(pageSrc)) {
 
 console.log(
   failures === 0
-    ? "\n\x1b[32m✔ tenancy statement: all checks passed\x1b[0m"
+    ? "\n\x1b[32mALL CHECKS PASSED\x1b[0m — a tenant, a landlord and an auditor each get a clean account of their own money.\x1b[32m\x1b[0m"
     : `\n\x1b[31m✘ ${failures} check(s) failed\x1b[0m`
 );
 process.exit(failures === 0 ? 0 : 1);

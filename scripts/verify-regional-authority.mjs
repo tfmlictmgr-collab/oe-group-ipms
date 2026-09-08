@@ -202,6 +202,6 @@ if (tfmlReg) {
 console.log(
   failures
     ? `\n\x1b[31m✖ ${failures} check(s) failed\x1b[0m`
-    : "\n\x1b[32m✔ regional authority: all checks passed\x1b[0m"
+    : "\n\x1b[32mALL CHECKS PASSED\x1b[0m — a regional manager administers the money on the buildings they hold, and no others.\x1b[32m\x1b[0m"
 );
 process.exit(failures ? 1 : 0);

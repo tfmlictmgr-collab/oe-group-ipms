@@ -170,19 +170,63 @@ export const ROLE_RANK: Record<string, number> = {
 };
 
 /**
- * The roles `inviterRole` may issue: below its own rank, plus the peer exception
- * for an administrator.
+ * What a REGIONAL MANAGER may issue, stated rather than derived (board,
+ * 8 Sept 2026).
  *
- * An org with one administrator must be able to appoint a second. Without that,
- * the only route to a new admin is someone with database access — which is how a
- * standing "super admin" gets built, and this system deliberately has none.
+ * ⚠️ The rank rule gave them everything below 60, which included
+ * `fm_ops_staff` and `viewer`. The board named the set instead: the two
+ * manager disciplines, and the three counterparties a region deals with. A
+ * stated list is the right shape here for the same reason decision 7 gives —
+ * a rank is a heuristic, and the roles this must never reach (`executive`,
+ * `admin`, and all three payment desks) are exactly the ones where a heuristic
+ * being one number wrong is an escalation.
+ *
+ * 📌 Recorded, not assumed: decision 9 says the regional manager exists partly
+ * to invite "operational staff", which is what `fm_ops_staff` is. The board's
+ * instruction of 8 Sept enumerated five roles with "only", so `fm_ops_staff`
+ * is OUT — the narrower reading, and the reversible direction. Adding it back
+ * is one entry here and one in `invitable_roles()`.
+ */
+export const REGIONAL_MANAGER_INVITABLE: readonly InvitableRole[] = [
+  "facility_manager",
+  "property_manager",
+  "property_owner",
+  "tenant",
+  "vendor",
+];
+
+/**
+ * The roles `inviterRole` may issue.
+ *
+ * **The administrator is the only role that may issue any role at all** (board,
+ * 8 Sept 2026) — including a peer administrator, because an org with one
+ * administrator must be able to appoint a second. Without that, the only route
+ * to a new admin is someone with database access, which is how a standing
+ * "super admin" gets built, and this system deliberately has none.
+ *
+ * The regional manager's set is stated above. Everyone else keeps 0078c's rule:
+ * strictly below your own rank.
+ *
+ * ⚠️ Mirrors `invitable_roles()` in the database (0279), which is the
+ * enforcement. Two places deliberately: the database must stand alone, and the
+ * UI must not offer what the database will refuse.
  */
 export function invitableBy(inviterRole: string | null | undefined): InvitableRole[] {
   const role = inviterRole ?? "";
+  if (role === "admin") return [...INVITABLE_ROLES];
+  if (role === "regional_manager") {
+    return INVITABLE_ROLES.filter((r) => REGIONAL_MANAGER_INVITABLE.includes(r));
+  }
+  // ⚠️ A role that may not issue an invitation at all reaches NOTHING, rather
+  // than whatever the rank happens to say about a question it is never asked.
+  // Left to the rank, this answered that a payment officer (70) may invite a
+  // payment approver (65) and a regional manager (60) — untrue, since
+  // `invitations_insert` has admitted only `admin` and `fm_roles()` since
+  // 0078c, and a wrong answer that nothing acts on is still a second,
+  // disagreeing statement of the rule.
+  if (!(FM_PM as readonly string[]).includes(role)) return [];
   const mine = ROLE_RANK[role] ?? 0;
-  return INVITABLE_ROLES.filter(
-    (r) => (ROLE_RANK[r] ?? 0) < mine || (role === "admin" && r === "admin")
-  );
+  return INVITABLE_ROLES.filter((r) => (ROLE_RANK[r] ?? 0) < mine);
 }
 
 /** One line of context for the roles whose scope is not obvious from the name. */

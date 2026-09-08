@@ -278,6 +278,6 @@ try {
 }
 
 console.log(failures === 0
-  ? "\n\x1b[32mAll unassigned-escalation checks passed.\x1b[0m\n"
+  ? "\n\x1b[32mALL CHECKS PASSED\x1b[0m — a request nobody picked up reaches the administrator, and not before 24 hours.\n"
   : `\n\x1b[31m${failures} check(s) failed.\x1b[0m\n`);
 process.exit(failures === 0 ? 0 : 1);

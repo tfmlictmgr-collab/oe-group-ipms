@@ -23,6 +23,36 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "dotenv";
 
+// ── The sign-off, counted from what is actually printed ───────────────────
+//
+// ⚠️ This script states each result as text — `console.log(label, ok ? "PASS"
+// : "FAIL")` at a dozen call sites — and counted none of them, so it exited 0
+// whatever it found. `verify-all` reads the exit code, so a run that printed
+// FAIL on the one path that changes an authentication credential would have
+// been reported as a green PASS with "(no summary line)" beside it. A missing
+// summary was the symptom; a suite that cannot fail was the fault.
+//
+// The count is taken from the OUTPUT rather than by restating every assertion
+// through a helper. That is deliberate: rewriting a dozen call sites to change
+// how results are REPORTED is a dozen opportunities to change what is
+// ASSERTED, and taking the count from what the reader sees means the exit code
+// and the screen cannot disagree.
+let failures = 0;
+const emit = console.log;
+console.log = (...args) => {
+  if (args.some((a) => typeof a === "string" && /\bFAIL\b/.test(a))) failures++;
+  emit(...args);
+};
+process.on("exit", () => {
+  console.log = emit;
+  emit(
+    failures === 0
+      ? "\n\x1b[32mALL CHECKS PASSED\x1b[0m — a reset token is a hash, single-use, genuinely signs in, and the account is left as it was found."
+      : `\n\x1b[31m${failures} check(s) failed.\x1b[0m`
+  );
+});
+process.on("beforeExit", () => process.exit(failures === 0 ? 0 : 1));
+
 // dotenv, not a hand-rolled line parser. The previous one matched
 // /^([A-Z0-9_]+)=(.*)$/ against each line of a CRLF .env.local - and JS `.`
 // does not match a carriage return, so every line ending in one failed to

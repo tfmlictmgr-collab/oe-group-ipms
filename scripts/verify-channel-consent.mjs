@@ -207,7 +207,7 @@ try {
 
 console.log(
   failures === 0
-    ? "\n\x1b[32mAll consent checks passed.\x1b[0m"
+    ? "\n\x1b[32mALL CHECKS PASSED\x1b[0m — consent is recorded, it gates the send, and it never crosses an org."
     : `\n\x1b[31m${failures} check(s) failed.\x1b[0m`
 );
 process.exit(failures === 0 ? 0 : 1);

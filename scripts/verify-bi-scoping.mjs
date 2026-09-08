@@ -98,3 +98,21 @@ try {
 } finally {
   await client.end();
 }
+
+// ── What running this actually proves ─────────────────────────────────────
+//
+// ⚠️ Nothing. This script IMPERSONATES each role at the database level and
+// PRINTS the row counts and the widget scope each one resolves to — it is how
+// you read B7 against the live policies, and it is genuinely useful for that.
+// It compares nothing to an expectation, holds no failure counter, and exits 0
+// however the table comes out.
+//
+// It was reported by `verify-all` as a green PASS with "(no summary line —
+// the suite printed nothing recognisable)", which reads as a suite that passed
+// and forgot to say so. Said plainly instead, so nobody counts this as
+// coverage it is not. The enforced behaviour is asserted by
+// `verify-access-matrix`, `verify-role-surface` and `verify-request-visibility`.
+console.log(
+  "\nDEMONSTRATION ONLY — this script reports what each role resolves to under RLS and asserts nothing. " +
+  "The enforced behaviour is covered by verify-access-matrix, verify-role-surface and verify-request-visibility."
+);

@@ -29,6 +29,7 @@ const PW = "OEGroupDemo2026!";
 let failures = 0;
 const ok = (m) => console.log(`  \x1b[32mPASS\x1b[0m ${m}`);
 const bad = (m) => { failures++; console.log(`  \x1b[31mFAIL\x1b[0m ${m}`); };
+const note = (m) => console.log(`  \x1b[33mNOTE\x1b[0m ${m}`);
 
 const svc = createClient(URL_, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 async function login(email) {
@@ -115,30 +116,94 @@ console.log("A. The rank ladder");
   if (allOk) ok("a regional manager (60) outranks a facility manager (50), below finance (70)");
 }
 
-console.log("\nB. A regional manager can invite — which they could not before");
+// ⚠️ Rewritten 8 Sept 2026 for the board's stated set (0279). This section
+// previously asserted that a regional manager invites `fm_ops_staff` — true
+// under 0078c's rank rule, and no longer the rule: the board named five roles
+// with "only". Left as it was, it would have gone red against a decision, and
+// "the suite still asserts the rule the board replaced" is decision 38's own
+// recorded subject. `fm_ops_staff` moves from section B to section C, which is
+// the whole of the change in behaviour.
+console.log("\nB. A regional manager invites exactly the five the board named");
 {
   const rm = await makeUser("regional_manager");
   const c = await login(rm.email);
 
-  const e1 = await tryInvite(c, rm.id, "fm_ops_staff");
-  !e1 ? ok("invites operational staff") : bad(`REFUSED — ${e1.message.slice(0, 70)}`);
+  // ⚠️ A vendor invitation must NAME its vendor — `invitations_vendor_check`
+  // (0163) refuses one without, and that refusal has nothing to do with who is
+  // inviting. Passing it here keeps this section testing the role rule rather
+  // than a shape constraint, which is how a green check ends up proving
+  // something other than its own sentence.
+  const { data: aVendor } = await svc.from("vendors")
+    .select("id").eq("org_id", poc.id).is("deleted_at", null).order("id").limit(1).maybeSingle();
 
-  const e2 = await tryInvite(c, rm.id, "facility_manager");
-  !e2 ? ok("and a facility manager, who ranks below them") : bad(`refused an FM — ${e2.message.slice(0, 60)}`);
+  for (const role of ["facility_manager", "property_manager", "property_owner", "tenant", "vendor"]) {
+    if (role === "vendor" && !aVendor) { note("no vendor on the POC org to attach a vendor invitation to"); continue; }
+    const extra = role === "vendor" ? { vendor_id: aVendor.id } : {};
+    const e = await tryInvite(c, rm.id, role, extra);
+    !e ? ok(`issues ${role}`) : bad(`REFUSED ${role} — ${e.message.slice(0, 70)}`);
+  }
+
+  // And the set the database offers is the set, asked directly — so a role
+  // added tomorrow cannot land inside it without this failing.
+  const { data: set } = await svc.rpc("invitable_roles", { p_inviter: "regional_manager" });
+  const got = [...(set ?? [])].sort().join(",");
+  const want = ["facility_manager", "property_manager", "property_owner", "tenant", "vendor"].sort().join(",");
+  got === want
+    ? ok("invitable_roles('regional_manager') is exactly those five and nothing else")
+    : bad(`invitable_roles('regional_manager') = ${got}`);
 
   await c.auth.signOut();
 }
 
-console.log("\nC. …and cannot invite at or above their own rank");
+console.log("\nC. …and nothing else at all — not above, not beside, not below");
 {
   const rm = madeUsers.length ? await svc.from("users").select("id, email").eq("id", madeUsers[0]).single() : null;
   const c = await login(rm.data.email);
 
-  for (const role of ["regional_manager", "finance_approver", "executive", "admin"]) {
-    const e = await tryInvite(c, rm.data.id, role);
+  // Above and beside them, as before.
+  for (const role of [
+    "regional_manager", "finance_approver", "executive", "admin",
+    "payment_approver", "payment_audit_approver",
+  ]) {
+    const e = await tryInvite(c, rm.data.id, role, role === "payment_approver" ? { approval_tier: 1 } : {});
     e ? ok(`refused to issue ${role}`) : bad(`A REGIONAL MANAGER MINTED A ${role.toUpperCase()}`);
   }
+
+  // ⚠️ And BELOW them, which the rank rule allowed and the board did not.
+  // 📌 Recorded: `fm_ops_staff` is what decision 9 calls "operational staff",
+  // and the instruction of 8 Sept enumerated five roles with "only". The
+  // narrower reading was taken deliberately; if the board restores it, it is
+  // one entry in `invitable_roles()` and one in `lib/roles.ts`, and this check
+  // moves back to section B.
+  for (const role of ["fm_ops_staff", "viewer"]) {
+    const e = await tryInvite(c, rm.data.id, role);
+    e ? ok(`refused to issue ${role} — outside the stated set, though below their rank`)
+      : bad(`a regional manager issued ${role}, which the board's stated set excludes`);
+  }
   await c.auth.signOut();
+}
+
+console.log("\nC2. Only the administrator reaches everything");
+{
+  const { data: adminSet } = await svc.rpc("invitable_roles", { p_inviter: "admin" });
+  const { data: allRoles } = await svc.rpc("role_rank", { p_role: "admin" }); // liveness ping
+  const missing = ["admin", "executive", "finance_approver", "payment_approver",
+                   "payment_audit_approver", "regional_manager", "facility_manager",
+                   "property_manager", "fm_ops_staff", "property_owner", "tenant",
+                   "vendor", "viewer"].filter((r) => !(adminSet ?? []).includes(r));
+  missing.length === 0 && Number(allRoles) === 100
+    ? ok("an administrator may issue every role, including a peer administrator")
+    : bad(`an administrator cannot issue: ${missing.join(", ")}`);
+
+  // The roles that hold no invitation authority at all answer with nothing,
+  // rather than with a rank's opinion about a question they are never asked —
+  // which is what the first draft of 0279 got wrong, on finance.
+  for (const role of ["finance_approver", "executive", "payment_approver", "tenant", "vendor"]) {
+    const { data: s } = await svc.rpc("invitable_roles", { p_inviter: role });
+    (s ?? []).length === 0
+      ? ok(`${role} may issue no invitation, and invitable_roles says so`)
+      : bad(`invitable_roles('${role}') = ${(s ?? []).join(", ")} — but they cannot invite at all`);
+  }
 }
 
 console.log("\nD. The hole that was open: a facility manager and the executive role");

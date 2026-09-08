@@ -3,6 +3,35 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "dotenv";
 
+// ── The sign-off, counted from what is actually printed ───────────────────
+//
+// ⚠️ Same fault as `verify-account-recovery`, and the same remedy. This script
+// states each result as `console.log(label, err ? "FAIL …" : "PASS …")` and
+// counted none of them, so it exited 0 whatever it found — and `verify-all`
+// reads the exit code. A red run here reported as green, with "(no summary
+// line)" beside it. The missing summary was the symptom; a suite that cannot
+// fail was the fault.
+//
+// Counted from the OUTPUT rather than by restating a dozen assertions through
+// a helper: rewriting call sites to change how a result is REPORTED is a dozen
+// chances to change what is ASSERTED, and this way the exit code and the
+// screen cannot disagree.
+let failures = 0;
+const emit = console.log;
+console.log = (...args) => {
+  if (args.some((a) => typeof a === "string" && /\bFAIL\b/.test(a))) failures++;
+  emit(...args);
+};
+process.on("exit", () => {
+  console.log = emit;
+  emit(
+    failures === 0
+      ? "\n\x1b[32mALL CHECKS PASSED\x1b[0m — completion evidence is readable by whoever can see the payment, and the older call shapes still work."
+      : `\n\x1b[31m${failures} check(s) failed.\x1b[0m`
+  );
+});
+process.on("beforeExit", () => process.exit(failures === 0 ? 0 : 1));
+
 // dotenv, not a hand-rolled line parser. The previous one matched
 // /^([A-Z0-9_]+)=(.*)$/ against each line of a CRLF .env.local - and JS `.`
 // does not match a carriage return, so every line ending in one failed to

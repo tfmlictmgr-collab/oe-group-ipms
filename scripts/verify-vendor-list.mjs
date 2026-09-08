@@ -181,7 +181,7 @@ console.log(`\n\x1b[1m§F The caller's array is not reordered\x1b[0m`);
 
 console.log(
   failures === 0
-    ? "\n\x1b[32mAll checks passed.\x1b[0m"
+    ? "\n\x1b[32mALL CHECKS PASSED\x1b[0m — the vendor register lists what each role may see, and nothing beside it.\x1b[32m\x1b[0m"
     : `\n\x1b[31m${failures} check(s) failed.\x1b[0m`
 );
 process.exit(failures === 0 ? 0 : 1);

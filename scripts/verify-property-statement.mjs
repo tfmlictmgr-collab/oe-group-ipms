@@ -397,7 +397,7 @@ for (const fn of ["property_statement", "property_statement_lines"]) {
 
 console.log(
   failures === 0
-    ? "\n\x1b[32m✔ property statement: all checks passed\x1b[0m"
+    ? "\n\x1b[32mALL CHECKS PASSED\x1b[0m — a building accounts for itself, to its manager and to its landlord alike.\x1b[32m\x1b[0m"
     : `\n\x1b[31m✘ ${failures} check(s) failed\x1b[0m`
 );
 process.exit(failures === 0 ? 0 : 1);
