@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
-  Plus, Inbox, Clock, MessageSquareReply, CheckCircle2, Wrench, Star,
+  Plus, Inbox, Clock, MessageSquareReply, CheckCircle2, Wrench, Star, Home,
 } from "lucide-react";
 import { getSessionProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
@@ -10,7 +10,7 @@ import { EmptyState } from "@/components/patterns/empty-state";
 import { StatusBadge } from "@/components/patterns/status-badge";
 import { ChatWithUs } from "@/components/patterns/chat-with-us";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 // A tenant's own requests, with the timeline they are actually owed.
@@ -137,56 +137,64 @@ export default async function MyRequestsPage() {
     </Button>
   );
 
+  // ⚠️ REPLACES a full Card block that sat between the header and the request
+  // list. It duplicated /dashboard/my-rent's own tenancy card almost exactly
+  // (same fields, same `my_tenancies()` call) and, on a page whose actual
+  // content IS a list of cards, a third kind of card at the top read as a
+  // stray section rather than context — reported directly: "doesn't look good
+  // UI/UX wise." No new nav item or tab either: "where do I live" is one line
+  // of fact, not a destination, and My Rent already owns the fuller version
+  // (unit, property, tenancy end date, rent) for whoever wants it. This is
+  // folded into the header's own description line instead — the first thing
+  // read on the page a tenant lands on by default, costing no extra space.
+  //
+  // ⚠️ Capped at 2, with the rest behind a link to My Rent. Checked against a
+  // real account rather than assumed: one seeded tenant on staging carries 18
+  // live tenancies (a commercial lessee with several units and fee lines per
+  // property), and a naive join of all of them ran to nearly 300 characters
+  // on one "line" — exactly the kind of stray, page-dominating block this
+  // change exists to remove, just rendered as text instead of a card. My Rent
+  // is where the full list already lives; the header only ever needs to say
+  // enough to be useful, then point at it.
+  const HOME_LABEL_MAX = 2;
+  const shownTenancies = tenancies.slice(0, HOME_LABEL_MAX);
+  const homeLabel = shownTenancies
+    .map((t) => `${t.unit_label ?? "Your unit"}, ${t.property_name ?? "—"}`)
+    .join("  ·  ");
+  const overflowCount = tenancies.length - shownTenancies.length;
+  const statsLabel =
+    rows.length === 0
+      ? "Requests you have raised will appear here."
+      : `${rows.length} request${rows.length === 1 ? "" : "s"} raised · ${openCount} still open.`;
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="My Requests"
         description={
-          rows.length === 0
-            ? "Requests you have raised will appear here."
-            : `${rows.length} request${rows.length === 1 ? "" : "s"} raised · ${openCount} still open.`
+          tenancies.length > 0 ? (
+            <>
+              <span className="inline-flex flex-wrap items-center gap-1 font-medium text-foreground">
+                <Home className="size-3.5 shrink-0" />
+                {homeLabel}
+                {overflowCount > 0 && (
+                  <Link
+                    href="/dashboard/my-rent"
+                    className="font-normal text-muted-foreground underline-offset-2 hover:underline"
+                  >
+                    +{overflowCount} more
+                  </Link>
+                )}
+              </span>
+              {"  ·  "}
+              {statsLabel}
+            </>
+          ) : (
+            statsLabel
+          )
         }
         actions={newRequest}
       />
-
-      {tenancies.length > 0 && (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">
-              {tenancies.length === 1 ? "Your home" : "Your tenancies"}
-            </CardTitle>
-            <CardDescription>
-              What you rent, and where. Raise a request against it from the
-              button above.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {tenancies.map((t) => (
-              <div
-                key={t.lease_id}
-                className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 rounded-lg border border-border bg-muted/30 px-3 py-2.5"
-              >
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">
-                    {t.unit_label ?? "Your unit"}
-                  </p>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {t.property_name ?? "—"}
-                  </p>
-                </div>
-                {t.end_date && (
-                  <p className="text-xs text-muted-foreground">
-                    Tenancy to{" "}
-                    {new Date(t.end_date).toLocaleDateString("en-NG", {
-                      day: "numeric", month: "short", year: "numeric",
-                    })}
-                  </p>
-                )}
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
 
       {error ? (
         <EmptyState
