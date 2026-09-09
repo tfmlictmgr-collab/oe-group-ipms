@@ -91,11 +91,14 @@ export async function POST(request: NextRequest) {
         // these; this webhook used to silently drop them instead. Neither
         // was right; handle-inbound.ts's empty-content guard now answers
         // both channels the same honest way.
-        photo?: unknown;
+        // 0285. Photos and documents are typed properly now, because the
+        // `file_id` is what makes an attachment fetchable as proof of payment.
+        // Telegram sends photos as an ARRAY of sizes, smallest first.
+        photo?: { file_id?: string; file_size?: number }[];
         video?: unknown;
         voice?: unknown;
         audio?: unknown;
-        document?: unknown;
+        document?: { file_id?: string; mime_type?: string; file_name?: string };
         sticker?: unknown;
         location?: unknown;
         contact?: unknown;
@@ -117,6 +120,24 @@ export async function POST(request: NextRequest) {
     message.photo || message.video || message.voice || message.audio ||
     message.document || message.sticker || message.location || message.contact
   );
+
+  // The LAST photo in the array is the largest size Telegram kept. A receipt has
+  // to be readable by the audit desk, so the biggest version is the only useful
+  // one — the thumbnail would pass every check and be evidence of nothing.
+  const largestPhoto = message.photo?.length
+    ? message.photo[message.photo.length - 1]
+    : null;
+  const media =
+    largestPhoto?.file_id
+      ? { channel: "telegram" as const, mediaId: largestPhoto.file_id, mimeType: "image/jpeg" }
+      : message.document?.file_id
+        ? {
+            channel: "telegram" as const,
+            mediaId: message.document.file_id,
+            mimeType: message.document.mime_type ?? null,
+            filename: message.document.file_name ?? null,
+          }
+        : null;
 
   console.log("Incoming Telegram message:", {
     chatId,
@@ -148,6 +169,7 @@ export async function POST(request: NextRequest) {
       senderName: firstName ?? username ?? null,
       messageText,
       hasMedia,
+      media,
     });
     console.log("Handled:", outcome.intent, outcome.ticketId ?? "(no ticket)");
 

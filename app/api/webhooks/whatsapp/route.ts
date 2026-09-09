@@ -90,9 +90,12 @@ export async function POST(request: NextRequest) {
     text?: { body?: string };
     // Each media type carries its OWN optional caption — WhatsApp does not
     // put it on a shared field. A voice note/sticker never has one.
-    image?: { caption?: string };
-    video?: { caption?: string };
-    document?: { caption?: string };
+    // 0285. The media id is what makes an attachment fetchable. It arrived on
+    // every one of these and was read for its caption and otherwise discarded,
+    // which is why proof of payment could not be accepted over this channel.
+    image?: { caption?: string; id?: string; mime_type?: string };
+    video?: { caption?: string; id?: string; mime_type?: string };
+    document?: { caption?: string; id?: string; mime_type?: string; filename?: string };
   };
 
   const value = (payload as { entry?: { changes?: { value?: Record<string, unknown> }[] }[] })
@@ -146,6 +149,26 @@ export async function POST(request: NextRequest) {
     message.text?.body ?? message.image?.caption ?? message.video?.caption ??
     message.document?.caption ?? "";
   const hasMedia = message.type != null && message.type !== "text";
+
+  // The fetchable attachment, where there is one. Only the kinds that could be
+  // a receipt: a video or a voice note is never proof of payment, and offering
+  // it as one would waste a download and an audit desk's time.
+  const attachment = message.image ?? message.document ?? null;
+  const media =
+    attachment?.id
+      ? {
+          channel: "whatsapp" as const,
+          mediaId: attachment.id,
+          mimeType: attachment.mime_type ?? null,
+          filename: (attachment as { filename?: string }).filename ?? null,
+          // Which of OUR numbers it arrived on — this is what chooses the
+          // credential the download is authenticated with. `lib/notify.ts`
+          // records at length why it must never fall back to a shared default:
+          // TFML and OEA are separate businesses on the BSP with their own API
+          // keys, and one token cannot answer for both.
+          toNumber: phoneNumberId ?? null,
+        }
+      : null;
   const senderName = value.contacts?.[0]?.profile?.name ?? null;
 
   // 🛑 THIRD-PARTY BOT SUPPRESSION FILTER
@@ -210,6 +233,7 @@ export async function POST(request: NextRequest) {
       senderName,
       messageText,
       hasMedia,
+      media,
     });
     console.log("Handled:", outcome.intent, outcome.ticketId ?? "(no ticket)");
 

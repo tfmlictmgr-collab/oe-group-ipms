@@ -18,6 +18,8 @@
 // for, through `remember_conversation_state`. A branch that returns a reply
 // without recording it is a bug, not a shortcut.
 
+import { advancePaymentIntake, type PaymentDraft } from "./payment-intake";
+import type { InboundMedia } from "./inbound-media";
 import { supabaseAdmin } from "./supabase/admin";
 import { classifyAndCreateTicket } from "./triage";
 import {
@@ -48,7 +50,11 @@ export type InboundResult = {
   ticketId: string | null;
 };
 
-type Awaiting = "urgency_confirmation" | "describe_problem" | "disambiguate_ticket" | null;
+type Awaiting =
+  | "urgency_confirmation" | "describe_problem" | "disambiguate_ticket"
+  // 0285. Collecting a payment takes three facts across several messages.
+  | "payment_proof" | "payment_amount" | "payment_allocation"
+  | null;
 
 /** What we last asked this sender, whether or not a ticket exists (0210). */
 async function conversationState(
@@ -186,12 +192,22 @@ export async function handleInboundMessage(opts: {
   senderRef: string;
   senderName: string | null;
   messageText: string;
-  /** True for a sticker, photo, voice note, location pin etc. with no
-   * caption — informs the reply's wording only; nothing here can attach the
-   * media itself, since there is no inbound-media storage pipeline. */
+  /** True for a sticker, photo, voice note, location pin etc. with no caption. */
   hasMedia?: boolean;
+  /**
+   * The attachment itself (0285).
+   *
+   * ⚠️ This parameter's absence used to be a documented limitation right here:
+   * "nothing here can attach the media itself, since there is no inbound-media
+   * storage pipeline". `hasMedia` said one EXISTED and the file was dropped.
+   * That was tolerable while every attachment was a picture of a leak, and
+   * stopped being tolerable when a tenant could report a PAYMENT — proof is
+   * compulsory at the table (0281), so without this the honest answer on
+   * WhatsApp would have been "please use the portal".
+   */
+  media?: InboundMedia | null;
 }): Promise<InboundResult> {
-  const { orgId, channel, senderRef, senderName, messageText, hasMedia } = opts;
+  const { orgId, channel, senderRef, senderName, messageText, hasMedia, media } = opts;
 
   /**
    * Say something, and remember that we said it.
@@ -204,7 +220,15 @@ export async function handleInboundMessage(opts: {
     intent: string,
     ticketId: string | null,
     reply: string,
-    awaiting: Awaiting
+    awaiting: Awaiting,
+    /**
+     * A half-collected payment (0285). Passed ONLY by the payment branch — every
+     * other caller omits it, which clears any draft in flight. That is
+     * deliberate: somebody who abandons a half-reported payment and starts
+     * talking about a leak should not have a stale amount waiting to attach
+     * itself to the next receipt they send.
+     */
+    paymentDraft: PaymentDraft | null = null
   ): Promise<InboundResult> => {
     const { error } = await supabaseAdmin.rpc("remember_conversation_state", {
       p_org_id: orgId,
@@ -214,6 +238,7 @@ export async function handleInboundMessage(opts: {
       p_awaiting: awaiting,
       p_last_prompt: reply.slice(0, 1000),
       p_hours: 24,
+      p_payment_draft: paymentDraft,
     });
     // Never fail a reply over bookkeeping — the person is waiting on the
     // answer, and a lost memory costs one slightly worse routing decision.
@@ -265,6 +290,30 @@ export async function handleInboundMessage(opts: {
     byReference: thread?.fromReference ?? false,
     awaiting: state?.awaiting ?? null,
   });
+
+  // ── They are telling us they have PAID ───────────────────────────────────
+  //
+  // Placed FIRST among the outcomes, before anything that could open a ticket.
+  // A message about a payment is not work to be done, and a contractor being
+  // dispatched to a flat over a bank transfer is the failure this branch exists
+  // to prevent — the money-shaped version of decision 24's "a question is not a
+  // request".
+  if (routed.intent === "payment_report") {
+    const { data: convo } = await supabaseAdmin
+      .from("chat_conversations")
+      .select("payment_draft")
+      .eq("org_id", orgId).eq("channel", channel).eq("sender_ref", senderRef)
+      .maybeSingle();
+
+    const outcome = await advancePaymentIntake({
+      orgId, channel, senderRef, senderName, messageText,
+      media: media ?? null,
+      draft: (convo?.payment_draft as PaymentDraft | null) ?? null,
+      awaiting: state?.awaiting ?? null,
+    });
+
+    return say("payment_report", null, outcome.reply, outcome.awaiting, outcome.draft);
+  }
 
   // ── They are correcting the priority we assigned ─────────────────────────
   if (routed.intent === "correct_priority" && thread && routed.urgency) {

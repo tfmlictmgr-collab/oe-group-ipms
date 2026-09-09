@@ -43,6 +43,12 @@ export type InboundIntent =
   | "list_requests"
   /** A real question we cannot answer from their own data; a person must. */
   | "question"
+  /**
+   * They are telling us they have PAID something (0285). Not a request — there
+   * is no work to do — and not a question either. Becomes an off-platform
+   * payment claim, which three desks then confirm before it is money.
+   */
+  | "payment_report"
   | "pleasantry"
   /** Something was said, but there is nothing in it to act on. */
   | "unclear";
@@ -180,6 +186,7 @@ intent must be exactly one of:
 - "ask_status"       they are asking where ONE specific request has got to
 - "list_requests"    they are asking what requests they have, what is outstanding, or for an overview of their own requests — plural or unspecified
 - "question"         they are asking for INFORMATION rather than for work to be done (how to pay, what a charge is, opening hours, who to speak to, what a process is)
+- "payment_report"  they are telling you they have PAID, or are sending a receipt/proof of payment. "I have paid my rent", "see attached transfer receipt", "I sent 500k to your account yesterday", "payment made". NOT a request for work.
 - "pleasantry"       a greeting, thanks, small talk, a test message, or anything with no discernible content
 
 Set "urgency" ONLY for correct_priority, to the priority THEY are asking for:
@@ -195,7 +202,9 @@ Rules that decide the hard cases:
 
 2. IF WE ASKED THEM SOMETHING, THEIR NEXT MESSAGE IS THE ANSWER. When the context below says a question is outstanding, read the message as a reply to that question first. If we asked them to say more about an open request and they describe a problem, that is "follow_up" — not a new request — unless it is plainly about a different place or a different system.
 
-3. NOTHING IS NOT SOMETHING. "test", "ok", "thanks", "hmm", a stray number or emoji is "pleasantry". Never open a request for a message with no problem in it.
+3. A PAYMENT IS NOT A REQUEST, AND NOT A COMPLAINT. Someone saying they have paid, or sending a receipt, is payment_report — even when they are annoyed, even when they mention arrears, and even when they ask us to confirm it. Logging that as a job sends a contractor to a flat over a bank transfer. But asking HOW to pay, or what they owe, is question or list_requests: telling us about a payment already made is the only thing that is payment_report.
+
+4. NOTHING IS NOT SOMETHING. "test", "ok", "thanks", "hmm", a stray number or emoji is "pleasantry". Never open a request for a message with no problem in it.
 
 Judge in Nigerian context. "Light don go" is a power failure, not small talk. "Dey worry me" means it is troubling them. Pidgin, English and mixed messages are all normal.
 
@@ -203,7 +212,7 @@ Where genuine doubt remains between "new_request" and "follow_up", prefer "new_r
 
 const VALID_INTENTS: InboundIntent[] = [
   "new_request", "follow_up", "correct_priority", "ask_status",
-  "list_requests", "question", "pleasantry",
+  "list_requests", "question", "pleasantry", "payment_report",
 ];
 
 function parse(raw: string, hasThread: boolean): RoutedMessage | null {
@@ -244,6 +253,14 @@ const AWAITING_DESCRIPTION: Record<string, string> = {
   disambiguate_ticket:
     "We just listed their open requests and asked which one they mean. " +
     "Their message is most likely naming one of them.",
+  payment_proof:
+    "We just asked them to send the receipt for a payment they say they made. " +
+    "Their message is most likely about that payment.",
+  payment_amount:
+    "We just asked HOW MUCH they paid. Their message is most likely a figure.",
+  payment_allocation:
+    "We just listed what they owe and asked which one the payment settles. " +
+    "Their message is most likely naming one of them.",
 };
 
 export async function routeInboundMessage(
@@ -269,6 +286,31 @@ export async function routeInboundMessage(
       urgency: QUICK_REPLIES[text],
       reasoning: "numbered reply to the priority question",
     };
+  }
+
+  // ⚠️ THE PAYMENT QUESTIONS COME FIRST, and the order is load-bearing.
+  //
+  // The bare-number guard below would otherwise swallow a numbered reply to the
+  // "which demand does this settle?" menu and answer "unclear" — the exact fault
+  // decision 24 recorded about the priority menu, reproduced by adding a second
+  // menu without re-reading the guard written for the first. A number IS an
+  // answer when we have just printed a numbered list; it is noise only when we
+  // have not.
+  //
+  // These never reach a model: we asked a closed question, and the reply to a
+  // closed question is not a judgement call.
+  if (awaiting === "payment_amount" || awaiting === "payment_allocation") {
+    return {
+      intent: "payment_report",
+      urgency: null,
+      reasoning: `answering our own ${awaiting.replace("payment_", "")} question`,
+    };
+  }
+
+  // We asked for the receipt. Anything they send next is about that payment —
+  // including "here", "sent", or a bare caption on the photo itself.
+  if (awaiting === "payment_proof") {
+    return { intent: "payment_report", urgency: null, reasoning: "sending the proof we asked for" };
   }
 
   // ⚠️ And if we did NOT ask, a bare number answers nothing. This is ticket
