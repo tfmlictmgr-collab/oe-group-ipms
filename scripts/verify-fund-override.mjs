@@ -318,9 +318,25 @@ console.log("\nE. The two refusals that are NOT funding questions stay shut");
   });
   if (ovId) made.overrides.push(ovId);
 
+  // ⚠️ The drain amount has to exceed whatever the REAL org's client-funds
+  // account actually holds today, or the "overdraft" never happens and the
+  // absence of a refusal is correct rather than a defect — the exact fault
+  // this section's own comment above already recorded once, for the OTHER
+  // leg of this same check. `oea`'s client-funds balance grows with every
+  // real collection this suite estate and the live portal post against it
+  // (₦121M+ measured 9 Sept 2026, up from whatever it was when 99,000,000
+  // was chosen), so a fixed figure is a countdown to the identical failure
+  // recurring on the account nobody thought to make dynamic the first time.
+  // Read live and cleared by a wide margin — this is a refusal test, not a
+  // realistic transaction, so the amount only needs to be certainly too much.
+  const { data: postings } = await svc.from("ledger_postings")
+    .select("amount").eq("account_id", clientFunds);
+  const clientFundsBalance = (postings ?? []).reduce((a, p) => a + Number(p.amount), 0);
+  const drainAmount = Math.round(clientFundsBalance + 10_000_000);
+
   const drain = await post(`${MARK}-${S} draining the bank`, [
-    { account: clientFunds, amount: -99_000_000 },
-    { account: cleanFund, amount: 99_000_000 },
+    { account: clientFunds, amount: -drainAmount },
+    { account: cleanFund, amount: drainAmount },
   ]);
   drain.error && /client-funds account would go overdrawn/.test(drain.error)
     ? ok("the client-funds overdraft is refused even with an override standing")

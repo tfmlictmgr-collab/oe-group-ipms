@@ -26,6 +26,15 @@ import {
   rejectPayment,
   reopenPayment,
 } from "./actions";
+// ⚠️ 0272 built the override for BOTH payable types at the database level —
+// `payable_fund_override_state`/`authorise_fund_override` take a
+// `payableType` and have handled `vendor_payment` since they were written —
+// but `authoriseShortFund` was only ever CALLED from the requisitions send
+// flow (`SendLineGroup.tsx`). A vendor payment hitting the identical refusal
+// had no way past it: the override existed and this screen could not reach
+// it. Reported live — "the error in the attached file still pops up" — after
+// 0272 had already shipped, which is exactly what that gap produces.
+import { authoriseShortFund } from "@/app/dashboard/requisitions/send-actions";
 
 type Action = "verify" | "performance" | "approve" | "remit";
 
@@ -72,6 +81,36 @@ export default function PaymentActions({
   const [reasoning, setReasoning] = useState<"reject" | "reopen" | null>(null);
   const [reason, setReason] = useState("");
 
+  /**
+   * The fund refusal, and the payment officer's way past it (0272) — mirrors
+   * `SendLineGroup.tsx`'s panel exactly, so the two screens that can hit this
+   * refusal offer the same control in the same words.
+   *
+   * ⚠️ Offered ONLY after a send has actually been refused for this reason. A
+   * standing "authorise anyway" button beside every Send would turn an
+   * exception to a segregation control into an ordinary option.
+   */
+  const [shortfall, setShortfall] = useState<string | null>(null);
+  const [overrideReason, setOverrideReason] = useState("");
+  const [overriding, setOverriding] = useState(false);
+
+  async function authoriseAndSend() {
+    setOverriding(true);
+    try {
+      await runAction(authoriseShortFund("vendor_payment", paymentId, overrideReason));
+      setShortfall(null);
+      setOverrideReason("");
+      toast.success("Authorised.", {
+        description: "Recorded against the fund with your name and reason. It covers this one payment.",
+      });
+      setOverriding(false);
+      run("remit");
+    } catch (e) {
+      toast.error(messageOf(e, "That could not be authorised."), { description: hintOf(e) });
+      setOverriding(false);
+    }
+  }
+
   function runReason(kind: "reject" | "reopen") {
     startTransition(async () => {
       try {
@@ -114,9 +153,19 @@ export default function PaymentActions({
         }
         toast.success(LABELS[action]);
       } catch (e) {
+        const msg = messageOf(e, "That step could not be completed.");
+        // Matched on the refusal's own words, exactly as `SendLineGroup.tsx`
+        // does for the requisition side of this same refusal —
+        // `assert_funds_available` composes them (0247/0272) and they name
+        // the building and the shortfall, so the panel below can quote the
+        // reason rather than paraphrase it.
+        if (action === "remit" && /fund cannot cover this|would be left short by/i.test(msg)) {
+          setShortfall(msg);
+          return;
+        }
         // The gate's own reason, not a generic failure. Kept on screen: these
         // say which step is missing, and that cannot be acted on in four seconds.
-        toast.error(messageOf(e, "That step could not be completed."), {
+        toast.error(msg, {
           description: hintOf(e),
           duration: Infinity,
           closeButton: true,
@@ -363,6 +412,52 @@ export default function PaymentActions({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* The fund refusal and the way past it (0272), identical to the panel
+          on a requisition's Send button — same wording, same 20-character
+          floor, same single-use consequence. */}
+      {shortfall && (
+        <div className="mt-3 space-y-2 rounded-md border border-warning/40 bg-warning/8 p-3">
+          <p className="text-xs text-muted-foreground">{shortfall}</p>
+          <div className="space-y-1.5">
+            <Label htmlFor={`why-${paymentId}`} className="text-xs">
+              Where is the money coming from?
+            </Label>
+            <textarea
+              id={`why-${paymentId}`}
+              value={overrideReason}
+              onChange={(e) => setOverrideReason(e.target.value)}
+              rows={2}
+              className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+              placeholder="e.g. Covered from the Ikoyi block's surplus, to be reimbursed from this quarter's collection."
+            />
+            <p className="text-[11px] text-muted-foreground">
+              ⚠️ This spends money collected for another property. It is recorded
+              against the fund with your name, appears in the audit trail, and
+              covers <strong>this one payment</strong> — the next one is refused
+              again.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={overriding || pending || overrideReason.trim().length < 20}
+              onClick={authoriseAndSend}
+            >
+              {overriding || pending ? "Working…" : "Authorise and send anyway"}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={overriding}
+              onClick={() => { setShortfall(null); setOverrideReason(""); }}
+            >
+              Leave it
+            </Button>
+          </div>
+        </div>
+      )}
     </>
   );
 }
