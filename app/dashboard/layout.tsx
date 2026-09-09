@@ -273,6 +273,13 @@ export default async function DashboardLayout({
       "admin", "executive", ...FM_PM, "regional_manager",
       "payment_approver", "payment_audit_approver", "finance_approver",
     ].includes(role),
+    // 0281/0282. The three confirmation desks are hardwired — this chain ends
+    // in a ledger write, which decision 7 lists among the controls that never
+    // appear as toggles — plus anyone the MATRIX lets record one on a payer's
+    // behalf, which genuinely is operator-governed.
+    seesOfflinePayments:
+      ["payment_audit_approver", "executive", "finance_approver"].includes(role) ||
+      can("payments.record_offline"),
     canEnroll: can("people.invite"),
     // Off everywhere until an operator turns it on per org (0203) — an admin
     // alone is not enough, unlike every other admin-only screen.

@@ -8,6 +8,7 @@ import {
   ReceiptText,
   Banknote,
   Stamp,
+  Landmark,
   Scale,
   FileText,
   ShieldCheck,
@@ -19,7 +20,6 @@ import {
   SlidersHorizontal,
   HardHat,
   Wrench,
-  Landmark,
   type LucideIcon,
   ClipboardCheck,
   BookOpen,
@@ -136,6 +136,17 @@ export type NavContext = {
   seesPayments: boolean;
   /** The approval queue for outbound payments (0151). Non-delegable likewise. */
   seesApprovals: boolean;
+  /**
+   * Payments made off-platform (0281/0282) — money coming IN by bank transfer or
+   * over a bank counter, which climbs its own confirmation chain.
+   *
+   * ⚠️ Part role, part capability, and deliberately both. The three confirmation
+   * desks are HARDWIRED (decision 7: this chain ends in a ledger write and is
+   * never a toggle), so they are named. Recording one on a payer's behalf IS a
+   * matrix capability, so that half is asked of the matrix — an operator who
+   * withdraws it sees the link go with it.
+   */
+  seesOfflinePayments: boolean;
   canEnroll: boolean;
   /** The client-funds ledger is finance + admin only. */
   seesLedger: boolean;
@@ -324,6 +335,12 @@ export const NAV_GROUPS: NavGroup[] = [
         href: "/dashboard/approvals",
         icon: Stamp,
         show: (c) => c.seesApprovals,
+      },
+      {
+        label: "Off-platform payments",
+        href: "/dashboard/payments/offline",
+        icon: Landmark,
+        show: (c) => c.seesOfflinePayments,
       },
     ],
   },

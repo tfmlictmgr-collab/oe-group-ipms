@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/patterns/page-header";
 import { EmptyState } from "@/components/patterns/empty-state";
 import { Card, CardContent } from "@/components/ui/card";
 import RentCharges, { type RentChargeRow } from "./RentCharges";
+import { MyOfflinePayments } from "@/components/patterns/my-offline-payments";
 
 // What the person who owes the rent actually sees.
 //
@@ -102,6 +103,14 @@ export default async function MyRentPage() {
       ) : (
         <RentCharges charges={charges} />
       )}
+
+      {/* Paying by transfer or at the bank is the ordinary way rent is settled
+          in this market, and until 0281 the product had no route for it at all —
+          a tenant who had paid went on being shown the arrears. Shown with
+          `showEmpty` so the route is discoverable BEFORE somebody has used it;
+          a feature you can only find once you have already used it is not a
+          feature a first-time payer has. */}
+      <MyOfflinePayments showEmpty={charges.length > 0} />
     </div>
   );
 }
