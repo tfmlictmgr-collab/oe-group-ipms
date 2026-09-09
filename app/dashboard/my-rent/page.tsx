@@ -1,12 +1,12 @@
 import { redirect } from "next/navigation";
-import { Receipt, Home } from "lucide-react";
+import { Receipt } from "lucide-react";
 import { getSessionProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { formatMoney } from "@/lib/currency";
 import { PageHeader } from "@/components/patterns/page-header";
 import { EmptyState } from "@/components/patterns/empty-state";
-import { Card, CardContent } from "@/components/ui/card";
-import RentCharges, { type RentChargeRow } from "./RentCharges";
+import { type RentChargeRow } from "./RentCharges";
+import RentBoard, { type Tenancy } from "./RentBoard";
 import { MyOfflinePayments } from "@/components/patterns/my-offline-payments";
 
 // What the person who owes the rent actually sees.
@@ -22,16 +22,6 @@ import { MyOfflinePayments } from "@/components/patterns/my-offline-payments";
 // it lives in — the same shape `my_requests()` already uses for tickets.
 
 export const dynamic = "force-dynamic";
-
-type Tenancy = {
-  lease_id: string;
-  property_name: string;
-  unit_label: string;
-  status: string;
-  end_date: string;
-  rent_outstanding: number | string;
-  currency: string;
-};
 
 export default async function MyRentPage() {
   const session = await getSessionProfile();
@@ -63,45 +53,17 @@ export default async function MyRentPage() {
         }
       />
 
-      {tenancies.length > 0 && (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {tenancies.map((t) => (
-            <Card key={t.lease_id}>
-              <CardContent className="space-y-1 p-4">
-                <p className="flex items-center gap-2 text-sm font-medium">
-                  <Home className="size-4 text-muted-foreground" />
-                  {t.property_name}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Unit {t.unit_label} · tenancy ends{" "}
-                  {new Date(t.end_date).toLocaleDateString("en-GB", {
-                    day: "numeric", month: "short", year: "numeric",
-                  })}
-                </p>
-                <p className="pt-1 text-lg font-semibold tabular-nums">
-                  {formatMoney(t.rent_outstanding, t.currency)}
-                  <span className="ml-1.5 text-xs font-normal text-muted-foreground">
-                    outstanding
-                  </span>
-                </p>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
-
-      {charges.length === 0 ? (
+      {charges.length === 0 && tenancies.length === 0 ? (
         <EmptyState
           icon={<Receipt />}
           title="No rent demands yet"
-          description={
-            tenancies.length === 0
-              ? "No tenancy is recorded against your account. If that looks wrong, contact your property manager."
-              : "When rent is demanded for your tenancy it will appear here, and you can pay it from this page."
-          }
+          description="No tenancy is recorded against your account. If that looks wrong, contact your property manager."
         />
       ) : (
-        <RentCharges charges={charges} />
+        // The tenancy cards, the Outstanding/Paid tabs and the demands are one
+        // component because they are one interaction: picking a home decides
+        // which demands are listed, and that has to happen without a round trip.
+        <RentBoard tenancies={tenancies} charges={charges} />
       )}
 
       {/* Paying by transfer or at the bank is the ordinary way rent is settled

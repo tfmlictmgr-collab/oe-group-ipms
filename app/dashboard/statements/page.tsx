@@ -21,7 +21,7 @@ import {
 import ServiceCharges, { type ServiceChargeRow } from "./ServiceCharges";
 import StatementsRegister, { type RegisterRow } from "./StatementsRegister";
 import { unitDisplayLabel } from "@/lib/apportionment";
-import { FM_PM, OVERSIGHT_ROLES } from "@/lib/roles";
+import { readsServiceChargeRegister } from "@/lib/roles";
 
 // Statements, from both sides of the invoice.
 //
@@ -106,9 +106,11 @@ export default async function StatementsPage() {
   // so the register they are entitled to (25 charges, measured) rendered as
   // an empty statement of their own. Another copy of `oversight_roles()`
   // written before that role existed — see OVERSIGHT_ROLES in lib/roles.ts.
-  const isStaff = [...FM_PM, "regional_manager", ...OVERSIGHT_ROLES].includes(
-    (session.profile?.role ?? "") as never
-  );
+  // The list moved to `lib/roles.ts` (9 Sept 2026) so the ACCOUNT MENU can ask
+  // the same question this page answers — it offered "My statements" to a
+  // regional manager and delivered the region's register. Behaviour here is
+  // unchanged; this is the identical set it always was.
+  const isStaff = readsServiceChargeRegister(session.profile?.role);
 
   const supabase = await createClient();
 
@@ -261,10 +263,24 @@ export default async function StatementsPage() {
 
       {rows.length === 0 ? (
         <>
+          {/* ⚠️ Both empty states below were written for the PAYER and shown to
+              everybody. Reported 9 Sept 2026 from a regional manager's screen:
+              "Invoices appear here once a billing cycle is issued for YOUR
+              property", then "Once YOU pay an invoice, the receipt appears
+              here" — to a manager who is billed nothing and pays nothing. The
+              register's own emptiness means something different and has a
+              different remedy: nobody has issued a cycle on the buildings they
+              hold. Same fault the nav comment above this page already records
+              twice (vendor, ops staff): the page branches audiences everywhere
+              except where it says there is nothing to show. */}
           <EmptyState
             icon={<FileText />}
-            title="No service-charge invoices yet"
-            description="Invoices appear here once a billing cycle is issued for your property."
+            title={isStaff ? "No invoices issued yet" : "No service-charge invoices yet"}
+            description={
+              isStaff
+                ? "Once a service-charge cycle is issued on a property you hold, its invoices are listed here."
+                : "Invoices appear here once a billing cycle is issued for your property."
+            }
           />
           {paymentHistory}
         </>
@@ -309,7 +325,11 @@ export default async function StatementsPage() {
         </>
       )}
 
-      {rows.length === 0 && history.length === 0 && (
+      {/* The payment half is the BILLED person's own history, so it is offered
+          to the billed person only. A manager reads the register above; their
+          payment history is empty by definition, not by circumstance, and
+          telling them to go and pay something is addressed to nobody. */}
+      {!isStaff && rows.length === 0 && history.length === 0 && (
         <EmptyState
           icon={<Receipt />}
           title="No payments yet"

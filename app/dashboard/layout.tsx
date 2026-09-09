@@ -326,6 +326,7 @@ export default async function DashboardLayout({
         user={{
           name: profile?.full_name ?? profile?.email ?? "",
           email: profile?.email ?? "",
+          role: role,
           roleLabel: label,
         }}
         ctx={ctx}

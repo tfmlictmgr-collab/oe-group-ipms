@@ -3,7 +3,8 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { CreditCard, ExternalLink, CheckCircle2, Loader2 } from "lucide-react";
+import Link from "next/link";
+import { CreditCard, ExternalLink, CheckCircle2, Loader2, Landmark } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatusBadge } from "@/components/patterns/status-badge";
@@ -13,6 +14,8 @@ import { payMyRent } from "./actions";
 
 export type RentChargeRow = {
   charge_id: string;
+  /** Which tenancy this demand belongs to — what `RentBoard` filters on. */
+  lease_id: string;
   property_name: string;
   unit_label: string;
   period_start: string;
@@ -91,24 +94,39 @@ export default function RentCharges({ charges }: { charges: RentChargeRow[] }) {
                     <CheckCircle2 className="size-4" /> Paid
                   </span>
                 ) : (
-                  <Button
-                    variant="brand"
-                    disabled={busy === c.charge_id}
-                    onClick={() => pay(c)}
-                  >
-                    {busy === c.charge_id ? (
-                      <Loader2 className="animate-spin" />
-                    ) : c.open_intent_reference ? (
-                      <ExternalLink />
-                    ) : (
-                      <CreditCard />
-                    )}
-                    {busy === c.charge_id
-                      ? "Opening…"
-                      : c.open_intent_reference
-                        ? "Continue payment"
-                        : "Pay now"}
-                  </Button>
+                  <div className="flex flex-col items-stretch gap-1.5">
+                    <Button
+                      variant="brand"
+                      disabled={busy === c.charge_id}
+                      onClick={() => pay(c)}
+                    >
+                      {busy === c.charge_id ? (
+                        <Loader2 className="animate-spin" />
+                      ) : c.open_intent_reference ? (
+                        <ExternalLink />
+                      ) : (
+                        <CreditCard />
+                      )}
+                      {busy === c.charge_id
+                        ? "Opening…"
+                        : c.open_intent_reference
+                          ? "Continue payment"
+                          : "Pay now"}
+                    </Button>
+                    {/* The off-platform route (0281), offered on the demand
+                        itself rather than only as a section further down — a
+                        tenant who has ALREADY transferred is looking at this
+                        row, not at a heading below it. Carries the charge id so
+                        the form opens with this demand already chosen. */}
+                    <Button asChild variant="ghost" size="sm">
+                      <Link
+                        href={`/dashboard/payments/offline/new?rent=${encodeURIComponent(c.charge_id)}`}
+                      >
+                        <Landmark className="size-4" />
+                        I paid this another way
+                      </Link>
+                    </Button>
+                  </div>
                 )}
               </div>
             </CardContent>

@@ -90,17 +90,21 @@ if (!lease) {
   process.exit(0);
 }
 
-// ⚠️ Fixture demands sit in a distinct, far-future period PER RUN.
+// ⚠️ Fixture demands sit in a distinct, far-future period PER RUN, and the
+// teardown removes them.
+//
 // `rent_charges_one_per_period` is UNIQUE (lease_id, period_start), so a fixed
-// date makes the second run of this suite fail on the first line — which reads
-// as a broken feature and is only a collided fixture. Anything this run posts to
-// the ledger cannot be deleted afterwards (the ledger is append-only by trigger,
-// 0256, and deleting a posting to tidy a test is the fixture fault
-// verify-reconciliation recorded), so the period has to move instead.
-// Spread by DAYS, not by year. A year offset out of ninety collides between two
-// runs roughly one time in ninety per fixture — which is exactly what happened,
-// and it presents as "the feature is broken" three sections into a green run.
-// Day-granularity over two centuries makes a collision a non-event.
+// date makes the second run of this suite fail on its first line — which reads
+// as a broken feature and is only a collided fixture. Spread by DAYS rather than
+// years: a year offset out of ninety collides between two runs about one time in
+// ninety per fixture, which duly happened, three sections into an otherwise
+// green run.
+//
+// 📌 The far-future dates are ALSO why these have to be cleaned up rather than
+// left. They ran against a real demo tenant's real lease, so every posted
+// fixture stayed on that person's My Rent screen — the board saw "1 Oct 2472 –
+// 30 Sept 2473 · ₦500,000 · Paid" in a screenshot of the live portal. The ledger
+// postings stay (append-only, 0256); the DEMAND rows do not.
 const FEE_PCT = 10;
 const FIXTURE_EPOCH = Date.UTC(2200, 0, 1);
 const DAY = 86400000;
@@ -711,6 +715,151 @@ section("I. Grants — what anonymous and internal callers can reach");
         : bad("a tenant forged a signature on the chain");
 }
 
+
+// ════════════════════════════════════════════════════════════════════════════
+section("J. A payment in a foreign currency");
+
+{
+  const FX = "USD";
+  // Enabling a currency is an administrator's act; the suite does it through
+  // the same function an administrator would (service role passes the guard).
+  await svc.rpc("ensure_currency_ledger_accounts", { p_org_id: orgId, p_currency: FX });
+
+  // ⚠️ The five accounts an inbound FX collection can need. Before 0284 only
+  // two of these existed, so a USD rent payment climbed all three desks and
+  // then failed at the ledger with "no fee income account" — after three
+  // signatures, which is the worst possible moment to find a config gap.
+  const { data: accts } = await svc.from("ledger_accounts")
+    .select("purpose").eq("org_id", orgId).eq("currency", FX).is("property_id", null);
+  const have = new Set((accts ?? []).map((a) => a.purpose));
+  const need = ["client_funds", "suspense", "landlord_payable", "tenant_deposit", "fee_income"];
+  const missing = need.filter((p) => !have.has(p));
+  missing.length === 0
+    ? ok(`enabling ${FX} opens all five accounts an inbound collection needs`)
+    : bad(`${FX} is missing: ${missing.join(", ")}`);
+
+  // A USD client-funds bank account for the payer to name.
+  const { data: fxLedger } = await svc.from("ledger_accounts").select("id")
+    .eq("org_id", orgId).eq("currency", FX).eq("purpose", "client_funds")
+    .is("property_id", null).maybeSingle();
+  let { data: fxBank } = await svc.from("bank_accounts").select("id")
+    .eq("org_id", orgId).eq("currency", FX).eq("purpose", "client_funds")
+    .eq("active", true).maybeSingle();
+  if (!fxBank) {
+    const { data: made_, error } = await svc.from("bank_accounts").insert({
+      org_id: orgId, label: `Client funds (${FX})`, purpose: "client_funds",
+      bank_name: "Fidelity Bank", account_name: "Ora Egbunike & Associates",
+      account_number_last4: "7781", currency: FX,
+      ledger_account_id: fxLedger?.id ?? null, active: true,
+    }).select("id").single();
+    if (error) { bad(`could not open a ${FX} bank account: ${error.message}`); }
+    fxBank = made_;
+    made.fxBank = made_?.id ?? null;
+  }
+
+  if (fxBank) {
+    const FXRENT = 4000;
+    const { data: fxCharge } = await svc.from("rent_charges").insert({
+      org_id: orgId, lease_id: lease.id, ...period(8),
+      amount: FXRENT, currency: FX,
+      management_fee_pct: FEE_PCT, management_fee_amount: 400,
+      admin_fee_amount: 0, landlord_net_amount: 3600,
+    }).select("id").single();
+    if (fxCharge) made.charges.push(fxCharge.id);
+
+    // The form filters the picker by the selected account's currency; prove the
+    // source it filters ON reports the demand in its own currency.
+    const { data: offered } = await tenant.c.rpc("offline_allocatable_charges");
+    const fxRow = (offered ?? []).find((r) => r.charge_id === fxCharge?.id);
+    fxRow?.currency === FX
+      ? ok(`the ${FX} demand is offered in ${FX}, so the form can filter it correctly`)
+      : bad(`the FX demand reported ${fxRow?.currency}`);
+    (offered ?? []).every((r) => r.kind !== "service_charge" || r.currency === "NGN")
+      ? ok("every service charge is still reported as naira")
+      : bad("a service charge was offered in a foreign currency");
+
+    const fxProof = await uploadProof(tenant.c, "fx");
+    const { data: fxClaim, error: fxErr } = await tenant.c.rpc("submit_offline_payment_claim", {
+      p_method: "bank_transfer", p_amount: FXRENT, p_paid_on: "2026-09-08",
+      p_bank_account_id: fxBank.id, p_proof_path: fxProof,
+      p_allocations: [{ purpose: "rent", rent_charge_id: fxCharge.id, amount: FXRENT }],
+      p_currency: FX,
+      p_payer_note: "Rent paid from abroad by SWIFT transfer.",
+    });
+    if (fxErr) { bad(`a ${FX} payment could not be recorded: ${fxErr.message}`); }
+    else {
+      made.claims.push(fxClaim);
+      ok(`the tenant records a ${FX} bank transfer against a ${FX} demand`);
+
+      // Currency has to be consistent end to end: an NGN demand cannot be paid
+      // on a USD claim, and vice versa.
+      const mixed = await refused(tenant.c, "submit_offline_payment_claim", {
+        p_method: "bank_transfer", p_amount: 1000, p_paid_on: "2026-09-08",
+        p_bank_account_id: fxBank.id, p_proof_path: fxProof,
+        p_allocations: [{ purpose: "rent", rent_charge_id: charge.id, amount: 1000 }],
+        p_currency: FX,
+      });
+      mixed && /is in NGN and this payment is in USD/i.test(mixed)
+        ? ok("a naira demand cannot be settled on a foreign-currency payment")
+        : bad(`cross-currency allocation should be refused, got: ${mixed}`);
+
+      // The whole chain, in USD.
+      await auditor.c.rpc("confirm_offline_payment",
+        { p_claim_id: fxClaim, p_stage: 1, p_decision: "confirmed" });
+      await exec.c.rpc("confirm_offline_payment",
+        { p_claim_id: fxClaim, p_stage: 2, p_decision: "confirmed" });
+      const { error: postErr } = await officer.c.rpc("confirm_offline_payment",
+        { p_claim_id: fxClaim, p_stage: 3, p_decision: "confirmed" });
+      postErr
+        ? bad(`the ${FX} payment could not be posted: ${postErr.message}`)
+        : ok(`the three desks confirm it and it posts in ${FX}`);
+
+      const { data: fxRc } = await svc.from("rent_charges")
+        .select("amount_paid, status").eq("id", fxCharge.id).single();
+      Number(fxRc.amount_paid) === FXRENT && fxRc.status === "paid"
+        ? ok(`the ${FX} demand is settled in full`)
+        : bad(`FX demand did not settle: ${fxRc.amount_paid}/${fxRc.status}`);
+
+      // The fee split, in the foreign currency's own accounts — the thing that
+      // was impossible before 0284.
+      const { data: fxAlloc } = await svc.from("offline_payment_allocations")
+        .select("ledger_entry_id").eq("claim_id", fxClaim).limit(1).single();
+      const { data: fxPost } = await svc.from("ledger_postings")
+        .select("amount, memo, account_id").eq("entry_id", fxAlloc.ledger_entry_id);
+      const { data: fxAccts } = await svc.from("ledger_accounts")
+        .select("id, currency, purpose")
+        .in("id", (fxPost ?? []).map((p) => p.account_id));
+      (fxAccts ?? []).length > 0 && (fxAccts ?? []).every((a) => a.currency === FX)
+        ? ok(`every posting landed in a ${FX} account — no cross-currency mixing`)
+        : bad(`an FX collection posted into ${(fxAccts ?? []).map((a) => a.currency).join("/")}`);
+      const fxFee = (fxPost ?? []).find((p) => /management and admin fee/i.test(p.memo ?? ""));
+      fxFee && Math.abs(Number(fxFee.amount) + 400) < 0.01
+        ? ok(`the fee came out at ${FX} 400 — the snapshotted 10%`)
+        : bad(`FX fee posting wrong: ${fxFee?.amount}`);
+    }
+
+    // ⚠️ A service charge is a naira obligation (0123/decision 15). It is
+    // refused in a foreign currency rather than silently posted into an FX fund
+    // that does not exist.
+    const { data: anySc } = await svc.from("service_charges")
+      .select("id").eq("org_id", orgId).is("deleted_at", null)
+      .gt("amount", 0).limit(1).maybeSingle();
+    if (anySc) {
+      const scFx = await refused(tenant.c, "submit_offline_payment_claim", {
+        p_method: "bank_transfer", p_amount: 100, p_paid_on: "2026-09-08",
+        p_bank_account_id: fxBank.id, p_proof_path: fxProof,
+        p_allocations: [{ purpose: "service_charge", service_charge_id: anySc.id, amount: 100 }],
+        p_currency: FX,
+      });
+      scFx && /billed in naira/i.test(scFx)
+        ? ok("a service charge cannot be paid in a foreign currency, and the refusal says why")
+        : bad(`FX service charge should be refused with usable words, got: ${scFx}`);
+    } else {
+      console.log("  \x1b[33mSKIP\x1b[0m no service charge to test the naira-only rule against");
+    }
+  }
+}
+
 // ── Teardown ────────────────────────────────────────────────────────────────
 section("Teardown");
 for (const id of made.claims) {
@@ -721,6 +870,24 @@ const { data: spent } = await svc.from("offline_payment_allocations")
   .select("intent_id").in("claim_id", made.claims);
 await svc.from("offline_payment_claims").delete().in("id", made.claims);
 for (const p of made.objects) await svc.storage.from("payment-proofs").remove([p]);
+if (made.fxBank) await svc.from("bank_accounts").delete().eq("id", made.fxBank);
+
+// ⚠️ The fixture DEMANDS go too, posted ones included — and that is a change of
+// mind worth recording. They were originally left in place on the reasoning
+// that the ledger is append-only (0256), which is true of the POSTINGS and not
+// of the demand rows. Leaving them meant `oea.tenant@`'s real My Rent screen
+// accumulated rent demands dated 2219-2472, and the board saw them: "1 Oct 2472
+// – 30 Sept 2473 · ₦500,000 · Paid", on a demo account, in a screenshot.
+//
+// The ledger entries STAY — they are real postings and deleting one to tidy a
+// test is the fault verify-reconciliation recorded. `payment_intents.rent_charge_id`
+// is `on delete set null` (0092), so the entry keeps its intent and stays
+// balanced; only the fixture demand goes.
+if (made.charges.length > 0) {
+  await svc.from("payment_intents").update({ rent_charge_id: null }).in("rent_charge_id", made.charges);
+  await svc.from("rent_charges").delete().in("id", made.charges);
+}
+
 if (made.staked) {
   // A fixture that holds a role is not litter, it is an access grant nobody
   // decided to make (decision 38). The same is true of a property stake.
@@ -728,9 +895,9 @@ if (made.staked) {
     .eq("user_id", made.staked.user_id).eq("property_id", made.staked.property_id);
 }
 console.log(`  removed ${made.claims.length} claim(s) and ${made.objects.length} proof object(s)`);
-console.log("  ledger entries and rent demands from this run are LEFT IN PLACE — the ledger is");
-console.log("  append-only by design (0256), and deleting a posting to tidy a test is the fixture");
-console.log("  fault verify-reconciliation recorded.");
+console.log("  ledger ENTRIES from this run stay — they are real postings, and deleting one to");
+console.log("  tidy a test is the fixture fault verify-reconciliation recorded. The fixture rent");
+console.log("  DEMANDS are removed, so they stop appearing on a real tenant's My Rent screen.");
 
 console.log("");
 if (failures === 0) {

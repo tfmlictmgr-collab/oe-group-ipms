@@ -10,10 +10,17 @@ import { ThemeToggle } from "./theme-toggle";
 import { UserMenu } from "./user-menu";
 import { NotificationBell, type UserNotification } from "./notification-bell";
 import type { NavContext } from "./nav-config";
+import { readsServiceChargeRegister } from "@/lib/roles";
 
 export type ShellUser = {
   name: string;
   email: string;
+  /**
+   * The enum identifier. `roleLabel` is what a person reads; this is what code
+   * asks — and the two must not be confused, because the label is brand-aware
+   * (decision 18) and several roles share one.
+   */
+  role: string;
   roleLabel: string;
 };
 
@@ -117,6 +124,10 @@ export function AppShell({
               email={user.email}
               roleLabel={user.roleLabel}
               isAdmin={ctx.isAdmin}
+              // The inverse of "reads the register": a person who is billed.
+              // Asked of the same predicate `/dashboard/statements` branches on,
+              // so the menu and the page cannot describe it differently.
+              showsOwnStatement={!readsServiceChargeRegister(user.role)}
               unreadCount={notifications.filter((n) => !n.read_at).length}
             />
           </div>

@@ -105,6 +105,30 @@ export function isOversight(role: string | null | undefined): boolean {
 }
 
 /**
+ * Does this person read the service-charge REGISTER (everything they can reach)
+ * rather than a statement of what THEY are billed?
+ *
+ * ⚠️ One definition, because it decides three things that must agree: which
+ * query `/dashboard/statements` runs, what that page calls itself, and whether
+ * the account menu offers "My statements" at all.
+ *
+ * Reported 9 Sept 2026 from the live portal — a regional manager's account menu
+ * offered "My statements" and delivered the region's register, under a heading
+ * saying "All issued service-charge invoices you have access to", followed by an
+ * empty block telling them that "once you pay an invoice, the receipt appears
+ * here". A manager is never billed; none of that was addressed to them. The page
+ * had always branched correctly on `isStaff` — the MENU had simply never asked.
+ *
+ * `payment_audit_approver` is deliberately absent from both sides: they hold no
+ * `sc.*` capability and occupy no unit, so they are neither a register reader
+ * nor a billed party, and the nav already withholds the link.
+ */
+export function readsServiceChargeRegister(role: string | null | undefined): boolean {
+  return ([...FM_PM, "regional_manager", ...OVERSIGHT_ROLES] as readonly string[])
+    .includes(role ?? "");
+}
+
+/**
  * Roles that may be issued through an invitation, in the order they are offered.
  *
  * ONE list. This was previously duplicated — a server-side validation array and

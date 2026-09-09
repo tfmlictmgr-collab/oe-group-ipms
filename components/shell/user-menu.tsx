@@ -27,12 +27,18 @@ export function UserMenu({
   email,
   roleLabel,
   isAdmin,
+  showsOwnStatement,
   unreadCount = 0,
 }: {
   name: string;
   email: string;
   roleLabel: string;
   isAdmin: boolean;
+  /**
+   * Is this person BILLED, rather than a reader of the register? Decides
+   * whether "My statements" — a personal record — is offered at all.
+   */
+  showsOwnStatement: boolean;
   /**
    * Unread notifications. Only used on mobile, where the bell is folded into
    * this menu — the count has to reach the avatar, or the one signal telling
@@ -132,11 +138,22 @@ export function UserMenu({
         </DropdownMenuItem>
         <DropdownMenuSeparator className="sm:hidden" />
 
-        <DropdownMenuItem asChild>
-          <Link href="/dashboard/statements">
-            <UserRound /> My statements
-          </Link>
-        </DropdownMenuItem>
+        {/* ⚠️ Only for somebody who is actually BILLED.
+            Reported 9 Sept 2026: a regional manager's account menu offered
+            "My statements" and delivered the region's service-charge REGISTER —
+            "All issued service-charge invoices you have access to" — with an
+            empty block underneath telling them that once they pay an invoice
+            the receipt will appear. A manager is billed nothing; none of that
+            was addressed to them, and the left nav already links the same page
+            under its correct name. The page had branched correctly on `isStaff`
+            all along. This menu had simply never asked the question. */}
+        {showsOwnStatement && (
+          <DropdownMenuItem asChild>
+            <Link href="/dashboard/statements">
+              <UserRound /> My statements
+            </Link>
+          </DropdownMenuItem>
+        )}
         {isAdmin && (
           <DropdownMenuItem asChild>
             <Link href="/dashboard/settings">
