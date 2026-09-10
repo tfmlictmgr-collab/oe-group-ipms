@@ -873,6 +873,14 @@ export const PROCESS_CATALOGUE: Process[] = [
           "in real time.",
       },
       {
+        role: "tenant",
+        action:
+          "Or pays by bank transfer and REPORTS it with the receipt — see " +
+          "\"Record a payment made by bank transfer\". That route settles the " +
+          "same invoice, but only once three desks have confirmed it against " +
+          "the bank, so the balance does not move straight away.",
+      },
+      {
         role: "facility_manager",
         action: "Service Charges → Arrears to see who has not paid, and follow up.",
       },
@@ -915,6 +923,147 @@ export const PROCESS_CATALOGUE: Process[] = [
     capabilities: ["sc.manage", "sc.read_all"],
     routes: ["/dashboard/sc", "/dashboard/statements", "/dashboard/portfolio"],
     roles: ["admin", "facility_manager", "property_manager", "tenant", "property_owner"],
+  },
+  {
+    id: "payment-made-off-platform",
+    title: "Record a payment made by bank transfer, and confirm it into the ledger",
+    module: "Service charge",
+    startsWhen:
+      "Somebody pays rent or a service charge WITHOUT using a checkout link — " +
+      "a direct transfer into the organisation's client-funds account, or cash " +
+      "or a cheque paid in over a bank counter. The ordinary way rent is " +
+      "settled in this market, and the platform sees nothing until it is told.",
+    steps: [
+      {
+        role: "tenant",
+        action:
+          "My Rent → the demand they paid → \"I paid this another way\". The form " +
+          "opens with that demand already chosen. They pick transfer or " +
+          "over-the-counter, give the date on their receipt, ATTACH THE RECEIPT, " +
+          "and say how much went against what. A note field carries anything " +
+          "else they want the finance team to know.",
+      },
+      {
+        role: "system",
+        action:
+          "Shows the account name the money should have gone to, before they " +
+          "submit. Somebody who paid an account in a different name finds out " +
+          "here, rather than after three desks fail to find their money.",
+      },
+      {
+        role: "tenant",
+        action:
+          "Alternatively: replies on WhatsApp or Telegram — \"I have paid 500k\" " +
+          "with a photo of the receipt. The bot asks only for what is missing " +
+          "(the receipt, the amount, or which demand it settles) and records the " +
+          "same thing.",
+      },
+      {
+        role: "property_manager",
+        action:
+          "Off-platform payments → \"Record a payment\", for a walk-in at the " +
+          "office or a transfer phoned in. Only for demands on properties they " +
+          "manage. Needs `payments.record_offline`.",
+      },
+      {
+        role: "payment_audit_approver",
+        action:
+          "Off-platform payments → the claim → opens the RECEIPT ITSELF and " +
+          "checks it against the amount and the breakdown. Confirm, send back " +
+          "for correction, or refuse.",
+      },
+      {
+        role: "executive",
+        action: "Authorises it. Sees the same record and the same evidence.",
+      },
+      {
+        role: "finance_approver",
+        action:
+          "Checks the money actually reached the designated account — matching " +
+          "it to a bank statement line where one has been imported — then " +
+          "\"Confirm and post to the ledger\". THIS is the step that makes it " +
+          "money.",
+      },
+      {
+        role: "system",
+        action:
+          "Posts it exactly as a card payment posts: the management fee comes " +
+          "out at the rate frozen on that demand, the landlord is credited net, " +
+          "the demand's balance moves, and a receipt is issued from the ledger " +
+          "and emailed.",
+      },
+    ],
+    doneMeans:
+      "The demand shows settled on the tenant's My Rent, the claim shows " +
+      "Confirmed with all three signatures and a receipt link, and the " +
+      "collection appears alongside gateway collections in Client Funds.",
+    refusals: [
+      {
+        trigger: "Somebody tries to record a payment without attaching a receipt.",
+        explanation:
+          "Refused. Proof and an amount are both compulsory in the DATABASE, " +
+          "not on the form — so no screen, and no future one, can record a " +
+          "payment with no evidence behind it. The board asked for exactly this.",
+      },
+      {
+        trigger:
+          "The person who recorded a payment tries to confirm it — including a " +
+          "payment officer who took the walk-in themselves.",
+        explanation:
+          "Refused, per person and per claim. That is the control working, and " +
+          "the answer is a second pair of hands, not an exception. Decision 16's " +
+          "rule that the approver of a payment may never also release it.",
+      },
+      {
+        trigger: "A tenant asks why their payment has not come off their balance yet.",
+        explanation:
+          "Because nobody has confirmed it against the bank. A reported payment " +
+          "is a CLAIM: it changes no balance, feeds no landlord remittance and " +
+          "issues no receipt until the audit, executive and payment officer " +
+          "desks have each signed. The screen and any printout say \"This is not " +
+          "a receipt\" until then.",
+      },
+      {
+        trigger: "A tenant puts more against a demand than the demand owes.",
+        explanation:
+          "Refused rather than silently trimmed — the excess is real money and " +
+          "quietly reducing the line would lose it. They reduce it, or put the " +
+          "difference on account.",
+      },
+      {
+        trigger: "Someone tries to pay a service charge in dollars.",
+        explanation:
+          "Refused. Service charges are billed in naira. Rent CAN be paid in a " +
+          "foreign currency where the organisation has that currency enabled, " +
+          "and it posts entirely into that currency's own accounts — the two are " +
+          "never added together.",
+      },
+      {
+        trigger: "An auditor or the Managing Partner asks why they cannot record one.",
+        explanation:
+          "Deliberate: recording a payment would disqualify them from confirming " +
+          "it, which is a way out of the very chain they exist to be part of.",
+      },
+    ],
+    trainer: {
+      demo:
+        "Sign in as the demo tenant, report a payment against one demand with " +
+        "any PDF as the receipt, then walk the three desks in three browser " +
+        "profiles and watch the demand settle only on the third.",
+      commonMistake:
+        "Confirming at the audit desk without opening the receipt. The whole " +
+        "point of stage 1 is that somebody LOOKED at the evidence — the amount " +
+        "on the slip, the date, and the account it went to.",
+      exercise:
+        "As the demo payment officer: try to confirm a payment you recorded " +
+        "yourself, read the refusal, then have a colleague confirm it instead.",
+    },
+    capabilities: ["payments.record_offline"],
+    routes: ["/dashboard/payments/offline", "/dashboard/my-rent", "/dashboard/ledger"],
+    roles: [
+      "tenant", "property_manager", "facility_manager", "regional_manager",
+      "finance_approver", "payment_audit_approver", "executive", "admin",
+    ],
   },
   {
     id: "tenancy-application-to-lease",

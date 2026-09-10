@@ -175,11 +175,39 @@ export const ROLE_GUIDES: Record<string, RoleGuide> = {
               "payment you make appears here with a receipt you can download.",
           },
           {
-            title: "Paying",
+            title: "Paying from the portal",
             body:
-              "Pay from the portal by card or transfer. A receipt is issued " +
-              "automatically and your statement updates — you never need to send " +
-              "proof of payment separately.",
+              "Open the demand and choose \"Pay now\". A receipt is issued " +
+              "automatically and your statement updates the moment the payment " +
+              "clears — there is nothing further for you to send.",
+          },
+          {
+            title: "If you paid by bank transfer, or at the bank",
+            body:
+              "Tell us, and attach your receipt. On the demand you paid, choose " +
+              "\"I paid this another way\" — or just reply on WhatsApp with a photo " +
+              "of the transfer receipt or teller slip. Say how much you paid and " +
+              "which demand it was for. The receipt is not optional: our finance " +
+              "team has to match it against our bank account, and they cannot do " +
+              "that from a message alone.",
+          },
+          {
+            title: "What happens after you report a payment",
+            body:
+              "Three separate people check it against our account before it comes " +
+              "off your balance — so it will not clear instantly, and that is " +
+              "normal. You can see exactly where it has got to on \"Payments you " +
+              "have reported\", and you will be told either way. Until it is " +
+              "confirmed it is a report, not a receipt; the screen says so.",
+          },
+          {
+            title: "Pay only into the account in our name",
+            body:
+              "The account name is shown on the form before you submit, and on " +
+              "every demand. We will never ask you to pay a different account, and " +
+              "we never change our bank details by message. If anyone tells you " +
+              "otherwise, stop and call the office on the number in your tenancy " +
+              "papers.",
           },
           {
             title: "Why your share is what it is",
@@ -421,11 +449,37 @@ export const ROLE_GUIDES: Record<string, RoleGuide> = {
               "itself when the money actually arrives — not when someone says it has.",
           },
           {
+            title: "Payments made outside the platform",
+            body:
+              "Plenty of rent arrives as a straight bank transfer or over a counter, " +
+              "and the platform sees nothing until somebody says so. \"Off-platform " +
+              "payments\" is where those are reported — by the tenant, or by you on " +
+              "their behalf for a walk-in. Every one carries the payer's own receipt.",
+          },
+          {
+            title: "Yours is the step that makes it money",
+            body:
+              "The auditor checks the evidence and the Managing Partner authorises, " +
+              "but nothing touches the ledger until YOU confirm. Check the money " +
+              "genuinely reached the designated account first — match it to a bank " +
+              "statement line where you have imported one — then confirm. It posts " +
+              "exactly as a card payment does: the fee comes out at the rate frozen " +
+              "on that demand, the landlord is credited net, and a receipt is issued.",
+          },
+          {
+            title: "You cannot confirm one you recorded yourself",
+            body:
+              "If you took the walk-in, a colleague confirms it. That is not a bug " +
+              "to work around — it is the same rule that stops one person paying " +
+              "themselves out, and it needs a second pair of hands.",
+          },
+          {
             title: "Reconcile daily",
             body:
               "Compare the bank against the ledger every day rather than at month end. " +
               "A difference found today is a question; the same difference found in " +
-              "four weeks is an investigation.",
+              "four weeks is an investigation. Reported payments waiting on you show " +
+              "up here too — an unconfirmed one is money the books do not yet have.",
           },
           {
             title: "Client funds are separate",
@@ -535,6 +589,24 @@ export const ROLE_GUIDES: Record<string, RoleGuide> = {
               "counter-signing, not auditing.",
           },
           {
+            title: "Money coming IN, as well as going out",
+            body:
+              "\"Off-platform payments\" is yours too, and it is your stage first. " +
+              "When somebody reports paying rent or a service charge by bank " +
+              "transfer, you are the desk that opens their receipt and checks it " +
+              "says what they say it says — the amount, the date, and that it went " +
+              "to our account. Nothing reaches the ledger until you, the Managing " +
+              "Partner and the Payment Officer have each confirmed.",
+          },
+          {
+            title: "Open the receipt, every time",
+            body:
+              "The whole point of your stage is that a person LOOKED. If the slip " +
+              "is unreadable or the figure does not match, send it back and say " +
+              "what is wrong — the payer is told exactly what you write, and can " +
+              "correct it and re-send.",
+          },
+          {
             title: "Say what you found",
             body:
               "Record what you actually checked. The audit trail cannot be edited or " +
@@ -546,6 +618,8 @@ export const ROLE_GUIDES: Record<string, RoleGuide> = {
     ],
     cannot: [
       "Approve payments at other stages, or release money.",
+      "Record a reported payment yourself — recording one would take you out of " +
+        "the chain that has to confirm it.",
       "Alter or remove anything already on the audit trail.",
     ],
   },
@@ -591,6 +665,15 @@ export const ROLE_GUIDES: Record<string, RoleGuide> = {
             body:
               "Record a tenancy, set its term and rent, and raise the demand. If a " +
               "property has no free unit you can add one from the tenancy form.",
+          },
+          {
+            title: "A tenant who paid by transfer",
+            body:
+              "If somebody pays into the bank and tells you rather than the portal, " +
+              "record it under \"Off-platform payments\" with their receipt — only " +
+              "for demands on properties you hold. It is a report, not a payment: " +
+              "the audit, executive and Payment Officer desks confirm it against the " +
+              "bank before it comes off anyone's balance.",
           },
           {
             title: "The tenancy schedule",
@@ -640,11 +723,22 @@ export const ROLE_GUIDES: Record<string, RoleGuide> = {
               "administrator's.",
           },
           {
+            title: "Authorising money coming IN, too",
+            body:
+              "When a tenant reports paying by bank transfer, you are the second of " +
+              "three desks under \"Off-platform payments\" — after the auditor has " +
+              "checked the receipt and before the Payment Officer posts it. You see " +
+              "the whole record: the payer, the breakdown, their own note and the " +
+              "receipt itself.",
+          },
+          {
             title: "Why you cannot pay",
             body:
-              "You authorise; finance disburses. You also cannot raise the threshold " +
-              "you approve against — approving against a limit you can lift yourself " +
-              "is not an approval, and that separation is what an auditor checks.",
+              "You authorise; finance disburses. That holds in both directions — you " +
+              "authorise a reported payment but do not post it to the ledger. You " +
+              "also cannot raise the threshold you approve against; approving against " +
+              "a limit you can lift yourself is not an approval, and that separation " +
+              "is what an auditor checks.",
           },
         ],
       },
@@ -652,6 +746,7 @@ export const ROLE_GUIDES: Record<string, RoleGuide> = {
     ],
     cannot: [
       "Execute a remittance, add or change a bank account, or post to the ledger.",
+      "Post a reported payment to the ledger — that is the Payment Officer's step.",
       "Change the approval threshold you approve against.",
     ],
   },
@@ -803,6 +898,25 @@ export function managerGuide(roleLabel: string, handlesMoney = false): RoleGuide
                 "see whether it has been paid. You cannot move money out — releasing " +
                 "funds is the payment officer's, and always someone other than the " +
                 "person who approved it.",
+            },
+            {
+              title: "When a tenant paid at the bank",
+              body:
+                "Most rent here arrives as a straight transfer, and the platform " +
+                "sees nothing until somebody says so. A tenant can report it " +
+                "themselves from their own screen or on WhatsApp — but for a " +
+                "walk-in at the office, record it yourself under \"Off-platform " +
+                "payments\", with their receipt attached. Only for demands on " +
+                "buildings you hold.",
+            },
+            {
+              title: "It is a report, not a payment",
+              body:
+                "Recording one changes nobody's balance. The audit desk, the " +
+                "Managing Partner and the Payment Officer each confirm it against " +
+                "our bank account first, and only then does the demand settle. Tell " +
+                "the tenant that plainly — they will otherwise expect it to clear " +
+                "straight away and chase you.",
             },
             {
               title: "The tenancy schedule",
