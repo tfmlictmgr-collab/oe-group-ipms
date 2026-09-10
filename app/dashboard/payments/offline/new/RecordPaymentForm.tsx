@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Upload, Loader2, ShieldCheck, AlertTriangle, X } from "lucide-react";
+import { Upload, Loader2, ShieldCheck, AlertTriangle, X, Copy } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,7 @@ import {
   proofPath, proofProblem, type OfflineMethod, type AllocationInput,
 } from "@/lib/offline-payments";
 import { recordOfflinePayment } from "../actions";
+import { listBanks, resolveBankAccount } from "@/lib/bank-actions";
 
 export type ChargeOption = {
   kind: "rent" | "service_charge";
@@ -41,6 +42,8 @@ export type AccountOption = {
   bank_name: string | null;
   account_name: string | null;
   account_number_last4: string | null;
+  /** The full number, published so a payer can transfer into it (0286). */
+  published_account_number: string | null;
   currency: string;
 };
 
@@ -66,6 +69,60 @@ export default function RecordPaymentForm({
   const [note, setNote] = React.useState("");
   const [file, setFile] = React.useState<File | null>(null);
   const [busy, setBusy] = React.useState(false);
+
+  // Where the money came FROM (0286).
+  const [banks, setBanks] = React.useState<{ code: string; name: string }[]>([]);
+  const [payerBankCode, setPayerBankCode] = React.useState("");
+  const [payerAccountNumber, setPayerAccountNumber] = React.useState("");
+  const [payerAccountName, setPayerAccountName] = React.useState("");
+  const [payerLast4, setPayerLast4] = React.useState("");
+  const [resolving, setResolving] = React.useState(false);
+  const [resolveProblem, setResolveProblem] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const r = await listBanks();
+      if (!cancelled && r.ok) setBanks(r.data);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // ⚠️ Debounced, and only once BOTH halves are present. Resolution is a paid
+  // third-party call; firing it per keystroke would bill for nine useless
+  // lookups on the way to a ten-digit number.
+  React.useEffect(() => {
+    if (payerBankCode === "" || payerAccountNumber.length !== 10) {
+      setResolveProblem(null);
+      return;
+    }
+    let cancelled = false;
+    setResolving(true);
+    setResolveProblem(null);
+    const t = setTimeout(() => {
+      void (async () => {
+        const r = await resolveBankAccount({
+          accountNumber: payerAccountNumber, bankCode: payerBankCode,
+        });
+        if (cancelled) return;
+        setResolving(false);
+        if (r.ok) {
+          setPayerAccountName(r.data.accountName);
+          setPayerLast4(r.data.last4);
+        } else {
+          // NOT a blocker. A person whose bank cannot be reached must still be
+          // able to report a payment they really made — the receipt is the
+          // evidence, and this field is a convenience for whoever matches it.
+          setPayerAccountName("");
+          setPayerLast4(payerAccountNumber.slice(-4));
+          setResolveProblem(r.message);
+        }
+      })();
+    }, 600);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [payerBankCode, payerAccountNumber]);
+
+  const destination = accounts.find((a) => a.id === bankId) ?? null;
 
   // Which charges are being paid, and how much against each. Seeded from the
   // link the person followed — arriving from "I paid this one another way"
@@ -143,6 +200,9 @@ export default function RecordPaymentForm({
           allocations, currency,
           payerReference: payerRef.trim() || null,
           payerNote: note.trim() || null,
+          payerBankName: banks.find((b) => b.code === payerBankCode)?.name ?? null,
+          payerAccountName: payerAccountName || null,
+          payerAccountLast4: payerLast4 || null,
         })
       );
       toast.success(`Recorded as ${r.reference}.`, {
@@ -206,33 +266,153 @@ export default function RecordPaymentForm({
             </div>
 
             <div>
-              <Label htmlFor="bank">Which of our accounts you paid into</Label>
-              <select
-                id="bank" value={bankId} onChange={(e) => setBankId(e.target.value)}
-                className="mt-1 w-full rounded-md border bg-background p-2 text-sm"
-              >
-                {accounts.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {[a.label, a.bank_name, a.account_number_last4 && `••••${a.account_number_last4}`]
-                      .filter(Boolean).join(" · ")}
-                    {a.currency !== "NGN" ? ` (${a.currency})` : ""}
-                  </option>
-                ))}
-              </select>
-              {/* ⚠️ Decision 36's anti-fraud line, at the moment it is most
-                  useful. Somebody who paid a different account name finds out
-                  here rather than after three desks fail to find the money. */}
-              {accounts.find((a) => a.id === bankId)?.account_name && (
-                <p className="mt-2 flex items-start gap-2 rounded-md bg-muted/50 p-2 text-xs">
+              <Label htmlFor="bank">
+                {accounts.length > 1 ? "Which of our accounts" : "Our account"}
+              </Label>
+              {accounts.length > 1 ? (
+                <select
+                  id="bank" value={bankId} onChange={(e) => setBankId(e.target.value)}
+                  className="mt-1 w-full rounded-md border bg-background p-2 text-sm"
+                >
+                  {accounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {[a.label, a.bank_name].filter(Boolean).join(" · ")}
+                      {a.currency !== "NGN" ? ` (${a.currency})` : ""}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+
+              {/* ⚠️ THE ACCOUNT TO PAY INTO, stated in full.
+                  The board asked for the official account to be displayed, and
+                  until 0286 the product could not: `bank_accounts` held only the
+                  last four, which is right for an account money is sent TO and
+                  useless for the one account whose number is meant to be
+                  published. Somebody about to make a transfer needs the number,
+                  not a masked one.
+
+                  The NAME is the anti-fraud control (decision 36): an account
+                  number can be swapped in a forwarded message; a name can be
+                  checked against the bank's own confirmation screen. */}
+              {destination && (
+                <div className="mt-2 rounded-lg border bg-muted/40 p-3">
+                  <p className="mb-2 text-xs font-medium text-muted-foreground">
+                    Transfer to
+                  </p>
+                  <dl className="space-y-1 text-sm">
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-muted-foreground">Bank</dt>
+                      <dd className="font-medium">{destination.bank_name ?? "—"}</dd>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-muted-foreground">Account name</dt>
+                      <dd className="text-right font-medium">{destination.account_name ?? "—"}</dd>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <dt className="text-muted-foreground">Account number</dt>
+                      <dd className="flex items-center gap-2">
+                        <span className="font-mono font-semibold tabular-nums">
+                          {destination.published_account_number
+                            ?? (destination.account_number_last4
+                                  ? `••••${destination.account_number_last4}`
+                                  : "—")}
+                        </span>
+                        {destination.published_account_number && (
+                          <Button
+                            type="button" variant="ghost" size="sm"
+                            onClick={() => {
+                              void navigator.clipboard?.writeText(destination.published_account_number!);
+                              toast.success("Account number copied.");
+                            }}
+                          >
+                            <Copy className="size-3.5" />
+                          </Button>
+                        )}
+                      </dd>
+                    </div>
+                  </dl>
+                  {!destination.published_account_number && (
+                    // Said out loud rather than silently showing a masked
+                    // number nobody can pay into.
+                    <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
+                      The full account number has not been published yet — ask the
+                      office for it, or check your demand.
+                    </p>
+                  )}
+                  <p className="mt-2 flex items-start gap-2 text-xs text-muted-foreground">
+                    <ShieldCheck className="mt-0.5 size-3.5 shrink-0 text-emerald-600" />
+                    <span>
+                      Pay only into an account in this name. We never change our
+                      account details by message — if anyone tells you otherwise,
+                      stop and call the office.
+                    </span>
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* ── Where the money came from ───────────────────────────────
+                What finance matches against: a bank statement line names the
+                SENDER. Optional, because somebody who paid cash over a counter
+                has no sending account — and because a name that cannot be
+                resolved must not block a person from reporting a real payment. */}
+            <div className="space-y-2 rounded-lg border p-3">
+              <p className="text-sm font-medium">The account you paid from</p>
+              <p className="text-xs text-muted-foreground">
+                Optional, and it helps us find your payment faster — a bank
+                statement shows the sender, not the reference.
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <Label htmlFor="payerBank" className="text-xs">Your bank</Label>
+                  <select
+                    id="payerBank" value={payerBankCode}
+                    onChange={(e) => { setPayerBankCode(e.target.value); setPayerAccountName(""); }}
+                    className="mt-1 w-full rounded-md border bg-background p-2 text-sm"
+                  >
+                    <option value="">Choose your bank…</option>
+                    {banks.map((b) => (
+                      <option key={b.code} value={b.code}>{b.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <Label htmlFor="payerAcct" className="text-xs">Your account number</Label>
+                  <Input
+                    id="payerAcct" inputMode="numeric" value={payerAccountNumber}
+                    placeholder="10 digits"
+                    onChange={(e) => {
+                      setPayerAccountNumber(e.target.value.replace(/\D/g, "").slice(0, 10));
+                      setPayerAccountName("");
+                    }}
+                  />
+                </div>
+              </div>
+              {resolving && (
+                <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 className="size-3.5 animate-spin" /> Checking with the bank…
+                </p>
+              )}
+              {payerAccountName && !resolving && (
+                <p className="flex items-start gap-2 rounded-md bg-emerald-500/10 p-2 text-xs">
                   <ShieldCheck className="mt-0.5 size-3.5 shrink-0 text-emerald-600" />
                   <span>
-                    Our account is in the name{" "}
-                    <strong>{accounts.find((a) => a.id === bankId)!.account_name}</strong>. If you
-                    paid an account in any other name, stop and contact us — we never change our
-                    account details by message.
+                    The bank holds this account as{" "}
+                    <strong>{payerAccountName}</strong>.
                   </span>
                 </p>
               )}
+              {resolveProblem && !resolving && (
+                <p className="text-xs text-muted-foreground">{resolveProblem}</p>
+              )}
+              {/* ⚠️ Only the last four are ever kept. Stated to the person,
+                  because being asked for a full account number without being
+                  told what happens to it is exactly what a scam looks like. */}
+              <p className="text-xs text-muted-foreground">
+                We use this only to recognise your payment on our statement. We
+                keep the bank, the name and the last four digits — never the
+                full number.
+              </p>
             </div>
           </CardContent>
         </Card>

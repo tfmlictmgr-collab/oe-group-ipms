@@ -80,6 +80,21 @@ export const PURPOSE_LABEL: Record<AllocationPurpose, string> = {
   other: "Credit on account",
 };
 
+/**
+ * What the payer says about the account the money left.
+ *
+ * ⚠️ Never the full account number. The number goes to the gateway to be
+ * resolved and is thrown away — decision 17's rule, and exactly what
+ * `payout_recipients` has done since `0040b`. What is kept is what finance needs
+ * to recognise a credit on a statement: the bank, the name the bank gave, and
+ * the last four.
+ */
+export type PayerAccount = {
+  bankName?: string | null;
+  accountName?: string | null;
+  last4?: string | null;
+};
+
 export type AllocationInput = {
   purpose: AllocationPurpose;
   rent_charge_id?: string | null;

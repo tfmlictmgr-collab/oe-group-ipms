@@ -123,7 +123,7 @@ export default function RentCharges({ charges }: { charges: RentChargeRow[] }) {
                         href={`/dashboard/payments/offline/new?rent=${encodeURIComponent(c.charge_id)}`}
                       >
                         <Landmark className="size-4" />
-                        I paid this another way
+                        Bank transfer / pay another way
                       </Link>
                     </Button>
                   </div>

@@ -20,7 +20,7 @@ export default async function BankingSettingsPage() {
     supabase
       .from("bank_accounts")
       .select(
-        "id, label, bank_name, account_name, account_number_last4, purpose, currency, opening_balance, opening_date, opening_entry_id, ledger_account_id"
+        "id, label, bank_name, account_name, account_number_last4, published_account_number, purpose, currency, opening_balance, opening_date, opening_entry_id, ledger_account_id"
       )
       .eq("purpose", "client_funds")
       .eq("active", true),

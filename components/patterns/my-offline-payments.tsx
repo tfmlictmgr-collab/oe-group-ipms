@@ -55,7 +55,7 @@ export async function MyOfflinePayments({ showEmpty = false }: { showEmpty?: boo
         <Button asChild size="sm" variant="outline">
           <Link href="/dashboard/payments/offline/new">
             <Landmark className="size-4" />
-            Report a bank payment
+            Make / report a bank transfer
           </Link>
         </Button>
       </div>

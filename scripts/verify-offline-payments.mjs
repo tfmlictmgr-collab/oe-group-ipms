@@ -141,9 +141,21 @@ const RENT = 2400000;
 const FEE = RENT * (FEE_PCT / 100);
 const charge = await seedCharge(0, RENT);
 
+// ⚠️ NAIRA, and ordered. This was `.limit(1)` on purpose+active alone, which is
+// non-deterministic the moment an org holds a client-funds account in more than
+// one currency — and section J creates exactly that. The planner duly handed
+// back the USD account on the next run and four checks in section A failed with
+// "that account holds USD, and this payment is in NGN": the product refusing
+// correctly, against a fixture that had quietly changed underneath it.
+//
+// 📌 Decision 38 recorded this same fault one table over — an unordered
+// `.limit(1)` picking a probe account out of several — and the remedy is the
+// same: say which row you mean.
 const { data: bank } = await svc.from("bank_accounts")
   .select("id, label, currency").eq("org_id", orgId)
-  .eq("purpose", "client_funds").eq("active", true).limit(1).single();
+  .eq("purpose", "client_funds").eq("active", true).eq("currency", "NGN")
+  .order("created_at", { ascending: true })
+  .limit(1).single();
 
 const { data: fundsAccountId } = await svc.rpc("collection_bank_account", {
   p_org_id: orgId, p_currency: "NGN",
@@ -860,6 +872,141 @@ section("J. A payment in a foreign currency");
   }
 }
 
+
+// ════════════════════════════════════════════════════════════════════════════
+section("K. Where to pay, and where it came from");
+
+{
+  // ⚠️ The account a payer is TOLD to pay into. Before 0286 the product held
+  // only the last four, so it could not answer the one question somebody about
+  // to make a transfer actually has.
+  //
+  // ⚠️ ON ITS OWN ACCOUNT, never OEA's real one.
+  //
+  // The first draft overwrote the live client-funds account's number and last
+  // four and restored them in teardown. That is wrong twice: a crashed run
+  // leaves a REAL bank account showing a fabricated number — which on this
+  // screen is what a tenant is told to pay into — and worse, the next run then
+  // CAPTURES the fabricated value as the thing to restore, so one interrupted
+  // run poisons every run after it. Measured: OEA's account sat at last-four
+  // "6789" instead of its actual "9039" across several runs, and the restore
+  // faithfully put the wrong value back each time.
+  //
+  // 📌 A fixture that mutates production-shaped data and relies on its own
+  // teardown to undo it has made cleanup a correctness requirement. Owning the
+  // row instead removes the requirement.
+  //
+  // GBP because `bank_accounts_one_client_funds_per_currency_uidx` allows only
+  // one ACTIVE client-funds account per currency, and NGN's is taken.
+  await svc.rpc("ensure_currency_ledger_accounts", { p_org_id: orgId, p_currency: "GBP" });
+  const { data: gbpLedger } = await svc.from("ledger_accounts").select("id")
+    .eq("org_id", orgId).eq("currency", "GBP").eq("purpose", "client_funds")
+    .is("property_id", null).maybeSingle();
+
+  // ⚠️ Sweep first. `bank_accounts_one_client_funds_per_currency_uidx` allows one
+  // ACTIVE client-funds account per currency, so a probe left behind by a run
+  // that died mid-flight blocks every run after it — and the insert failing
+  // silently is what turned that into three FAILs reading as product defects.
+  await svc.from("bank_accounts").delete()
+    .eq("org_id", orgId).like("label", "Probe collection %");
+
+  const { data: probeBank, error: probeErr } = await svc.from("bank_accounts").insert({
+    org_id: orgId, label: `Probe collection ${stamp}`, purpose: "client_funds",
+    bank_name: "Fidelity Bank", account_name: "OEA Probe Collections",
+    account_number_last4: "6789", published_account_number: "0123456789",
+    currency: "GBP", ledger_account_id: gbpLedger?.id ?? null, active: true,
+  }).select("id").single();
+  // Said out loud rather than left to surface as "the payer cannot see where to
+  // pay: undefined" three checks later.
+  if (probeErr) bad(`fixture: could not open a probe collection account — ${probeErr.message}`);
+  made.probeBank = probeBank?.id ?? null;
+
+  const { data: shown } = await tenant.c.rpc("org_client_funds_accounts");
+  const dest = (shown ?? []).find((a) => a.id === probeBank?.id);
+  dest?.published_account_number === "0123456789"
+    ? ok("a tenant is shown the full account number to transfer into")
+    : bad(`the payer cannot see where to pay: ${dest?.published_account_number}`);
+  dest?.account_name
+    ? ok("…and the account NAME beside it, which is the anti-fraud control")
+    : bad("the destination account has no name to check against");
+
+  // The REAL account is never touched, so this is also an assertion that the
+  // suite left it alone.
+  const { data: realBank } = await svc.from("bank_accounts")
+    .select("account_number_last4").eq("id", bank.id).single();
+  realBank.account_number_last4 !== "6789"
+    ? ok("the organisation's real account was not touched by this test")
+    : bad("the suite overwrote a live bank account's identity");
+
+  // Only collection accounts may carry one. A payout account with a publishable
+  // number would be decision 17 undone.
+  const { data: operating } = await svc.from("bank_accounts")
+    .select("id").eq("org_id", orgId).neq("purpose", "client_funds").limit(1).maybeSingle();
+  if (operating) {
+    const { error } = await svc.from("bank_accounts")
+      .update({ published_account_number: "0123456789" }).eq("id", operating.id);
+    error
+      ? ok("a non-collection account is refused a published number")
+      : bad("a payout account accepted a published account number");
+  } else {
+    console.log("  \x1b[33mSKIP\x1b[0m no non-collection account to test the constraint against");
+  }
+
+  const { data: strangers } = await otherTenant.c.rpc("org_client_funds_accounts");
+  (strangers ?? []).every((a) => a.id !== probeBank?.id)
+    ? ok("a tenant in another organisation is not shown this org's account")
+    : bad("an account number leaked across organisations");
+
+  // ── Where the money came FROM ────────────────────────────────────────────
+  const rentK = (await seedCharge(10, 150000)).id;
+  const proofK = await uploadProof(tenant.c, "payer");
+  const { data: claimK, error: errK } = await tenant.c.rpc("submit_offline_payment_claim", {
+    p_method: "bank_transfer", p_amount: 150000, p_paid_on: "2026-09-09",
+    p_bank_account_id: bank.id, p_proof_path: proofK,
+    p_allocations: [{ purpose: "rent", rent_charge_id: rentK, amount: 150000 }],
+    p_payer_bank_name: "Guaranty Trust Bank",
+    p_payer_account_name: "ADAEZE O TENANT",
+    p_payer_account_last4: "4417",
+  });
+  if (errK) {
+    bad(`a payment naming its source account was refused: ${errK.message}`);
+  } else {
+    made.claims.push(claimK);
+    const { data: c } = await svc.from("offline_payment_claims")
+      .select("payer_bank_name, payer_account_name, payer_account_last4")
+      .eq("id", claimK).single();
+    c.payer_bank_name === "Guaranty Trust Bank" && c.payer_account_last4 === "4417"
+      ? ok("the paying account's bank and last four are kept, for statement matching")
+      : bad("the payer's account details were not stored");
+    // The column is four characters wide by constraint; there is nowhere for a
+    // full number to be, which is the point of storing it this way.
+    (c.payer_account_last4 ?? "").length === 4
+      ? ok("…and only four digits of the number exist anywhere on the row")
+      : bad("more than the last four was stored");
+  }
+
+  // 0262's mistake — a number in the name box — refused rather than displayed.
+  const badName = await refused(tenant.c, "submit_offline_payment_claim", {
+    p_method: "bank_transfer", p_amount: 1000, p_paid_on: "2026-09-09",
+    p_bank_account_id: bank.id, p_proof_path: proofK,
+    p_allocations: [{ purpose: "rent", rent_charge_id: rentK, amount: 1000 }],
+    p_payer_account_name: "0123456789",
+  });
+  badName && /account number rather than an account name/i.test(badName)
+    ? ok("an account NUMBER typed into the account-NAME box is refused (0262)")
+    : bad(`a number in the name box should be refused, got: ${badName}`);
+
+  const badLast4 = await refused(tenant.c, "submit_offline_payment_claim", {
+    p_method: "bank_transfer", p_amount: 1000, p_paid_on: "2026-09-09",
+    p_bank_account_id: bank.id, p_proof_path: proofK,
+    p_allocations: [{ purpose: "rent", rent_charge_id: rentK, amount: 1000 }],
+    p_payer_account_last4: "0123456789",
+  });
+  badLast4 && /four digits/i.test(badLast4)
+    ? ok("a full number pasted into the last-four box is refused")
+    : bad(`full number in last4 should be refused, got: ${badLast4}`);
+}
+
 // ── Teardown ────────────────────────────────────────────────────────────────
 section("Teardown");
 for (const id of made.claims) {
@@ -871,6 +1018,14 @@ const { data: spent } = await svc.from("offline_payment_allocations")
 await svc.from("offline_payment_claims").delete().in("id", made.claims);
 for (const p of made.objects) await svc.storage.from("payment-proofs").remove([p]);
 if (made.fxBank) await svc.from("bank_accounts").delete().eq("id", made.fxBank);
+if (made.probeBank) {
+  const r = await svc.from("bank_accounts").delete().eq("id", made.probeBank).select("id");
+  // Said out loud. A cleanup that fails silently is how a leftover probe
+  // account came to block three checks on the following run and read as a
+  // product defect — the start-of-run sweep recovers from it either way, but
+  // nobody should have to work that out from the symptom.
+  if (r.error) console.log(`  note: probe collection account kept — ${r.error.message}`);
+}
 
 // ⚠️ The fixture DEMANDS go too, posted ones included — and that is a change of
 // mind worth recording. They were originally left in place on the reasoning

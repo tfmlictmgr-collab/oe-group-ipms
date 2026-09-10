@@ -36,6 +36,7 @@ const fmtDate = (d: string | null) =>
   d ? new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—";
 
 type Tab = "outstanding" | "paid";
+type Pane = "demands" | "homes";
 
 export default function RentBoard({
   tenancies,
@@ -49,6 +50,8 @@ export default function RentBoard({
   // first.
   const [lease, setLease] = React.useState<string | null>(null);
   const [tab, setTab] = React.useState<Tab>("outstanding");
+  // Opens on the demands: paying is the job, and the homes grid is a filter.
+  const [pane, setPane] = React.useState<Pane>("demands");
   const listRef = React.useRef<HTMLDivElement>(null);
 
   const forLease = React.useMemo(
@@ -65,6 +68,9 @@ export default function RentBoard({
 
   function chooseLease(id: string | null) {
     setLease(id);
+    // ⚠️ Switch panes too. On the tabbed layout the filtered list is on the OTHER
+    // tab, so staying put would make the tap look like it did nothing.
+    setPane("demands");
     // Land on whichever tab actually has something in it, so clicking a
     // fully-settled home does not show an empty "Outstanding" and read as a
     // broken filter.
@@ -78,7 +84,33 @@ export default function RentBoard({
 
   return (
     <div className="space-y-6">
-      {tenancies.length > 0 && (
+      {/* ⚠️ TWO TOP-LEVEL TABS, not two stacked sections.
+          Reported twice. The homes grid and the demands list were both on the
+          page at once, and on the account in the report that is NINETEEN cards
+          before the first demand — so the actionable half of the screen was
+          permanently below the fold. Tabs mean the page opens on the thing you
+          came to do, and the homes are one tap away rather than a scroll past.
+          "Demands" is the default for the same reason: paying is the job. */}
+      {tenancies.length > 1 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            variant={pane === "demands" ? "default" : "outline"}
+            onClick={() => setPane("demands")}
+          >
+            Demands ({charges.length})
+          </Button>
+          <Button
+            size="sm"
+            variant={pane === "homes" ? "default" : "outline"}
+            onClick={() => setPane("homes")}
+          >
+            My homes ({tenancies.length})
+          </Button>
+        </div>
+      )}
+
+      {tenancies.length > 0 && (pane === "homes" || tenancies.length === 1) && (
         <div>
           {tenancies.length > 1 && (
             <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -141,6 +173,7 @@ export default function RentBoard({
         </div>
       )}
 
+      {(pane === "demands" || tenancies.length <= 1) && (
       <div ref={listRef} className="scroll-mt-4 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2">
@@ -197,6 +230,7 @@ export default function RentBoard({
           <RentCharges charges={shown} />
         )}
       </div>
+      )}
     </div>
   );
 }

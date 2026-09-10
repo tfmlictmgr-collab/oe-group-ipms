@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { listBanks as sharedListBanks } from "@/lib/bank-actions";
 import { ok, fail, failFromDb, type ActionResult } from "@/lib/action-result";
 
 // Registering where a vendor gets paid.
@@ -163,45 +164,18 @@ export async function saveVendorPayoutRecipient(
  * list of the largest banks only when the gateway cannot be reached, so an
  * outage degrades the choice rather than blocking onboarding entirely.
  */
-export async function listBanks(): Promise<ActionResult<{ code: string; name: string }[]>> {
-  const key = process.env.PAYSTACK_SECRET_KEY;
-
-  if (!key) {
-    return ok([
-      { code: "058", name: "Guaranty Trust Bank" },
-      { code: "011", name: "First Bank of Nigeria" },
-      { code: "044", name: "Access Bank" },
-      { code: "057", name: "Zenith Bank" },
-      { code: "033", name: "United Bank for Africa" },
-      { code: "070", name: "Fidelity Bank" },
-      { code: "232", name: "Sterling Bank" },
-      { code: "101", name: "Providus Bank" },
-    ]);
-  }
-
-  try {
-    const res = await fetch("https://api.paystack.co/bank?currency=NGN&perPage=100", {
-      headers: { Authorization: `Bearer ${key}` },
-      // Bank lists change rarely; re-fetching per page load is waste.
-      next: { revalidate: 86_400 },
-    });
-    const json = (await res.json()) as {
-      status?: boolean;
-      data?: { code: string; name: string }[];
-    };
-    if (!res.ok || !json.status || !json.data) {
-      return fail("The list of banks could not be loaded. Try again shortly.");
-    }
-    return ok(
-      json.data
-        .map((b) => ({ code: b.code, name: b.name }))
-        .sort((a, b) => a.name.localeCompare(b.name))
-    );
-  } catch {
-    return fail("The list of banks could not be loaded. Try again shortly.");
-  }
+// ⚠️ The bank list moved to `lib/bank-actions.ts` (0286) so the off-platform
+// payment form and this one offer the SAME list. Re-exported rather than
+// re-implemented: two hand-maintained lists of Nigerian banks is how one screen
+// calls it "GTB" and another "Guaranty Trust".
+//
+// Re-exported through a wrapper rather than `export { listBanks } from ...`,
+// because this module also CALLS it internally and a bare re-export creates no
+// local binding — and because every export of a "use server" file must itself
+// be an async function.
+export async function listBanks() {
+  return sharedListBanks();
 }
-
 
 /**
  * A short-lived link to a vendor's own KYC document — used here for the bank

@@ -25,6 +25,7 @@ export type BankAccount = {
   bank_name: string | null;
   account_name: string | null;
   account_number_last4: string | null;
+  published_account_number: string | null;
   purpose: string;
   currency: string;
   opening_balance: number | string;
@@ -57,6 +58,7 @@ export default function BankAccountForm({
     bankName: account?.bank_name ?? "",
     accountName: account?.account_name ?? "",
     accountNumberLast4: account?.account_number_last4 ?? "",
+    publishedAccountNumber: account?.published_account_number ?? "",
   });
 
   const [asOf, setAsOf] = React.useState(new Date().toISOString().slice(0, 10));
@@ -170,10 +172,40 @@ export default function BankAccountForm({
             />
             <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
               <ShieldCheck className="mt-0.5 size-3 flex-shrink-0" />
-              Last four only. The app never initiates transfers from stored
-              details, so the full number would be risk with no benefit.
+              What finance recognises on a statement. Filled in for you if you
+              publish the full number below.
             </p>
           </div>
+        </div>
+
+        {/* ⚠️ 0286. This field's absence was a real gap: the product could not
+            tell a tenant where to send a bank transfer, because the only number
+            it held was masked.
+
+            📌 The note beside "Last 4 digits" used to read "the full number
+            would be risk with no benefit". That was written about a PAYOUT
+            account and is true of one — nothing may store an account money can
+            be sent TO (decision 17). It was never true of the account money
+            comes IN to, which this organisation prints on every invoice it
+            issues. One sentence covering two opposite directions, and the
+            direction it was wrong about is the one a payer needs. */}
+        <div className="space-y-1.5">
+          <Label htmlFor="ba-published">Full account number, shown to payers</Label>
+          <Input
+            id="ba-published"
+            value={form.publishedAccountNumber}
+            onChange={set("publishedAccountNumber")}
+            inputMode="numeric"
+            placeholder="e.g. 0123456789"
+          />
+          <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+            <ShieldCheck className="mt-0.5 size-3 flex-shrink-0" />
+            Optional. This card is the account tenants pay INTO, and this number
+            appears on the &ldquo;pay by transfer&rdquo; screen beside the account
+            name so somebody can actually make the payment. Nothing in this app
+            can send money out of it, and the database refuses one on any account
+            that is not a client-funds account.
+          </p>
         </div>
 
         <Button

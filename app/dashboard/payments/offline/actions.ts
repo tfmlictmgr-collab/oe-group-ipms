@@ -39,6 +39,10 @@ export type RecordInput = {
   currency?: string;
   payerReference?: string | null;
   payerNote?: string | null;
+  /** Where the money came from (0286). Bank, resolved name, last four only. */
+  payerBankName?: string | null;
+  payerAccountName?: string | null;
+  payerAccountLast4?: string | null;
 };
 
 export async function recordOfflinePayment(
@@ -59,6 +63,9 @@ export async function recordOfflinePayment(
     p_payer_reference: input.payerReference ?? null,
     p_payer_note: input.payerNote ?? null,
     p_proof_filename: input.proofFilename ?? null,
+    p_payer_bank_name: input.payerBankName ?? null,
+    p_payer_account_name: input.payerAccountName ?? null,
+    p_payer_account_last4: input.payerAccountLast4 ?? null,
   });
   if (error) return failFromDb(error, "record this payment");
 

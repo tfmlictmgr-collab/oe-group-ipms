@@ -14,6 +14,8 @@ export type BankAccountInput = {
   bankName: string;
   accountName: string;
   accountNumberLast4: string;
+  /** The FULL number, published to payers so they can transfer into it (0286). */
+  publishedAccountNumber?: string;
   purpose: "client_funds" | "operating";
   /** ISO 4217. Defaults NGN — every account before Flutterwave/FX was this. */
   currency?: string;
@@ -81,10 +83,31 @@ export async function saveBankAccount(input: BankAccountInput): Promise<ActionRe
 
   const last4 = input.accountNumberLast4.trim();
   if (last4 && !/^\d{4}$/.test(last4)) {
-    // Catches the common mistake of pasting the whole number.
     return fail(
-      "Enter the LAST FOUR digits only.",
-      "Full account numbers are deliberately never stored — the last four are all reconciliation needs."
+      "Enter the LAST FOUR digits only in that box.",
+      "If you meant to publish the full number so tenants can pay into it, use the field below it instead."
+    );
+  }
+
+  // ⚠️ 0286. The full number of the COLLECTION account, deliberately stored and
+  // deliberately shown to payers — it is printed on every invoice this
+  // organisation issues, and until now the product could not tell a tenant
+  // where to send a transfer.
+  //
+  // This is the opposite direction from a payout account, where decision 17's
+  // rule (never store an actionable number) stands untouched: nothing can send
+  // money FROM this field, and the database refuses it on any account whose
+  // purpose is not client_funds.
+  const published = (input.publishedAccountNumber ?? "").replace(/\s/g, "");
+  if (published && !/^\d{6,20}$/.test(published)) {
+    return fail("An account number is digits only — between 6 and 20 of them.");
+  }
+  if (published && last4 && !published.endsWith(last4)) {
+    // Two fields describing one account must agree, or a tenant is shown one of
+    // them while finance reconciles against the other.
+    return fail(
+      "The full number does not end in the last four digits you entered.",
+      "Check both — they describe the same account."
     );
   }
 
@@ -146,7 +169,8 @@ export async function saveBankAccount(input: BankAccountInput): Promise<ActionRe
     purpose: input.purpose,
     bank_name: input.bankName.trim() || null,
     account_name: input.accountName.trim() || null,
-    account_number_last4: last4 || null,
+    account_number_last4: last4 || (published ? published.slice(-4) : null),
+    published_account_number: published || null,
     currency,
     ledger_account_id: (ledgerAccountId as string | null) ?? null,
     created_by: user.id,
