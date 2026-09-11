@@ -5,7 +5,10 @@
 //   • the property statement opens for every money role it should — the 404 was
 //     `oversight_roles()` predating the two payment-chain roles, not a bug in
 //     the page
-//   • the payment approver holds EXACTLY the payment officer's capability set
+//   • the payment approver holds the payment officer's capability set with
+//     exactly one difference — `payments.record_offline`, which 0281 gives the
+//     officer alone, because recording an off-platform claim disqualifies you
+//     from confirming it and the approver is a confirmation desk
 //   • they read the ledger, payments, remittances, leases, rent charges,
 //     reconciliations, bank accounts and the audit trail
 //   • and they still cannot move money — disbursement is an explicit
@@ -97,16 +100,43 @@ if (auditor) {
 //
 // Stated as a SET comparison rather than a hand-listed expectation, so the two
 // cannot drift apart the way the TypeScript copy of B7 did.
-console.log("\n\x1b[1m§B The same capabilities as the payment officer\x1b[0m");
+// ⚠️ This asserted an IDENTICAL set until 9 Sept 2026, and 0246 was right
+// to: the difference between the two desks is disbursement, which is not a
+// capability at all. Decision 45 then made one deliberate exception. 0281
+// grants `payments.record_offline` to `finance_approver` and to NEITHER of the
+// other two confirmation desks, because whoever records an off-platform claim
+// is barred from every stage of confirming it (0282's maker-checker, per person
+// per claim) — so granting it to the approver would hand a chain role a way to
+// take itself out of the chain. The officer is the exception because a walk-in
+// arriving at the finance desk is the commonest way one of these turns up, and
+// the consequence — that a colleague must confirm it — is the control working.
+//
+// So the set is asserted as "identical APART FROM that one", in both directions,
+// rather than relaxed to a subset check: an approver quietly gaining a
+// capability the officer lacks is exactly what this section exists to catch,
+// and a subset check on one side would never see it.
+console.log("\n\x1b[1m§B The payment officer's capabilities, less the one that would break the chain\x1b[0m");
+const OFFICER_ONLY = ["payments.record_offline"];
 const capsFor = async (role) => {
   const { data } = await svc.rpc("b7_baseline");
   return (data ?? []).filter((r) => r.role === role && r.granted).map((r) => r.capability).sort();
 };
 const officerCaps = await capsFor("finance_approver");
 const approverCaps = await capsFor("payment_approver");
-JSON.stringify(officerCaps) === JSON.stringify(approverCaps)
-  ? ok(`identical sets (${approverCaps.length}): ${approverCaps.join(", ")}`)
-  : bad(`officer has [${officerCaps.join(", ")}], approver has [${approverCaps.join(", ")}]`);
+const expected = officerCaps.filter((c) => !OFFICER_ONLY.includes(c));
+
+JSON.stringify(approverCaps) === JSON.stringify(expected)
+  ? ok(`the officer's set less ${OFFICER_ONLY.join(", ")} (${approverCaps.length}): ${approverCaps.join(", ")}`)
+  : bad(`officer has [${officerCaps.join(", ")}], approver has [${approverCaps.join(", ")}], expected [${expected.join(", ")}]`);
+
+// Named directly, so the REASON survives a future change to either set. 0281
+// asserts the same thing in the migration; this proves it of the live baseline.
+officerCaps.includes("payments.record_offline")
+  ? ok("the payment officer may record an off-platform payment — the walk-in desk")
+  : bad("the payment officer lost payments.record_offline — a walk-in has nowhere to be recorded");
+approverCaps.includes("payments.record_offline")
+  ? bad("the payment approver was granted recording — a confirmation desk can take itself out of the chain")
+  : ok("the payment approver may NOT record one — recording bars you from confirming it");
 
 // ── C ──────────────────────────────────────────────────────────────────────
 console.log("\n\x1b[1m§C What they can now read\x1b[0m");

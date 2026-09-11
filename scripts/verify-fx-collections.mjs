@@ -1,6 +1,8 @@
 // Flutterwave / FX collections (0103) — the claims that matter:
-//   • enabling a currency provisions exactly client_funds + suspense in it,
-//     idempotently, and nothing else (FX is collections-only, B3)
+//   • enabling a currency provisions exactly the chart an inbound payment in
+//     it can actually land on — client_funds, suspense, landlord_payable,
+//     tenant_deposit and fee_income (0284) — idempotently, and NOT
+//     service_charge_fund, which is a Naira obligation by design
 //   • a second client-funds account in the SAME currency is still refused;
 //     one in a DIFFERENT currency is not — "one per org" became "one per
 //     (org, currency)", not "unlimited"
@@ -94,7 +96,16 @@ const made = { bankAccounts: [], ledgerAccounts: [], intents: [], entries: [] };
   }
 }
 
-console.log("A. Enabling a currency provisions exactly client_funds + suspense");
+// ⚠️ `0103` provisioned two accounts (client_funds + suspense) and this section
+// asserted exactly that pair until 9 Sept 2026. `0284` extended it to the three
+// an inbound ATTRIBUTION needs — a rent line posts to `landlord_payable` and
+// `fee_income`, a deposit line to `tenant_deposit` — because an off-platform FX
+// payment would otherwise have climbed all three desks and failed at the
+// Payment Officer's confirmation on a missing account. The set is asserted
+// EXACTLY, in both directions, rather than relaxed to "at least these": the
+// point of the check is that a currency gets the chart it needs and no account
+// for a thing that cannot happen.
+console.log("A. Enabling a currency provisions the chart an inbound payment can land on");
 {
   const before = await svc.from("ledger_accounts").select("purpose").eq("org_id", org.id).eq("currency", FX);
   (before.data ?? []).length === 0
@@ -110,10 +121,35 @@ console.log("A. Enabling a currency provisions exactly client_funds + suspense")
     .from("ledger_accounts").select("id, purpose, code, currency").eq("org_id", org.id).eq("currency", FX);
   made.ledgerAccounts.push(...(after ?? []).map((a) => a.id));
 
+  const EXPECTED = ["client_funds", "fee_income", "landlord_payable", "suspense", "tenant_deposit"];
   const purposes = (after ?? []).map((a) => a.purpose).sort();
-  JSON.stringify(purposes) === JSON.stringify(["client_funds", "suspense"])
-    ? ok("exactly client_funds and suspense were created — nothing FX collections cannot use")
-    : bad(`got purposes ${JSON.stringify(purposes)}, expected exactly [client_funds, suspense]`);
+  JSON.stringify(purposes) === JSON.stringify(EXPECTED)
+    ? ok(`exactly ${EXPECTED.join(", ")} were created — every account an inbound ${FX} payment posts to`)
+    : bad(`got purposes ${JSON.stringify(purposes)}, expected exactly ${JSON.stringify(EXPECTED)}`);
+
+  // The deliberate absence, asserted rather than assumed. `0284` leaves
+  // `service_charge_fund` out because the whole service-charge cycle is Naira
+  // (`create_service_charge_payment_intent` hardcodes NGN) — an FX one would be
+  // an account for a thing that cannot happen, and section F's own refusal is
+  // what says so to a person.
+  purposes.includes("service_charge_fund")
+    ? bad(`an FX service_charge_fund was provisioned — service charges are a Naira obligation`)
+    : ok("no FX service-charge fund — an account for something that cannot happen was not created");
+
+  // Codes mirror the NGN chart, suffixed with the currency — the convention
+  // `canonical_ledger_account` already parses. A purpose provisioned under a
+  // code the resolver cannot find is an account nothing will ever post to.
+  const codes = Object.fromEntries((after ?? []).map((a) => [a.purpose, a.code]));
+  const codeExpectations = {
+    client_funds: `1000-${FX}`, landlord_payable: `2100-${FX}`,
+    tenant_deposit: `2300-${FX}`, fee_income: `4000-${FX}`, suspense: `9000-${FX}`,
+  };
+  const wrongCodes = Object.entries(codeExpectations)
+    .filter(([purpose, code]) => codes[purpose] !== code)
+    .map(([purpose, code]) => `${purpose} is ${codes[purpose] ?? "absent"}, expected ${code}`);
+  wrongCodes.length === 0
+    ? ok("every code mirrors the NGN chart with the currency suffixed")
+    : bad(wrongCodes.join("; "));
 
   const { error: again } = await admin.c.rpc("ensure_currency_ledger_accounts", {
     p_org_id: org.id, p_currency: FX,

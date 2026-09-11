@@ -48,3 +48,9 @@ supabase/.temp/
 /private/
 public/*.xlsx
 public/*.csv
+
+# A raw database dump is the whole database, PII included, in one file. It has
+# turned up untracked in the repo root more than once (from a manual pg_dump or
+# a concurrent session's scratch work) — this stops it from ever landing in a
+# commit by habit rather than by someone deciding to publish a schema snapshot.
+dump.sql
