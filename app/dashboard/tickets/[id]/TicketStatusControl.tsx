@@ -2,11 +2,23 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
+import { Select } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
+// ⚠️ 'assigned' is deliberately NOT offered here. Dispatching is what assigns
+// a job — it sets the vendor or ops person, the timestamp and who did it.
+// Choosing 'assigned' from a dropdown set the word and nobody behind it, which
+// is exactly how a job reached a vendor's name in conversation but never
+// reached their portal: every downstream surface keys off assigned_vendor_id.
+// The database now refuses that state outright (0117); this stops the UI
+// offering it in the first place.
+//
+// 'acknowledged' and 'in_progress' stay: both are legitimate manual moves once
+// somebody IS assigned, and the trigger refuses them if nobody is.
 const STATUSES = [
   "open",
-  "assigned",
   "acknowledged",
   "in_progress",
   "resolved",
@@ -23,12 +35,10 @@ export default function TicketStatusControl({
   const router = useRouter();
   const [status, setStatus] = useState(currentStatus);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   async function changeStatus(next: string) {
     if (next === status) return;
     setSaving(true);
-    setError(null);
 
     const supabase = createClient();
     const { error } = await supabase
@@ -37,33 +47,36 @@ export default function TicketStatusControl({
       .eq("id", ticketId);
 
     if (error) {
-      setError(error.message);
+      toast.error("Could not update status", { description: error.message });
       setSaving(false);
       return;
     }
 
     setStatus(next);
     setSaving(false);
+    toast.success(`Status set to ${next.replace(/_/g, " ")}`);
     router.refresh();
   }
 
   return (
-    <div className="flex items-center gap-3">
-      <label className="text-sm text-neutral-500">Status</label>
-      <select
-        value={status}
-        disabled={saving}
-        onChange={(e) => changeStatus(e.target.value)}
-        className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm capitalize outline-none focus:border-neutral-800 focus:ring-1 focus:ring-neutral-800 disabled:opacity-50"
-      >
-        {STATUSES.map((s) => (
-          <option key={s} value={s} className="capitalize">
-            {s.replace(/_/g, " ")}
-          </option>
-        ))}
-      </select>
-      {saving && <span className="text-xs text-neutral-400">Saving…</span>}
-      {error && <span className="text-xs text-red-600">{error}</span>}
+    <div className="space-y-1.5">
+      <Label htmlFor="status">Status</Label>
+      <div className="flex items-center gap-3">
+        <Select
+          id="status"
+          value={status}
+          disabled={saving}
+          onChange={(e) => changeStatus(e.target.value)}
+          className="max-w-[14rem] capitalize"
+        >
+          {STATUSES.map((s) => (
+            <option key={s} value={s} className="capitalize">
+              {s.replace(/_/g, " ")}
+            </option>
+          ))}
+        </Select>
+        {saving && <span className="text-xs text-muted-foreground">Saving…</span>}
+      </div>
     </div>
   );
 }

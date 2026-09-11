@@ -28,33 +28,50 @@ async function asUser(email) {
 }
 
 // Admin baseline
-const admin = await asUser("demo@oegroup.test");
+const admin = await asUser("oe-group-foundation-poc.admin@oegroup.test");
 const adminTickets = await admin.count("tickets");
 const adminBudgets = await admin.count("sc_budgets");
 console.log(`Admin baseline: ${adminTickets} tickets, ${adminBudgets} budgets`);
 
 console.log("\nProperty scoping:");
-const fm = await asUser("fm@oegroup.test");
+const fm = await asUser("oe-group-foundation-poc.facilitymanager@oegroup.test");
 const fmTickets = await fm.count("tickets");
 const fmBudgets = await fm.count("sc_budgets");
 fmTickets > 0 && fmTickets < adminTickets ? ok(`FM sees ${fmTickets} tickets (managed) < admin ${adminTickets}`) : bad(`FM tickets ${fmTickets}`);
 fmBudgets === 2 ? ok(`FM sees 2 budgets... wait, 2 cycles × 2 props = 4`) : ok(`FM sees ${fmBudgets} budgets (2 props × 2 cycles)`);
 
-const owner = await asUser("owner@oegroup.test");
+// ⚠️ INVERTED, 21 Aug 2026 — the same stale assertion verify-access-matrix
+// carried. This required a landlord to see SOME tickets, and so asserted the
+// leak as a feature: `current_user_property_ids()` does not distinguish an
+// owner from a manager, so the unguarded place branch of `tickets_select`
+// handed every landlord every tenant complaint on every building they own.
+// B7's Service-requests cell for `property_owner` has always read "—". 0184
+// gates that branch to `fm_roles()`.
+//
+// Bounded by what they RAISED rather than pinned at zero: a landlord may
+// report a problem themselves and follow it, and that is the whole of their
+// access.
+const owner = await asUser("oe-group-foundation-poc.propertyowner@oegroup.test");
 const ownerTickets = await owner.count("tickets");
-ownerTickets > 0 && ownerTickets < fmTickets ? ok(`owner sees ${ownerTickets} tickets (owned) < FM ${fmTickets}`) : bad(`owner tickets ${ownerTickets}`);
+const { data: { user: ownerUser } } = await owner.c.auth.getUser();
+const ownerRaised =
+  (await owner.c.from("tickets").select("*", { count: "exact", head: true })
+     .eq("sender_id", ownerUser.id)).count ?? 0;
+ownerTickets <= ownerRaised
+  ? ok(`owner sees ${ownerTickets} tickets — all self-raised (B7: no tenant requests)`)
+  : bad(`owner sees ${ownerTickets} but raised only ${ownerRaised} — reading tenants' requests`);
 
 console.log("\nRestricted roles:");
-const tenant = await asUser("resident@oegroup.test");
+const tenant = await asUser("oe-group-foundation-poc.tenant@oegroup.test");
 (await tenant.count("payments")) === 0 ? ok("tenant sees 0 payments") : bad("tenant payments");
-const vendor = await asUser("vendor@oegroup.test");
+const vendor = await asUser("oe-group-foundation-poc.vendor@oegroup.test");
 (await vendor.count("service_charges")) === 0 ? ok("vendor sees 0 service charges") : bad("vendor SC");
 (await vendor.count("vendors")) <= 1 ? ok("vendor sees only its own vendor record") : bad("vendor over-sees vendors");
 
 console.log("\nCross-brand isolation:");
-const tfml = await asUser("tfml@oegroup.test");
+const tfml = await asUser("tfml.admin@oegroup.test");
 const tfmlOrgs = await tfml.orgIds("tickets");
-const oea = await asUser("oea@oegroup.test");
+const oea = await asUser("oea.admin@oegroup.test");
 const oeaOrgs = await oea.orgIds("tickets");
 const tfmlOrg = tfmlOrgs[0];
 const oeaOrg = oeaOrgs[0];

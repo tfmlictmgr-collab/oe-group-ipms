@@ -1,0 +1,35 @@
+-- OEA has facilities managers of its own, so FM and PM stop being one role.
+-- (Board direction, 21 Aug 2026 — amends B7 and locked decision 9.)
+--
+-- `lib/roles.ts` has carried this comment since Day 2:
+--
+--     The same `facility_manager` role means different things by brand:
+--       TFML (facilities management) → "Facilities Manager"
+--       OEA  (property management)   → "Properties Manager"
+--     Permissions are identical, so this is presentation only [...] Splitting it
+--     into two roles would double every RLS policy for no security gain.
+--
+-- That reasoning was sound and is now spent. It held because no organisation
+-- employed both at once, so "the operational role" and "the job title" could be
+-- the same row wearing a brand-appropriate label. OEA is now staffing
+-- facilities managers alongside its property managers — two different people,
+-- two different disciplines, two different sets of properties, each signing off
+-- their own work. One row cannot represent both, and a brand-aware LABEL cannot
+-- tell them apart because they share a brand.
+--
+-- 📌 The "double every RLS policy" objection does not land either, and the
+-- reason is worth recording: since 0078a the operational roles have been
+-- resolved through `fm_roles()`, the single set-returning definition that
+-- locked decision 8 requires. Roughly thirty policies reach the role only
+-- through that function, so the new role costs ONE array element there rather
+-- than thirty predicates. The residue — five policies and ten functions written
+-- before `fm_roles()` existed and still spelling the role out — is rewritten
+-- mechanically from the live catalogue in 0183. That is the dividend of having
+-- kept one resolver, collected two role-additions later.
+--
+-- ⚠️ ALTER TYPE ... ADD VALUE cannot be USED in the transaction that adds it,
+-- and scripts/migrate.mjs wraps each file in one. Hence the split, exactly as
+-- 0037 did for `viewer`, 0071 for `executive`/`regional_manager` and 0150 for
+-- the two payment-chain roles: this file adds the value and 0183 uses it.
+
+alter type user_role add value if not exists 'property_manager';

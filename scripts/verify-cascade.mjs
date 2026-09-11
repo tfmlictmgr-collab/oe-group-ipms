@@ -62,3 +62,12 @@ console.log(
 // Clean up the test rows (notifications is not append-only; audit is).
 await supabase.from("notifications").delete().eq("cascade_id", cascadeId);
 console.log("(test notification rows cleaned; audit entries remain, as designed)");
+
+// ⚠️ This script DEMONSTRATES the cascade; it does not assert anything about
+// it. The runner had no summary line to read and reported "(nothing
+// recognisable)" beside a green PASS — which overstates what running it proves.
+// Said plainly instead, so nobody counts this as coverage it is not.
+console.log(
+  "\nDEMONSTRATION ONLY — this script shows the B8 fallback cascade and asserts nothing. " +
+  "The enforced behaviour is covered by verify-notifications."
+);

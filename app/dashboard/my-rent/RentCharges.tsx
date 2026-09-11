@@ -1,0 +1,156 @@
+"use client";
+
+import * as React from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+import Link from "next/link";
+import { CreditCard, ExternalLink, CheckCircle2, Loader2, Landmark } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { StatusBadge } from "@/components/patterns/status-badge";
+import { formatMoney } from "@/lib/currency";
+import { runAction, messageOf, hintOf } from "@/lib/run-action";
+import { payMyRent } from "./actions";
+
+export type RentChargeRow = {
+  charge_id: string;
+  /** Which tenancy this demand belongs to — what `RentBoard` filters on. */
+  lease_id: string;
+  property_name: string;
+  unit_label: string;
+  period_start: string;
+  period_end: string;
+  due_date: string | null;
+  amount: number | string;
+  amount_paid: number | string;
+  outstanding: number | string;
+  currency: string;
+  status: string;
+  open_intent_reference: string | null;
+};
+
+const fmtDate = (d: string | null) =>
+  d
+    ? new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
+    : "—";
+
+export default function RentCharges({ charges }: { charges: RentChargeRow[] }) {
+  const router = useRouter();
+  const [busy, setBusy] = React.useState<string | null>(null);
+
+  async function pay(charge: RentChargeRow) {
+    setBusy(charge.charge_id);
+    try {
+      const r = await runAction(payMyRent(charge.charge_id));
+      // ⚠️ 0288. "Continue payment" on a demand already paid used to reopen
+      // the checkout; the gateway is now asked first, and a payment it holds
+      // is recorded instead.
+      if (r.settled) {
+        toast.success("This payment has already been received", {
+          description: "Paystack confirmed it. Your balance is updated and your receipt is on its way.",
+        });
+        setBusy(null);
+        router.refresh();
+        return;
+      }
+      // The gateway's own hosted page — or, ONLY for the simulated gateway,
+      // our stand-in for one. The fallback used to apply to every missing
+      // address, which sent a tenant paying through Paystack to a simulator
+      // that correctly refuses to exist beside a real key: a 404.
+      if (r.checkoutUrl) {
+        window.location.href = r.checkoutUrl;
+      } else if (r.simulated) {
+        window.location.href = `/pay/${encodeURIComponent(r.reference)}`;
+      } else {
+        throw new Error("The payment page could not be opened. Please try again.");
+      }
+    } catch (e) {
+      toast.error(messageOf(e, "That payment could not be opened."), {
+        description: hintOf(e),
+        duration: Infinity,
+        closeButton: true,
+      });
+      setBusy(null);
+      router.refresh();
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      {charges.map((c) => {
+        const outstanding = Number(c.outstanding);
+        const settled = outstanding <= 0;
+        return (
+          <Card key={c.charge_id}>
+            <CardContent className="flex flex-wrap items-center justify-between gap-4 p-4 sm:p-5">
+              <div className="min-w-0 space-y-1">
+                <p className="font-medium leading-snug">
+                  {fmtDate(c.period_start)} – {fmtDate(c.period_end)}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {c.property_name} · Unit {c.unit_label}
+                  {c.due_date ? ` · due ${fmtDate(c.due_date)}` : ""}
+                </p>
+                {Number(c.amount_paid) > 0 && !settled && (
+                  <p className="text-xs text-muted-foreground">
+                    {formatMoney(c.amount_paid, c.currency)} of{" "}
+                    {formatMoney(c.amount, c.currency)} paid so far
+                  </p>
+                )}
+              </div>
+
+              <div className="flex flex-shrink-0 items-center gap-3">
+                <div className="text-right">
+                  <p className="text-lg font-semibold tabular-nums">
+                    {formatMoney(settled ? c.amount : outstanding, c.currency)}
+                  </p>
+                  <StatusBadge status={c.status} />
+                </div>
+
+                {settled ? (
+                  <span className="flex items-center gap-1.5 text-sm text-success">
+                    <CheckCircle2 className="size-4" /> Paid
+                  </span>
+                ) : (
+                  <div className="flex flex-col items-stretch gap-1.5">
+                    <Button
+                      variant="brand"
+                      disabled={busy === c.charge_id}
+                      onClick={() => pay(c)}
+                    >
+                      {busy === c.charge_id ? (
+                        <Loader2 className="animate-spin" />
+                      ) : c.open_intent_reference ? (
+                        <ExternalLink />
+                      ) : (
+                        <CreditCard />
+                      )}
+                      {busy === c.charge_id
+                        ? "Opening…"
+                        : c.open_intent_reference
+                          ? "Continue payment"
+                          : "Pay now"}
+                    </Button>
+                    {/* The off-platform route (0281), offered on the demand
+                        itself rather than only as a section further down — a
+                        tenant who has ALREADY transferred is looking at this
+                        row, not at a heading below it. Carries the charge id so
+                        the form opens with this demand already chosen. */}
+                    <Button asChild variant="ghost" size="sm">
+                      <Link
+                        href={`/dashboard/payments/offline/new?rent=${encodeURIComponent(c.charge_id)}`}
+                      >
+                        <Landmark className="size-4" />
+                        Bank transfer / pay another way
+                      </Link>
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}

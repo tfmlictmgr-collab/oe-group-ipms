@@ -46,4 +46,7 @@ export type PaymentRow = {
   approved_at: string | null;
   remittance_reference: string | null;
   created_at: string;
+  /** Why it was refused, and when. Null unless the invoice is (or was) rejected. */
+  rejected_reason?: string | null;
+  rejected_at?: string | null;
 };

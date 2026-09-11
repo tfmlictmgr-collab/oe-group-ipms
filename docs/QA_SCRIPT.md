@@ -4,24 +4,39 @@ A single narrative that exercises all six modules in logical order. Run it
 start-to-finish; every step lists the **expected result**. If a step deviates,
 note it for Day 19.
 
-**Setup:** `npm run seed` for a clean dataset. App: `https://oe-group-ipms.vercel.app`.
+**Setup:** `npm run seed` for a clean dataset, then `node scripts/seed-org-logins.mjs`
+for the per-org credentials below. `npm run verify` runs every suite.
+App: `https://oe-group-ipms.vercel.app`.
+
+**Which door to use.** Each organisation has its own address, and the login you
+hold decides which one works:
+
+| Who | Sign in at | Lands on |
+|---|---|---|
+| OE Group platform admin (`platform@oegroup.test`) | `/login` | the **org launcher** — every organisation as a card |
+| Anyone in a client org | `/o/<slug>` — e.g. `/o/tfml`, `/o/oea` | that org's own dashboard |
+
+A client signing in at `/login` is forwarded to their own dashboard; they never
+see the launcher, and nothing tells them another organisation exists (B1).
+
 All logins use password **`OEGroupDemo2026!`**:
 
 | Login | Role | Name |
 |---|---|---|
-| `demo@oegroup.test` | Admin | Demo Admin |
-| `finance@oegroup.test` | Finance/Approver | Oke Anderson |
-| `fm@oegroup.test` | Facility Manager | Abdul Owo |
-| `ops@oegroup.test` | FM Ops Staff | Emeka Ade |
-| `owner@oegroup.test` | Property Owner | Bola Adeyemi |
-| `vendor@oegroup.test` | Vendor | Sparkle Cleaning |
-| `resident@oegroup.test` | Tenant | Tamuno Gab |
-| `tfml@oegroup.test` / `oea@oegroup.test` | Brand admins | TFML / OEA |
+| `platform@oegroup.test` | **Platform operator** | OE Group Platform Admin |
+| `oe-group-foundation-poc.admin@oegroup.test` | Admin | Demo Admin |
+| `oe-group-foundation-poc.financeapprover@oegroup.test` | Finance/Approver | Oke Anderson |
+| `oe-group-foundation-poc.facilitymanager@oegroup.test` | Facility Manager | Abdul Owo |
+| `oe-group-foundation-poc.fmopsstaff@oegroup.test` | FM Ops Staff | Emeka Ade |
+| `oe-group-foundation-poc.propertyowner@oegroup.test` | Property Owner | Bola Adeyemi |
+| `oe-group-foundation-poc.vendor@oegroup.test` | Vendor | Sparkle Cleaning |
+| `oe-group-foundation-poc.tenant@oegroup.test` | Tenant | Tamuno Gab |
+| `tfml.admin@oegroup.test` / `oea.admin@oegroup.test` | Brand admins | TFML / OEA |
 
 ---
 
 ## 1 — Tenant raises a request (Module 1: Resident Portal)
-1. Log in as **resident@**. Nav shows only **Requests · Statements** (tenant scope).
+1. Log in as **oe-group-foundation-poc.tenant@**. Nav shows only **Requests · Statements** (tenant scope).
 2. **Requests** → **+ New Request**. Enter "The kitchen tap in my flat is leaking",
    category *maintenance*, urgency *high*, submit.
    - **Expected:** redirected to Requests; the new request appears at top, "High",
@@ -38,20 +53,20 @@ All logins use password **`OEGroupDemo2026!`**:
      real time and an acknowledgement replies with Ref/Category/Priority.)*
 
 ## 3 — FM dispatches to a vendor (Module 2 + dispatch)
-4. Log in as **fm@** (Abdul Owo). **Requests** shows ~14 tickets (Lekki + Ikoyi —
+4. Log in as **oe-group-foundation-poc.facilitymanager@** (Abdul Owo). **Requests** shows ~14 tickets (Lekki + Ikoyi —
    his managed properties only, not Victoria).
 5. Open any open ticket → **Dispatch this request** → Vendor = **Sparkle Cleaning
    Services** → **Assign & notify**.
    - **Expected:** "Assigned to: Sparkle Cleaning Services"; status → **assigned**.
 
 ## 4 — Vendor acknowledges (dispatch)
-6. Log in as **vendor@**. **Requests** shows only the job(s) assigned to Sparkle.
+6. Log in as **oe-group-foundation-poc.vendor@**. **Requests** shows only the job(s) assigned to Sparkle.
 7. Open it → **Acknowledge job**.
    - **Expected:** amber banner clears; status → **acknowledged**; audit attributes
      the acknowledgement to the vendor.
 
 ## 5 — Vendor payment gate (Module 4)
-8. Log in as **finance@** (Oke Anderson). **Payments** shows 3 rows:
+8. Log in as **oe-group-foundation-poc.financeapprover@** (Oke Anderson). **Payments** shows 3 rows:
    FixIt (pending verification), SecureGuard (recommended), Sparkle (remitted).
 9. Open **SecureGuard** (recommended). Score 85.1 ≥ threshold 70 → **Approve
    payment** → **Execute remittance (SIMULATED)**.
@@ -61,31 +76,31 @@ All logins use password **`OEGroupDemo2026!`**:
       performance gate. No remittance possible." (Proves the gate both ways.)
 
 ## 6 — Service-charge statement (Module 3)
-11. Log in as **resident@** → **Statements**.
+11. Log in as **oe-group-foundation-poc.tenant@** → **Statements**.
     - **Expected:** their apportioned charge(s) for Lekki Gardens · Block A - Unit 1
       across the 2025 and 2026 cycles — their unit only, with share %.
-12. *(Admin view: as admin@ → Service Charges → a budget → the apportionment table
+12. *(Admin view: as oe-group-foundation-poc.admin@ → Service Charges → a budget → the apportionment table
     reconciles exactly to the budget total; Generate invoices is admin/finance only.)*
 
 ## 7 — BI dashboard, role-scoped (Module 6)
-13. Log in as **admin@** → **Dashboard**: all KPIs; budget chart shows **all 3
+13. Log in as **oe-group-foundation-poc.admin@** → **Dashboard**: all KPIs; budget chart shows **all 3
     properties**.
-14. Log in as **fm@** → **Dashboard**: ops widgets + budget chart shows **2
+14. Log in as **oe-group-foundation-poc.facilitymanager@** → **Dashboard**: ops widgets + budget chart shows **2
     properties** (Lekki + Ikoyi); no financial KPIs.
-15. Log in as **owner@** → **Dashboard**: portfolio; budget chart shows **1 property**
+15. Log in as **oe-group-foundation-poc.propertyowner@** → **Dashboard**: portfolio; budget chart shows **1 property**
     (Lekki only) + collection rate.
     - **Expected:** the same page renders three different, correctly-scoped views.
 
 ## 8 — Audit trail (Module 5)
-16. Log in as **finance@** (or admin@) → **Audit**. Filter chips: All / Payments /
+16. Log in as **oe-group-foundation-poc.financeapprover@** (or oe-group-foundation-poc.admin@) → **Audit**. Filter chips: All / Payments /
     Tickets / Budgets / Settings / Notifications.
     - **Expected:** the assignment, the acknowledgement, the payment approval and
       remittance, and status changes from this run all appear, with actor + change.
       Entries cannot be edited or deleted (append-only, DB-enforced).
 
 ## 9 — Dual-brand isolation (bonus)
-17. Log in as **tfml@** → header is **navy** ("Total Facilities Management"), sees
-    only its own ticket. Log in as **oea@** → header is **red**, sees only its own.
+17. Log in as **tfml.admin@** → header is **navy** ("Total Facilities Management"), sees
+    only its own ticket. Log in as **oea.admin@** → header is **red**, sees only its own.
     - **Expected:** distinct branding, completely separate data, one domain, no URLs.
 
 ---

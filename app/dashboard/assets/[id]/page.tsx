@@ -1,0 +1,373 @@
+import Link from "next/link";
+import { notFound, redirect } from "next/navigation";
+import { ArrowLeft, Wrench, ShieldCheck, Umbrella } from "lucide-react";
+import { createClient } from "@/lib/supabase/server";
+import { getSessionProfile } from "@/lib/auth";
+import { formatNaira } from "@/lib/currency";
+import { humanize } from "@/lib/asset-schema";
+import { formatDateTime } from "@/lib/ticket-format";
+import { PageHeader } from "@/components/patterns/page-header";
+import { StatusBadge } from "@/components/patterns/status-badge";
+import { EmptyState } from "@/components/patterns/empty-state";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-0.5">
+      <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</dt>
+      <dd className="text-sm">{children ?? "—"}</dd>
+    </div>
+  );
+}
+
+const fmtDate = (d: string | null) =>
+  d ? new Date(d).toLocaleDateString("en-GB", { timeZone: "Africa/Lagos", day: "numeric", month: "short", year: "numeric" }) : null;
+
+export default async function AssetDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+  const session = await getSessionProfile();
+  if (!session) redirect("/login");
+
+  const supabase = await createClient();
+  // ⚠️ The FK is NAMED, and the error is NOT discarded. Both halves of a live
+  // 404 (7 Aug): a user filled in the asset register, was redirected here, and
+  // was told the page did not exist — for a row that existed and that they
+  // could read.
+  //
+  // `assets` has two foreign keys to `properties` — `assets_property_id_fkey`
+  // and the composite `assets_property_same_org_fk` (0057) — so an unqualified
+  // `properties(...)` is ambiguous and PostgREST refuses it (PGRST201). This
+  // page then threw the `error` half away, so a malformed query arrived as
+  // `null` and became `notFound()`. **The product said "this page does not
+  // exist" when it meant "this query is wrong"**, which sends whoever
+  // investigates looking for a missing route.
+  //
+  // A genuinely absent asset still gives 404, which is right. A broken query
+  // now throws, so it reaches the error boundary and Sentry as the fault it is.
+  const { data: asset, error } = await supabase
+    .from("assets")
+    .select(
+      "*, properties!assets_property_id_fkey(name, address), units(label), vendors(name), users:custodian_user_id(full_name, email)"
+    )
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Could not load asset ${id}: ${error.message}`);
+  }
+  if (!asset) notFound();
+
+  // Hours until the next service, for a usage-strategy asset (0187).
+  //
+  // ⚠️ Computed here from the three columns rather than read from
+  // `asset_hours_to_service()`, deliberately: `select("*")` has already
+  // fetched all three, so calling the function would be a second round trip to
+  // recompute what is sitting in memory. The arithmetic is identical and the
+  // function remains the definition — anything that needs this in SQL (the
+  // register list, a report) uses it there.
+  const hoursToService =
+    asset.maintenance_strategy === "usage" &&
+    asset.service_interval_hours != null &&
+    asset.running_hours != null
+      ? Number(asset.service_interval_hours) -
+        (Number(asset.running_hours) - Number(asset.last_service_running_hours ?? 0))
+      : null;
+
+  // The assembly this belongs to, and the components that belong to it (0121).
+  // Both RLS-scoped: a component on a property the caller cannot see simply
+  // does not come back, which is the same answer the register itself gives.
+  const [parentRes, componentsRes] = await Promise.all([
+    asset.parent_asset_id
+      ? supabase.from("assets").select("id, name, asset_tag")
+          .eq("id", asset.parent_asset_id).maybeSingle()
+      : Promise.resolve({ data: null }),
+    supabase.from("assets").select("id, name, asset_tag, status")
+      .eq("parent_asset_id", id).is("deleted_at", null).order("name"),
+  ]);
+  const parentAsset = parentRes.data as { id: string; name: string; asset_tag: string | null } | null;
+  const components = (componentsRes.data ?? []) as
+    { id: string; name: string; asset_tag: string | null; status: string }[];
+
+  const [certsRes, ticketsRes] = await Promise.all([
+    supabase
+      .from("asset_certificates")
+      .select("id, kind, reference, issuer, issued_date, expiry_date")
+      .eq("asset_id", id)
+      .order("expiry_date", { ascending: true }),
+    supabase
+      .from("tickets")
+      .select("id, summary, message_text, status, urgency, created_at")
+      .eq("asset_id", id)
+      .order("created_at", { ascending: false })
+      .limit(10),
+  ]);
+
+  const property = asset.properties as unknown as { name: string; address: string | null } | null;
+  const unit = asset.units as unknown as { label: string } | null;
+  const vendor = asset.vendors as unknown as { name: string } | null;
+  const custodian = asset.users as unknown as { full_name: string | null; email: string | null } | null;
+  const certs = certsRes.data ?? [];
+  const tickets = ticketsRes.data ?? [];
+  const custom = (asset.custom_fields ?? {}) as Record<string, string>;
+
+  return (
+    <div className="mx-auto max-w-4xl space-y-6">
+      <PageHeader
+        title={asset.name}
+        description={
+          <span className="flex flex-wrap items-center gap-1.5">
+            <span className="font-mono text-xs text-muted-foreground">{asset.asset_tag}</span>
+            <Badge variant="outline">{humanize(asset.category)}</Badge>
+            <StatusBadge status={asset.status} />
+            <StatusBadge status={asset.condition} />
+            <StatusBadge status={asset.criticality} />
+          </span>
+        }
+        actions={
+          <Button asChild variant="ghost" size="sm">
+            <Link href="/dashboard/assets">
+              <ArrowLeft /> Back
+            </Link>
+          </Button>
+        }
+      />
+
+      {/* Where this sits in its assembly. Shown above the detail because
+          "this is one of four AHUs on the chiller plant" changes how you read
+          everything below it. */}
+      {(parentAsset || components.length > 0) && (
+        <Card>
+          <CardContent className="space-y-3 pt-5">
+            {parentAsset && (
+              <p className="text-sm">
+                <span className="text-muted-foreground">Part of </span>
+                <Link
+                  href={`/dashboard/assets/${parentAsset.id}`}
+                  className="font-medium underline underline-offset-4"
+                >
+                  {parentAsset.name}
+                  {parentAsset.asset_tag ? ` (${parentAsset.asset_tag})` : ""}
+                </Link>
+              </p>
+            )}
+            {components.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Components ({components.length})
+                </p>
+                <ul className="space-y-1">
+                  {components.map((c) => (
+                    <li key={c.id} className="text-sm">
+                      <Link
+                        href={`/dashboard/assets/${c.id}`}
+                        className="underline underline-offset-4"
+                      >
+                        {c.name}{c.asset_tag ? ` (${c.asset_tag})` : ""}
+                      </Link>
+                      <span className="ml-2 text-xs text-muted-foreground">
+                        {String(c.status).replace(/_/g, " ")}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardContent className="space-y-5 pt-5">
+          <dl className="grid grid-cols-1 gap-5 sm:grid-cols-3">
+            <Field label="Property">{property?.name}</Field>
+            <Field label="Unit">{unit?.label ?? "Building-wide"}</Field>
+            <Field label="Location">{asset.location_detail}</Field>
+            <Field label="Manufacturer">{asset.manufacturer}</Field>
+            <Field label="Model">{asset.model}</Field>
+            <Field label="Serial number">
+              {asset.serial_number ? <span className="font-mono text-xs">{asset.serial_number}</span> : null}
+            </Field>
+          </dl>
+          {asset.description && (
+            <>
+              <Separator />
+              <p className="text-sm text-muted-foreground">{asset.description}</p>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Wrench className="size-4 text-brand" /> Lifecycle
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <dl className="grid grid-cols-2 gap-4">
+              <Field label="Purchased">{fmtDate(asset.purchase_date)}</Field>
+              <Field label="Commissioned">{fmtDate(asset.commissioned_date)}</Field>
+              <Field label="Warranty expiry">{fmtDate(asset.warranty_expiry)}</Field>
+              <Field label="Expected life">
+                {asset.expected_life_years ? `${asset.expected_life_years} years` : null}
+              </Field>
+              <Field label="Last serviced">{fmtDate(asset.last_serviced_at)}</Field>
+              {/* A usage-strategy asset states its next service in RUNNING
+                  HOURS, not a date (0187). Showing "—" against a date field
+                  for a generator that is 60 hours from a service is the
+                  register being confidently unhelpful. */}
+              <Field label="Next service">
+                {asset.maintenance_strategy === "usage"
+                  ? hoursToService == null
+                    ? null
+                    : hoursToService > 0
+                      ? `in ${hoursToService.toLocaleString("en-NG")} running hours`
+                      : `overdue by ${Math.abs(hoursToService).toLocaleString("en-NG")} running hours`
+                  : fmtDate(asset.next_service_due)}
+              </Field>
+              {asset.maintenance_strategy === "usage" && (
+                <>
+                  <Field label="Hour meter">
+                    {asset.running_hours != null
+                      ? `${Number(asset.running_hours).toLocaleString("en-NG")} h`
+                      : null}
+                    {asset.running_hours_at && (
+                      <span className="ml-1 text-xs text-muted-foreground">
+                        read {fmtDate(asset.running_hours_at)}
+                      </span>
+                    )}
+                  </Field>
+                  <Field label="Service interval">
+                    {asset.service_interval_hours != null
+                      ? `every ${Number(asset.service_interval_hours).toLocaleString("en-NG")} running hours`
+                      : null}
+                  </Field>
+                </>
+              )}
+              <Field label="Purchase cost">
+                {asset.purchase_cost != null ? formatNaira(asset.purchase_cost) : null}
+              </Field>
+              <Field label="Replacement cost">
+                {asset.replacement_cost != null ? formatNaira(asset.replacement_cost) : null}
+              </Field>
+              <Field label="Maintained by">{vendor?.name}</Field>
+              <Field label="Custodian">{custodian?.full_name ?? custodian?.email}</Field>
+            </dl>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ShieldCheck className="size-4 text-brand" /> Compliance &amp; insurance
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <dl className="grid grid-cols-2 gap-4">
+              <Field label="Compliance required">
+                {asset.compliance_required ? "Yes" : "No"}
+              </Field>
+              <Field label="Standard">{asset.regulatory_standard}</Field>
+              <Field label="Certifying body">{asset.certifying_body}</Field>
+              <Field label="Certificate no.">{asset.certificate_number}</Field>
+              <Field label="Certificate expiry">{fmtDate(asset.certificate_expiry)}</Field>
+              <Field label="Next inspection">{fmtDate(asset.next_inspection_due)}</Field>
+              <Field label="Insurer">
+                <span className="flex items-center gap-1.5">
+                  {asset.insurer_name ? <Umbrella className="size-3.5 text-muted-foreground" /> : null}
+                  {asset.insurer_name}
+                </span>
+              </Field>
+              <Field label="Policy no.">{asset.insurance_policy_no}</Field>
+              <Field label="Insured value">
+                {asset.insured_value != null ? formatNaira(asset.insured_value) : null}
+              </Field>
+              <Field label="Insurance expiry">{fmtDate(asset.insurance_expiry)}</Field>
+            </dl>
+          </CardContent>
+        </Card>
+      </div>
+
+      {Object.keys(custom).length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Additional fields</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+              {Object.entries(custom).map(([k, v]) => (
+                <Field key={k} label={humanize(k)}>{String(v)}</Field>
+              ))}
+            </dl>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Certificates &amp; documents</CardTitle>
+        </CardHeader>
+        <CardContent className={certs.length ? "space-y-2" : ""}>
+          {certs.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No documents recorded against this asset yet.
+            </p>
+          ) : (
+            certs.map((c) => (
+              <div key={c.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border p-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">{humanize(c.kind)}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {[c.reference, c.issuer].filter(Boolean).join(" · ") || "—"}
+                  </p>
+                </div>
+                <div className="text-right text-xs text-muted-foreground">
+                  {c.expiry_date ? `Expires ${fmtDate(c.expiry_date)}` : "No expiry"}
+                </div>
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Related requests</CardTitle>
+        </CardHeader>
+        <CardContent className={tickets.length ? "space-y-2" : ""}>
+          {tickets.length === 0 ? (
+            <EmptyState
+              title="No requests against this asset"
+              description="Faults raised for this asset will appear here."
+            />
+          ) : (
+            tickets.map((t) => (
+              <Link
+                key={t.id}
+                href={`/dashboard/tickets/${t.id}`}
+                className="flex items-center justify-between gap-3 rounded-md border border-border p-3 transition-colors hover:bg-accent"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{t.summary ?? t.message_text}</p>
+                  <p className="text-xs text-muted-foreground">{formatDateTime(t.created_at)}</p>
+                </div>
+                <div className="flex flex-shrink-0 gap-1.5">
+                  <StatusBadge status={t.status} />
+                  {t.urgency && <StatusBadge status={t.urgency} />}
+                </div>
+              </Link>
+            ))
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

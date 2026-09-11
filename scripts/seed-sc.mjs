@@ -11,7 +11,7 @@ const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 config({ path: path.join(rootDir, ".env.local") });
 
 const ORG_ID = process.env.DEMO_ORG_ID;
-const RESIDENT_EMAIL = process.env.DEMO_RESIDENT_EMAIL ?? "resident@oegroup.test";
+const RESIDENT_EMAIL = process.env.DEMO_RESIDENT_EMAIL ?? "oe-group-foundation-poc.tenant@oegroup.test";
 const RESIDENT_PASSWORD =
   process.env.DEMO_RESIDENT_PASSWORD ?? "OEGroupResident2026!";
 

@@ -1,9 +1,15 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { ReceiptText, ChevronRight, Plus } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
 import { formatNaira } from "@/lib/currency";
+import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/patterns/page-header";
+import { EmptyState } from "@/components/patterns/empty-state";
+import { StatusBadge } from "@/components/patterns/status-badge";
 import RoleGate, { roleAllowed } from "../RoleGate";
+import { FM_PM } from "@/lib/roles";
 
 type BudgetRow = {
   id: string;
@@ -17,62 +23,94 @@ type BudgetRow = {
 export default async function ServiceChargePage() {
   const session = await getSessionProfile();
   if (!session) redirect("/login");
-  if (!roleAllowed(session.profile?.role, ["admin", "facility_manager", "finance_approver"])) {
+  // `executive` holds `sc.read_all` in the seeded matrix (0072b/0077) — reading
+  // every service charge is explicitly theirs. Creating budgets is not: that is
+  // `sc.manage`, which they do not hold, and the button below is gated on it.
+  // `regional_manager` added by 0231. They supersede the FM/PM over a wider
+  // place (`role_rank` 60 against 50 since 0183) and now hold `sc.manage`, so
+  // refusing them the screen the capability is for was the last thing in the
+  // way. What they SEE here is still decided by `sc_budgets_select` — their own
+  // properties, expanded through the node subtree — not by this list.
+  if (!roleAllowed(session.profile?.role, [
+    "admin", ...FM_PM, "regional_manager", "finance_approver", "executive",
+  ])) {
     return <RoleGate title="Service Charge Administration" />;
   }
 
   const supabase = await createClient();
-  const { data } = await supabase
-    .from("sc_budgets")
-    .select("id, period, description, total_amount, status, properties(name)")
-    .order("period", { ascending: false });
+  const [{ data }, { data: canManage }] = await Promise.all([
+    supabase
+      .from("sc_budgets")
+      .select("id, period, description, total_amount, status, properties(name)")
+      .order("period", { ascending: false }),
+    // Asked of the database, not inferred from the role — the button and the
+    // insert policy behind it then cannot disagree.
+    supabase.rpc("has_permission", { p_capability: "sc.manage" }),
+  ]);
 
   const budgets = (data as unknown as BudgetRow[]) ?? [];
 
   return (
-    <div>
-      <div className="mb-6">
-        <h1 className="text-xl font-semibold text-neutral-800">
-          Service Charge Administration
-        </h1>
-        <p className="text-sm text-neutral-500">
-          Annual budgets apportioned across each property&apos;s units.
-        </p>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="Service Charge Administration"
+        description="Annual budgets apportioned across each property's units."
+        actions={
+          canManage ? (
+            <Button asChild variant="brand">
+              <Link href="/dashboard/sc/new">
+                <Plus /> New budget
+              </Link>
+            </Button>
+          ) : undefined
+        }
+      />
 
       {budgets.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-neutral-300 bg-white/60 p-10 text-center text-sm text-neutral-500">
-          No budgets yet.
-        </div>
+        <EmptyState
+          icon={<ReceiptText />}
+          title="No budgets yet"
+          // The empty state has invited this since Day 9 with nothing behind it.
+          description={
+            canManage
+              ? "Create a budget for a property to apportion charges across its units."
+              : "None have been created yet. Budgets are set by an administrator or finance."
+          }
+          action={
+            canManage ? (
+              <Button asChild variant="brand">
+                <Link href="/dashboard/sc/new">
+                  <Plus /> New budget
+                </Link>
+              </Button>
+            ) : undefined
+          }
+        />
       ) : (
-        <ul className="space-y-3">
+        <ul className="space-y-2.5">
           {budgets.map((b) => (
             <li key={b.id}>
               <Link
                 href={`/dashboard/sc/${b.id}`}
-                className="flex flex-col gap-2 rounded-xl bg-white p-4 shadow-sm ring-1 ring-black/5 transition-shadow hover:shadow-md sm:flex-row sm:items-center sm:justify-between sm:gap-4"
+                className="group flex items-center gap-4 rounded-lg border border-border bg-card p-4 shadow-sm transition-all hover:border-[var(--brand)]/40 hover:shadow-md"
               >
-                <div className="min-w-0">
-                  <p className="truncate font-medium text-neutral-800">
-                    {b.properties?.name ?? "—"}
-                  </p>
-                  <p className="truncate text-xs text-neutral-500">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium">{b.properties?.name ?? "—"}</p>
+                  <p className="truncate text-xs text-muted-foreground">
                     {b.description} · {b.period}
                   </p>
+                  <div className="mt-2 sm:hidden">
+                    <StatusBadge status={b.status} />
+                  </div>
                 </div>
                 <div className="flex flex-shrink-0 items-center gap-3">
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ring-1 ${
-                      b.status === "invoiced"
-                        ? "bg-emerald-100 text-emerald-700 ring-emerald-200"
-                        : "bg-neutral-100 text-neutral-600 ring-neutral-200"
-                    }`}
-                  >
-                    {b.status}
+                  <span className="hidden sm:inline-flex">
+                    <StatusBadge status={b.status} />
                   </span>
-                  <span className="font-semibold tabular-nums text-neutral-800">
+                  <span className="font-semibold tabular-nums">
                     {formatNaira(b.total_amount)}
                   </span>
+                  <ChevronRight className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
                 </div>
               </Link>
             </li>

@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { supabaseAdmin } from "./supabase/admin";
-import { sendReply } from "./notify";
+import {
+  sendReply, sendWhatsAppTemplate, whatsappSenderForOrg, telegramSenderForOrg,
+  type WhatsAppSender, type TelegramButton,
+} from "./notify";
+import { mayContact } from "./channel-consent";
+import { sendEmail } from "./email";
 
 // B8 notification cascade (server-side only). Attempts channels in the required
 // order — WhatsApp → SMS → Email — stopping at the first success. Telegram runs
@@ -13,25 +18,118 @@ import { sendReply } from "./notify";
 
 export type CascadeTarget = {
   orgId: string;
-  entityType: "ticket" | "payment" | "service_charge";
+  /**
+   * What the message is ABOUT. `conversation` covers a reply that belongs to no
+   * record — a greeting, or an answer to someone with nothing open. Filing those
+   * as `ticket` with a null id put entries in the trail claiming to concern a
+   * request that does not exist.
+   */
+  entityType: "ticket" | "payment" | "service_charge" | "conversation";
   entityId: string | null;
   message: string;
   // Whatever contact points are known for the recipient:
   whatsapp?: string | null; // WhatsApp phone id / msisdn
+  /**
+   * The number to answer FROM. Supplied when replying to an inbound message, so
+   * the reply leaves on the number the person actually wrote to. Omitted for
+   * proactive sends, which resolve the org's own number instead.
+   */
+  whatsappSender?: WhatsAppSender | null;
+  /**
+   * Who this is going to, when they are a portal user. Required to send a
+   * BUSINESS-INITIATED WhatsApp message, because consent is recorded against a
+   * person (0148) and cannot be checked from a bare phone number.
+   *
+   * Omitted for replies (where `whatsappSender` is set instead) and for
+   * recipients who have no user account — a vendor contact reached only through
+   * `vendors.contact_phone`. In the latter case WhatsApp is SKIPPED rather than
+   * attempted; see `tryWhatsApp`.
+   */
+  recipientUserId?: string | null;
   phone?: string | null; // for SMS
   email?: string | null;
   telegram?: string | null; // chat id (parallel, opt-in)
+  /** Tappable actions to attach to the Telegram message, if any. */
+  telegramButtons?: TelegramButton[][];
+  /**
+   * A pre-approved WhatsApp template to send instead of `message`, for a
+   * BUSINESS-INITIATED send (CHAT_DEEP_LINKS.md §4). WhatsApp allows
+   * free-form `type: "text"` only inside the 24-hour window opened by the
+   * recipient's OWN last message — every proactive send is outside that
+   * window by definition, unless they happen to have written in today, and
+   * a plain-text send outside it is rejected by the API outright rather than
+   * degrading. `message` is still required and still logged: it is what SMS
+   * and email send, and what the audit trail records regardless of which
+   * channel actually carried it.
+   *
+   * Ignored on a REPLY (`whatsappSender` set) — free text is correct there,
+   * and templating an answer to someone's own message would make an ordinary
+   * conversation feel robotic for no reason; see `tryWhatsApp`.
+   */
+  whatsappTemplate?: { name: string; languageCode: string; variables?: string[] } | null;
 };
 
 type Attempt = { status: "sent" | "failed" | "skipped"; detail: string };
 
-async function tryWhatsApp(to: string, message: string): Promise<Attempt> {
-  if (!process.env.WHATSAPP_ACCESS_TOKEN || !process.env.WHATSAPP_PHONE_NUMBER_ID) {
-    return { status: "skipped", detail: "stubbed: no WhatsApp credentials" };
+async function tryWhatsApp(
+  to: string,
+  message: string,
+  sender: WhatsAppSender | null,
+  /**
+   * True when this is a REPLY inside a conversation the person started. Replies
+   * need no consent record — they messaged us, on the number they chose, about
+   * something they raised. Everything else is business-initiated and gated.
+   */
+  isReply: boolean,
+  recipientUserId: string | null | undefined,
+  template: CascadeTarget["whatsappTemplate"]
+): Promise<Attempt> {
+  // ── The consent gate (0148) ──────────────────────────────────────────────
+  // Business-initiated only. Fails CLOSED: no recorded consent, no send. The
+  // cost of that is this ATTEMPT being skipped, after which the cascade falls
+  // through to SMS and email — so the person still receives the notice, just
+  // not on a channel we cannot prove they agreed to. The cost of failing open
+  // is an unlawful disclosure under NDPA and a WhatsApp policy breach against
+  // the number both brands depend on for inbound.
+  if (!isReply) {
+    if (!recipientUserId) {
+      return {
+        status: "skipped",
+        detail: "no WhatsApp consent on record for this recipient (not a portal user)",
+      };
+    }
+    if (!(await mayContact(recipientUserId, "whatsapp", to))) {
+      return {
+        status: "skipped",
+        detail: "recipient has not consented to WhatsApp, or consent was given for a different number",
+      };
+    }
+  }
+  // An org with no number of its own is SKIPPED, not sent from someone else's.
+  // The cascade then falls through to SMS and email, which is the B8 behaviour
+  // for an unavailable channel — and far better than the recipient hearing from
+  // a brand they have never dealt with.
+  if (!sender) {
+    return {
+      status: "skipped",
+      detail: "no WhatsApp number registered for this organisation",
+    };
   }
   try {
-    await sendReply("whatsapp", to, message);
-    return { status: "sent", detail: "delivered via WhatsApp Cloud API" };
+    // A template on a REPLY is impossible by construction (isReply implies
+    // whatsappSender was set, which callers never pair with a template — see
+    // the field's own doc comment) but checked here anyway rather than
+    // trusted, since "outside the window" is exactly the failure mode a
+    // stray template on a reply would silently avoid rather than surface.
+    if (!isReply && template) {
+      await sendWhatsAppTemplate(sender, to, template);
+      return {
+        status: "sent",
+        detail: `delivered via WhatsApp template "${template.name}" from ${sender.phoneNumberId}`,
+      };
+    }
+    await sendReply("whatsapp", to, message, sender);
+    return { status: "sent", detail: `delivered via WhatsApp from ${sender.phoneNumberId}` };
   } catch (e) {
     return { status: "failed", detail: e instanceof Error ? e.message : "WhatsApp send failed" };
   }
@@ -45,39 +143,53 @@ async function trySms(to: string): Promise<Attempt> {
   return { status: "skipped", detail: "SMS provider not yet integrated" };
 }
 
-async function tryEmail(to: string, message: string): Promise<Attempt> {
+/**
+ * ⚠️ Through `sendEmail`, with the org (11 Sept 2026).
+ *
+ * This posted to Resend directly, From one global `EMAIL_FROM` — default
+ * "OE Group <noreply@oegroup.example>" — with the subject "OE Group —
+ * notification". Every critical notice that fell through WhatsApp and SMS to
+ * email therefore reached an OEA or TFML recipient from the HOLDING entity, in
+ * the one channel `lib/email.ts` had already been fixed to refuse exactly that:
+ * "borrowing another organisation's identity is never the safe default;
+ * declining is." Two senders, one of them never corrected. Now there is one:
+ * the organisation's own sender and reply routing, or a logged skip.
+ */
+async function tryEmail(orgId: string, to: string, message: string): Promise<Attempt> {
   if (!process.env.RESEND_API_KEY) {
     return { status: "skipped", detail: `stubbed: no Resend key (would email ${to})` };
   }
   try {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: process.env.EMAIL_FROM ?? "OE Group <noreply@oegroup.example>",
-        to,
-        subject: "OE Group — notification",
-        text: message,
-      }),
+    const res = await sendEmail({
+      to,
+      orgId,
+      category: "operations",
+      subject: (ctx) => `${ctx.brandName} — notification`,
+      text: message,
     });
-    if (!res.ok) {
-      return { status: "failed", detail: `Resend ${res.status}: ${await res.text()}` };
-    }
-    return { status: "sent", detail: "delivered via Resend" };
+    return res.sent
+      ? { status: "sent", detail: "delivered via Resend, from the organisation's own sender" }
+      : { status: "skipped", detail: res.reason ?? "not sent" };
   } catch (e) {
     return { status: "failed", detail: e instanceof Error ? e.message : "email send failed" };
   }
 }
 
-async function tryTelegram(chatId: string, message: string): Promise<Attempt> {
-  if (!process.env.TELEGRAM_BOT_TOKEN) {
-    return { status: "skipped", detail: "stubbed: no Telegram token" };
+async function tryTelegram(
+  orgId: string,
+  chatId: string,
+  message: string,
+  buttons?: TelegramButton[][]
+): Promise<Attempt> {
+  // Resolved per ORG, not from a single environment variable. With one bot per
+  // brand, a shared token means every reply arrives from whichever bot that
+  // variable named — the same cross-brand fault WhatsApp had.
+  const botToken = await telegramSenderForOrg(orgId);
+  if (!botToken) {
+    return { status: "skipped", detail: "no Telegram bot registered for this organisation" };
   }
   try {
-    await sendReply("telegram", chatId, message);
+    await sendReply("telegram", chatId, message, null, botToken, buttons);
     return { status: "sent", detail: "delivered via Telegram" };
   } catch (e) {
     return { status: "failed", detail: e instanceof Error ? e.message : "Telegram send failed" };
@@ -115,7 +227,21 @@ export async function sendCascade(
   // Primary → SMS → Email, stopping at the first success.
   if (target.whatsapp) {
     order++;
-    const a = await tryWhatsApp(target.whatsapp, target.message);
+    // Answer on the number that received the message; otherwise the org's own.
+    // Never a global default — that is what crossed the brands.
+    const sender = target.whatsappSender ?? (await whatsappSenderForOrg(target.orgId));
+    // `whatsappSender` is supplied only when replying to an inbound message —
+    // the type says so, and that makes it the honest discriminator for "did
+    // they speak first," rather than adding a second flag that could disagree
+    // with it.
+    const a = await tryWhatsApp(
+      target.whatsapp,
+      target.message,
+      sender,
+      Boolean(target.whatsappSender),
+      target.recipientUserId,
+      target.whatsappTemplate
+    );
     await log(target, cascadeId, "whatsapp", target.whatsapp, a, order);
     if (a.status === "sent") delivered = true;
   }
@@ -127,7 +253,7 @@ export async function sendCascade(
   }
   if (!delivered && target.email) {
     order++;
-    const a = await tryEmail(target.email, target.message);
+    const a = await tryEmail(target.orgId, target.email, target.message);
     await log(target, cascadeId, "email", target.email, a, order);
     if (a.status === "sent") delivered = true;
   }
@@ -135,7 +261,7 @@ export async function sendCascade(
   // Telegram runs in parallel for opt-in recipients (not part of the fallback).
   if (target.telegram) {
     order++;
-    const a = await tryTelegram(target.telegram, target.message);
+    const a = await tryTelegram(target.orgId, target.telegram, target.message, target.telegramButtons);
     await log(target, cascadeId, "telegram", target.telegram, a, order);
   }
 

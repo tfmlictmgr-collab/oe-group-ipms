@@ -12,6 +12,9 @@ node_modules/
 .DS_Store
 Thumbs.db
 
+# Generated per-org artifacts (own thresholds/branding — never a source file)
+/docs/generated/
+
 # Next.js
 /.next/
 /out/
@@ -24,6 +27,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .vercel
+.vercel*
 *.tsbuildinfo
 next-env.d.ts
 
@@ -32,3 +36,21 @@ next-env.d.ts
 
 # Office lock/temp files
 ~$*
+scratchpad/
+security/reports/
+PR_BODY.md
+
+# Supabase CLI's own local cache (just its own version pin, e.g. "v2.115.0")
+supabase/.temp/
+
+# Source documents carrying live tenant/landlord PII. Never in git, and never
+# under public/ — Next.js serves that directory statically to anyone.
+/private/
+public/*.xlsx
+public/*.csv
+
+# A raw database dump is the whole database, PII included, in one file. It has
+# turned up untracked in the repo root more than once (from a manual pg_dump or
+# a concurrent session's scratch work) — this stops it from ever landing in a
+# commit by habit rather than by someone deciding to publish a schema snapshot.
+dump.sql

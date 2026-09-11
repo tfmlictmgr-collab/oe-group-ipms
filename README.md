@@ -1,36 +1,90 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# OE Group IWMS
 
-## Getting Started
+Integrated FM / property-management platform for **TFML** (facilities) and
+**OEA** (property) — two brands, one backend, fully isolated. Next.js on Vercel,
+Postgres on Supabase with row-level security as the enforced boundary.
 
-First, run the development server:
+> ⚠️ **This file replaced the `create-next-app` boilerplate**, which survived an
+> entire Phase-1 build. Anyone who cloned this repo — a new developer, an
+> auditor, the second build machine — opened it and learned how to scaffold a
+> Next.js app. If you are looking for something and it is not linked below,
+> that is a bug in this file; fix it here rather than remembering where it
+> lives.
+
+---
+
+## Start here
+
+| You are… | Read |
+|---|---|
+| new to the project | `docs/HANDOFF.md` — current state, the two environments, gotchas |
+| setting up a machine | `docs/DEV_SETUP.md`, then `docs/PHASE1_SETUP.md` |
+| looking for the brief | `CLAUDE.md` — the master build prompt and every locked board decision |
+| asking "what's built?" | `docs/PHASE1_WORKPLAN.md`, and the tail of `docs/BUILD_JOURNAL.md` |
+| taking it live | `docs/GO_LIVE_CHECKLIST.md`, sequenced by `docs/GO_LIVE_RUNWAY.md` |
+| **running security tests** | **`security/README.md`** — ZAP, k6, and the pre-flight that refuses unsafe targets |
+| answering a compliance question | `docs/NDPA_COMPLIANCE_PACK.md`, `docs/DAY12_SECURITY_PASS.md` |
+| testing with real staff | `docs/UAT_SCRIPT.md` — all ten roles |
+
+---
+
+## Commands
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm run dev          # local dev server
+npm run migrate      # apply pending migrations — .env.local must NOT point at the frozen POC
+npm run seed         # synthetic demo data (same caveat)
+npm run verify       # the full verification suite
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Security and load testing — see `security/README.md` before running any of
+these, especially `pentest:full`:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm run pentest:baseline -- https://target   # passive; safe anywhere
+npm run pentest:full     -- https://target   # ACTIVE; empty production only
+npm run loadtest         -- https://target   # read-only weekday profile
+npm run loadtest:spike   -- https://target   # burst; asserts graceful shedding
+npm run loadtest:ratelimit -- https://target # fails if nothing is refused
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+⚠️ `pentest:full` runs a pre-flight that **refuses** a target with a live
+payment key, the frozen POC project, or a database that has ever sent a real
+remittance. That gate is not advisory — an active scan replays captured POSTs,
+and this application writes through Next.js Server Actions.
 
-## Learn More
+---
 
-To learn more about Next.js, take a look at the following resources:
+## How it is organised
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```
+app/            Next.js App Router — dashboard, public entry surfaces, API routes
+components/     shared UI + the app shell
+lib/            server-side logic: triage, gateways, notifications, remittance
+supabase/       migrations — the schema and every policy, in order
+scripts/        migrations runner, seeds, and ~50 verification suites
+security/       pen-test and load-test configuration
+docs/           the brief, the plans, the audits, the compliance pack
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+**The database is the boundary.** RLS policies and `SECURITY DEFINER` functions
+decide who may see and do what; the application never re-implements those rules,
+and where it once did, the two drifted (see `BUILD_JOURNAL.md`). If you are
+adding a permission check, check whether the database already answers it.
 
-## Deploy on Vercel
+---
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Verification
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Around 50 suites under `scripts/verify-*.mjs`, each written against a defect
+that actually happened. Run them all with `npm run verify`, or one at a time:
+
+```bash
+node scripts/verify-security-posture.mjs      # RLS, anon reachability, audit trail
+node scripts/verify-role-surface.mjs          # all ten roles, matrix vs menu
+node scripts/verify-payment-gate.mjs          # the B4 gate against direct API calls
+node scripts/verify-notification-links.mjs    # no notification points at nothing
+```
+
+Some suites need `npx tsx` rather than bare `node` — each says so in its own
+header. Read it before concluding a suite is broken.
