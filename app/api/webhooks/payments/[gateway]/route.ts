@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { checkRateLimit, clientIp } from "@/lib/rate-limit";
-import { getAdapterByName, getGatewayForOrg, type GatewayName } from "@/lib/gateway";
-import { sendEmail, type MailContext } from "@/lib/email";
+import {
+  adapterForIntent, getAdapterByName, getGatewayForOrg, type GatewayName, type PaymentGatewayAdapter,
+} from "@/lib/gateway";
+import { settleIntentByReference } from "@/lib/gateway/settle";
 
 /**
  * The adapter whose credentials belong to THIS org, for verifying a webhook it
@@ -92,24 +94,40 @@ export async function POST(
   // A reference with no tag (minted before 0156, or an org that has not
   // connected its own account) resolves to null and verifies against the
   // platform key, exactly as it did before.
+  //
+  // 📌 0288: OUR OWN RECORD FIRST. A collection's intent says which merchant
+  // account took it (`merchant_account`), and the signature must be checked
+  // with that account's key — not with whatever account the org would use
+  // today. The reference tag remains the fallback for events with no intent
+  // behind them (transfers, which settle remittances).
   let orgId: string | null = null;
+  let intentAdapter: PaymentGatewayAdapter | null = null;
   try {
     const peeked = JSON.parse(rawBody) as Record<string, unknown>;
     const peekedRef = extractEvent(name, peeked).reference;
     if (peekedRef) {
-      const { orgFromPaymentReference } = await import("@/lib/gateway/credentials");
-      orgId = await orgFromPaymentReference(peekedRef);
+      const { data: known } = await supabaseAdmin
+        .from("payment_intents")
+        .select("org_id, gateway, currency, merchant_account")
+        .eq("gateway_reference", peekedRef)
+        .maybeSingle();
+      if (known && known.gateway === name) {
+        intentAdapter = await adapterForIntent(known).catch(() => null);
+      }
+      if (!intentAdapter) {
+        const { orgFromPaymentReference } = await import("@/lib/gateway/credentials");
+        orgId = await orgFromPaymentReference(peekedRef);
+      }
     }
   } catch {
     // Unparseable body: fall through to the platform key, which will refuse it
     // on signature or on the JSON parse below.
   }
 
-  let adapter;
+  let adapter: PaymentGatewayAdapter;
   try {
-    adapter = orgId
-      ? await getAdapterForOrgWebhook(name, orgId)
-      : getAdapterByName(name);
+    adapter = intentAdapter
+      ?? (orgId ? await getAdapterForOrgWebhook(name, orgId) : getAdapterByName(name));
   } catch {
     console.warn(`Rejected ${name} webhook: gateway not configured, cannot verify`);
     return new NextResponse("Forbidden", { status: 403 });
@@ -166,144 +184,21 @@ export async function POST(
     console.error("could not record gateway event:", dupErr.message);
   }
 
-  // 5 — resolve by OUR reference.
-  const { data: intent } = await supabaseAdmin
-    .from("payment_intents")
-    .select("id, org_id, amount_expected, currency, ledger_entry_id, status")
-    .eq("gateway_reference", reference)
-    .maybeSingle();
-
-  if (!intent) {
-    await finishEvent(name, eventId, null, "no matching payment intent");
-    return new NextResponse("OK", { status: 200 });
-  }
-  if (intent.ledger_entry_id) {
-    await finishEvent(name, eventId, intent.id, "already posted");
-    return new NextResponse("OK", { status: 200 });
-  }
-
-  // 6 — the amount comes from here, never from `payload`.
-  const verified = await adapter.verifyTransaction(reference);
-  if (!verified.ok || verified.status !== "success") {
-    await supabaseAdmin
-      .from("payment_intents")
-      .update({ status: verified.status === "failed" ? "failed" : "pending" })
-      .eq("id", intent.id);
-    await finishEvent(name, eventId, intent.id, `not successful: ${verified.error ?? verified.status}`);
-    return new NextResponse("OK", { status: 200 });
-  }
-
-  // Every adapter returns the amount from its own server-side lookup. The
-  // fallback is our invoiced figure — never the payload, under any adapter.
-  const amount = verified.amount ?? Number(intent.amount_expected);
-
-  const { data: entryId, error: postErr } = await supabaseAdmin.rpc("record_collection", {
-    p_intent_id: intent.id,
-    p_amount_verified: amount,
-    p_paid_at: verified.paidAt ?? new Date().toISOString(),
-  });
-
-  if (postErr) {
-    console.error("collection posting failed:", postErr.message);
-    await finishEvent(name, eventId, intent.id, `posting failed: ${postErr.message}`);
-    // Still 200: the event is recorded and a retry would fail identically.
-    return new NextResponse("OK", { status: 200 });
-  }
-
-  await finishEvent(name, eventId, intent.id, `posted entry ${entryId}`);
-
-  // ── The receipt, actually sent ────────────────────────────────────────────
-  //
-  // 📌 Reported as "client fund payment receipt didn't get to the recipient's
-  // email". Measured: nothing was ever emailed by this codebase on a successful
-  // collection. A receipt PDF is rendered on demand at
-  // `/api/receipts/[intentId]`, which requires a signed-in session and is
-  // linked only from inside the dashboard — so a tenant who paid a link and has
-  // no portal account had no route to it at all. The help guide's claim that a
-  // verified payment "issues a receipt in real time" meant "makes one
-  // downloadable", which is not what a payer reads it as.
-  //
-  // ⚠️ AFTER `finishEvent`, and every failure swallowed. The money is already
-  // posted to the ledger; an email provider being down must never turn a
-  // settled collection into a webhook the gateway will retry.
-  try {
-    await sendCollectionReceipt(intent.id);
-  } catch (e) {
-    console.error("receipt email failed:", e instanceof Error ? e.message : e);
-  }
-
+  // 5–7 — resolve by OUR reference, verify server-to-server on the account
+  // that took it, post idempotently, send the receipt once. One implementation
+  // shared with the payer's return from checkout (lib/gateway/settle.ts), so
+  // the two doors cannot disagree about what a payment is.
+  const outcome = await settleIntentByReference(reference, { adapter });
+  const { data: settled } = await supabaseAdmin
+    .from("payment_intents").select("id").eq("gateway_reference", reference).maybeSingle();
+  await finishEvent(
+    name, eventId, settled?.id ?? null,
+    outcome.state === "paid" ? `posted entry ${outcome.entryId}`
+      : outcome.state === "already" ? "already posted"
+      : outcome.state === "unknown" ? outcome.detail
+      : `not successful: ${outcome.detail}`
+  );
   return new NextResponse("OK", { status: 200 });
-}
-
-/**
- * Emails the payer a receipt for a collection that has just posted.
- *
- * The figures are re-read from the intent AFTER `record_collection` rather than
- * passed in, so what the receipt states and what the ledger holds are the same
- * numbers by construction — the same rule `getChainState` follows for an
- * amount, and the reason a receipt is generated from the ledger rather than
- * from the gateway payload.
- */
-async function sendCollectionReceipt(intentId: string): Promise<void> {
-  const { data } = await supabaseAdmin
-    .from("payment_intents")
-    .select(
-      "id, org_id, purpose, currency, amount_paid, amount_expected, paid_at, gateway_reference, payer_email, payer_user_id, users:payer_user_id(full_name, email)"
-    )
-    .eq("id", intentId)
-    .maybeSingle();
-
-  if (!data) return;
-
-  const payer = data.users as { full_name?: string; email?: string } | null;
-  const to = (data.payer_email as string | null) ?? payer?.email ?? null;
-  if (!to) return;
-
-  const paid = Number(data.amount_paid ?? 0);
-  const expected = Number(data.amount_expected ?? 0);
-  const currency = (data.currency as string) ?? "NGN";
-  const money = (n: number) =>
-    `${currency === "NGN" ? "₦" : `${currency} `}${n.toLocaleString("en-NG", {
-      minimumFractionDigits: 2, maximumFractionDigits: 2,
-    })}`;
-  const what = String(data.purpose ?? "payment").replace(/_/g, " ");
-
-  await sendEmail({
-    to,
-    orgId: data.org_id as string,
-    category: "finance",
-    entityType: "payment_intent",
-    entityId: data.id as string,
-    subject: (ctx: MailContext) => `${ctx.brandName} — receipt for your ${what} payment`,
-    text: (ctx: MailContext) =>
-      [
-        `Dear ${payer?.full_name ?? "Sir/Madam"},`,
-        ``,
-        `We have received your ${what} payment. Thank you.`,
-        ``,
-        `Amount received: ${money(paid)}`,
-        // Stated only when it differs. A receipt that says "invoiced ₦X" on a
-        // payment that settled it in full is noise; on a part payment it is the
-        // single most useful line on the page.
-        ...(paid < expected
-          ? [
-              `Invoiced:        ${money(expected)}`,
-              `Still outstanding: ${money(expected - paid)}`,
-            ]
-          : []),
-        `Reference:       ${data.gateway_reference ?? "—"}`,
-        `Date:            ${new Date(String(data.paid_at ?? Date.now())).toLocaleDateString("en-NG", {
-          day: "numeric", month: "long", year: "numeric",
-        })}`,
-        ``,
-        `This receipt is issued from our ledger, so it always states what has actually been recorded against your account.`,
-        ...(data.payer_user_id
-          ? [``, `You can see your full payment history any time by signing in to your ${ctx.brandName} portal.`]
-          : []),
-        ``,
-        `${ctx.brandName}`,
-      ].join("\n"),
-  });
 }
 
 /**

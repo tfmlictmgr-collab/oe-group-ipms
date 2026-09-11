@@ -1,6 +1,6 @@
 "use server";
 
-import { headers } from "next/headers";
+import { portalOrigin } from "@/lib/portal-origin";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -314,10 +314,7 @@ export async function inviteVendorColleague(
   // vendor could act on. Passed through rather than reworded.
   if (error) return failFromDb(error, "issue that invitation");
 
-  const h = await headers();
-  const origin =
-    process.env.NEXT_PUBLIC_SITE_URL ??
-    `${h.get("x-forwarded-proto") ?? "https"}://${h.get("host")}`;
+  const origin = await portalOrigin(me.org_id);
   const url = buildInviteUrl(origin, token);
 
   const { data: org } = await supabase

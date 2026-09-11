@@ -4,6 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
 import { formatNaira, formatMoney } from "@/lib/currency";
 import { PageHeader } from "@/components/patterns/page-header";
+import { PaymentReturn } from "@/components/patterns/payment-return";
+import { checkMyServiceChargePayment } from "./actions";
 import { EmptyState } from "@/components/patterns/empty-state";
 import { StatusBadge } from "@/components/patterns/status-badge";
 import { PrintButton } from "@/components/patterns/print-button";
@@ -70,7 +72,14 @@ const fmtDateTime = (d: string | null) =>
       })
     : "—";
 
-export default async function StatementsPage() {
+export default async function StatementsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ ref?: string; reference?: string; trxref?: string }>;
+}) {
+  // The gateway's return (see PaymentReturn).
+  const sp = await searchParams;
+  const returned = sp.ref ?? sp.reference ?? sp.trxref ?? null;
   const session = await getSessionProfile();
   if (!session) redirect("/login");
 
@@ -260,6 +269,11 @@ export default async function StatementsPage() {
           actions={<PrintButton />}
         />
       </div>
+      {returned && (
+        <div data-print="screen-only">
+          <PaymentReturn reference={returned} check={checkMyServiceChargePayment} />
+        </div>
+      )}
 
       {rows.length === 0 ? (
         <>

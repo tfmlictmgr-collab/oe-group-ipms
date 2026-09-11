@@ -1,5 +1,6 @@
 "use server";
 
+import { portalOrigin } from "@/lib/portal-origin";
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -26,12 +27,9 @@ import { sendOfferAcceptedInvitation } from "@/lib/application-mail";
  * have. The token is 24 random bytes; this is belt to that brace.
  */
 
-async function origin() {
-  const h = await headers();
-  return (
-    process.env.NEXT_PUBLIC_SITE_URL ??
-    `${h.get("x-forwarded-proto") ?? "http"}://${h.get("host")}`
-  );
+/** The applicant's organisation's own portal address (lib/portal-origin.ts). */
+async function origin(orgId: string) {
+  return portalOrigin(orgId);
 }
 
 export async function acceptOffer(
@@ -75,7 +73,7 @@ export async function acceptOffer(
         email: result.email,
         name: result.name,
       },
-      buildInviteUrl(await origin(), inviteToken),
+      buildInviteUrl(await origin(result.org_id), inviteToken),
       null
     );
   } catch (err) {

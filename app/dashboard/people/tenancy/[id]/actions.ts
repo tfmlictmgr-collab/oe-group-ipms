@@ -1,6 +1,6 @@
 "use server";
 
-import { headers } from "next/headers";
+import { portalOrigin } from "@/lib/portal-origin";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -23,12 +23,9 @@ import { ok, fail, failFromDb, type ActionResult } from "@/lib/action-result";
 // migration 0082. This layer's only job is the two things that cannot happen
 // inside Postgres — reading the request origin, and sending an email.
 
-async function origin() {
-  const h = await headers();
-  return (
-    process.env.NEXT_PUBLIC_SITE_URL ??
-    `${h.get("x-forwarded-proto") ?? "http"}://${h.get("host")}`
-  );
+/** The applicant's organisation's own portal address (lib/portal-origin.ts). */
+async function origin(orgId: string) {
+  return portalOrigin(orgId);
 }
 
 export async function recommendApplication(
@@ -82,7 +79,7 @@ export async function requestMoreInfo(
   if (error) return failFromDb(error, "send that request");
 
   try {
-    const link = resumeUrl(await origin(), orgId, token);
+    const link = resumeUrl(await origin(orgId), orgId, token);
     await sendEmail({
       to: applicantEmail,
       orgId,
@@ -248,7 +245,7 @@ export async function approveApplication(
         { applicationId, orgId, email: applicantEmail, name: applicantName },
         terms,
         await offerPlace(supabase, applicationId),
-        offerUrl(await origin(), token)
+        offerUrl(await origin(orgId), token)
       );
     } catch (err) {
       // The offer is recorded and its link is on the application page. A failed
@@ -321,7 +318,7 @@ export async function reissueOffer(
       { applicationId, orgId, email: applicantEmail, name: applicantName },
       terms,
       await offerPlace(supabase, applicationId),
-      offerUrl(await origin(), token)
+      offerUrl(await origin(orgId), token)
     );
   } catch (err) {
     console.error("Could not email the offer letter:", err);

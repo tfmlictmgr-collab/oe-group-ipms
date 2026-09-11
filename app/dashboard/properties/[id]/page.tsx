@@ -162,9 +162,13 @@ export default async function PropertyDetailPage({
               .map((m) => ({
                 id: m.id,
                 name: m.full_name ?? m.email ?? "Unnamed",
+                email: m.email,
                 role: m.role,
                 roleName: roleLabel(m.role, session.org?.delivery_brand ?? null),
               }))}
+            // Names open the person's profile only for a viewer who can reach
+            // People at all — anyone else would land on a role refusal.
+            opensProfiles={["admin", ...FM_PM, "regional_manager"].includes(session.profile?.role ?? "")}
             attached={(stakeholders ?? []).map((s) => ({
               userId: s.user_id, relation: s.relation as "manager" | "owner",
             }))}

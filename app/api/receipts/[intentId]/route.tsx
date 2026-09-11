@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { publicOrgName } from "@/lib/org-public";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { createClient } from "@/lib/supabase/server";
 import { getBrandTheme } from "@/lib/brands";
@@ -64,7 +65,10 @@ export async function GET(
 
   const data: ReceiptData = {
     org: {
-      name: org?.portal_name || org?.name || "Client Portal",
+      // The ORGANISATION's name, not its portal label — OEA's `portal_name` is
+      // "PM PORTAL", and a document a payer keeps must name who they paid
+      // (decision 36's `publicOrgName`, now on the documents that leave too).
+      name: org ? publicOrgName(org) : "Client Portal",
       logoUrl: org?.logo_url ?? null,
       // Was `org?.theme_primary ?? "#003366"` — TFML's own navy for any org
       // with nothing customised, so an OEA receipt printed in TFML's colour.

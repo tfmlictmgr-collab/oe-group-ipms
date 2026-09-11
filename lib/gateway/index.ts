@@ -148,14 +148,26 @@ class PaystackAdapter implements PaymentGatewayAdapter {
       const json = (await res.json()) as {
         status?: boolean;
         message?: string;
-        data?: { amount?: number; currency?: string; status?: string; paid_at?: string };
+        data?: {
+          amount?: number; requested_amount?: number; currency?: string;
+          status?: string; paid_at?: string;
+        };
       };
       if (!res.ok || !json.status || !json.data) {
         return { ok: false, error: json.message ?? `HTTP ${res.status}` };
       }
+      // ⚠️ `requested_amount`, when Paystack gives one — the sum WE asked for.
+      // Where the merchant passes Paystack's charge on to the payer, `amount`
+      // is that sum PLUS the fee (the reported receipt read ₦100,002,000.00 on
+      // a ₦100,000,000.00 demand). The fee is Paystack's, never reaches the
+      // client-funds account, and is not a payment towards the demand — crediting
+      // it would record a ₦2,000 overpayment the tenant never made to anyone we
+      // hold money for. Where the merchant absorbs the fee the two are equal.
+      const requested = json.data.requested_amount;
+      const charged = json.data.amount ?? 0;
       return {
         ok: true,
-        amount: fromKobo(json.data.amount ?? 0),
+        amount: fromKobo(requested && requested > 0 && requested <= charged ? requested : charged),
         currency: json.data.currency,
         status: json.data.status === "success" ? "success" : json.data.status === "failed" ? "failed" : "pending",
         paidAt: json.data.paid_at,
@@ -554,8 +566,9 @@ export function newPaymentReference(purpose: string, orgTag?: string | null): st
 }
 
 /**
- * The adapter for an ORG's own merchant account, falling back to the platform
- * key when that org has not connected one.
+ * The adapter for an ORG's own merchant account. Since 0288 it no longer falls
+ * back to the platform key for an org that has not connected one — see
+ * `resolveOrgGateway`, which this now delegates to.
  *
  * ⚠️ This is the segregation that matters for money: a TFML vendor payment must
  * draw on TFML's balance, never OEA's. Before 0156 both drew on whichever
@@ -566,6 +579,47 @@ export async function getGatewayForOrg(
   orgId: string,
   currency = "NGN"
 ): Promise<PaymentGatewayAdapter> {
+  return (await resolveOrgGateway(orgId, currency)).adapter;
+}
+
+/** Refused rather than routed through someone else's merchant account (0288). */
+export class GatewayNotConnectedError extends Error {
+  constructor(orgName: string | null) {
+    super(
+      `${orgName ?? "This organisation"} has not connected its own payment account yet, so online ` +
+        `payment is not available. Nothing has been charged. You can pay by bank transfer instead.`
+    );
+    this.name = "GatewayNotConnectedError";
+  }
+}
+
+export type MerchantAccount = "org" | "platform";
+
+/**
+ * The adapter an org's money moves through, and WHICH account that is.
+ *
+ * ⚠️ 0288. This used to fall back to the platform key for any org with no
+ * account of its own — and no org had one, so every organisation's
+ * collections and payouts ran through the platform merchant account, which is
+ * TFML's. An OEA tenant was sent a Paystack receipt reading "Total Facilities
+ * Management Limited received your payment", and it was accurate.
+ *
+ * Now, in order:
+ *   1. the org's own connected credential;
+ *   2. the platform key — ONLY for the one org marked `uses_platform_gateway`;
+ *   3. the simulated gateway — only outside production, and only when no real
+ *      key exists for the currency, where no money can move under anyone's name;
+ *   4. otherwise REFUSED with `GatewayNotConnectedError`. The payer can still
+ *      transfer into the org's own client-funds account (0281); what they can
+ *      never do again is pay one organisation through another's account.
+ *
+ * `merchant` is recorded on the intent, because verification must use the
+ * same account that took the payment.
+ */
+export async function resolveOrgGateway(
+  orgId: string,
+  currency = "NGN"
+): Promise<{ adapter: PaymentGatewayAdapter; merchant: MerchantAccount | "simulated" }> {
   const { getOrgCredential } = await import("./credentials");
   const wanted: "paystack" | "flutterwave" =
     currency.toUpperCase() === "NGN" ? "paystack" : "flutterwave";
@@ -573,9 +627,13 @@ export async function getGatewayForOrg(
   try {
     const cred = await getOrgCredential(orgId, wanted);
     if (cred) {
-      return wanted === "paystack"
-        ? new PaystackAdapter(cred.secretKey)
-        : new FlutterwaveAdapter(cred.secretKey, cred.webhookSecret ?? "");
+      return {
+        merchant: "org",
+        adapter:
+          wanted === "paystack"
+            ? new PaystackAdapter(cred.secretKey)
+            : new FlutterwaveAdapter(cred.secretKey, cred.webhookSecret ?? ""),
+      };
     }
   } catch (e) {
     // A credential that cannot be read must NOT silently become the platform
@@ -593,5 +651,57 @@ export async function getGatewayForOrg(
     );
   }
 
-  return getGateway(currency);
+  const { supabaseAdmin } = await import("@/lib/supabase/admin");
+  const { data: org, error } = await supabaseAdmin
+    .from("orgs").select("name, uses_platform_gateway").eq("id", orgId).maybeSingle();
+  if (error) {
+    // Failing closed: "could not tell whose account this is" must never become
+    // "use the platform's".
+    throw new Error("This organisation's payment account could not be determined. Nothing has been charged.");
+  }
+
+  if (org?.uses_platform_gateway && gatewayConfigured(currency)) {
+    return { merchant: "platform", adapter: getGateway(currency) };
+  }
+
+  // No real key for this currency at all, outside production: the simulated
+  // gateway moves no money under anybody's name, and its checkout page carries
+  // the paying org's own name — nothing to leak.
+  if (!gatewayConfigured(currency) && !isProduction()) {
+    return {
+      merchant: "simulated",
+      adapter: new SimulatedAdapter(process.env.SIMULATED_GATEWAY_SECRET ?? "dev-simulated-secret"),
+    };
+  }
+
+  throw new GatewayNotConnectedError(org?.name ?? null);
+}
+
+/**
+ * The adapter that can VERIFY a payment already taken — the account it was
+ * taken on, never whichever account would take it today. An intent minted on
+ * the platform key before 0288 (merchant NULL) is verified on the platform key
+ * even though its org would now be refused a new checkout there: the tenant
+ * has paid, and refusing to recognise the payment would chase them for money
+ * the gateway already holds.
+ */
+export async function adapterForIntent(intent: {
+  org_id: string;
+  gateway: string;
+  currency: string;
+  merchant_account: string | null;
+}): Promise<PaymentGatewayAdapter> {
+  if (intent.gateway === "simulated") return getAdapterByName("simulated");
+  const name = intent.gateway as "paystack" | "flutterwave";
+  if (intent.merchant_account === "org") {
+    const { getOrgCredential } = await import("./credentials");
+    const cred = await getOrgCredential(intent.org_id, name);
+    if (!cred) {
+      throw new Error("the merchant account this payment was taken on is no longer connected");
+    }
+    return name === "paystack"
+      ? new PaystackAdapter(cred.secretKey)
+      : new FlutterwaveAdapter(cred.secretKey, cred.webhookSecret ?? "");
+  }
+  return getAdapterByName(name);
 }

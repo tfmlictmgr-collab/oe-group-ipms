@@ -16,6 +16,7 @@ import {
   Table, TableHeader, TableBody, TableRow, TableHead, TableCell,
 } from "@/components/ui/table";
 import RentRollActions from "../RentRollActions";
+import TenantOfRecordForm from "./TenantOfRecordForm";
 
 // One tenancy, in full — and the statement for the person living in it.
 //
@@ -68,6 +69,9 @@ type Lease = {
   notes: string | null;
   created_at: string;
   renewed_from_lease_id: string | null;
+  /** Decision 37: who the tenant is where no portal account holds the tenancy. */
+  tenant_name: string | null;
+  tenant_phone: string | null;
   properties: { name: string; address: string | null } | null;
   units: { label: string; unit_quantity: number | null } | null;
   users: { full_name: string | null; email: string | null; phone: string | null } | null;
@@ -163,7 +167,7 @@ export default async function LeaseDetailPage({
     .select(
       "id, org_id, property_id, unit_id, tenant_user_id, start_date, end_date, status, " +
       "rent_amount, rent_frequency, paid_in_advance, currency, escalation_pct, deposit_amount, " +
-      "notes, created_at, renewed_from_lease_id, " +
+      "notes, created_at, renewed_from_lease_id, tenant_name, tenant_phone, " +
       "properties(name, address), users:tenant_user_id(full_name, email, phone)"
     )
     .eq("id", id)
@@ -286,6 +290,8 @@ export default async function LeaseDetailPage({
   const seesFeeSplit = !viewerIsTenant && staffCharges.length > 0;
   const serviceCharges = (scRes.data ?? []) as unknown as ServiceCharge[];
   const canWrite = Boolean(canWriteRes.data);
+  // A name opens the tenant's profile only for someone who can open People.
+  const opensProfiles = ["admin", ...FM_PM, "regional_manager"].includes(role);
 
   // Receipts, keyed off the charges above rather than off the unit. A payment
   // intent carries `rent_charge_id` (0092) and `service_charge_id` (0032); the
@@ -379,7 +385,14 @@ export default async function LeaseDetailPage({
 
   const unitName = lease.units?.label ?? "Unit";
   const propertyName = lease.properties?.name ?? "Property";
-  const tenantName = lease.users?.full_name ?? lease.users?.email ?? null;
+  // ⚠️ The account first, then the tenant OF RECORD — the same order
+  // `tenancy_schedule` coalesces in (decision 37). This page read the account
+  // alone, so every company let and every imported tenancy — tenants the
+  // schedule names correctly — rendered here as "Not assigned": two screens
+  // disagreeing about who lives in one unit, found when People → Directory
+  // started sending people to this page for exactly those tenants.
+  const tenantName =
+    lease.users?.full_name ?? lease.users?.email ?? lease.tenant_name ?? null;
 
   return (
     <div className="printable mx-auto max-w-5xl space-y-6">
@@ -501,9 +514,30 @@ export default async function LeaseDetailPage({
                 </span>
               </Fact>
               <Fact label="Tenant">
-                {tenantName ?? <span className="text-muted-foreground">Not assigned</span>}
+                {lease.tenant_user_id && lease.users && opensProfiles ? (
+                  <Link
+                    href={`/dashboard/people/${lease.tenant_user_id}`}
+                    className="underline-offset-2 hover:underline"
+                  >
+                    {tenantName}
+                  </Link>
+                ) : (
+                  tenantName ?? <span className="text-muted-foreground">Not recorded</span>
+                )}
                 {lease.users?.email && (
                   <span className="block text-xs text-muted-foreground">{lease.users.email}</span>
+                )}
+                {!lease.tenant_user_id && lease.tenant_name && (
+                  <span className="block text-xs text-muted-foreground">
+                    {lease.tenant_phone ? `${lease.tenant_phone} · ` : ""}tenant of record, no portal account
+                  </span>
+                )}
+                {!lease.tenant_user_id && canWrite && (
+                  <TenantOfRecordForm
+                    leaseId={lease.id}
+                    name={lease.tenant_name}
+                    phone={lease.tenant_phone}
+                  />
                 )}
               </Fact>
             </div>

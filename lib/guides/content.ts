@@ -177,15 +177,19 @@ export const ROLE_GUIDES: Record<string, RoleGuide> = {
           {
             title: "Paying from the portal",
             body:
-              "Open the demand and choose \"Pay now\". A receipt is issued " +
-              "automatically and your statement updates the moment the payment " +
-              "clears — there is nothing further for you to send.",
+              "Open the demand and choose \"Pay now\". When you finish on the " +
+              "payment page you are brought back here, and the payment is checked " +
+              "with the payment gateway there and then — you will see it confirmed " +
+              "on this screen, and a receipt is emailed from us. If the gateway has " +
+              "not confirmed it yet, the screen says so: do not pay again, it is " +
+              "recorded automatically as soon as it does. If \"Pay now\" says online " +
+              "payment is not available yet, use the bank transfer option below.",
           },
           {
             title: "If you paid by bank transfer, or at the bank",
             body:
               "Tell us, and attach your receipt. On the demand you paid, choose " +
-              "\"I paid this another way\" — or just reply on WhatsApp with a photo " +
+              "\"Bank transfer / pay another way\" — or just reply on WhatsApp with a photo " +
               "of the transfer receipt or teller slip. Say how much you paid and " +
               "which demand it was for. The receipt is not optional: our finance " +
               "team has to match it against our bank account, and they cannot do " +
@@ -640,10 +644,20 @@ export const ROLE_GUIDES: Record<string, RoleGuide> = {
               "nobody has to re-assign it to you.",
           },
           {
-            title: "Inviting operational staff",
+            // Corrected 11 Sept 2026 to decision 42's stated list — this read
+            // "operational people", which the invite form stopped offering.
+            title: "Inviting people",
             body:
-              "You can invite operational people for your own region. You cannot " +
-              "invite administrators — that is deliberately not delegable.",
+              "You can invite facilities and property managers, vendors, tenants " +
+              "and property owners for your own region — nobody else. Staff above " +
+              "you, and the payment desks, are the administrator's to invite.",
+          },
+          {
+            title: "Finding anyone",
+            body:
+              "People → Directory lists staff, tenants, landlords and vendors. Open " +
+              "any of them for their whole profile — contact details, the places " +
+              "they hold or the homes they rent, and the requests they raised.",
           },
         ],
       },
@@ -795,10 +809,17 @@ export const ROLE_GUIDES: Record<string, RoleGuide> = {
           {
             title: "5. Attach people to places",
             body:
-              "Open a property and use \"Who is attached to this property\". This is not " +
-              "a label — it is the actual access. A manager who is not attached to a " +
-              "property cannot see it. You can do this at any time, so forgetting during " +
-              "onboarding is easily fixed.",
+              "Open a property and use \"Who is attached to this property\" — search it " +
+              "by name, role or email. This is not a label — it is the actual access. " +
+              "A manager who is not attached to a property cannot see it. You can do " +
+              "this at any time, so forgetting during onboarding is easily fixed.",
+          },
+          {
+            title: "Everyone, in one place",
+            body:
+              "People → Directory: staff, tenants, landlords and vendors, each row " +
+              "opening a full profile that can be printed. Tenants with no portal " +
+              "account are listed too and open on their tenancy.",
           },
           {
             title: "6. Your contractors",
@@ -813,11 +834,16 @@ export const ROLE_GUIDES: Record<string, RoleGuide> = {
         heading: "Running it",
         steps: [
           {
+            // Corrected 11 Sept 2026: this still told an administrator they may
+            // approve within the threshold, which decision 23 removed on both
+            // ladders. A manual that contradicts the product teaches people the
+            // product is broken.
             title: "Approvals and limits",
             body:
-              "Settings → Payments. You set who approves and up to what amount. You can " +
-              "approve within the threshold yourself — but you cannot then release that " +
-              "payment, and that is intentional.",
+              "Who approves is the chain — audit, then the executive, then the payment " +
+              "approver — and the amounts are set by the platform operator. As the " +
+              "administrator you approve no payment and release none; you configure " +
+              "the organisation. That separation is intentional.",
           },
           {
             title: "When someone leaves",
@@ -917,6 +943,15 @@ export function managerGuide(roleLabel: string, handlesMoney = false): RoleGuide
                 "our bank account first, and only then does the demand settle. Tell " +
                 "the tenant that plainly — they will otherwise expect it to clear " +
                 "straight away and chase you.",
+            },
+            {
+              title: "Finding a tenant, landlord or contractor",
+              body:
+                "People → Directory, then Staff, Tenants, Landlords or Vendors. " +
+                "Every row opens the person's whole profile: how to reach them, " +
+                "their tenancies or buildings, the requests they raised and — for " +
+                "a tenant — what they owe and have paid. Leases & Rent and the " +
+                "\"Who is attached to this property\" list are both searchable too.",
             },
             {
               title: "The tenancy schedule",

@@ -64,7 +64,15 @@ export async function whatsappSenderForOrg(orgId: string): Promise<WhatsAppSende
   const row = Array.isArray(data) ? data[0] : data;
   if (!row?.external_id) return null;
 
-  const accessToken = row.outbound_token ?? process.env.WHATSAPP_ACCESS_TOKEN;
+  // ⚠️ The route's OWN key, or nothing (11 Sept 2026). This fell back to the
+  // single WHATSAPP_ACCESS_TOKEN when a route had no key — and on 360dialog the
+  // key is the ONLY thing deciding which business a message leaves as (the
+  // number is not even in the URL). A route with no key of its own would have
+  // sent as whichever brand's account that variable belongs to. TFML's and
+  // OEA's routes both carry their own; the one that did not (a native Meta
+  // number this code no longer sends through) is better skipped than sent as
+  // somebody else. The cascade then falls through to SMS and email (B8).
+  const accessToken = row.outbound_token;
   if (!accessToken) return null;
   return { phoneNumberId: row.external_id, accessToken };
 }
@@ -88,7 +96,8 @@ export async function whatsappSenderForNumber(
     .maybeSingle();
   if (error || !data) return null;
 
-  const accessToken = data.outbound_token ?? process.env.WHATSAPP_ACCESS_TOKEN;
+  // The route's own key only — see `whatsappSenderForOrg`.
+  const accessToken = data.outbound_token;
   if (!accessToken) return null;
   return { phoneNumberId, accessToken };
 }
@@ -266,9 +275,12 @@ export async function telegramSenderForOrg(orgId: string): Promise<string | null
   });
   if (error) return null;
   const row = Array.isArray(data) ? data[0] : data;
-  // Falls back to the single-bot environment variable so an org configured
-  // before per-bot tokens existed keeps working.
-  return row?.outbound_token ?? process.env.TELEGRAM_BOT_TOKEN ?? null;
+  // ⚠️ The org's OWN bot, or none (11 Sept 2026). This fell back to the single
+  // TELEGRAM_BOT_TOKEN — and the `row?.` made that fallback apply to an org
+  // with NO Telegram route at all, so any organisation without a bot of its
+  // own had its messages delivered by whichever brand's bot that variable
+  // named. Every live org that uses Telegram has its own token on its route.
+  return row?.outbound_token ?? null;
 }
 
 export async function sendTelegram(

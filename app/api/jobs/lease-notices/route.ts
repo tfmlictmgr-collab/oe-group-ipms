@@ -1,4 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { publicOrgName } from "@/lib/org-public";
+import { portalOrigin } from "@/lib/portal-origin";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/email";
 import { secretMatches } from "@/lib/webhook-security";
@@ -69,14 +71,12 @@ async function run(req: NextRequest) {
   let failed = 0;
   const problems: string[] = [];
 
-  // Where the portal actually is, for the link in the letter. There is no
-  // request from a person here — a scheduler calls this — so the configured
-  // site URL comes first and the invoked origin is the fallback, which is the
-  // same order every other send in this codebase uses.
-  const origin =
-    process.env.NEXT_PUBLIC_SITE_URL ?? req.nextUrl.origin;
-
   for (const org of orgs ?? []) {
+    // Where THIS organisation's portal is, for the link in its letters. It was
+    // one address for the whole run — the deployment's — so every org's tenants
+    // were sent the same host, and it was nobody's portal (lib/portal-origin.ts).
+    const origin = await portalOrigin(org.id);
+
     const { data: due, error } = await supabaseAdmin.rpc("leases_needing_notice", {
       p_org_id: org.id,
     });
@@ -98,7 +98,9 @@ async function run(req: NextRequest) {
       proposed_rent: number;
     }[]) {
       considered++;
-      const brandName = org.portal_name || org.name;
+      // Who the tenant is dealing with — the organisation, never its portal
+      // label ("PM PORTAL" signing a renewal notice names nobody).
+      const brandName = publicOrgName(org);
 
       // Claim it first. The unique (lease, threshold) constraint means a second
       // concurrent run loses this insert and skips the lease entirely, rather

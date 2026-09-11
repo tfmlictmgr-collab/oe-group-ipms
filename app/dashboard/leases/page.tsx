@@ -7,20 +7,8 @@ import { PageHeader } from "@/components/patterns/page-header";
 import { EmptyState } from "@/components/patterns/empty-state";
 import LeaseStats from "./LeaseStats";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  Table, TableHeader, TableBody, TableRow, TableHead, TableCell,
-} from "@/components/ui/table";
-import RentRollActions from "./RentRollActions";
-
-const STATUS_VARIANT: Record<string, "success" | "outline" | "muted" | "destructive"> = {
-  active: "success", renewed: "success", draft: "outline",
-  expired: "destructive", terminated: "muted",
-};
-
-const naira = (n: number) =>
-  `₦${Number(n || 0).toLocaleString("en-NG", { maximumFractionDigits: 0 })}`;
+import RentRollTable, { type RentRollRow } from "./RentRollTable";
 
 // The rent roll: the tenancy schedule a landlord is handed, and the screen a
 // property manager works from.
@@ -48,7 +36,7 @@ export default async function LeasesPage() {
     supabase
       .from("rent_roll")
       .select(
-        "lease_id, property_name, unit_label, tenant_name, tenant_email, status, " +
+        "lease_id, property_name, unit_label, tenant_user_id, tenant_name, tenant_email, status, " +
         "start_date, end_date, days_to_expiry, rent_amount, rent_frequency, currency, " +
         "rent_billed, rent_collected, rent_outstanding, landlord_net"
       )
@@ -74,7 +62,7 @@ export default async function LeasesPage() {
   // so the client types its rows as errors.
   const rows = (rollRes.data ?? []) as unknown as {
     lease_id: string; property_name: string; unit_label: string;
-    tenant_name: string | null; tenant_email: string | null;
+    tenant_user_id: string | null; tenant_name: string | null; tenant_email: string | null;
     status: string; start_date: string; end_date: string; days_to_expiry: number;
     rent_amount: number; rent_frequency: string; currency: string;
     rent_billed: number; rent_collected: number; rent_outstanding: number;
@@ -82,6 +70,32 @@ export default async function LeasesPage() {
   }[];
 
   const canWrite = Boolean(canWriteRes.data);
+
+  // ⚠️ `rent_roll` names a tenant from the joined ACCOUNT only, so a company
+  // let and every imported tenancy (decision 37's tenant of record) rendered
+  // here as "Not assigned" while the tenancy schedule named them — and a
+  // search by tenant could never find them. Filled in from `leases` in the
+  // caller's session (`leases_select` carries the same place predicate as the
+  // view, so this reads nothing the row above did not already admit), the
+  // account first, exactly as `tenancy_schedule` coalesces.
+  // 📌 The durable fix is the view itself coalescing `l.tenant_name`; owed.
+  const accountless = rows.filter((r) => !r.tenant_user_id).map((r) => r.lease_id);
+  const { data: ofRecord } = accountless.length
+    ? await supabase
+        .from("leases")
+        .select("id, tenant_name, tenant_phone")
+        .in("id", accountless)
+    : { data: [] as { id: string; tenant_name: string | null; tenant_phone: string | null }[] };
+  const recordFor = new Map((ofRecord ?? []).map((l) => [l.id, l]));
+  const tableRows: RentRollRow[] = rows.map((r) => {
+    const rec = r.tenant_user_id ? null : recordFor.get(r.lease_id);
+    return {
+      ...r,
+      tenant_name: r.tenant_name ?? rec?.tenant_name ?? null,
+      tenant_phone: rec?.tenant_phone ?? null,
+      of_record: Boolean(rec?.tenant_name),
+    };
+  });
   const live = rows.filter((r) => r.status === "active" || r.status === "renewed");
   // The totals moved into LeaseStats with the tiles. `expiring` stays here —
   // the banner below it is a separate call to action, not a tile.
@@ -138,82 +152,7 @@ export default async function LeasesPage() {
       ) : (
         <Card>
           <CardContent className="px-0 pb-0">
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Unit</TableHead>
-                    <TableHead>Tenant</TableHead>
-                    <TableHead>Term</TableHead>
-                    <TableHead className="text-right">Rent</TableHead>
-                    <TableHead className="text-right">Outstanding</TableHead>
-                    <TableHead className="text-right">Landlord net</TableHead>
-                    <TableHead />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows.map((r) => (
-                    <TableRow key={r.lease_id}>
-                      <TableCell>
-                        <span className="font-medium">{r.unit_label}</span>
-                        <span className="block text-xs text-muted-foreground">
-                          {r.property_name}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        {r.tenant_name ?? (
-                          <span className="text-muted-foreground">Not assigned</span>
-                        )}
-                        {r.tenant_email && (
-                          <span className="block text-xs text-muted-foreground">
-                            {r.tenant_email}
-                          </span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={STATUS_VARIANT[r.status] ?? "outline"}>
-                          {r.status}
-                        </Badge>
-                        <span className="mt-0.5 block text-xs text-muted-foreground">
-                          to {new Date(r.end_date).toLocaleDateString("en-NG", {
-                            day: "numeric", month: "short", year: "numeric",
-                          })}
-                          {r.days_to_expiry >= 0 && r.days_to_expiry <= 90 &&
-                            ` · ${r.days_to_expiry}d`}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {naira(r.rent_amount)}
-                        <span className="block text-xs text-muted-foreground">
-                          {r.rent_frequency}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {Number(r.rent_outstanding) > 0 ? (
-                          <span className="font-medium text-destructive">
-                            {naira(r.rent_outstanding)}
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums text-muted-foreground">
-                        {Number(r.landlord_net) > 0 ? naira(r.landlord_net) : "—"}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {canWrite && (
-                          <RentRollActions
-                            leaseId={r.lease_id}
-                            status={r.status}
-                            endDate={r.end_date}
-                          />
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+            <RentRollTable rows={tableRows} canWrite={canWrite} />
           </CardContent>
         </Card>
       )}

@@ -196,3 +196,70 @@ export async function vacantUnitsFor(
     })),
   });
 }
+
+/**
+ * Records who the tenant of a tenancy IS, where nobody with a portal account
+ * holds it (decision 37's `tenant_name` / `tenant_phone`).
+ *
+ * ⚠️ Found building People → Directory (11 Sept 2026): four live OEA tenancies
+ * named nobody at all — no account and no tenant of record — and there was no
+ * control anywhere to say who lived there. The import writes these columns and
+ * nothing else ever could, so a tenancy created by hand before decision 37 was
+ * permanently anonymous on the one report whose job is to say who is in which
+ * unit.
+ *
+ * Runs in the caller's session: `leases_write` decides (the letting
+ * permission, bounded to properties they hold), and `audit_leases` records the
+ * change. A tenancy held by a portal account is refused, because that tenant is
+ * named by their own account and a second name beside it would be two answers
+ * to one question — `tenancy_schedule` coalesces the account first for exactly
+ * that reason.
+ */
+export async function recordTenantOfRecord(
+  leaseId: string,
+  input: { name: string; phone: string }
+): Promise<ActionResult> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return fail("Your session expired. Please sign in again.");
+
+  const name = input.name.trim().replace(/\s+/g, " ");
+  const phone = input.phone.trim();
+  if (name.length < 2 || name.length > 160) {
+    return fail("Give the tenant's name — a person or a company, as it appears on the tenancy.");
+  }
+  if (phone && !/^\+?[\d\s()-]{7,20}$/.test(phone)) {
+    return fail("That phone number does not look right.", "Digits, spaces and a leading + only.");
+  }
+
+  const { data: lease } = await supabase
+    .from("leases").select("id, tenant_user_id").eq("id", leaseId).maybeSingle();
+  if (!lease) return fail("That tenancy was not found.");
+  if (lease.tenant_user_id) {
+    return fail(
+      "This tenancy is held by a portal account, and that account names the tenant.",
+      "Change the name on their profile instead."
+    );
+  }
+
+  // `.select()` because an UPDATE that RLS declines matches nothing and raises
+  // nothing — decision 38. Zero rows back is a refusal, and is reported as one.
+  const { data: updated, error } = await supabase
+    .from("leases")
+    .update({ tenant_name: name, tenant_phone: phone || null })
+    .eq("id", leaseId)
+    .is("tenant_user_id", null)
+    .select("id");
+  if (error) return failFromDb(error, "record the tenant");
+  if (!updated || updated.length === 0) {
+    return fail(
+      "You cannot change this tenancy.",
+      "Recording a tenant needs the letting permission on this property."
+    );
+  }
+
+  revalidatePath(`/dashboard/leases/${leaseId}`);
+  revalidatePath("/dashboard/schedule");
+  revalidatePath("/dashboard/people/directory");
+  return ok();
+}

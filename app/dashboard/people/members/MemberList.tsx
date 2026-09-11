@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { releaseMemberEmail, sendMemberPasswordReset } from "../actions";
@@ -225,7 +226,15 @@ export default function MemberList({
               >
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium">
-                    {name}
+                    {/* The whole profile is one click away from the roster that
+                        names the person — the Directory's destination, reached
+                        from here too, so nobody has to find a member twice. */}
+                    <Link
+                      href={`/dashboard/people/${m.id}`}
+                      className="underline-offset-2 hover:underline"
+                    >
+                      {name}
+                    </Link>
                     {m.id === currentUserId && (
                       <span className="ml-2 text-xs font-normal text-muted-foreground">(you)</span>
                     )}

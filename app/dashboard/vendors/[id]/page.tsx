@@ -180,6 +180,29 @@ export default async function VendorDetailPage({
     })),
   ];
 
+  // The people who log in for this company (decision 17's `vendor_users`).
+  // Read in the caller's session: `vendor_users_select` admits `vendors.read`,
+  // and the embedded names come through `users_select`, so a viewer who may
+  // not read a colleague's row sees the count without the name — never more.
+  //
+  // 📌 `users:user_id(...)`, not `users(...)`: `vendor_users` has TWO foreign
+  // keys to `users` (the person and `invited_by`), so the bare embed is
+  // ambiguous and PostgREST refuses the whole query — which rendered, on the
+  // first draft, as "Nobody logs in for this company yet" over a company whose
+  // owner was signed in at that moment. An error is now said as one.
+  const { data: companyPeople, error: peopleError } = await supabase
+    .from("vendor_users")
+    .select("user_id, is_owner, capabilities, users:user_id(full_name, email, deactivated_at)")
+    .eq("vendor_id", id);
+  const people = ((companyPeople ?? []) as unknown as {
+    user_id: string; is_owner: boolean; capabilities: string[] | null;
+    users: { full_name: string | null; email: string | null; deactivated_at: string | null } | null;
+  }[]);
+  // A profile link only for a viewer who can open People at all — anyone else
+  // (finance, the chain desks) would follow it into "Not available for your
+  // role", which is the nav-and-page split decision 26 recorded.
+  const opensProfiles = ["admin", ...FM_PM, "regional_manager"].includes(session.profile?.role ?? "");
+
   const avg = averageComposite(evaluations);
   const band = avg != null ? scoreBand(avg) : null;
 
@@ -267,6 +290,54 @@ export default async function VendorDetailPage({
               </div>
             ))}
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">People at this company</CardTitle>
+          <CardDescription>
+            Who logs in for {vendor.name}, and what the company lets each of them do.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {peopleError ? (
+            <p className="text-sm text-destructive">
+              The people at this company could not be loaded. Refresh to try again.
+            </p>
+          ) : people.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Nobody logs in for this company yet — invite them from People.
+            </p>
+          ) : (
+            <ul className="divide-y divide-border rounded-md border border-border">
+              {people.map((p) => {
+                const who = p.users?.full_name || p.users?.email || "A login you cannot see";
+                return (
+                  <li key={p.user_id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 text-sm">
+                    <span className="min-w-0">
+                      {opensProfiles && p.users ? (
+                        <Link className="font-medium underline-offset-2 hover:underline" href={`/dashboard/people/${p.user_id}`}>
+                          {who}
+                        </Link>
+                      ) : (
+                        <span className="font-medium">{who}</span>
+                      )}
+                      <span className="block text-xs text-muted-foreground">
+                        {(p.capabilities ?? []).length
+                          ? (p.capabilities ?? []).map((c) => c.replace(/_/g, " ")).join(", ")
+                          : "read only"}
+                      </span>
+                    </span>
+                    <span className="flex gap-1.5">
+                      {p.is_owner && <Badge variant="info">Owner</Badge>}
+                      {p.users?.deactivated_at && <Badge variant="muted">Deactivated</Badge>}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </CardContent>
       </Card>
 

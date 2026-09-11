@@ -5,7 +5,7 @@ import { Home, Wallet } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/patterns/empty-state";
-import { formatMoney } from "@/lib/currency";
+import { formatMoney, totalsByCurrency } from "@/lib/currency";
 import RentCharges, { type RentChargeRow } from "./RentCharges";
 
 export type Tenancy = {
@@ -63,8 +63,8 @@ export default function RentBoard({
   const paid = forLease.filter((c) => Number(c.outstanding) <= 0);
   const shown = tab === "outstanding" ? outstanding : paid;
 
-  const currency = charges[0]?.currency ?? tenancies[0]?.currency ?? "NGN";
-  const owed = outstanding.reduce((t, c) => t + Number(c.outstanding), 0);
+  // Per currency, never one total — see totalsByCurrency.
+  const owedText = totalsByCurrency(outstanding.map((c) => ({ amount: c.outstanding, currency: c.currency })));
 
   function chooseLease(id: string | null) {
     setLease(id);
@@ -206,9 +206,9 @@ export default function RentBoard({
           )}
         </div>
 
-        {tab === "outstanding" && owed > 0 && (
+        {tab === "outstanding" && outstanding.length > 0 && (
           <p className="text-sm text-muted-foreground">
-            {formatMoney(owed, currency)} outstanding across {outstanding.length} demand
+            {owedText} outstanding across {outstanding.length} demand
             {outstanding.length === 1 ? "" : "s"}
             {lease ? " on this home" : ""}.
           </p>

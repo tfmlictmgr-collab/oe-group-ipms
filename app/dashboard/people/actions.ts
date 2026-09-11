@@ -1,6 +1,6 @@
 "use server";
 
-import { headers } from "next/headers";
+import { portalOrigin } from "@/lib/portal-origin";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -131,10 +131,7 @@ export async function inviteMember(
   }).select("id").single();
   if (error) return failFromDb(error, "issue that invitation");
 
-  const h = await headers();
-  const origin =
-    process.env.NEXT_PUBLIC_SITE_URL ??
-    `${h.get("x-forwarded-proto") ?? "https"}://${h.get("host")}`;
+  const origin = await portalOrigin(me.org_id);
   const url = buildInviteUrl(origin, token);
 
   // delivery_brand decides whether the role reads "Operations Staff" (TFML) or
@@ -262,11 +259,11 @@ export async function sendMemberPasswordReset(
 
   // Step 2. The link itself. `generateLink` mints it without sending anything,
   // so the message goes out through the org's own sender with its own branding
-  // rather than through the auth provider's default mailer.
-  const h = await headers();
-  const origin =
-    process.env.NEXT_PUBLIC_SITE_URL ??
-    `${h.get("x-forwarded-proto") ?? "https"}://${h.get("host")}`;
+  // rather than through the auth provider's default mailer — and the link it
+  // carries leads to the member's OWN organisation's portal.
+  const { data: target } = await supabase
+    .from("users").select("full_name, org_id").eq("id", userId).maybeSingle();
+  const origin = await portalOrigin((target?.org_id as string | null) ?? null);
 
   const { data: link, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
     type: "recovery",
@@ -279,9 +276,6 @@ export async function sendMemberPasswordReset(
       "Nothing has been sent. The member's password is unchanged."
     );
   }
-
-  const { data: target } = await supabase
-    .from("users").select("full_name, org_id").eq("id", userId).maybeSingle();
 
   const sent = await sendEmail({
     to: address,

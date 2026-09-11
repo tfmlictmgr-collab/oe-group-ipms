@@ -1,4 +1,4 @@
-import { headers } from "next/headers";
+import { portalOrigin } from "@/lib/portal-origin";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
@@ -38,10 +38,9 @@ export default async function ApplicationsPage() {
     supabase.rpc("has_permission", { p_capability: "vendors.approve" }),
   ]);
 
-  const h = await headers();
-  const origin =
-    process.env.NEXT_PUBLIC_SITE_URL ??
-    `${h.get("x-forwarded-proto") ?? "http"}://${h.get("host")}`;
+  // The public application link staff copy and share — this organisation's
+  // own address, never the deployment's (lib/portal-origin.ts).
+  const origin = await portalOrigin(profile.org_id);
 
   return (
     <div className="space-y-4">

@@ -1,5 +1,6 @@
 "use server";
 
+import { portalOrigin } from "@/lib/portal-origin";
 import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { checkRateLimit, clientIp } from "@/lib/rate-limit";
@@ -162,10 +163,7 @@ async function trySendVerificationEmail(
   business: string,
   orgId: string
 ) {
-  const h = await headers();
-  const origin =
-    process.env.NEXT_PUBLIC_SITE_URL ??
-    `${h.get("x-forwarded-proto") ?? "https"}://${h.get("host")}`;
+  const origin = await portalOrigin(orgId);
 
   await sendEmail({
     to,

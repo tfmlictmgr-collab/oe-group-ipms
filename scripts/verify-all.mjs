@@ -18,6 +18,8 @@ import { readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import { config } from "dotenv";
+import { createClient } from "@supabase/supabase-js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const filter = process.argv[2] ?? "";
@@ -78,6 +80,73 @@ if (suites.length === 0) {
 
 console.log(`Running ${suites.length} suite(s) with tsx\n`);
 
+// ── The real organisations, as they were before the run ────────────────────
+//
+// ⚠️ Added 11 Sept 2026. `verify-custom-domains` rebound the REAL TFML and OEA
+// organisations to probe hostnames and relied on its own teardown to put
+// `oeaportal.com` / `tfmlportal.com` back. A full run killed it at the 300s
+// budget, the teardown never ran, and both brands' live front doors served the
+// generic OE Group screen until somebody noticed the colour was wrong. That
+// suite now owns its organisations — but twenty suites write to `orgs`, and
+// the runner is the ONE process that survives a suite being killed. So it
+// snapshots every real organisation before the run and compares after each
+// suite:
+//
+//   • drift after a suite that FINISHED is reported as that suite's failure and
+//     left alone — its teardown is wrong, and a person should see exactly what
+//     it changed rather than have the runner quietly paper over it;
+//   • drift after a suite that was KILLED (timeout, crash) is also restored,
+//     column by column, because its teardown provably did not run, and every
+//     later suite — and the live portal on the same database — would otherwise
+//     run against an organisation nobody configured.
+//
+// `orgs` has no volatile column (no updated_at, no counters), so any
+// difference at all is a real change. Probe organisations — named PROBE* by
+// every suite that provisions one — are excluded; they exist to be changed.
+config({ path: path.join(here, "..", ".env.local"), quiet: true });
+const svc =
+  process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY
+    ? createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
+        auth: { persistSession: false },
+      })
+    : null;
+
+async function realOrgs() {
+  if (!svc) return null;
+  try {
+    const { data, error } = await svc.from("orgs").select("*").not("name", "like", "PROBE%");
+    if (error || !data) return null;
+    return new Map(data.map((o) => [o.id, o]));
+  } catch {
+    return null; // the network, again — the next suite's check will catch up
+  }
+}
+
+const baseline = await realOrgs();
+if (!baseline) {
+  console.log("\x1b[33m(organisation drift guard is OFF — could not read the org register)\x1b[0m\n");
+}
+
+function driftSince(before, now) {
+  const out = [];
+  for (const [id, was] of before) {
+    const is = now.get(id);
+    if (!is) continue;
+    const cols = Object.keys(was).filter((k) => JSON.stringify(was[k]) !== JSON.stringify(is[k]));
+    if (cols.length) out.push({ id, slug: was.slug ?? was.name, cols, was });
+  }
+  return out;
+}
+
+// A failure whose only cause is the network — DNS not answering, a connection
+// reset, the database's front door timing out — says nothing about the code.
+// On 11 Sept three suites failed this way in one run (`getaddrinfo EAI_AGAIN`)
+// and passed the moment they were re-run, which is exactly the red that
+// teaches people to re-run rather than to read. One retry after a pause; if
+// the network is still down, the suite is listed as "could not run", never as
+// a failure of the thing it tests.
+const NETWORK = /EAI_AGAIN|ENOTFOUND|ECONNRESET|ETIMEDOUT|UND_ERR_CONNECT_TIMEOUT|fetch failed|getaddrinfo/;
+
 const run = (file) =>
   new Promise((resolve) => {
     const name = file.replace(/\.mjs$/, "");
@@ -103,7 +172,10 @@ const run = (file) =>
     const budget = SLOW.has(name) ? 900_000 : 300_000;
     const timer = setTimeout(() => {
       child.kill();
-      resolve({ name, ok: false, why: `timed out after ${budget / 1000}s`, secs: budget / 1000 });
+      resolve({
+        name, ok: false, killed: true, raw: out,
+        why: `timed out after ${budget / 1000}s`, secs: budget / 1000,
+      });
     }, budget);
 
     child.on("close", (code) => {
@@ -154,6 +226,9 @@ const run = (file) =>
       resolve({
         name,
         ok: code === 0,
+        // Killed by a signal rather than exiting: its teardown did not run.
+        killed: code === null,
+        raw: out,
         // Distinct from a failure: the suite never got to run its assertions.
         // Counted and listed separately at the end so it stays visible — a
         // silently skipped suite is one that never runs again.
@@ -167,9 +242,38 @@ const run = (file) =>
 
 const results = [];
 for (const file of suites) {
-  const r = await run(file);
+  let r = await run(file);
+  if (!r.ok && !r.skipped && NETWORK.test(r.raw ?? "")) {
+    await new Promise((res) => setTimeout(res, 5000));
+    const again = await run(file);
+    r = again.ok || !NETWORK.test(again.raw ?? "")
+      ? { ...again, why: `${again.why} (retried once: the network failed the first attempt)` }
+      : { ...again, network: true, why: `network unavailable — ${String(again.why).slice(0, 60)}` };
+  }
+
+  if (baseline) {
+    const now = await realOrgs();
+    const drift = now ? driftSince(baseline, now) : [];
+    if (drift.length) {
+      const what = drift.map((d) => `${d.slug}.${d.cols.join("/")}`).join(", ");
+      if (r.killed) {
+        for (const d of drift) {
+          const patch = Object.fromEntries(d.cols.map((c) => [c, d.was[c]]));
+          await svc.from("orgs").update(patch).eq("id", d.id);
+        }
+      }
+      r = {
+        ...r, ok: false, skipped: false, network: false,
+        why: `LEFT REAL ORG SETTINGS CHANGED: ${what}` +
+          (r.killed ? " — restored (killed before its teardown)" : " — NOT restored; fix its teardown"),
+      };
+    }
+  }
+
   results.push(r);
-  const mark = r.skipped
+  const mark = r.network
+    ? "\x1b[33mNET \x1b[0m"
+    : r.skipped
     ? "\x1b[33mSKIP\x1b[0m"
     : r.demoOnly
       ? "\x1b[36mDEMO\x1b[0m"
@@ -179,8 +283,8 @@ for (const file of suites) {
   console.log(`${mark} ${r.name.padEnd(34)} ${String(r.secs).padStart(4)}s  ${r.why}`);
 }
 
-const skipped = results.filter((r) => r.skipped);
-const failed = results.filter((r) => !r.ok && !r.skipped);
+const skipped = results.filter((r) => r.skipped || r.network);
+const failed = results.filter((r) => !r.ok && !r.skipped && !r.network);
 
 if (skipped.length > 0) {
   console.log(

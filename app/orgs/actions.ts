@@ -1,6 +1,6 @@
 "use server";
 
-import { headers } from "next/headers";
+import { portalOrigin } from "@/lib/portal-origin";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { ORG_DOMAIN_TAG } from "@/lib/org-host";
@@ -92,10 +92,7 @@ export async function createOrg(
   });
   if (error) return failFromDb(error, "provision this organisation");
 
-  const h = await headers();
-  const origin =
-    process.env.NEXT_PUBLIC_SITE_URL ??
-    `${h.get("x-forwarded-proto") ?? "https"}://${h.get("host")}`;
+  const origin = await portalOrigin(orgId as string);
   const url = buildInviteUrl(origin, token);
 
   // Best-effort, exactly like `inviteMember`: the link is always returned, so

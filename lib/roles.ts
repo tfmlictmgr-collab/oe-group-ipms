@@ -270,7 +270,12 @@ export const ROLE_HINTS: Partial<Record<string, string>> = {
     "The last stage of the payment chain: final approval, bounded by an amount rather than by a place. Give them a tier — 1 approves up to the tier-1 limit, 2 up to the approval limit, 3 without limit. On OEA they are the only role at this stage, so the organisation needs one whose tier covers its largest payment.",
   property_owner: "Their own portfolio only — summary, statements and vendor performance.",
   regional_manager:
-    "Runs a region. Everything a facilities/properties manager does, plus inviting operational staff — all of it bounded to the region, project or site they are assigned to. No financial access.",
+    // Rewritten 11 Sept 2026 — the old line ("plus inviting operational staff
+    // … No financial access") had been overtaken twice: decision 26 gave the
+    // role the service charge and tenancies on the buildings it holds, and
+    // decision 42 narrowed whom it may invite. It now shows on every regional
+    // manager's profile, where a wrong sentence reads as a fact about a person.
+    "Runs a region. Everything a facilities/properties manager does, plus the service charge and tenancies on the buildings they hold, and inviting managers, vendors, tenants and owners — all of it bounded to the region, project or site they are assigned to. Never approves or releases a payment.",
   executive:
     "Oversight for the Managing Director / Managing Partner. Sees everything the payment officer sees and approves payments — on OEA, every outbound payment passes them, at every amount. Cannot execute a remittance, change the approval threshold, or write to the ledger: authorising and disbursing stay in different hands.",
 };

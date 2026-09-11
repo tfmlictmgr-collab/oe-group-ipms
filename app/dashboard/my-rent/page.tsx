@@ -2,12 +2,14 @@ import { redirect } from "next/navigation";
 import { Receipt } from "lucide-react";
 import { getSessionProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { formatMoney } from "@/lib/currency";
+import { totalsByCurrency } from "@/lib/currency";
 import { PageHeader } from "@/components/patterns/page-header";
 import { EmptyState } from "@/components/patterns/empty-state";
 import { type RentChargeRow } from "./RentCharges";
 import RentBoard, { type Tenancy } from "./RentBoard";
 import { MyOfflinePayments } from "@/components/patterns/my-offline-payments";
+import { PaymentReturn } from "@/components/patterns/payment-return";
+import { checkMyRentPayment } from "./actions";
 
 // What the person who owes the rent actually sees.
 //
@@ -23,7 +25,14 @@ import { MyOfflinePayments } from "@/components/patterns/my-offline-payments";
 
 export const dynamic = "force-dynamic";
 
-export default async function MyRentPage() {
+export default async function MyRentPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ ref?: string; reference?: string; trxref?: string }>;
+}) {
+  // The gateway's return: our `ref`, or Paystack's own `reference`/`trxref`.
+  const sp = await searchParams;
+  const returned = sp.ref ?? sp.reference ?? sp.trxref ?? null;
   const session = await getSessionProfile();
   if (!session) redirect("/login");
   if (session.profile?.role === "viewer") redirect("/dashboard/overview");
@@ -37,8 +46,10 @@ export default async function MyRentPage() {
   const tenancies = (tenancyRows ?? []) as Tenancy[];
   const charges = (chargeRows ?? []) as RentChargeRow[];
 
-  const currency = charges[0]?.currency ?? tenancies[0]?.currency ?? "NGN";
   const outstanding = charges.reduce((a, c) => a + Number(c.outstanding), 0);
+  const owedText = totalsByCurrency(
+    charges.filter((c) => Number(c.outstanding) > 0).map((c) => ({ amount: c.outstanding, currency: c.currency }))
+  );
 
   return (
     <div className="space-y-6">
@@ -48,10 +59,12 @@ export default async function MyRentPage() {
           charges.length === 0
             ? "Rent demands for your tenancy will appear here."
             : outstanding > 0
-              ? `${formatMoney(outstanding, currency)} outstanding across ${charges.length} demand${charges.length === 1 ? "" : "s"}.`
+              ? `${owedText} outstanding across ${charges.filter((c) => Number(c.outstanding) > 0).length} demand${charges.filter((c) => Number(c.outstanding) > 0).length === 1 ? "" : "s"}.`
               : "You are up to date — nothing outstanding."
         }
       />
+
+      {returned && <PaymentReturn reference={returned} check={checkMyRentPayment} />}
 
       {charges.length === 0 && tenancies.length === 0 ? (
         <EmptyState

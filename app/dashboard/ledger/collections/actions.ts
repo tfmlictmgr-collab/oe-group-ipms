@@ -1,9 +1,10 @@
 "use server";
 
-import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { getGateway, getGatewayForOrg, gatewayConfigured, newPaymentReference } from "@/lib/gateway";
+import { GatewayNotConnectedError, gatewayConfigured, newPaymentReference, resolveOrgGateway } from "@/lib/gateway";
+import { settleIntentByReference } from "@/lib/gateway/settle";
+import { portalOrigin } from "@/lib/portal-origin";
 import { unusableForCheckout } from "@/lib/email-address";
 import { SUPPORTED_CURRENCIES } from "@/lib/currency";
 import { ok, fail, failFromDb, type ActionResult } from "@/lib/action-result";
@@ -167,15 +168,26 @@ export async function raisePaymentRequest(input: RaiseInput): Promise<RaiseResul
     .from("orgs").select("gateway_tag").eq("id", me.org_id).maybeSingle();
 
   const reference = newPaymentReference(input.purpose, myOrg?.gateway_tag ?? null);
-  const h = await headers();
-  const origin =
-    process.env.NEXT_PUBLIC_SITE_URL ??
-    `${h.get("x-forwarded-proto") ?? "https"}://${h.get("host")}`;
+  // This organisation's own portal address for the return, never the
+  // deployment's generic one or another brand's (lib/portal-origin.ts).
+  const origin = await portalOrigin(me.org_id, "return");
 
-  // This org's own merchant account where it has one, the platform key where it
-  // has not. A TFML collection must land in TFML's account, not in whichever
-  // account an environment variable happens to name.
-  const gateway = await getGatewayForOrg(me.org_id, currency);
+  // This org's own merchant account — or, since 0288, nothing. It used to fall
+  // back to the platform key, which is TFML's merchant account, for every org
+  // that had not connected one: which was every org.
+  let resolved;
+  try {
+    resolved = await resolveOrgGateway(me.org_id, currency);
+  } catch (e) {
+    if (e instanceof GatewayNotConnectedError) {
+      return fail(
+        "This organisation has not connected its own payment gateway account, so a payment link cannot be raised.",
+        "An administrator connects it under Settings → Banking. Until then, payers can transfer into the organisation's own client-funds account and record it under Off-platform payments."
+      );
+    }
+    return fail(e instanceof Error ? e.message : "The payment gateway could not be reached.");
+  }
+  const gateway = resolved.adapter;
   const init = await gateway.initialise({
     reference,
     amount,
@@ -208,6 +220,8 @@ export async function raisePaymentRequest(input: RaiseInput): Promise<RaiseResul
     gateway: gateway.name,
     gateway_reference: reference,
     checkout_url: init.checkoutUrl ?? null,
+    // Which account took it — verification must use the same one (0288).
+    merchant_account: resolved.merchant === "org" ? "org" : "platform",
     created_by: user.id,
   })
     // The id, so the notice and its delivery log can name the intent they
@@ -312,23 +326,15 @@ export async function refreshPaymentStatus(intentId: string): Promise<RefreshRes
   if (!intent) return fail("Payment request not found.");
   if (intent.ledger_entry_id) return ok({ status: intent.status, posted: true });
 
-  const gateway = getGateway(intent.currency);
-  const verified = await gateway.verifyTransaction(intent.gateway_reference);
-
-  if (!verified.ok || verified.status !== "success") {
-    return ok({ status: verified.status ?? "pending", posted: false });
+  // The same settlement the webhook and the payer's return use
+  // (lib/gateway/settle.ts): verified on the merchant account that TOOK the
+  // payment, posted idempotently, receipt sent once. This used to ask
+  // `getGateway()` — the platform key — whichever account the payment ran on.
+  const outcome = await settleIntentByReference(intent.gateway_reference);
+  if (outcome.state === "unknown") return fail(`The payment could not be checked: ${outcome.detail}`);
+  if (outcome.state === "pending" || outcome.state === "failed") {
+    return ok({ status: outcome.state, posted: false });
   }
-
-  // Posting needs the service role: record_collection is deliberately not
-  // granted to `authenticated`, so a signed-in user cannot post a collection
-  // without going through this verification first.
-  const { supabaseAdmin } = await import("@/lib/supabase/admin");
-  const { error } = await supabaseAdmin.rpc("record_collection", {
-    p_intent_id: intent.id,
-    p_amount_verified: verified.amount ?? Number(intent.amount_expected),
-    p_paid_at: verified.paidAt ?? new Date().toISOString(),
-  });
-  if (error) return fail(`The payment could not be posted: ${error.message}`);
 
   revalidatePath("/dashboard/ledger/collections");
   revalidatePath("/dashboard/ledger");

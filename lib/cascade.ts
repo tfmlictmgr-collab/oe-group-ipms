@@ -5,6 +5,7 @@ import {
   type WhatsAppSender, type TelegramButton,
 } from "./notify";
 import { mayContact } from "./channel-consent";
+import { sendEmail } from "./email";
 
 // B8 notification cascade (server-side only). Attempts channels in the required
 // order — WhatsApp → SMS → Email — stopping at the first success. Telegram runs
@@ -83,10 +84,6 @@ async function tryWhatsApp(
   recipientUserId: string | null | undefined,
   template: CascadeTarget["whatsappTemplate"]
 ): Promise<Attempt> {
-  if (!process.env.WHATSAPP_ACCESS_TOKEN) {
-    return { status: "skipped", detail: "stubbed: no WhatsApp credentials" };
-  }
-
   // ── The consent gate (0148) ──────────────────────────────────────────────
   // Business-initiated only. Fails CLOSED: no recorded consent, no send. The
   // cost of that is this ATTEMPT being skipped, after which the cascade falls
@@ -146,28 +143,33 @@ async function trySms(to: string): Promise<Attempt> {
   return { status: "skipped", detail: "SMS provider not yet integrated" };
 }
 
-async function tryEmail(to: string, message: string): Promise<Attempt> {
+/**
+ * ⚠️ Through `sendEmail`, with the org (11 Sept 2026).
+ *
+ * This posted to Resend directly, From one global `EMAIL_FROM` — default
+ * "OE Group <noreply@oegroup.example>" — with the subject "OE Group —
+ * notification". Every critical notice that fell through WhatsApp and SMS to
+ * email therefore reached an OEA or TFML recipient from the HOLDING entity, in
+ * the one channel `lib/email.ts` had already been fixed to refuse exactly that:
+ * "borrowing another organisation's identity is never the safe default;
+ * declining is." Two senders, one of them never corrected. Now there is one:
+ * the organisation's own sender and reply routing, or a logged skip.
+ */
+async function tryEmail(orgId: string, to: string, message: string): Promise<Attempt> {
   if (!process.env.RESEND_API_KEY) {
     return { status: "skipped", detail: `stubbed: no Resend key (would email ${to})` };
   }
   try {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: process.env.EMAIL_FROM ?? "OE Group <noreply@oegroup.example>",
-        to,
-        subject: "OE Group — notification",
-        text: message,
-      }),
+    const res = await sendEmail({
+      to,
+      orgId,
+      category: "operations",
+      subject: (ctx) => `${ctx.brandName} — notification`,
+      text: message,
     });
-    if (!res.ok) {
-      return { status: "failed", detail: `Resend ${res.status}: ${await res.text()}` };
-    }
-    return { status: "sent", detail: "delivered via Resend" };
+    return res.sent
+      ? { status: "sent", detail: "delivered via Resend, from the organisation's own sender" }
+      : { status: "skipped", detail: res.reason ?? "not sent" };
   } catch (e) {
     return { status: "failed", detail: e instanceof Error ? e.message : "email send failed" };
   }
@@ -251,7 +253,7 @@ export async function sendCascade(
   }
   if (!delivered && target.email) {
     order++;
-    const a = await tryEmail(target.email, target.message);
+    const a = await tryEmail(target.orgId, target.email, target.message);
     await log(target, cascadeId, "email", target.email, a, order);
     if (a.status === "sent") delivered = true;
   }

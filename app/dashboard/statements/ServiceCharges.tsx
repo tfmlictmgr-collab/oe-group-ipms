@@ -45,9 +45,28 @@ export default function ServiceCharges({ charges }: { charges: ServiceChargeRow[
     setBusy(charge.charge_id);
     try {
       const r = await runAction(payMyServiceCharge(charge.charge_id));
-      // A real gateway hands back a hosted checkout page; the simulated one has
-      // none, and its own /pay/[reference] page stands in for it.
-      window.location.href = r.checkoutUrl ?? `/pay/${encodeURIComponent(r.reference)}`;
+      // ⚠️ 0288. "Continue payment" on a demand already paid used to reopen
+      // the checkout; the gateway is now asked first, and a payment it holds
+      // is recorded instead.
+      if (r.settled) {
+        toast.success("This payment has already been received", {
+          description: "Paystack confirmed it. Your balance is updated and your receipt is on its way.",
+        });
+        setBusy(null);
+        router.refresh();
+        return;
+      }
+      // The gateway's own hosted page — or, ONLY for the simulated gateway,
+      // our stand-in for one. The fallback used to apply to every missing
+      // address, which sent a tenant paying through Paystack to a simulator
+      // that correctly refuses to exist beside a real key: a 404.
+      if (r.checkoutUrl) {
+        window.location.href = r.checkoutUrl;
+      } else if (r.simulated) {
+        window.location.href = `/pay/${encodeURIComponent(r.reference)}`;
+      } else {
+        throw new Error("The payment page could not be opened. Please try again.");
+      }
     } catch (e) {
       toast.error(messageOf(e, "That payment could not be opened."), {
         description: hintOf(e),

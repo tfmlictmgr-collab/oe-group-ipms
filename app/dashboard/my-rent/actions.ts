@@ -1,29 +1,24 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
-import { getGateway, gatewayConfigured } from "@/lib/gateway";
 import { unusableForCheckout } from "@/lib/email-address";
-import { ok, fail, type ActionResult } from "@/lib/action-result";
+import { fail, type ActionResult } from "@/lib/action-result";
+import { openCheckout, checkReturnedPayment, type CheckoutResult } from "@/lib/gateway/checkout";
 
 /**
- * Opens a checkout for the caller's OWN rent demand.
+ * Opens — or continues — a checkout for the caller's OWN rent demand.
  *
  * ⚠️ Standing is decided in the database, not here. `create_rent_payment_intent`
  * checks that the caller is the lease's tenant (or staff scoped to it) — see
  * 0110, which added that check after finding the function had only ever
- * verified the ORGANISATION. This action deliberately does not re-implement
- * that test: one place decides who may pay a demand, and it is the one the
- * scheduled job and any future admin screen also go through.
+ * verified the ORGANISATION. The amount is likewise never passed in: the RPC
+ * computes the outstanding balance from the demand itself.
  *
- * The amount is likewise never passed in. The RPC computes the outstanding
- * balance from the demand itself, so a tampered request cannot change what is
- * charged — the same rule `raisePaymentRequest` follows for service charges.
+ * Which merchant account takes the money is decided by `openCheckout` →
+ * `resolveOrgGateway` (0288): this organisation's own, or none.
  */
-export async function payMyRent(
-  rentChargeId: string
-): Promise<ActionResult<{ reference: string; checkoutUrl: string | null; simulated: boolean }>> {
+export async function payMyRent(rentChargeId: string): Promise<ActionResult<CheckoutResult>> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return fail("Your session expired. Please sign in again.");
@@ -36,30 +31,13 @@ export async function payMyRent(
   ) as
     | { charge_id: string; outstanding: number | string; currency: string; open_intent_reference: string | null }
     | undefined;
-
   if (!charge) return fail("That rent demand could not be found.");
 
-  // Already has a live link — hand back the existing one rather than asking
-  // the RPC for a second and getting its (correct) refusal as an error. Two
-  // checkout links for one debt is how a tenant pays twice.
-  if (charge.open_intent_reference) {
-    const { data: existing } = await supabase
-      .from("payment_intents")
-      .select("gateway_reference, checkout_url")
-      .eq("gateway_reference", charge.open_intent_reference)
-      .maybeSingle();
-    if (existing) {
-      return ok({
-        reference: existing.gateway_reference,
-        checkoutUrl: existing.checkout_url,
-        simulated: !gatewayConfigured(charge.currency),
-      });
+  if (!charge.open_intent_reference) {
+    const outstanding = Number(charge.outstanding);
+    if (!Number.isFinite(outstanding) || outstanding <= 0) {
+      return fail("That rent is already paid in full.");
     }
-  }
-
-  const outstanding = Number(charge.outstanding);
-  if (!Number.isFinite(outstanding) || outstanding <= 0) {
-    return fail("That rent is already paid in full.");
   }
 
   const receiptEmail = user.email ?? "";
@@ -71,54 +49,28 @@ export async function payMyRent(
     );
   }
 
-  // The intent first, so the one-live-intent guard and the standing check both
-  // run BEFORE a gateway session is opened. Raising a checkout for a payment
-  // the database would refuse leaves a live link nothing can settle.
-  const gateway = getGateway(charge.currency);
-  const { data: intentId, error: rpcError } = await supabase.rpc("create_rent_payment_intent", {
-    p_rent_charge_id: rentChargeId,
-    p_gateway: gateway.name,
+  const { data: me } = await supabase.from("users").select("org_id").eq("id", user.id).single();
+  if (!me) return fail("Could not resolve your account.");
+
+  const result = await openCheckout({
+    supabase,
+    userEmail: receiptEmail,
+    orgId: me.org_id,
+    currency: charge.currency,
+    openReference: charge.open_intent_reference,
+    createIntent: (gateway) =>
+      supabase.rpc("create_rent_payment_intent", { p_rent_charge_id: rentChargeId, p_gateway: gateway }),
+    returnPath: "/dashboard/my-rent",
+    purpose: "rent",
   });
-  if (rpcError) {
-    return fail(rpcError.message.replace(/^.*?:\s*/, ""));
-  }
-
-  const { data: intent } = await supabase
-    .from("payment_intents")
-    .select("gateway_reference, amount_expected, currency")
-    .eq("id", intentId)
-    .single();
-  if (!intent) return fail("The payment could not be opened. Please try again.");
-
-  const h = await headers();
-  const origin =
-    process.env.NEXT_PUBLIC_SITE_URL ??
-    `${h.get("x-forwarded-proto") ?? "https"}://${h.get("host")}`;
-
-  const init = await gateway.initialise({
-    reference: intent.gateway_reference,
-    amount: Number(intent.amount_expected),
-    currency: intent.currency,
-    email: receiptEmail,
-    callbackUrl: `${origin}/dashboard/my-rent?ref=${encodeURIComponent(intent.gateway_reference)}`,
-    metadata: { purpose: "rent" },
-  });
-
-  if (!init.ok) {
-    return fail(`The payment gateway rejected the request: ${init.error}`);
-  }
-
-  if (init.checkoutUrl) {
-    await supabase
-      .from("payment_intents")
-      .update({ checkout_url: init.checkoutUrl })
-      .eq("id", intentId);
-  }
-
   revalidatePath("/dashboard/my-rent");
-  return ok({
-    reference: intent.gateway_reference,
-    checkoutUrl: init.checkoutUrl ?? null,
-    simulated: !gatewayConfigured(intent.currency),
-  });
+  return result;
+}
+
+/** The return from checkout: asks the gateway, server-to-server, whether it was paid. */
+export async function checkMyRentPayment(reference: string) {
+  const supabase = await createClient();
+  const r = await checkReturnedPayment(supabase, reference);
+  revalidatePath("/dashboard/my-rent");
+  return r;
 }

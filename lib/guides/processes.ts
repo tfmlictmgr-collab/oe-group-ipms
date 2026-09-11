@@ -937,7 +937,7 @@ export const PROCESS_CATALOGUE: Process[] = [
       {
         role: "tenant",
         action:
-          "My Rent → the demand they paid → \"I paid this another way\". The form " +
+          "My Rent → the demand they paid → \"Bank transfer / pay another way\". The form " +
           "opens with that demand already chosen. They pick transfer or " +
           "over-the-counter, give the date on their receipt, ATTACH THE RECEIPT, " +
           "and say how much went against what. A note field carries anything " +
@@ -1237,6 +1237,14 @@ export const PROCESS_CATALOGUE: Process[] = [
       {
         role: "admin",
         action:
+          "People → Directory to find anyone — staff, tenants, landlords or " +
+          "vendors — and open their profile: contact details, places held or " +
+          "homes rented, requests raised and, for a tenant, what they owe. " +
+          "Everything on it is what the reader's own role already reaches.",
+      },
+      {
+        role: "admin",
+        action:
           "People → Deactivate the moment someone leaves. Access is removed " +
           "immediately; their record and everything they did stays, because " +
           "the audit trail is never rewritten. Never hand their login to a " +
@@ -1265,7 +1273,7 @@ export const PROCESS_CATALOGUE: Process[] = [
         "property, then deactivate it and confirm sign-in now fails.",
     },
     capabilities: ["people.invite", "people.deactivate", "invitation.create_admin"],
-    routes: ["/dashboard/people"],
+    routes: ["/dashboard/people", "/dashboard/people/directory"],
     roles: ["admin", "regional_manager"],
   },
   {

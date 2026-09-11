@@ -42,3 +42,27 @@ export function formatMoney(n: number | string | null | undefined, currency: str
 /** The currencies this build can actually raise a checkout link in. */
 export const SUPPORTED_CURRENCIES = ["NGN", "USD", "GBP", "EUR"] as const;
 export type SupportedCurrency = (typeof SUPPORTED_CURRENCIES)[number];
+
+/**
+ * Sums amounts PER CURRENCY and states each — "₦158,400,000.00 and $8,000.00".
+ *
+ * ⚠️ 11 Sept 2026. My Rent added a tenant's demands into one number and
+ * printed it in the FIRST demand's currency, so a tenant owing Naira rent and a
+ * dollar lease read "$158,400,000.00 outstanding" — a figure that exists in no
+ * currency. Amounts in different currencies are never added (0103, and decision
+ * 25 for rent beside service charge); they are listed.
+ */
+export function totalsByCurrency(
+  rows: { amount: number | string | null | undefined; currency: string | null | undefined }[]
+): string {
+  const sums = new Map<string, number>();
+  for (const r of rows) {
+    const code = (r.currency || "NGN").toUpperCase();
+    sums.set(code, (sums.get(code) ?? 0) + Number(r.amount ?? 0));
+  }
+  const parts = Array.from(sums.entries())
+    .sort(([a], [b]) => (a === "NGN" ? -1 : b === "NGN" ? 1 : a.localeCompare(b)))
+    .map(([code, n]) => formatMoney(n, code));
+  if (parts.length === 0) return formatMoney(0, "NGN");
+  return parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+}

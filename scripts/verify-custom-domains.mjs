@@ -14,6 +14,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "dotenv";
+import crypto from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 
 const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -35,15 +36,70 @@ const login = async (email) => {
   return error ? null : c;
 };
 
-const { data: orgs } = await svc
-  .from("orgs").select("id, name, slug, custom_domain").is("deleted_at", null);
-const tfml = orgs.find((o) => o.slug === "tfml");
-const oea = orgs.find((o) => o.slug === "oea");
+// ⚠️ THIS SUITE OWNS ITS ORGANISATIONS (11 Sept 2026).
+//
+// It used to rebind the REAL TFML and OEA organisations to probe hostnames,
+// retire the real OEA org in section E, and put everything back at the end.
+// On 11 Sept a run was killed by the runner's 300-second budget before its
+// restore, and both brands' live front doors — oeaportal.com, tfmlportal.com —
+// were left bound to `probe-portal.*.test`: every visitor to either portal got
+// the generic OE Group door, in blue, with nothing to say why. The audit trail
+// shows the same rebind-and-restore on every run since 28 Aug. Had a run died
+// between section E's retire and un-retire, the whole OEA portal would have
+// been OFF for every user.
+//
+// 📌 Decision 38's lesson, and this build's own (verify-offline-payments §K):
+// a fixture that relies on its own teardown to undo production-shaped damage
+// has made cleanup a correctness requirement — and the runner's time budget is
+// exactly the thing that skips cleanup. So nothing here touches an org it did
+// not create. Two `direct` probe orgs are provisioned through the operator's
+// own RPC and retired at the end; a run that dies leaves probe orgs holding
+// `.test` hostnames, which resolve nobody real. A sweep at the start retires
+// any a previous crash left live.
+const STAMP = Date.now().toString(36).toUpperCase().slice(-6);
+const tok = () => crypto.randomBytes(24).toString("hex");
 
-// Remember what was there, and put it back at the end.
-const original = { tfml: tfml.custom_domain, oea: oea.custom_domain };
-const HOST_T = "probe-portal.tfmlconsultant.test";
-const HOST_O = "probe-portal.oraegbunike.test";
+const operator = await login("platform@oegroup.test");
+if (!operator) {
+  console.error("could not sign in as the platform administrator");
+  process.exit(1);
+}
+
+{
+  const { data: stale } = await svc
+    .from("orgs").select("id").like("name", "PROBEDOMAIN-%").is("deleted_at", null);
+  for (const o of stale ?? []) {
+    await operator.rpc("retire_org", {
+      p_org_id: o.id, p_reason: "Sweeping a probe org a previous domain run left live.",
+    });
+  }
+  if ((stale ?? []).length) console.log(`(swept ${stale.length} probe org(s) a previous run left live)`);
+}
+
+async function provisionProbe(tag) {
+  const { data: id, error } = await operator.rpc("operator_provision_org", {
+    p_name: `PROBEDOMAIN-${tag}-${STAMP}`,
+    p_delivery_brand: "direct",
+    p_admin_email: `probedomain.${tag.toLowerCase()}.${STAMP.toLowerCase()}@example.com`,
+    p_admin_name: `Probe ${tag}`,
+    p_reason: "verification: a throwaway org to bind probe hostnames to",
+    p_token_hash: tok(),
+  });
+  if (error || !id) {
+    console.error(`could not provision a probe org — ${error?.message}`);
+    process.exit(1);
+  }
+  const { data } = await svc.from("orgs").select("id, name, slug").eq("id", id).single();
+  return data;
+}
+
+// "tfml"/"oea" are kept as variable names so the checks below read as they
+// always did — two organisations; which brand never mattered to what a
+// hostname is allowed to do.
+const tfml = await provisionProbe("T");
+const oea = await provisionProbe("O");
+const HOST_T = `probe-${STAMP.toLowerCase()}-t.portal.test`;
+const HOST_O = `probe-${STAMP.toLowerCase()}-o.portal.test`;
 
 console.log("Hostnames resolve one organisation, and grant nothing\n");
 
@@ -52,8 +108,15 @@ console.log("A. Only an operator may bind a domain");
   const brand = await login("tfml.admin@oegroup.test");
   if (!brand) bad("could not sign in as the TFML administrator");
   else {
+    // Aimed at the admin's OWN org — the case that matters — but only ever with
+    // a probe hostname, and both attempts must FAIL. A success is itself the
+    // defect being reported, and is undone immediately below rather than at
+    // the end of a run that may not reach the end.
+    const { data: own } = await svc.from("users").select("org_id")
+      .eq("email", "tfml.admin@oegroup.test").single();
+    const { data: before } = await svc.from("orgs").select("custom_domain").eq("id", own.org_id).single();
     const { error } = await brand.rpc("set_org_domain", {
-      p_org_id: tfml.id, p_domain: HOST_T,
+      p_org_id: own.org_id, p_domain: HOST_T,
       p_reason: "A tenant claiming its own hostname.",
     });
     error ? ok("a brand administrator cannot bind a domain, even to their own org")
@@ -61,10 +124,14 @@ console.log("A. Only an operator may bind a domain");
 
     // Nor by writing the column directly — 0083c's allowlist must not include it.
     const { data: patched } = await brand
-      .from("orgs").update({ custom_domain: HOST_T }).eq("id", tfml.id).select("id");
+      .from("orgs").update({ custom_domain: HOST_T }).eq("id", own.org_id).select("id");
     (patched ?? []).length === 0
       ? ok("nor write the column directly")
       : bad("A TENANT ADMIN PATCHED custom_domain");
+    const { data: after } = await svc.from("orgs").select("custom_domain").eq("id", own.org_id).single();
+    if (after?.custom_domain !== before?.custom_domain) {
+      await svc.from("orgs").update({ custom_domain: before?.custom_domain ?? null }).eq("id", own.org_id);
+    }
     await brand.auth.signOut();
   }
 
@@ -100,13 +167,13 @@ console.log("\nB. A host resolves exactly one organisation");
   };
 
   const t = await one(HOST_T);
-  t.length === 1 && t[0].slug === "tfml"
-    ? ok("the TFML host resolves TFML, one row")
+  t.length === 1 && t[0].id === tfml.id
+    ? ok("the first probe host resolves its own org, one row")
     : bad(`the TFML host returned ${t.length} row(s)`);
 
   const o = await one(HOST_O);
-  o.length === 1 && o[0].slug === "oea"
-    ? ok("the OEA host resolves OEA, one row")
+  o.length === 1 && o[0].id === oea.id
+    ? ok("the second probe host resolves its own org, one row")
     : bad(`the OEA host returned ${o.length} row(s)`);
 
   (await one("nothing-here.example.test")).length === 0
@@ -114,7 +181,7 @@ console.log("\nB. A host resolves exactly one organisation");
     : bad("AN UNKNOWN HOST RESOLVED AN ORGANISATION");
 
   // Wildcards and quotes must match literally, not pattern-match.
-  for (const probe of ["%", "%.test", "' or '1'='1", "_robe-portal.tfmlconsultant.test"]) {
+  for (const probe of ["%", "%.test", "' or '1'='1", `_${HOST_T.slice(1)}`]) {
     const r = await one(probe);
     r.length === 0
       ? ok(`"${probe.slice(0, 24)}" matches literally and returns nothing`)
@@ -138,7 +205,7 @@ console.log("\nC. One host, one organisation");
     p_org_id: oea.id, p_domain: HOST_T,
     p_reason: "Attempting to claim a hostname already bound elsewhere.",
   });
-  error ? ok("a host already bound to TFML cannot be claimed by OEA")
+  error ? ok("a host already bound to one org cannot be claimed by another")
         : bad("TWO ORGANISATIONS CLAIMED ONE HOST");
 
   for (const bogus of ["https://portal.example.com", "portal.example.com/login", "localhost"]) {
@@ -174,16 +241,17 @@ console.log("\nE. A retired organisation stops answering");
   (data ?? []).length === 0
     ? ok("a retired organisation's hostname resolves nothing")
     : bad("A RETIRED ORG STILL ANSWERS ON ITS HOST");
-  await op.rpc("unretire_org", {
-    p_org_id: oea.id, p_reason: "Restoring after the hostname verification.",
-  });
   await op.auth.signOut();
 }
 
-// ── Restore ────────────────────────────────────────────────────────────────
-await svc.from("orgs").update({ custom_domain: original.tfml }).eq("id", tfml.id);
-await svc.from("orgs").update({ custom_domain: original.oea }).eq("id", oea.id);
-console.log("\n(restored original domains)");
+// ── Teardown: retire what this run created ─────────────────────────────────
+// A retired org's hostname resolves nothing (section E), so retiring is the
+// whole cleanup; nothing real was touched, so nothing needs restoring.
+await operator.rpc("retire_org", {
+  p_org_id: tfml.id, p_reason: "Retiring the probe org after the hostname verification.",
+});
+await operator.auth.signOut();
+console.log("\n(probe orgs retired — no real organisation was touched)");
 
 console.log(
   failures === 0

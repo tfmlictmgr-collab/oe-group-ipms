@@ -217,24 +217,31 @@ console.log("\nF. Each brand answers from its OWN number");
 
   const { data: orgs } = await svc.from("orgs").select("id, portal_name, name").is("deleted_at", null);
   const { data: routes } = await svc
-    .from("channel_routes").select("org_id, external_id").eq("channel", "whatsapp");
+    .from("channel_routes").select("org_id, external_id, outbound_token").eq("channel", "whatsapp");
 
   for (const org of orgs ?? []) {
     const label = org.portal_name || org.name;
-    const expected = (routes ?? []).find((r) => r.org_id === org.id)?.external_id ?? null;
+    const route = (routes ?? []).find((r) => r.org_id === org.id) ?? null;
+    const expected = route?.external_id ?? null;
     const sender = await whatsappSenderForOrg(org.id);
 
     if (!expected) {
       sender === null
         ? ok(`${label}: no number registered → resolves to nothing, cascade falls back`)
         : bad(`${label}: resolved a number it does not own (${sender.phoneNumberId})`);
-    } else if (!process.env.WHATSAPP_ACCESS_TOKEN) {
+    } else if (!route.outbound_token) {
+      // ⚠️ Changed 11 Sept 2026. This branch used to expect such a route to
+      // answer, using the shared WHATSAPP_ACCESS_TOKEN. On 360dialog the KEY,
+      // not the number, decides which business a message leaves as — the
+      // number is not even in the request — so that "answer" would have gone
+      // out as whichever brand owns the shared key. A route with no key of its
+      // own now sends nothing, and the cascade falls through to SMS and email.
       sender === null
-        ? ok(`${label}: no access token configured → nothing is sent`)
-        : bad(`${label}: resolved a sender with no token`);
+        ? ok(`${label}: its number has no key of its own → nothing is sent under another brand's key`)
+        : bad(`${label}: a keyless route borrowed the shared token to answer from ${sender.phoneNumberId}`);
     } else {
-      sender?.phoneNumberId === expected
-        ? ok(`${label}: answers from its own number (${expected})`)
+      sender?.phoneNumberId === expected && sender.accessToken === route.outbound_token
+        ? ok(`${label}: answers from its own number (${expected}) with its own key`)
         : bad(`${label}: would answer from ${sender?.phoneNumberId ?? "nothing"}, expected ${expected}`);
     }
   }
