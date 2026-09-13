@@ -9,6 +9,7 @@ import { formatNaira } from "@/lib/approvals/chain";
 import { runAction, messageOf, hintOf } from "@/lib/run-action";
 import { sendRequisitionVendorLines, sendRequisitionPayeeLines, authoriseShortFund } from "@/app/dashboard/requisitions/send-actions";
 import { Label } from "@/components/ui/label";
+import RecordBankTransfer from "@/components/payouts/RecordBankTransfer";
 
 /** One "Send" button per distinct payee — settles every unsettled line naming them. */
 export default function SendLineGroup({
@@ -17,12 +18,20 @@ export default function SendLineGroup({
   targetId,
   name,
   amount,
+  orgId,
+  allowGateway = true,
+  allowBankTransfer = true,
 }: {
   requisitionId: string;
   kind: "vendor" | "payee";
   targetId: string;
   name: string;
   amount: number;
+  /** For the transfer confirmation's folder. Without it, no bank-transfer option. */
+  orgId?: string;
+  /** False when this organisation has no Paystack account of its own (0288). */
+  allowGateway?: boolean;
+  allowBankTransfer?: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
@@ -94,9 +103,23 @@ export default function SendLineGroup({
           <p className="truncate text-sm font-medium">{name}</p>
           <p className="text-xs text-muted-foreground">{formatNaira(amount)}</p>
         </div>
-        <Button size="sm" disabled={busy} onClick={send}>
-          <Send className="size-3.5" /> {busy ? "Sending…" : "Send"}
-        </Button>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {allowGateway && (
+            <Button size="sm" disabled={busy} onClick={send}>
+              <Send className="size-3.5" /> {busy ? "Sending…" : "Send through Paystack"}
+            </Button>
+          )}
+          {orgId && allowBankTransfer && (
+            <RecordBankTransfer
+              payableType={kind === "vendor" ? "requisition_vendor" : "requisition_payee"}
+              payableId={requisitionId}
+              targetId={targetId}
+              orgId={orgId}
+              payeeName={name}
+              path={`/dashboard/approvals/requisitions/${requisitionId}`}
+            />
+          )}
+        </div>
       </div>
 
       {shortfall && (

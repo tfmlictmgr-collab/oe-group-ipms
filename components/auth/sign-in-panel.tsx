@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { verifyBackupCodeAndDisableMfa } from "@/lib/mfa";
+import { recordSessionEvent } from "@/lib/session-events";
 import { Eye, EyeOff, ShieldCheck, ShieldQuestion, Building2, Banknote, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -173,6 +174,11 @@ export default function SignInPanel({
         return;
       }
     }
+
+    // Only here, at the very end: after the password, after any second
+    // factor, after the organisation check. A sign-in refused at any of those
+    // is not a sign-in, and the trail must not say it was (0290).
+    await recordSessionEvent("signed_in");
 
     router.push(redirectTo);
     router.refresh();

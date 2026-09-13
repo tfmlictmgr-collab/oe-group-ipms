@@ -35,6 +35,7 @@ import {
 // it. Reported live — "the error in the attached file still pops up" — after
 // 0272 had already shipped, which is exactly what that gap produces.
 import { authoriseShortFund } from "@/app/dashboard/requisitions/send-actions";
+import RecordBankTransfer from "@/components/payouts/RecordBankTransfer";
 
 type Action = "verify" | "performance" | "approve" | "remit";
 
@@ -59,6 +60,7 @@ export default function PaymentActions({
   rejectedReason,
   canReopen,
   canRemit,
+  orgId,
 }: {
   paymentId: string;
   status: string;
@@ -75,6 +77,8 @@ export default function PaymentActions({
    * refused, which reads as a broken system rather than a deliberate boundary.
    */
   canRemit?: boolean;
+  /** The organisation — the folder a transfer confirmation is filed under (0289). */
+  orgId?: string;
 }) {
   const [pending, startTransition] = useTransition();
   const [confirming, setConfirming] = useState<Action | null>(null);
@@ -268,7 +272,8 @@ export default function PaymentActions({
   const config: Record<string, { action: Action; label: string; icon: React.ReactNode }> = {
     pending_verification: { action: "verify", label: "Verify service", icon: <ShieldCheck /> },
     verified: { action: "performance", label: "Run performance check", icon: <Gauge /> },
-    approved: { action: "remit", label: "Send payment", icon: <Send /> },
+    // Named for the rail, now that there are two (0289).
+    approved: { action: "remit", label: "Send through Paystack", icon: <Send /> },
   };
 
   const step = config[status];
@@ -335,9 +340,9 @@ export default function PaymentActions({
       action: "Approve payment",
     },
     remit: {
-      title: "Send this payment?",
-      description: `This sends ${formatNaira(amount)} to ${vendorName} now. Once sent it cannot be recalled from here — a mistaken transfer has to be chased with the bank, not undone in the app.`,
-      action: "Send payment",
+      title: "Send this payment through Paystack?",
+      description: `This sends ${formatNaira(amount)} to ${vendorName} now, from the organisation's Paystack balance. Once sent it cannot be recalled from here — a mistaken transfer has to be chased with the bank, not undone in the app.`,
+      action: "Send through Paystack",
     },
   };
 
@@ -390,6 +395,19 @@ export default function PaymentActions({
     <>
       <div className="flex flex-wrap items-center gap-2">
         {button}
+        {/* The alternative to Paystack (0289): the payment officer transfers
+            from the organisation's bank by hand and records it here, with the
+            bank's confirmation. Same gate, same maker-checker. */}
+        {step.action === "remit" && orgId && (
+          <RecordBankTransfer
+            payableType="vendor_payment"
+            payableId={paymentId}
+            orgId={orgId}
+            payeeName={vendorName}
+            size="default"
+            path={`/dashboard/payments/${paymentId}`}
+          />
+        )}
         {rejectControl}
       </div>
       <AlertDialog open={confirming === step.action} onOpenChange={(open) => !open && setConfirming(null)}>

@@ -125,8 +125,8 @@ export default async function DrillPage({
   return (
     <div className="space-y-6">
       <PageHeader
-        title={heading}
-        description={`${DIM_NOUN[d.dimension]} · ${d.totals.total.toLocaleString()} request${d.totals.total === 1 ? "" : "s"}`}
+        title="Request Analytics"
+        description={`${heading} · ${DIM_NOUN[d.dimension]} · ${d.totals.total.toLocaleString()} request${d.totals.total === 1 ? "" : "s"}`}
         actions={
           <Button asChild variant="ghost" size="sm">
             <Link href={`/dashboard/bi/analytics${backQuery ? `?${backQuery}` : ""}`}>

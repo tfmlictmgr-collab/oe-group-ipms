@@ -281,6 +281,12 @@ export default async function DashboardLayout({
       ["payment_audit_approver", "executive", "finance_approver"].includes(role) ||
       can("payments.record_offline"),
     canEnroll: can("people.invite"),
+    // The capability still decides (`/api/records/export`); this only offers
+    // the page to the desks decision 35 named, and not to an administrator,
+    // whose downloads are in their Directory.
+    seesRecords:
+      ["finance_approver", "payment_approver", "executive", "property_manager", "regional_manager"].includes(role) &&
+      can("records.export"),
     // Off everywhere until an operator turns it on per org (0203) — an admin
     // alone is not enough, unlike every other admin-only screen.
     seesTraining: can("training.read"),

@@ -123,8 +123,8 @@ export default async function MyCompanyPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title={mine.vendors?.name ?? "My company"}
-        description="Your registration with this organisation, the documents behind it, and who in your company may do what."
+        title="My Company"
+        description={`${mine.vendors?.name ? `${mine.vendors.name} — ` : ""}your registration with this organisation, the documents behind it, and who in your company may do what.`}
       />
       <CompanyClient
         vendorId={vendorId}

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Building } from "lucide-react";
 import { getSessionProfile } from "@/lib/auth";
@@ -330,7 +331,16 @@ export default async function PortfolioPage({
                   <TableBody>
                     {remittances.map((r) => (
                       <TableRow key={r.id}>
-                        <TableCell className="font-mono text-xs">{r.reference}</TableCell>
+                        <TableCell className="font-mono text-xs">
+                          {/* Each one opens its remittance advice — the account
+                              it went to, the date and the bank's reference. */}
+                          <Link
+                            href={`/dashboard/remittances/${r.id}`}
+                            className="text-brand underline-offset-2 hover:underline"
+                          >
+                            {r.reference}
+                          </Link>
+                        </TableCell>
                         <TableCell className="text-muted-foreground">
                           {r.period ?? "—"}
                         </TableCell>

@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { ChannelPicker, EMPTY_PREFS, type ChannelPrefs } from "@/components/patterns/channel-picker";
 import { provisionInviteAccount, redeemInvitation } from "./actions";
 import { runAction, describeError } from "@/lib/run-action";
+import { recordSessionEvent } from "@/lib/session-events";
 
 // Two steps in one submit: create the auth account for the invited address, then
 // redeem the invitation, which creates the profile in the right org with the
@@ -64,6 +65,10 @@ export default function AcceptForm({
       }
 
       await runAction(redeemInvitation(token, fullName, prefs));
+      // Their first sign-in, and the trail says so (0290) — after the
+      // invitation is redeemed, so it is attributed to an account in the
+      // organisation rather than to a login with no profile yet.
+      await recordSessionEvent("signed_in");
       toast.success("Welcome aboard", { description: "Your account is ready." });
       router.push("/dashboard");
       router.refresh();

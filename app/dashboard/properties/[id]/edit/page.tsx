@@ -38,7 +38,7 @@ export default async function EditPropertyPage({
 
   return (
     <div className="space-y-6">
-      <PageHeader title={`Edit ${property.name}`} />
+      <PageHeader title="Edit Property" description={property.name} />
       <Card>
         <CardContent className="pt-6">
           <PropertyForm

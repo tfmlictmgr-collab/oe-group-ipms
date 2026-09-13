@@ -142,8 +142,8 @@ export default async function BudgetDetailPage({
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <PageHeader
-        title={property?.name ?? "Budget"}
-        description={`${budget.description ?? ""} · ${budget.period}`}
+        title="Service Charge Budget"
+        description={[property?.name, budget.description, budget.period].filter(Boolean).join(" · ")}
         actions={
           <Button asChild variant="ghost" size="sm">
             <Link href="/dashboard/sc">

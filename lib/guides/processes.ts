@@ -180,7 +180,7 @@ export const PROCESS_CATALOGUE: Process[] = [
         "the CSV.",
     },
     capabilities: ["leases.write", "sc.manage", "records.export"],
-    routes: ["/dashboard/schedule", "/dashboard/leases", "/dashboard/people"],
+    routes: ["/dashboard/schedule", "/dashboard/leases", "/dashboard/people", "/dashboard/records"],
     roles: [
       "property_manager",
       "regional_manager",
@@ -1209,6 +1209,102 @@ export const PROCESS_CATALOGUE: Process[] = [
     roles: ["property_manager", "admin"],
   },
   {
+    id: "pay-by-bank-transfer",
+    title: "Pay a contractor, a landlord or a one-off payee by bank transfer",
+    module: "Payments",
+    startsWhen:
+      "A payment has cleared its approval chain and is to be paid from the " +
+      "organisation's bank by hand rather than through Paystack — or the " +
+      "organisation has not connected a Paystack account of its own, when this " +
+      "is the only way it pays anybody.",
+    steps: [
+      {
+        role: "finance_approver",
+        action:
+          "If the payee has no bank-transfer account yet, ask for one. For a " +
+          "contractor it is on their vendor page, under \"Paid by bank transfer\": " +
+          "send them a link, or use the account on their approved registration if " +
+          "they are already vetted. For a landlord it is on Client Funds → Payouts.",
+      },
+      {
+        role: "property_manager",
+        action:
+          "Raising a requisition for someone who is not a registered contractor? " +
+          "Name them on the line and send them the link before approval starts — " +
+          "the approvers sign for paying that name, and it cannot change once they have.",
+      },
+      {
+        role: "vendor",
+        action:
+          "Opens the link, chooses their bank, types their account number — the " +
+          "bank shows them the name it is held in — and attaches a document " +
+          "showing the account name and number. The link works once, for 14 days.",
+      },
+      {
+        role: "admin",
+        action:
+          "If the bank could not confirm the name, opens the payee's document and " +
+          "confirms it. Whoever confirms an account may not also pay it.",
+      },
+      {
+        role: "finance_approver",
+        action:
+          "Makes the transfer from the organisation's bank, reading the account " +
+          "number off the payee's document, then presses Record a bank transfer: " +
+          "the date, the reference the bank showed, and the bank's confirmation " +
+          "attached. It posts to the ledger, and the payee is told on their own " +
+          "channel in this organisation's name.",
+      },
+      {
+        role: "property_owner",
+        action:
+          "Is told the money has gone — how much, into which account and with " +
+          "which transfer reference — and can open and print the remittance advice.",
+      },
+    ],
+    doneMeans:
+      "The payment is on the ledger as paid by bank transfer with the bank's own " +
+      "confirmation attached, the payee has been told, and the remittance advice " +
+      "can be printed by both sides.",
+    refusals: [
+      {
+        trigger: "The payment officer confirmed the payee's bank details and then tries to pay them.",
+        explanation:
+          "Refused. The person who vouches for where money goes is not the person " +
+          "who sends it there — the same separation as approving a payment and " +
+          "releasing it (decision 16).",
+      },
+      {
+        trigger: "No bank confirmation is attached, or the transfer reference is missing.",
+        explanation:
+          "Refused, and nothing is recorded. A bank transfer has no gateway receipt, " +
+          "so the bank's own confirmation is the evidence that it happened.",
+      },
+      {
+        trigger: "The account name does not look like the payee's name.",
+        explanation:
+          "Allowed only once the officer ticks that they checked the document. A " +
+          "trading name can legitimately differ; a stranger's name is how a payment " +
+          "is diverted.",
+      },
+    ],
+    trainer: {
+      demo:
+        "Ask a demo contractor for their details, submit them from the link, " +
+        "confirm the document as an administrator, then record the transfer as " +
+        "the payment officer and open the remittance advice.",
+      commonMistake:
+        "Recording the transfer before actually making it, or typing the account " +
+        "number from memory instead of reading it off the payee's document.",
+      exercise:
+        "Try to pay an account you confirmed yourself and read the refusal; then " +
+        "have a colleague confirm it instead, and pay it.",
+    },
+    capabilities: [],
+    routes: ["/dashboard/ledger/payouts", "/dashboard/approvals", "/dashboard/vendors"],
+    roles: ["finance_approver", "admin", "property_manager", "facility_manager", "vendor", "property_owner"],
+  },
+  {
     id: "invite-assign-offboard-people",
     title: "Invite people, assign them to places, and offboard them",
     module: "People",
@@ -1245,7 +1341,8 @@ export const PROCESS_CATALOGUE: Process[] = [
       {
         role: "admin",
         action:
-          "People → Deactivate the moment someone leaves. Access is removed " +
+          "People → Directory → their name → Manage → Deactivate the moment " +
+          "someone leaves. Access is removed " +
           "immediately; their record and everything they did stays, because " +
           "the audit trail is never rewritten. Never hand their login to a " +
           "replacement — invite the new person properly instead.",

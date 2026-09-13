@@ -96,7 +96,11 @@ export async function inviteMember(
   if (existing) {
     return fail(
       "That person is already a member of this organisation.",
-      "Find them under People -> Members to change their role or access."
+      // Members folded into the Directory, which is the administrator's alone
+      // (12 Sept 2026) — so only they are pointed at it.
+      me.role === "admin"
+        ? "Find them in People → Directory to change their role or access."
+        : "An administrator can change their role or access from the Directory."
     );
   }
 

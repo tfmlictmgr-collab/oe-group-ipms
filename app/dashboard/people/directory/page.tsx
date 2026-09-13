@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { Download, Building2, Home, Users, Wrench } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
-import { portfolioLabel, roleLabel } from "@/lib/roles";
+import { portfolioLabel } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 import {
   DIRECTORY_GROUPS,
@@ -16,25 +16,34 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { PrintButton } from "@/components/patterns/print-button";
 import { PrintMasthead } from "@/components/patterns/print-masthead";
+import RoleGate from "../../RoleGate";
+import RecordDownloads from "../RecordDownloads";
+import MemberActions from "../members/MemberActions";
 import DirectoryList, { type DirectoryRow } from "./DirectoryList";
 
-// People → Directory. Asked for directly (11 Sept 2026): "a navigable
-// staff / landlord / tenant / vendor list … that can be clicked on to reveal /
-// view all information / profile about the role, not just downloadable."
+// People → Directory: every person and company the organisation deals with,
+// each row opening a whole profile (decision 46).
 //
-// 📌 The four rosters existed only as CSVs (`/api/records/export`), and the
-// capability behind those — `records.export` — is a DPA control that is OFF
-// by default (0239). So for most of the people who reach this section, the
-// only list of the organisation's tenants and landlords was a download they
-// were not allowed to make. This is the same data on screen, where it never
-// leaves the platform, and every row opens.
+// 📌 12 Sept 2026 — the Members list is folded in here, and both are the
+// ADMINISTRATOR's alone. Asked for directly: "Member and Directory seems to be a
+// duplicity of tools … only platform and org admins should have access to it."
+// Every Members feature lives on: the search, the deactivated toggle and its
+// count, the released-address display, the approval-tier picker, the password
+// reset, deactivate and restore, freeing an address, the roster downloads, and
+// the regional manager's region in brackets. Every account the old list held
+// is still reachable here, including the logins a contractor company holds,
+// which get their own rows so none of them can only be found by knowing where
+// to look.
 //
-// ⚠️ It widens nothing. Every query below runs as the CALLER, so the rows are
-// exactly what `users_select`, `tenancy_schedule`'s audience predicate,
-// `property_stakeholders_select` and `vendors_select` already release to them —
-// the same sources the Members tab, the tenancy schedule and the vendor list
-// already render. The page decides what to SHOW; the database decides what
-// exists to be shown.
+// ⚠️ The facilities, property and regional managers keep People for what they
+// actually do there — inviting, vendor applications, occupancy, tenancy
+// applications — and lose only this. The lists other screens show them (who is
+// attached to a property, a tenancy's tenant, a vendor's people) are untouched:
+// only the link from those names into a profile is gone, because a profile is
+// this section's and they would follow it into a refusal.
+//
+// Every query runs as the caller, so the rows are what RLS already releases to
+// an administrator — who reads their whole organisation and nobody else's.
 
 const ICON: Record<DirectoryGroup, typeof Users> = {
   staff: Users,
@@ -51,6 +60,8 @@ type UserRow = {
   role: string;
   deactivated_at: string | null;
   approval_tier: number | null;
+  former_email: string | null;
+  email_released_at: string | null;
 };
 
 type ScheduleRow = {
@@ -65,9 +76,21 @@ type ScheduleRow = {
   start_date: string | null;
 };
 
+const USER_COLUMNS =
+  "id, full_name, email, phone, role, deactivated_at, approval_tier, former_email, email_released_at";
+
 function contactLine(email?: string | null, phone?: string | null): string | undefined {
   const parts = [email, phone].filter((v): v is string => Boolean(v && v.trim()));
   return parts.length ? parts.join(" · ") : undefined;
+}
+
+/** Once released, "released+<uuid>@invalid" tells a reader nothing — show who
+ *  they were, and say the address is gone (0199). */
+function userContact(u: UserRow): string | undefined {
+  if (u.email_released_at) {
+    return [`${u.former_email ?? "address"} — address released`, u.phone].filter(Boolean).join(" · ");
+  }
+  return contactLine(u.email, u.phone);
 }
 
 function listSummary(items: string[], max = 2): string | undefined {
@@ -85,26 +108,34 @@ export default async function DirectoryPage({
   const session = await getSessionProfile();
   if (!session?.profile || !session.org) redirect("/login");
   const { profile, org } = session;
+
+  // The administrator's alone — an organisation's own, and the platform
+  // operator's own for theirs. Everyone else in People is told so plainly.
+  if (profile.role !== "admin") return <RoleGate title="Directory" />;
+
   const brand = org.delivery_brand ?? null;
   const group = parseDirectoryGroup((await searchParams).group);
-
   const supabase = await createClient();
 
-  // Same gate the Members tab applies to its download card, so the button here
-  // and the one there cannot disagree about who may take the file away.
-  const isOperator = profile.role === "admin" && Boolean(org.is_platform_operator);
-  const { data: canExport } =
-    ["admin", "finance_approver", "payment_approver", "executive",
-     "property_manager", "regional_manager"].includes(profile.role)
-      ? await supabase.rpc("has_permission", { p_capability: "records.export" })
-      : { data: false };
+  const isOperator = Boolean(org.is_platform_operator);
+  const { data: canExport } = await supabase.rpc("has_permission", { p_capability: "records.export" });
+  const mayDownload = isOperator || Boolean(canExport);
   const exportType = DIRECTORY_GROUPS.find((g) => g.key === group)!.exportType;
-  // The staff roster FILE is the administrator's alone (board, 5 Sept 2026 —
-  // see the export route). The on-screen list is not: Members has always shown
-  // it to everyone who reaches People.
-  const mayDownload =
-    (isOperator || Boolean(canExport)) &&
-    (group !== "staff" || isOperator || profile.role === "admin");
+
+  const manage = (u: UserRow) => (
+    <MemberActions
+      member={{
+        id: u.id,
+        full_name: u.full_name,
+        email: u.email,
+        role: u.role,
+        deactivated_at: u.deactivated_at,
+        email_released_at: u.email_released_at,
+        approval_tier: u.approval_tier,
+      }}
+      currentUserId={profile.id}
+    />
+  );
 
   let rows: DirectoryRow[] = [];
   let noun = "people";
@@ -116,7 +147,7 @@ export default async function DirectoryPage({
     const [{ data: users }, { data: assignments }] = await Promise.all([
       supabase
         .from("users")
-        .select("id, full_name, email, phone, role, deactivated_at, approval_tier")
+        .select(USER_COLUMNS)
         .not("role", "in", `(${NON_STAFF_ROLES.join(",")})`)
         .order("full_name"),
       supabase
@@ -125,8 +156,9 @@ export default async function DirectoryPage({
     ]);
 
     // Places each person holds. A regional manager's NODE goes in the role
-    // bracket (decision 43 — and only node rows, for the reason recorded on the
-    // Members page); every place anyone holds goes on the detail line.
+    // bracket (decision 43 — node rows only: a property attaché row would put a
+    // building's name where their region belongs); every place anyone holds
+    // goes on the detail line.
     const regionsByUser = new Map<string, string[]>();
     const placesByUser = new Map<string, string[]>();
     for (const a of assignments ?? []) {
@@ -143,27 +175,22 @@ export default async function DirectoryPage({
         key: u.id,
         href: `/dashboard/people/${u.id}`,
         name: u.full_name || u.email || "Unnamed member",
-        contact: contactLine(u.email, u.phone),
+        contact: userContact(u),
         detail: places ? `Holds: ${places}` : undefined,
         tags: [
           { label: portfolioLabel(u.role, brand, regionsByUser.get(u.id)) },
-          ...(u.role === "payment_approver" && u.approval_tier
-            ? [{ label: `Tier ${u.approval_tier}`, variant: "muted" as const }]
-            : []),
           ...(u.deactivated_at ? [{ label: "Deactivated", variant: "muted" as const }] : []),
         ],
         inactive: Boolean(u.deactivated_at),
+        you: u.id === profile.id,
+        actions: manage(u),
       };
     });
-    description = "Everyone who works in this organisation, and the places each of them holds.";
+    description = "Everyone who works in this organisation, the places each of them holds, and their accounts.";
   } else if (group === "tenants") {
     noun = "tenants";
     const [{ data: users }, { data: schedule }] = await Promise.all([
-      supabase
-        .from("users")
-        .select("id, full_name, email, phone, role, deactivated_at, approval_tier")
-        .eq("role", "tenant")
-        .order("full_name"),
+      supabase.from("users").select(USER_COLUMNS).eq("role", "tenant").order("full_name"),
       supabase
         .from("tenancy_schedule")
         .select("lease_id, tenant_user_id, tenant_name, tenant_phone, tenant_email, property_name, unit_label, status, start_date"),
@@ -185,7 +212,7 @@ export default async function DirectoryPage({
         key: u.id,
         href: `/dashboard/people/${u.id}`,
         name: u.full_name || u.email || "Unnamed tenant",
-        contact: contactLine(u.email, u.phone),
+        contact: userContact(u),
         detail: homes
           ? `Lives in: ${homes}`
           : mine.length
@@ -196,15 +223,15 @@ export default async function DirectoryPage({
           ...(u.deactivated_at ? [{ label: "Deactivated", variant: "muted" as const }] : []),
         ],
         inactive: Boolean(u.deactivated_at),
+        actions: manage(u),
       };
     });
 
     // ⚠️ The tenant OF RECORD with no portal account (decision 37) — a company
     // let, and every row of an imported rent roll. Leaving them out would make
-    // this list disagree with the tenancy schedule about who lives where, which
-    // is the one question it exists to answer. They have no profile to open,
-    // because there is no person row behind them; their tenancy page IS their
-    // record, and that is where the row goes.
+    // this list disagree with the tenancy schedule about who lives where. They
+    // have no account to manage and no profile to open; their tenancy page IS
+    // their record, and that is where the row goes.
     const ofRecord = new Map<string, ScheduleRow[]>();
     for (const t of tenancies) {
       if (t.tenant_user_id || !t.tenant_name) continue;
@@ -231,13 +258,8 @@ export default async function DirectoryPage({
       };
     });
 
-    // ⚠️ And a tenancy that names NOBODY — no portal account and no tenant of
-    // record. Measured on staging the day this was built: four live OEA
-    // tenancies in exactly that state, created before decision 37 gave a lease
-    // somewhere to hold a name. Grouping them by name (above) silently drops
-    // them, so the one list whose purpose is "who lives where" would have had
-    // four occupied homes missing from it with nothing to say so. They are
-    // listed, flagged, and open on the tenancy — where the name can be added.
+    // A live tenancy that names nobody at all — listed, flagged, and opened on
+    // the tenancy, where the name can be added (decision 46).
     const unnamed: DirectoryRow[] = tenancies
       .filter((t) => !t.tenant_user_id && !t.tenant_name && isLiveTenancy(t.status))
       .map((t) => ({
@@ -259,11 +281,7 @@ export default async function DirectoryPage({
   } else if (group === "landlords") {
     noun = "landlords";
     const [{ data: users }, { data: stakes }] = await Promise.all([
-      supabase
-        .from("users")
-        .select("id, full_name, email, phone, role, deactivated_at, approval_tier")
-        .eq("role", "property_owner")
-        .order("full_name"),
+      supabase.from("users").select(USER_COLUMNS).eq("role", "property_owner").order("full_name"),
       supabase
         .from("property_stakeholders")
         .select("user_id, properties(name)")
@@ -271,8 +289,6 @@ export default async function DirectoryPage({
     ]);
     const owned = new Map<string, string[]>();
     for (const s of (stakes ?? []) as unknown as { user_id: string; properties: { name: string } | null }[]) {
-      // A property outside this viewer's remit embeds as null (properties_select),
-      // so it is simply not named — never counted, never hinted at.
       if (!s.properties?.name) continue;
       owned.set(s.user_id, [...(owned.get(s.user_id) ?? []), s.properties.name]);
     }
@@ -282,36 +298,33 @@ export default async function DirectoryPage({
         key: u.id,
         href: `/dashboard/people/${u.id}`,
         name: u.full_name || u.email || "Unnamed owner",
-        contact: contactLine(u.email, u.phone),
+        contact: userContact(u),
         detail: props.length ? `Owns: ${listSummary(props, 3)}` : undefined,
         tags: [
           ...(props.length ? [{ label: `${props.length} propert${props.length === 1 ? "y" : "ies"}` }] : []),
           ...(u.deactivated_at ? [{ label: "Deactivated", variant: "muted" as const }] : []),
         ],
         inactive: Boolean(u.deactivated_at),
+        actions: manage(u),
       };
     });
-    description = "Property owners and the buildings they own that you can see.";
+    description = "Property owners, the buildings they own, and their accounts.";
     emptyHint = "No landlords yet — invite one as a Property owner and attach them to their building.";
   } else {
     noun = "vendors";
-    const [{ data: vendors }, { data: links }, { data: loose }] = await Promise.all([
+    const [{ data: vendors }, { data: links }, { data: logins }] = await Promise.all([
       supabase
         .from("vendors")
         .select("id, name, service_category, contact_email, contact_phone, status, approval_status, kyc_tier")
         .order("name"),
-      supabase.from("vendor_users").select("vendor_id, user_id"),
-      supabase
-        .from("users")
-        .select("id, full_name, email, phone, role, deactivated_at, approval_tier")
-        .eq("role", "vendor")
-        .order("full_name"),
+      supabase.from("vendor_users").select("vendor_id, user_id, vendors:vendor_id(name)"),
+      supabase.from("users").select(USER_COLUMNS).eq("role", "vendor").order("full_name"),
     ]);
     const peopleByVendor = new Map<string, number>();
-    const linkedUsers = new Set<string>();
-    for (const l of links ?? []) {
+    const companiesByUser = new Map<string, string[]>();
+    for (const l of (links ?? []) as unknown as { vendor_id: string; user_id: string; vendors: { name: string } | null }[]) {
       peopleByVendor.set(l.vendor_id, (peopleByVendor.get(l.vendor_id) ?? 0) + 1);
-      linkedUsers.add(l.user_id);
+      if (l.vendors?.name) companiesByUser.set(l.user_id, [...(companiesByUser.get(l.user_id) ?? []), l.vendors.name]);
     }
     const companies: DirectoryRow[] = (vendors ?? []).map((v) => {
       const n = peopleByVendor.get(v.id) ?? 0;
@@ -325,6 +338,7 @@ export default async function DirectoryPage({
           n ? `${n} ${n === 1 ? "person" : "people"} with a login` : "no portal login yet",
         ].filter(Boolean).join(" · "),
         tags: [
+          { label: "Company", variant: "outline" as const },
           ...(v.approval_status && v.approval_status !== "approved"
             ? [{
                 label: v.approval_status === "pending" ? "Awaiting approval" : String(v.approval_status),
@@ -332,9 +346,6 @@ export default async function DirectoryPage({
               }]
             : []),
           ...(v.kyc_tier ? [{ label: `${v.kyc_tier} KYC`, variant: "muted" as const }] : []),
-          ...(v.status && v.status !== "active"
-            ? [{ label: String(v.status).replace(/_/g, " "), variant: "muted" as const }]
-            : []),
         ],
         // Filed under "Show deactivated" rather than hidden outright: a
         // suspended contractor is exactly the one somebody comes looking for.
@@ -343,27 +354,33 @@ export default async function DirectoryPage({
           v.approval_status === "suspended" || v.approval_status === "rejected",
       };
     });
-    // A vendor login that belongs to no company — rare (an invitation accepted
-    // before its company link was written), and exactly the row nobody would
-    // otherwise find, so it is listed rather than dropped.
-    const orphans: DirectoryRow[] = ((loose ?? []) as UserRow[])
-      .filter((u) => !linkedUsers.has(u.id))
-      .map((u) => ({
-        key: u.id,
+    // The people who log in for a contractor — every one of them an account
+    // the old Members list could deactivate, so every one is reachable here.
+    const people: DirectoryRow[] = ((logins ?? []) as UserRow[]).map((u) => {
+      const at = companiesByUser.get(u.id) ?? [];
+      return {
+        key: `login:${u.id}`,
         href: `/dashboard/people/${u.id}`,
-        name: u.full_name || u.email || "Unnamed vendor login",
-        contact: contactLine(u.email, u.phone),
-        detail: "Vendor login not linked to a company",
-        tags: [{ label: "No company", variant: "warning" as const }],
+        name: u.full_name || u.email || "Unnamed contractor login",
+        contact: userContact(u),
+        detail: at.length ? `Logs in for ${listSummary(at, 2)}` : "A contractor login not linked to any company",
+        tags: [
+          at.length ? { label: "Contractor login" } : { label: "No company", variant: "warning" as const },
+          ...(u.deactivated_at ? [{ label: "Deactivated", variant: "muted" as const }] : []),
+        ],
         inactive: Boolean(u.deactivated_at),
-      }));
-    rows = [...companies, ...orphans];
+        actions: manage(u),
+      };
+    });
+    rows = [...companies, ...people];
     description =
-      "Contractor companies. Open one for its registration, scorecard, jobs and the people who log in for it.";
+      "Contractor companies, and the people who log in for them. Open a company for its registration, scorecard, jobs and how it is paid.";
     emptyHint = "No vendors yet — they appear here once invited or registered.";
   }
 
   const label = DIRECTORY_GROUPS.find((g) => g.key === group)!.label;
+  const accounts = rows.filter((r) => r.actions);
+  const inactiveAccounts = accounts.filter((r) => r.inactive).length;
 
   return (
     <div className="printable space-y-4">
@@ -372,6 +389,12 @@ export default async function DirectoryPage({
         title={`Directory — ${label}`}
         by={profile.full_name || profile.email || undefined}
       />
+
+      {mayDownload && (
+        <div data-print="screen-only">
+          <RecordDownloads isAdmin />
+        </div>
+      )}
 
       {/* Groups are links, not client tabs: each is an address somebody can
           bookmark or be sent, and the back button returns to the group they
@@ -403,7 +426,15 @@ export default async function DirectoryPage({
         <CardHeader className="flex flex-col gap-3 pb-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-1">
             <CardTitle className="text-base">{label}</CardTitle>
-            <CardDescription>{description}</CardDescription>
+            <CardDescription>
+              {description}
+              {accounts.length > 0 && (
+                <span className="mt-1 block">
+                  {accounts.length - inactiveAccounts} active account{accounts.length - inactiveAccounts === 1 ? "" : "s"}
+                  {inactiveAccounts > 0 ? ` · ${inactiveAccounts} deactivated` : ""}
+                </span>
+              )}
+            </CardDescription>
           </div>
           <div className="flex flex-shrink-0 gap-2" data-print="screen-only">
             <PrintButton />
@@ -421,13 +452,16 @@ export default async function DirectoryPage({
         </CardContent>
       </Card>
 
-      {group !== "staff" && group !== "vendors" && (
-        <p className="text-xs text-muted-foreground" data-print="screen-only">
-          {roleLabel(profile.role, brand)}: you see the {noun} this organisation
-          records, and on each profile only the tenancies, buildings, requests and
-          payments your own role already reaches.
-        </p>
-      )}
+      {/* ⚠️ Stating the whole path, not just the prohibition — carried over
+          from the old Members list word for word in substance. "Never deleted"
+          alone reads as a missing feature; the product can remove somebody, in
+          two deliberate steps, and what survives is the RECORD, not the access. */}
+      <p className="text-xs text-muted-foreground" data-print="screen-only">
+        To remove somebody completely: Manage → <strong>Deactivate</strong> closes the account, then{" "}
+        <strong>Free up their email address</strong> bans the sign-in and frees the address to be
+        invited again. Their name stays on what they did — a decision nobody can be traced to is not
+        a decision.
+      </p>
     </div>
   );
 }

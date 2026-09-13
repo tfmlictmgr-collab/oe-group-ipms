@@ -66,6 +66,7 @@ export default async function PeopleLayout({
           tenancy: tenancyApps.count ?? 0,
         }}
         modules={{ lettings: Boolean(lettings.data) }}
+        isAdmin={session.profile?.role === "admin"}
       />
       {children}
     </div>

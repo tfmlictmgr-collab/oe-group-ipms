@@ -244,9 +244,10 @@ export default async function TicketDetailPage({
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <PageHeader
-        title={t.summary ?? t.message_text}
+        title="Service Request"
         description={
           <span className="flex flex-wrap items-center gap-1.5">
+            <span className="basis-full font-medium text-foreground">{t.summary ?? t.message_text}</span>
             <StatusBadge status={t.status} />
             {t.urgency && <StatusBadge status={t.urgency} />}
             {t.category && (

@@ -290,8 +290,9 @@ export default async function LeaseDetailPage({
   const seesFeeSplit = !viewerIsTenant && staffCharges.length > 0;
   const serviceCharges = (scRes.data ?? []) as unknown as ServiceCharge[];
   const canWrite = Boolean(canWriteRes.data);
-  // A name opens the tenant's profile only for someone who can open People.
-  const opensProfiles = ["admin", ...FM_PM, "regional_manager"].includes(role);
+  // A name opens the tenant's profile only for an administrator — profiles are
+  // theirs alone since 12 Sept 2026. Everyone else still reads the name.
+  const opensProfiles = role === "admin";
 
   // Receipts, keyed off the charges above rather than off the unit. A payment
   // intent carries `rent_charge_id` (0092) and `service_charge_id` (0032); the
@@ -405,11 +406,11 @@ export default async function LeaseDetailPage({
 
       <div data-print="screen-only">
         <PageHeader
-          title={`${unitName} — ${propertyName}`}
+          title="Tenancy"
           description={
             tenantName
-              ? `${tenantName} · ${fmtDate(lease.start_date)} to ${fmtDate(lease.end_date)}`
-              : `No tenant recorded · ${fmtDate(lease.start_date)} to ${fmtDate(lease.end_date)}`
+              ? `${unitName} — ${propertyName} · ${tenantName} · ${fmtDate(lease.start_date)} to ${fmtDate(lease.end_date)}`
+              : `${unitName} — ${propertyName} · No tenant recorded · ${fmtDate(lease.start_date)} to ${fmtDate(lease.end_date)}`
           }
           actions={
             <div className="flex items-center gap-2">

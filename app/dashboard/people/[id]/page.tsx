@@ -16,6 +16,8 @@ import {
   seesTenantMoney,
 } from "@/lib/people-directory";
 import { PageHeader } from "@/components/patterns/page-header";
+import RoleGate from "../../RoleGate";
+import MemberActions from "../members/MemberActions";
 import { PrintButton } from "@/components/patterns/print-button";
 import { PrintMasthead } from "@/components/patterns/print-masthead";
 import { StatusBadge } from "@/components/patterns/status-badge";
@@ -95,6 +97,10 @@ export default async function PersonProfilePage({
   if (!session?.profile || !session.org) redirect("/login");
   const { profile: viewer, org } = session;
   const brand = org.delivery_brand ?? null;
+
+  // 📌 The administrator's alone (12 Sept 2026), with the Directory it opens
+  // from. A manager who follows a stale link is told so, not shown half a page.
+  if (viewer.role !== "admin") return <RoleGate title="Profile" />;
 
   const { id } = await params;
   // A sibling folder with no page of its own (`members/`) would otherwise land
@@ -277,17 +283,14 @@ export default async function PersonProfilePage({
         </Button>
       </div>
 
+      {/* A fixed heading, so "open their Profile" means the same page to
+          everybody; who it is about is the first thing under it. */}
       <PageHeader
-        title={
-          <>
-            {name}
-            {person.id === viewer.id && (
-              <span className="ml-2 text-base font-normal text-muted-foreground">(you)</span>
-            )}
-          </>
-        }
+        title="Profile"
         description={
           <span className="inline-flex flex-wrap items-center gap-2">
+            <span className="text-base font-medium text-foreground">{name}</span>
+            {person.id === viewer.id && <span className="text-muted-foreground">(you)</span>}
             <Badge variant="outline">{roleName}</Badge>
             {person.deactivated_at ? (
               <Badge variant="muted">Deactivated {fmtDate(person.deactivated_at)}</Badge>
@@ -301,7 +304,24 @@ export default async function PersonProfilePage({
             )}
           </span>
         }
-        actions={<PrintButton label="Print profile" />}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            {/* The old Members list's controls, on the person they act on. */}
+            <MemberActions
+              member={{
+                id: person.id,
+                full_name: person.full_name,
+                email: person.email,
+                role: person.role,
+                deactivated_at: person.deactivated_at,
+                email_released_at: person.email_released_at,
+                approval_tier: person.approval_tier,
+              }}
+              currentUserId={viewer.id}
+            />
+            <PrintButton label="Print profile" />
+          </div>
+        }
       />
 
       {/* ── Who they are and how to reach them ───────────────────────────── */}
@@ -661,10 +681,9 @@ export default async function PersonProfilePage({
       </div>
 
       <p className="text-xs text-muted-foreground" data-print="screen-only">
-        Everything on this page is what your own role already reaches — requests,
-        tenancies and buildings outside it are not listed.
-        {viewer.role === "admin" && person.id !== viewer.id &&
-          " Deactivating, restoring or resetting this account is on the Members tab."}
+        Everything on this page is read with your own access.
+        {person.id !== viewer.id &&
+          " Manage, above, sends a password reset link, deactivates or restores this account, and frees an address once it is deactivated."}
       </p>
     </div>
   );

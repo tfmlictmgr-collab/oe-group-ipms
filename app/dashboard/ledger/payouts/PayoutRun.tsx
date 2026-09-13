@@ -27,9 +27,13 @@ import { raiseLandlordPayout, type PayoutCandidate } from "./actions";
 export default function PayoutRun({
   candidates,
   canSend,
+  setup = {},
 }: {
   candidates: PayoutCandidate[];
   canSend: boolean;
+  /** Per landlord with no way to be paid yet: how to ask them (0289). Rendered
+   *  on the server and passed in, so this list never decides what it shows. */
+  setup?: Record<string, React.ReactNode>;
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState<string | null>(null);
@@ -101,8 +105,8 @@ export default function PayoutRun({
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
             {candidates.length - payable.length > 0
-              ? `${candidates.length - payable.length} landlord(s) have no verified bank recipient.`
-              : "Every landlord has a verified bank recipient."}
+              ? `${candidates.length - payable.length} landlord(s) have no way to be paid yet.`
+              : "Every landlord can be paid."}
           </p>
         </Card>
       </div>
@@ -132,11 +136,14 @@ export default function PayoutRun({
                     {c.charges === 1 ? "" : "s"}
                   </p>
                   {!c.hasRecipient && (
-                    <p className="flex items-start gap-1.5 text-xs text-warning">
-                      <AlertCircle className="mt-0.5 size-3.5 flex-shrink-0" />
-                      No verified bank recipient on file — add their bank
-                      details before this can be sent.
-                    </p>
+                    <>
+                      <p className="flex items-start gap-1.5 text-xs text-warning">
+                        <AlertCircle className="mt-0.5 size-3.5 flex-shrink-0" />
+                        No way to pay them yet — neither a Paystack recipient nor
+                        a confirmed bank-transfer account.
+                      </p>
+                      {setup[c.landlordUserId]}
+                    </>
                   )}
                   {/* 0235. The whole figure goes to the owner of record. The
                       schema holds no share, so a split is not something this
@@ -170,7 +177,9 @@ export default function PayoutRun({
                     ) : (
                       <Send />
                     )}
-                    {busy === c.propertyId ? "Sending…" : "Send payout"}
+                    {/* It RAISES the payout for approval; it does not send it —
+                        the button's old label said otherwise. */}
+                    {busy === c.propertyId ? "Raising…" : "Raise payout"}
                   </Button>
                 </div>
               </CardContent>

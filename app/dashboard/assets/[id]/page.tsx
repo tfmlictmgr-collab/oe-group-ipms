@@ -120,9 +120,10 @@ export default async function AssetDetailPage({
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <PageHeader
-        title={asset.name}
+        title="Asset"
         description={
           <span className="flex flex-wrap items-center gap-1.5">
+            <span className="font-medium text-foreground">{asset.name}</span>
             <span className="font-mono text-xs text-muted-foreground">{asset.asset_tag}</span>
             <Badge variant="outline">{humanize(asset.category)}</Badge>
             <StatusBadge status={asset.status} />

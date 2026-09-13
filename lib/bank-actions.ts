@@ -57,8 +57,13 @@ export async function listBanks(): Promise<ActionResult<{ code: string; name: st
   try {
     const res = await fetch("https://api.paystack.co/bank?currency=NGN&perPage=100", {
       headers: { Authorization: `Bearer ${key}` },
-      // Bank lists change rarely; re-fetching per page load is waste.
-      next: { revalidate: 86_400 },
+      // 📌 Refreshed on its own every six hours (board, 12 Sept 2026: "the
+      // list should automatically update when there are new banks"). A newly
+      // licensed bank or a renamed one appears within the day with no change
+      // to this code; re-fetching on every page load would be waste, and the
+      // list is the same for every organisation — it names banks, not anybody's
+      // customers — so one key serving it leaks nothing.
+      next: { revalidate: 21_600 },
     });
     const json = (await res.json()) as {
       status?: boolean;
@@ -107,44 +112,24 @@ export async function resolveBankAccount(input: {
   if (number.length < 6) {
     return fail("That account number looks too short.");
   }
-  if (!input.bankCode) {
-    return fail("Choose the bank the account is held at first.");
-  }
-  const last4 = number.slice(-4);
 
-  const key = process.env.PAYSTACK_SECRET_KEY;
-  if (!key) {
-    // No gateway configured (demo, local). The name cannot be proved, so it is
-    // not asserted — the caller falls back to letting the person type it, and
-    // the audit desk still has the receipt.
-    return fail(
-      "We cannot check that account automatically here.",
-      "Type the account name as it appears on your bank app instead."
-    );
-  }
+  // ⚠️ On the CALLER'S organisation's own key (0289). This used the platform
+  // key for everybody, so an OEA tenant's account number was sent to Paystack
+  // under TFML's merchant account — decision 47's rule broken on a read. The
+  // shared helper asks on the organisation's own key, or the platform key only
+  // for the one organisation that owns it, or not at all.
+  const { data: me } = await supabase.from("users").select("org_id").eq("id", user.id).maybeSingle();
+  if (!me?.org_id) return fail("Your session expired. Please sign in again.");
 
-  try {
-    const res = await fetch(
-      `https://api.paystack.co/bank/resolve?account_number=${encodeURIComponent(number)}&bank_code=${encodeURIComponent(input.bankCode)}`,
-      { headers: { Authorization: `Bearer ${key}` } }
-    );
-    const json = (await res.json()) as {
-      status?: boolean;
-      message?: string;
-      data?: { account_name?: string };
-    };
-    if (!res.ok || !json.status || !json.data?.account_name) {
-      return fail(
-        json.message?.replace(/\.$/, "") ??
-          "That account could not be found at the bank you chose.",
-        "Check the number and the bank, or type the account name yourself."
-      );
-    }
-    return ok({ accountName: json.data.account_name, last4 });
-  } catch {
+  const { lookUpAccountName } = await import("./bank-resolve");
+  const found = await lookUpAccountName(me.org_id, number, input.bankCode);
+  if (!found.ok) {
     return fail(
-      "We could not reach the bank to check that account.",
-      "Type the account name yourself and carry on — it does not stop you."
+      found.reason,
+      found.unavailable
+        ? "Type the account name yourself and carry on — it does not stop you."
+        : "Check the number and the bank, or type the account name yourself."
     );
   }
+  return ok({ accountName: found.accountName, last4: found.last4 });
 }

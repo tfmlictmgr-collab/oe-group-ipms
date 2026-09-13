@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Users, UserPlus, Building2, DoorOpen, FileSignature, Contact } from "lucide-react";
+import { UserPlus, Building2, DoorOpen, FileSignature, Contact } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // A profile (/dashboard/people/<uuid>) is reached from the Directory, so the
@@ -12,11 +12,13 @@ const PROFILE = /^\/dashboard\/people\/[0-9a-f]{8}-[0-9a-f-]{27}$/i;
 
 // Section tabs. Counts sit on the tab so an admin can see at a glance where
 // work is waiting without opening each page.
+//
+// 📌 "Members" is gone as a tab (12 Sept 2026): its list and every one of its
+// controls are in the Directory, which is the administrator's alone. Hidden
+// from everyone else rather than shown and refused — a tab that always says
+// "not for you" is a question every manager has to ask.
 const TABS = [
-  { href: "/dashboard/people", label: "Members", icon: Users, key: "members" },
-  // Staff, tenants, landlords and vendors, each row opening a whole profile —
-  // the on-screen form of the four CSVs (11 Sept 2026).
-  { href: "/dashboard/people/directory", label: "Directory", icon: Contact, key: "directory" },
+  { href: "/dashboard/people/directory", label: "Directory", icon: Contact, key: "directory", adminOnly: true },
   { href: "/dashboard/people/invitations", label: "Invitations", icon: UserPlus, key: "invites" },
   { href: "/dashboard/people/applications", label: "Vendor Applications", icon: Building2, key: "apps" },
   { href: "/dashboard/people/occupancy", label: "Unit Occupancy", icon: DoorOpen, key: "units" },
@@ -28,20 +30,21 @@ const TABS = [
 export default function SubNav({
   counts,
   modules = {},
+  isAdmin = false,
 }: {
   counts: Partial<Record<string, number>>;
   modules?: Partial<Record<string, boolean>>;
+  isAdmin?: boolean;
 }) {
   const pathname = usePathname();
 
   return (
     <div className="-mx-1 flex gap-1 overflow-x-auto border-b border-border px-1">
-      {TABS.filter((t) => !("module" in t) || modules[t.module]).map((t) => {
+      {TABS.filter(
+        (t) => (!("module" in t) || modules[t.module]) && (!("adminOnly" in t) || isAdmin)
+      ).map((t) => {
         const active =
-          t.href === "/dashboard/people"
-            ? pathname === t.href
-            : pathname.startsWith(t.href) ||
-              (t.key === "directory" && PROFILE.test(pathname));
+          pathname.startsWith(t.href) || (t.key === "directory" && PROFILE.test(pathname));
         const n = counts[t.key];
         const Icon = t.icon;
         return (

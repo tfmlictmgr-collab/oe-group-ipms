@@ -39,8 +39,8 @@ export default async function GuidePage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title={guide.title}
-        description={guide.audience}
+        title="Guide"
+        description={`${guide.title} — ${guide.audience}`}
         actions={
           <Button asChild variant="brand">
             {/* Plain link, not a fetch: the browser's own download handles a

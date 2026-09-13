@@ -153,8 +153,8 @@ export default async function PropertyStatementPage({
 
       <div data-print="screen-only">
         <PageHeader
-          title={stmt.property_name}
-          description={`Statement for ${fmtDate(from)} to ${fmtDate(to)} · ${stmt.unit_count} unit${stmt.unit_count === 1 ? "" : "s"}, ${stmt.occupied_units} occupied, ${stmt.live_tenancies} live tenanc${stmt.live_tenancies === 1 ? "y" : "ies"}`}
+          title="Property Statement"
+          description={`${stmt.property_name} · ${fmtDate(from)} to ${fmtDate(to)} · ${stmt.unit_count} unit${stmt.unit_count === 1 ? "" : "s"}, ${stmt.occupied_units} occupied, ${stmt.live_tenancies} live tenanc${stmt.live_tenancies === 1 ? "y" : "ies"}`}
           actions={
             <div className="flex items-center gap-2">
               <PrintButton />

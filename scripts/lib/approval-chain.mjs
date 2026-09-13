@@ -5,93 +5,129 @@
 // three recorded stage decisions. Suites that were written before that drove
 // `status = 'approved'` directly, and every one of them broke — not because the
 // thing they test changed, but because the road to their starting position did.
-// `verify-invoice-appeal` is about reopening a rejected invoice;
-// `verify-oversight-roles` is about who may remit. Neither is about the chain,
-// and neither should carry its own copy of how to satisfy it.
-//
 // So: one helper. If the chain's shape changes again, it changes here rather
 // than in however many suites happen to need an approved payment.
 //
-// Uses the SERVICE ROLE deliberately — these are fixtures, not assertions. The
-// chain's own rules are proven by `verify-approval-chain`, which is where a
-// claim about them belongs. Note what that means, though, and it is the lesson
-// that cost four suites: service-role inserts bypass RLS, so a suite built only
-// on this helper proves nothing about whether a role can REACH the rows it
-// governs. Assert visibility with a real signed-in session.
+// ⚠️ 12 Sept 2026 — every decision is now made by a REAL SIGNED-IN PERSON,
+// through `record_payment_approval`, and no longer inserted with the service
+// role. The service-role inserts were invisible in the table and very visible
+// in the audit trail: `log_audit` stamps `auth.uid()`, which is null for the
+// service role, so 1,306 approval decisions — every one of them this helper's
+// — sat on the live trail as "System", looking to an auditor exactly like
+// decisions nobody could be traced to. The trail is immutable, so those rows
+// are labelled on the page rather than removed; this makes sure there are no
+// more of them. Each decision is now attributed to the demo login that made it,
+// which the trail labels "Demo account".
+//
+// It also means this helper now goes through the chain's own rules — the stage
+// order, the role each stage needs, one human per stage, the tier — instead of
+// around them. A suite that relied on the service role skipping one of those
+// was relying on something the product never allows.
+
+import { createClient } from "@supabase/supabase-js";
+
+const DEMO_PASSWORD = process.env.DEMO_PASSWORD ?? "OEGroupDemo2026!";
+
+async function signedInAs(email) {
+  const c = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    { auth: { persistSession: false, autoRefreshToken: false } }
+  );
+  const { error } = await c.auth.signInWithPassword({ email, password: DEMO_PASSWORD });
+  return error ? null : c;
+}
 
 /**
- * Record stages 1–3 as three distinct people, so separation of duties is
- * satisfied rather than circumvented.
+ * Who decides each stage of this organisation's chain — read from
+ * `payment_chain_stages(org)`, so the standard ladder, OEA's and a single-stage
+ * chain (decision 28) are all walked as they actually are.
  *
- * @returns {Promise<{ok: boolean, why?: string}>}
+ * A demo login, never a `probe*` account another run left behind (decision 38:
+ * 214 of them once held real roles, with passwords nobody here knows), and never
+ * the same person twice — one human, one stage. The highest tier first, so a
+ * fixture of any amount clears the band.
  */
-export async function clearVendorPaymentChain(svc, orgId, paymentId) {
-  const pick = async (role, tier = null) => {
-    let q = svc.from("users").select("id")
-      .eq("org_id", orgId).eq("role", role).is("deactivated_at", null);
-    if (tier !== null) q = q.eq("approval_tier", tier);
-    const { data } = await q.limit(1).maybeSingle();
-    return data?.id ?? null;
-  };
-
-  const fm = await pick("facility_manager");
-  const auditor = await pick("payment_audit_approver");
-  // Tier 3 clears any band, so a helper used by suites with arbitrary amounts
-  // does not have to reason about which tier the fixture happens to need.
-  const approver = (await pick("payment_approver", 3)) ?? (await pick("executive"));
-
-  const missing = [
-    !fm && "facility_manager",
-    !auditor && "payment_audit_approver",
-    !approver && "payment_approver (tier 3) or executive",
-  ].filter(Boolean);
-  if (missing.length) {
-    return { ok: false, why: `no ${missing.join(", ")} in this org — run scripts/seed-org-logins.mjs` };
+async function deciders(svc, orgId) {
+  const { data: stages, error } = await svc.rpc("payment_chain_stages", { p_org_id: orgId });
+  if (error || !stages?.length) {
+    return { ok: false, why: `could not read this organisation's approval chain: ${error?.message ?? "no stages"}` };
   }
-
-  for (const [stage, actor] of [[1, fm], [2, auditor], [3, approver]]) {
-    const { error } = await svc.from("payment_approvals").insert({
-      org_id: orgId, payable_type: "vendor_payment", payable_id: paymentId,
-      stage_order: stage, actor_id: actor,
-      // Placeholders: enforce_approval_rules overwrites role, tier and amount
-      // from the authoritative records.
-      actor_role: "viewer", actor_tier: null, amount: 1, decision: "approved",
-    });
-    if (error) return { ok: false, why: `stage ${stage}: ${error.message}` };
+  const used = new Set();
+  const out = [];
+  for (const s of [...stages].sort((a, b) => a.stage_order - b.stage_order)) {
+    let chosen = null;
+    for (const role of s.required_roles) {
+      const { data } = await svc
+        .from("users")
+        .select("id, email, approval_tier")
+        .eq("org_id", orgId)
+        .eq("role", role)
+        .is("deactivated_at", null)
+        .not("email", "like", "probe%")
+        .order("created_at");
+      const candidates = (data ?? [])
+        .filter((u) => !used.has(u.id))
+        .sort((a, b) => (b.approval_tier ?? 0) - (a.approval_tier ?? 0));
+      for (const u of candidates) {
+        const c = await signedInAs(u.email);
+        if (c) {
+          chosen = { stage: s.stage_order, id: u.id, email: u.email, client: c };
+          break;
+        }
+      }
+      if (chosen) break;
+    }
+    if (!chosen) {
+      return {
+        ok: false,
+        why: `nobody who can sign in holds stage ${s.stage_order} (${s.required_roles.join(" or ")}) in this organisation — run scripts/seed-org-logins.mjs`,
+      };
+    }
+    used.add(chosen.id);
+    out.push(chosen);
   }
-  return { ok: true };
+  return { ok: true, deciders: out };
+}
+
+/**
+ * Record every stage of a payable's chain as approved, each by a different
+ * signed-in person.
+ *
+ * @returns {Promise<{ok: boolean, why?: string, actors?: string[]}>}
+ */
+async function clearChain(svc, orgId, payableType, payableId) {
+  const d = await deciders(svc, orgId);
+  if (!d.ok) return d;
+  try {
+    for (const { stage, email, client } of d.deciders) {
+      const { error } = await client.rpc("record_payment_approval", {
+        p_payable_type: payableType,
+        p_payable_id: payableId,
+        p_stage: stage,
+        p_decision: "approved",
+      });
+      if (error) return { ok: false, why: `stage ${stage} (${email}): ${error.message}` };
+    }
+    return { ok: true, actors: d.deciders.map((x) => x.id) };
+  } finally {
+    await Promise.all(d.deciders.map((x) => x.client.auth.signOut().catch(() => {})));
+  }
+}
+
+/** A vendor payment's chain. The payment must already be at the chain. */
+export function clearVendorPaymentChain(svc, orgId, paymentId) {
+  return clearChain(svc, orgId, "vendor_payment", paymentId);
 }
 
 /**
  * The same, for a landlord payout — whose payable is the REMITTANCE row itself,
  * because the payout does not exist until finance assembles it (0152).
  *
- * `p_sent_by` must not be one of these three, or the maker-checker in
- * `claim_remittance_for_sending` will refuse the send.
+ * The person who then sends it must not be one of the deciders, or the
+ * maker-checker in `claim_remittance_for_sending` refuses — the returned
+ * `actors` says who they were.
  */
-export async function clearLandlordPayoutChain(svc, orgId, remittanceId) {
-  const pick = async (role, tier = null) => {
-    let q = svc.from("users").select("id")
-      .eq("org_id", orgId).eq("role", role).is("deactivated_at", null);
-    if (tier !== null) q = q.eq("approval_tier", tier);
-    const { data } = await q.limit(1).maybeSingle();
-    return data?.id ?? null;
-  };
-
-  const fm = await pick("facility_manager");
-  const auditor = await pick("payment_audit_approver");
-  const approver = (await pick("payment_approver", 3)) ?? (await pick("executive"));
-  if (!fm || !auditor || !approver) {
-    return { ok: false, why: "the org lacks one of the three chain roles — run scripts/seed-org-logins.mjs" };
-  }
-
-  for (const [stage, actor] of [[1, fm], [2, auditor], [3, approver]]) {
-    const { error } = await svc.from("payment_approvals").insert({
-      org_id: orgId, payable_type: "landlord_payout", payable_id: remittanceId,
-      stage_order: stage, actor_id: actor,
-      actor_role: "viewer", actor_tier: null, amount: 1, decision: "approved",
-    });
-    if (error) return { ok: false, why: `stage ${stage}: ${error.message}` };
-  }
-  return { ok: true };
+export function clearLandlordPayoutChain(svc, orgId, remittanceId) {
+  return clearChain(svc, orgId, "landlord_payout", remittanceId);
 }

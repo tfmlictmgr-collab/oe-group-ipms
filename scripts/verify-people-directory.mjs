@@ -194,11 +194,59 @@ for (const g of ["staff", "tenants", "landlords", "vendors"]) {
     : bad(`the ${g} group did not render for the administrator (status ${r.status})`);
 }
 
+// 📌 12 Sept 2026: the Directory absorbed Members and became the
+// administrator's alone. These used to assert that a facilities manager
+// reached it — the opposite of the rule now, which is what decision 38 says a
+// suite must be re-read for on the day the rule changes.
 {
   const r = await page("oea.fmgr@oegroup.test", "/dashboard/people/directory?group=tenants");
-  r.text.includes("Directory — Tenants")
-    ? ok("a facilities manager reaches the directory (People admits FM/PM/RM)")
-    : bad("the facilities manager was refused the directory");
+  r.text.includes("Not available for your role") && !r.text.includes("Directory — Tenants")
+    ? ok("a facilities manager is refused the Directory — it is the administrator's alone")
+    : bad("a facilities manager reached the Directory");
+}
+// People itself is now a redirect, and `page()` does not follow one (it must
+// not — a redirect to /login would otherwise read as a page). So these ask
+// where People SENDS each person, then read that page as them.
+//
+// 📌 The redirect is not always a 3xx. The dashboard layout streams before the
+// page runs, so Next answers 200 and carries the redirect inside the document
+// (a refresh meta tag, and NEXT_REDIRECT in the flight data) — which a browser
+// follows and a `Location` check never sees. Both forms are read.
+async function landing(email, path) {
+  const res = await fetch(`${SITE}${path}`, {
+    headers: { cookie: await cookieFor(email) },
+    redirect: "manual",
+  });
+  let to = res.headers.get("location") ?? "";
+  if (!to && res.status === 200) {
+    const body = await res.text();
+    to =
+      body.match(/http-equiv="refresh"\s+content="\d+;\s*url=([^"]+)"/i)?.[1] ??
+      body.match(/NEXT_REDIRECT;(?:replace|push);([^;"\\]+);/)?.[1] ??
+      "";
+    to = to.replace(/&amp;/g, "&");
+  }
+  const target = to ? new URL(to, SITE).pathname : "";
+  return { status: res.status, target, ...(target ? await page(email, target) : { html: "", text: "" }) };
+}
+{
+  const r = await landing("oea.fmgr@oegroup.test", "/dashboard/people");
+  r.target === "/dashboard/people/invitations" &&
+  r.text.includes("Invitations") && !r.text.includes("Directory —") && !/\bMembers\b/.test(r.text)
+    ? ok("…and People opens on Invitations for them, with no Directory or Members tab")
+    : bad(`People did not open on Invitations for a facilities manager (sent to "${r.target || r.status}")`);
+}
+{
+  const r = await landing("oea.admin@oegroup.test", "/dashboard/people");
+  r.target === "/dashboard/people/directory" && r.text.includes("Directory —") && r.html.includes(">Manage")
+    ? ok("an administrator's People opens on the Directory, each account carrying its Manage controls")
+    : bad(`People did not open on the Directory, with account controls, for the administrator (sent to "${r.target || r.status}")`);
+}
+{
+  const r = await page("oea.pm@oegroup.test", "/dashboard/records");
+  r.text.includes("Download Records") && r.text.includes("Tenants") && !r.text.includes("Directory —")
+    ? ok("a property manager holding record export gets Download Records — the files, not the Directory")
+    : bad("the property manager's Download Records page did not render");
 }
 {
   const r = await page("oea.finance@oegroup.test", "/dashboard/people/directory");
@@ -227,15 +275,19 @@ const profile = (id) => `/dashboard/people/${id}`;
     : bad("the administrator was not shown the tenant's payments");
 }
 {
-  // ⚠️ Decision 29 + 25: a facilities manager holds no money read, so the
-  // section is absent — never present and empty.
+  // Profiles went with the Directory (12 Sept 2026).
   const r = await page("oea.fmgr@oegroup.test", profile(tenant.id));
-  r.text.includes("Contact & account") && !r.text.includes("Online collections raised against them")
-    ? ok("a facilities manager sees the tenant, and no payments section at all")
-    : bad("a facilities manager was shown a tenant's payments section");
-  !r.text.includes("Rent outstanding")
-    ? ok("…nor what the tenant owes")
-    : bad("a facilities manager was shown rent outstanding");
+  !r.text.includes("Contact & account") && r.text.includes("Not available for your role")
+    ? ok("a facilities manager is refused a profile, and told why")
+    : bad("a facilities manager was shown a profile");
+}
+{
+  const r = await page("oea.admin@oegroup.test", profile(tenant.id));
+  r.html.includes(">Manage") && /Send a password reset link|Deactivate this account/.test(r.html + r.text) === false
+    ? ok("the administrator's profile carries the account's Manage menu (closed until opened)")
+    : r.html.includes(">Manage")
+      ? ok("the administrator's profile carries the account's Manage menu")
+      : bad("the profile has no Manage controls for the administrator");
 }
 {
   const r = await page("tfml.admin@oegroup.test", profile(tenant.id));
@@ -289,8 +341,15 @@ section("D. The searchable lists and the links into profiles");
     ? ok("…and can be narrowed to who is attached now")
     : bad("the attached-only filter is missing");
   /href="\/dashboard\/people\/[0-9a-f-]{36}"/.test(r.html)
-    ? ok("…and its names open the person's profile for someone who can open People")
+    ? ok("…and its names open the person's profile for the administrator")
     : bad("the attachment list does not link to profiles");
+
+  // The list itself is unchanged for a manager; only the link into a profile
+  // goes, because they would follow it into a refusal.
+  const fm = await page("oea.pm@oegroup.test", `/dashboard/properties/${prop.id}`);
+  fm.status === 200 && !/href="\/dashboard\/people\/[0-9a-f-]{36}"/.test(fm.html)
+    ? ok("a manager still reads the property's attachments, with no profile links")
+    : bad("a manager was handed profile links, or the property page did not render");
 }
 {
   const vendorId = (

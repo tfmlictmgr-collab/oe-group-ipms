@@ -145,6 +145,8 @@ export type RaisedPayout = {
   reference: string;
   propertyName: string;
   landlordName: string;
+  /** Whose payout — for finding their bank-transfer account (0289). */
+  landlordUserId: string | null;
   netAmount: number;
   period: string | null;
   raisedAt: string;
@@ -183,7 +185,7 @@ export async function raisedPayouts(): Promise<ActionResult<RaisedPayout[]>> {
   const { data, error } = await supabase
     .from("remittances")
     .select(
-      "id, reference, net_amount, period, created_at, properties(name), payout_recipients(display_name)"
+      "id, reference, net_amount, period, created_at, properties(name), payout_recipients(display_name, user_id)"
     )
     .eq("party", "landlord")
     .eq("status", "queued")
@@ -207,6 +209,9 @@ export async function raisedPayouts(): Promise<ActionResult<RaisedPayout[]>> {
       landlordName: one(
         r.payout_recipients as { display_name?: string } | { display_name?: string }[] | null
       )?.display_name ?? "the landlord",
+      landlordUserId: one(
+        r.payout_recipients as { user_id?: string | null } | { user_id?: string | null }[] | null
+      )?.user_id ?? null,
       netAmount: Number(r.net_amount),
       period: r.period ?? null,
       raisedAt: r.created_at,
@@ -249,6 +254,23 @@ export async function sendApprovedPayout(
       "Too many payouts sent in a short window.",
       "Wait a few minutes and try again — this protects against a runaway or compromised session."
     );
+  }
+
+  // 0289. A payout raised against the landlord's bank-transfer account is
+  // pointed at their Paystack recipient before it goes through Paystack — the
+  // same landlord, the other rail. The function refuses to move it to anybody
+  // else, and does nothing to a payout that already names a gateway recipient.
+  {
+    const { supabaseAdmin } = await import("@/lib/supabase/admin");
+    const { error: switchErr } = await supabaseAdmin.rpc("use_gateway_account_for_remittance", {
+      p_remittance_id: remittanceId,
+    });
+    if (switchErr) {
+      return fail(
+        "This landlord has no Paystack recipient, so this payout cannot go through Paystack.",
+        "Use Record a bank transfer instead. Nothing has been sent."
+      );
+    }
   }
 
   return sendCreatedRemittance({

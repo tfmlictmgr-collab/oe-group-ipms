@@ -653,11 +653,13 @@ export const ROLE_GUIDES: Record<string, RoleGuide> = {
               "you, and the payment desks, are the administrator's to invite.",
           },
           {
-            title: "Finding anyone",
+            title: "Finding a tenant, landlord or contractor",
             body:
-              "People → Directory lists staff, tenants, landlords and vendors. Open " +
-              "any of them for their whole profile — contact details, the places " +
-              "they hold or the homes they rent, and the requests they raised.",
+              "On your buildings, a tenant is on their tenancy under Leases & Rent, a " +
+              "landlord on the property's own page, and a contractor under Vendors. " +
+              "The full Directory of people and accounts is the administrator's. If " +
+              "your organisation has turned record export on for your role, Download " +
+              "Records gives you the rosters as spreadsheets.",
           },
         ],
       },
@@ -947,11 +949,11 @@ export function managerGuide(roleLabel: string, handlesMoney = false): RoleGuide
             {
               title: "Finding a tenant, landlord or contractor",
               body:
-                "People → Directory, then Staff, Tenants, Landlords or Vendors. " +
-                "Every row opens the person's whole profile: how to reach them, " +
-                "their tenancies or buildings, the requests they raised and — for " +
-                "a tenant — what they owe and have paid. Leases & Rent and the " +
-                "\"Who is attached to this property\" list are both searchable too.",
+                "A tenant is on their tenancy under Leases & Rent — search it by name, " +
+                "unit or phone — and a landlord or anyone attached to a building is " +
+                "under \"Who is attached to this property\" on its page, which is " +
+                "searchable too. Contractors are under Vendors. The full Directory of " +
+                "people and their accounts is the administrator's.",
             },
             {
               title: "The tenancy schedule",

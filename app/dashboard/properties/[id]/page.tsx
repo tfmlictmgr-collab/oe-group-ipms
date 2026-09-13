@@ -90,10 +90,8 @@ export default async function PropertyDetailPage({
       </Button>
 
       <PageHeader
-        title={property.name}
-        description={
-          [property.reference, property.property_type].filter(Boolean).join(" · ") || undefined
-        }
+        title="Property"
+        description={[property.name, property.reference, property.property_type].filter(Boolean).join(" · ")}
         actions={
           <div className="flex items-center gap-2">
             {/* Offered to everyone who can open this page, with no check of its
@@ -166,9 +164,10 @@ export default async function PropertyDetailPage({
                 role: m.role,
                 roleName: roleLabel(m.role, session.org?.delivery_brand ?? null),
               }))}
-            // Names open the person's profile only for a viewer who can reach
-            // People at all — anyone else would land on a role refusal.
-            opensProfiles={["admin", ...FM_PM, "regional_manager"].includes(session.profile?.role ?? "")}
+            // Names open the person's profile only for an administrator — the
+            // Directory and its profiles are theirs alone (12 Sept 2026). The
+            // list itself is unchanged for every reader; only the link goes.
+            opensProfiles={session.profile?.role === "admin"}
             attached={(stakeholders ?? []).map((s) => ({
               userId: s.user_id, relation: s.relation as "manager" | "owner",
             }))}

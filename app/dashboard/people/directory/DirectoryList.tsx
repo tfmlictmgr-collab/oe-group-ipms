@@ -21,6 +21,13 @@ export type DirectoryRow = {
   detail?: string;
   tags: DirectoryTag[];
   inactive?: boolean;
+  /** The reader's own row. */
+  you?: boolean;
+  /** An administrator's controls for this account (12 Sept 2026: the old
+      Members list, folded in). Outside the link, never inside it — a button
+      inside a link is two controls in one place, and a tap on "Manage" must
+      not also open the profile. */
+  actions?: React.ReactNode;
 };
 
 /**
@@ -95,13 +102,10 @@ export default function DirectoryList({
       ) : (
         <ul className="divide-y divide-border overflow-hidden rounded-md border border-border">
           {visible.map((r) => (
-            <li key={r.key}>
+            <li key={r.key} className={cn("flex items-center", r.inactive && "opacity-60")}>
               <Link
                 href={r.href}
-                className={cn(
-                  "group flex items-center gap-3 px-3 py-3 transition-colors hover:bg-muted/60 focus-visible:bg-muted/60 focus-visible:outline-none",
-                  r.inactive && "opacity-60"
-                )}
+                className="group flex min-w-0 flex-1 items-center gap-3 px-3 py-3 transition-colors hover:bg-muted/60 focus-visible:bg-muted/60 focus-visible:outline-none"
               >
                 <span
                   aria-hidden
@@ -116,6 +120,7 @@ export default function DirectoryList({
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium group-hover:underline">
                     {r.name}
+                    {r.you && <span className="ml-2 text-xs font-normal text-muted-foreground">(you)</span>}
                   </span>
                   {r.contact && (
                     <span className="block truncate text-xs text-muted-foreground">{r.contact}</span>
@@ -133,6 +138,11 @@ export default function DirectoryList({
                 </span>
                 <ChevronRight className="size-4 flex-shrink-0 text-muted-foreground" />
               </Link>
+              {r.actions && (
+                <div className="flex-shrink-0 pr-3" data-print="screen-only">
+                  {r.actions}
+                </div>
+              )}
             </li>
           ))}
         </ul>

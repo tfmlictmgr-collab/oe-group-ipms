@@ -114,12 +114,37 @@ export default async function PaymentDetailPage({
   // arrived as a surprise, to the payment officer, who cannot register one.
   // Same reasoning as `payable_funding_state` (0247): a person's first warning
   // that money cannot move should not be an exception.
-  const { data: payoutAccount } = await supabase
+  //
+  // 📌 0289: a vendor may be paid through Paystack (a gateway recipient) or by
+  // bank transfer (an account they evidenced themselves), and may hold one of
+  // each — so this reads both, rather than `maybeSingle` failing on two rows
+  // and reporting a payable vendor as unpayable.
+  const { data: payoutAccounts } = await supabase
     .from("payout_recipients")
-    .select("id, display_name, bank_name, account_number_last4")
+    .select("id, gateway, recipient_code, verified_at, evidence_path")
     .eq("vendor_id", p.vendor_id)
-    .eq("active", true)
-    .maybeSingle();
+    .eq("active", true);
+  const gatewayAccount = (payoutAccounts ?? []).find((a) => a.gateway !== "manual" && a.recipient_code);
+  const bankTransferAccount = (payoutAccounts ?? []).find(
+    (a) => a.gateway === "manual" && a.verified_at && a.evidence_path
+  );
+  const payoutAccount = gatewayAccount ?? bankTransferAccount ?? null;
+
+  // How a paid invoice left, for the link to its remittance advice. Read
+  // through the caller's session: `remittances_select` admits finance, the
+  // chain and oversight, so an FM who can see the invoice but not the payout
+  // simply gets no link rather than one that leads nowhere.
+  const { data: sentRemittance } =
+    p.status === "remitted"
+      ? await supabase
+          .from("remittances")
+          .select("id, gateway")
+          .eq("payment_id", p.id)
+          .eq("status", "sent")
+          .order("sent_at", { ascending: false })
+          .limit(1)
+          .maybeSingle()
+      : { data: null };
 
   const chain = await getChainState(supabase, "vendor_payment", p.id);
   const chainActor = {
@@ -157,8 +182,8 @@ export default async function PaymentDetailPage({
 
       <div data-print="screen-only">
         <PageHeader
-          title={vendor?.name ?? "Payment"}
-          description={p.invoice_reference ?? "no reference"}
+          title="Payment"
+          description={`${vendor?.name ?? "Vendor"} · ${p.invoice_reference ?? "no reference"}`}
           actions={
             <div className="flex items-center gap-2">
               <PrintButton label="Print for filing" />
@@ -298,21 +323,20 @@ export default async function PaymentDetailPage({
               <AlertTriangle className="mt-0.5 size-4 flex-shrink-0 text-warning" />
               <div className="space-y-1">
                 <p className="font-medium">
-                  {vendor?.name ?? "This vendor"} has no verified payout account,
-                  so this cannot be sent yet.
+                  {vendor?.name ?? "This vendor"} has no way to be paid yet.
                 </p>
                 <p className="text-muted-foreground">
-                  The bank details on their registration are evidence of who they
-                  are, not payment instructions — nothing turns one into the
-                  other. An administrator registers the account on{" "}
+                  They need either a Paystack recipient or a confirmed
+                  bank-transfer account. Both are set up on{" "}
                   <Link
                     href={`/dashboard/vendors/${p.vendor_id}`}
                     className="font-medium text-brand underline-offset-2 hover:underline"
                   >
                     their vendor page
                   </Link>
-                  , where their bank letter is shown, and the bank confirms the
-                  name before it is saved. Approval is unaffected.
+                  {" "}— from their approved registration, or by sending them a
+                  secure link to give their bank details themselves. Approval is
+                  unaffected.
                 </p>
               </div>
             </div>
@@ -334,20 +358,27 @@ export default async function PaymentDetailPage({
                 // the people who answer for the money. The trigger enforces
                 // this regardless of what the page renders.
                 canReopen={["admin", "finance_approver"].includes(session.profile?.role ?? "")}
+                orgId={session.profile?.org_id}
               />
             </>
           )}
 
-          {p.status === "remitted" && p.remittance_reference && (
-            <div className="flex items-start gap-2 rounded-md bg-warning/10 p-3 text-sm">
-              <AlertTriangle className="mt-0.5 size-4 flex-shrink-0 text-warning" />
-              <div>
-                <p className="font-semibold">SIMULATED — POC ONLY</p>
-                <p className="text-muted-foreground">
-                  Remittance reference: {p.remittance_reference}. No live gateway
-                  (Paystack/Flutterwave) is integrated.
-                </p>
-              </div>
+          {/* ⚠️ This used to read "SIMULATED — POC ONLY … No live gateway is
+              integrated" on every paid invoice — true in the demo it was
+              written for, and false since real Paystack payouts and bank
+              transfers both exist. A paid invoice now says how it was paid and
+              opens its remittance advice. */}
+          {p.status === "remitted" && (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border p-3 text-sm">
+              <p className="text-muted-foreground">
+                Paid {sentRemittance?.gateway === "manual" ? "by bank transfer" : "through Paystack"}
+                {p.remittance_reference ? ` · reference ${p.remittance_reference}` : ""}.
+              </p>
+              {sentRemittance && (
+                <Button asChild size="sm" variant="outline">
+                  <Link href={`/dashboard/remittances/${sentRemittance.id}`}>Remittance advice</Link>
+                </Button>
+              )}
             </div>
           )}
         </CardContent>

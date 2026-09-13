@@ -15,6 +15,7 @@ import ResubmitPanel from "@/components/approvals/ResubmitPanel";
 import { getChainState, canActorAction, formatNaira } from "@/lib/approvals/chain";
 import LinePayeeForm from "./LinePayeeForm";
 import SendLineGroup from "./SendLineGroup";
+import BankTransferAccount from "@/components/payouts/BankTransferAccount";
 
 export const dynamic = "force-dynamic";
 
@@ -25,8 +26,10 @@ type Line = {
   vendor_id: string | null;
   payee_recipient_id: string | null;
   remittance_id: string | null;
+  /** A payee asked for their bank details who has not answered yet (0289). */
+  payout_request_id: string | null;
   vendors: { id: string; name: string } | null;
-  payout_recipients: { id: string; display_name: string } | null;
+  payout_recipients: { id: string; display_name: string; gateway: string } | null;
 };
 
 export default async function RequisitionDetailPage({
@@ -51,11 +54,43 @@ export default async function RequisitionDetailPage({
   const { data: linesData } = await supabase
     .from("ops_requisition_lines")
     .select(
-      "id, description, amount, vendor_id, payee_recipient_id, remittance_id, vendors(id, name), payout_recipients(id, display_name)"
+      "id, description, amount, vendor_id, payee_recipient_id, remittance_id, payout_request_id, vendors(id, name), payout_recipients(id, display_name, gateway)"
     )
     .eq("requisition_id", id)
     .order("line_order");
   const lines = (linesData ?? []) as unknown as Line[];
+
+  // Payees asked for their bank details — the name the approvers see, and the
+  // link's state. Read through the caller's session: `payout_detail_requests`
+  // is readable by anyone who can already see this requisition (0289).
+  const askedLineIds = lines.filter((l) => l.payout_request_id).map((l) => l.id);
+  const { data: askedRows } = askedLineIds.length
+    ? await supabase
+        .from("payout_detail_requests")
+        .select("id, requisition_line_id, payee_name, requested_at, expires_at, contact_email, contact_phone, submitted_at, withdrawn_at")
+        .in("requisition_line_id", askedLineIds)
+        .order("requested_at", { ascending: false })
+    : { data: [] };
+  const waiting = new Map<string, { payeeName: string; request: { id: string; sentAt: string; expiresAt: string; lapsed: boolean; to: string } | null }>();
+  for (const q of askedRows ?? []) {
+    if (waiting.has(q.requisition_line_id)) continue;   // newest first
+    const live = !q.submitted_at && !q.withdrawn_at;
+    waiting.set(q.requisition_line_id, {
+      payeeName: q.payee_name,
+      request: live
+        ? {
+            id: q.id,
+            sentAt: q.requested_at,
+            expiresAt: q.expires_at,
+            lapsed: new Date(q.expires_at).getTime() < Date.now(),
+            to: [q.contact_email, q.contact_phone].filter(Boolean).join(" and "),
+          }
+        : null,
+    });
+  }
+
+  const { orgGatewayUsable } = await import("@/lib/payout-views");
+  const gatewayUsable = await orgGatewayUsable(req.org_id);
 
   const { data: me } = await supabase
     .from("users").select("id, role, approval_tier").eq("id", session.profile.id).single();
@@ -88,12 +123,16 @@ export default async function RequisitionDetailPage({
   const state = await getChainState(supabase, "ops_requisition", req.id);
   const canAction = canActorAction(actor, state);
   const isFinance = actor.role === "finance_approver";
+  const canManagePayouts = ["admin", "finance_approver"].includes(actor.role);
+  // Who can open a remittance advice — `remittances_select`'s own list. The
+  // raiser cannot, so the "Settled" badge is a link only for those who can.
+  const seesRemittances = ["admin", "finance_approver", "executive", "payment_approver", "payment_audit_approver"].includes(actor.role);
 
   // Group unsettled lines by distinct payee — one remittance per group,
   // mirroring how create_requisition_vendor_remittance /
   // create_requisition_payee_remittance settle them (0173).
   const vendorGroups = new Map<string, { name: string; total: number }>();
-  const payeeGroups = new Map<string, { name: string; total: number }>();
+  const payeeGroups = new Map<string, { name: string; total: number; gateway: string }>();
   const unassigned: Line[] = [];
 
   for (const l of lines) {
@@ -103,7 +142,9 @@ export default async function RequisitionDetailPage({
       g.total += Number(l.amount);
       vendorGroups.set(l.vendor_id, g);
     } else if (l.payee_recipient_id && l.payout_recipients) {
-      const g = payeeGroups.get(l.payee_recipient_id) ?? { name: l.payout_recipients.display_name, total: 0 };
+      const g = payeeGroups.get(l.payee_recipient_id) ?? {
+        name: l.payout_recipients.display_name, total: 0, gateway: l.payout_recipients.gateway,
+      };
       g.total += Number(l.amount);
       payeeGroups.set(l.payee_recipient_id, g);
     } else if (!l.vendor_id) {
@@ -138,8 +179,8 @@ export default async function RequisitionDetailPage({
 
       <div data-print="screen-only">
         <PageHeader
-          title={req.reference}
-          description={`Raised by ${raiser ?? "someone no longer listed"}${ticket ? ` · for ${ticket.summary ?? "a job"}` : ""}`}
+          title="Requisition"
+          description={`${req.reference} · raised by ${raiser ?? "someone no longer listed"}${ticket ? ` · for ${ticket.summary ?? "a job"}` : ""}`}
           actions={
             <div className="flex items-center gap-2">
               <PrintButton label="Print for filing" />
@@ -263,17 +304,51 @@ export default async function RequisitionDetailPage({
               </div>
               <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 {l.remittance_id ? (
-                  <Badge variant="success">Settled</Badge>
+                  seesRemittances ? (
+                    <Link href={`/dashboard/remittances/${l.remittance_id}`}>
+                      <Badge variant="success">Settled — remittance advice</Badge>
+                    </Link>
+                  ) : (
+                    <Badge variant="success">Settled</Badge>
+                  )
                 ) : l.vendor_id ? (
                   <Badge variant="outline">Vendor: {l.vendors?.name ?? "—"}</Badge>
                 ) : l.payee_recipient_id ? (
-                  <Badge variant="outline">Payee: {l.payout_recipients?.display_name ?? "—"}</Badge>
+                  <Badge variant="outline">
+                    Payee: {l.payout_recipients?.display_name ?? "—"}
+                    {l.payout_recipients?.gateway === "manual" ? " · by bank transfer" : ""}
+                  </Badge>
+                ) : l.payout_request_id ? (
+                  <Badge variant="info">
+                    Waiting for {waiting.get(l.id)?.payeeName ?? "the payee"}&apos;s bank details
+                  </Badge>
                 ) : (
                   <Badge variant="muted">Recorded only — no payee</Badge>
                 )}
               </div>
-              {!l.vendor_id && !l.payee_recipient_id && req.status === "pending_approval" && (
-                <LinePayeeForm lineId={l.id} defaultName={raiser ?? ""} />
+              {/* A payee with no registered vendor record: either verified at
+                  the bank through Paystack (when this organisation has its own
+                  account), or asked for their details by a secure link and paid
+                  by bank transfer (0289). The name is fixed before approval;
+                  the details may arrive after it. */}
+              {!l.vendor_id && !l.payee_recipient_id && !l.remittance_id &&
+                (l.payout_request_id || req.status === "pending_approval") && (
+                <div className="space-y-3">
+                  {!l.payout_request_id && req.status === "pending_approval" && gatewayUsable && (
+                    <LinePayeeForm lineId={l.id} defaultName={raiser ?? ""} />
+                  )}
+                  <BankTransferAccount
+                    party="other"
+                    lineId={l.id}
+                    payeeName={waiting.get(l.id)?.payeeName ?? ""}
+                    purpose={`${req.reference ?? "a requisition"} — ${l.description}`}
+                    account={null}
+                    request={waiting.get(l.id)?.request ?? null}
+                    canManage={canManagePayouts}
+                    askForName={!l.payout_request_id}
+                    path={`/dashboard/approvals/requisitions/${req.id}`}
+                  />
+                </div>
               )}
             </div>
           ))}
@@ -331,14 +406,27 @@ export default async function RequisitionDetailPage({
               <SendLineGroup
                 key={vendorId} requisitionId={req.id} kind="vendor" targetId={vendorId}
                 name={g.name} amount={g.total}
+                orgId={req.org_id} allowGateway={gatewayUsable}
               />
             ))}
             {Array.from(payeeGroups.entries()).map(([payeeId, g]) => (
               <SendLineGroup
                 key={payeeId} requisitionId={req.id} kind="payee" targetId={payeeId}
                 name={g.name} amount={g.total}
+                orgId={req.org_id}
+                // A one-off payee's account IS their identity, so it is paid
+                // the way it was set up: a gateway recipient through Paystack,
+                // an evidenced account by bank transfer.
+                allowGateway={gatewayUsable && g.gateway !== "manual"}
+                allowBankTransfer={g.gateway === "manual"}
               />
             ))}
+            {lines.some((l) => !l.remittance_id && l.payout_request_id && !l.payee_recipient_id) && (
+              <p className="text-xs text-muted-foreground">
+                Lines still waiting for the payee&apos;s bank details are not listed here — they appear
+                once the payee has answered.
+              </p>
+            )}
           </CardContent>
         </Card>
       )}

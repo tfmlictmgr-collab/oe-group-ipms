@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useTheme } from "next-themes";
 import { createClient } from "@/lib/supabase/client";
+import { recordSessionEvent } from "@/lib/session-events";
 import { LogOut, Settings as SettingsIcon, UserRound, Bell, Sun, Moon } from "lucide-react";
 import {
   DropdownMenu,
@@ -53,6 +54,9 @@ export function UserMenu({
   const isDark = mounted && resolvedTheme === "dark";
 
   async function signOut() {
+    // BEFORE signing out: the row is attributed to the session being ended,
+    // and once it has ended there is nobody to attribute it to (0290).
+    await recordSessionEvent("signed_out");
     const supabase = createClient();
     await supabase.auth.signOut();
     router.push("/login");

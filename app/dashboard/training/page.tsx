@@ -89,11 +89,11 @@ export default async function TrainingPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title={isOperator ? "Training — operator" : `Training — ${org.name}`}
+        title="Training"
         description={
           isOperator
-            ? "Every journey that belongs to running the platform itself, not to any one client organisation."
-            : "Every process in this organisation, by role and by module — for training an admin or their team."
+            ? "Operator edition — every journey that belongs to running the platform itself, not to any one client organisation."
+            : `${org.name} — every process in this organisation, by role and by module, for training an admin or their team.`
         }
         actions={
           processes.length > 0 && (

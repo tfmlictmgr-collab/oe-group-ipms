@@ -14,6 +14,7 @@ import {
   ShieldCheck,
   Settings,
   UserPlus,
+  FileDown,
   LayoutGrid,
   Layers,
   FileSignature,
@@ -148,6 +149,13 @@ export type NavContext = {
    */
   seesOfflinePayments: boolean;
   canEnroll: boolean;
+  /**
+   * Download Records (12 Sept 2026) — the roster CSVs for a desk that holds
+   * `records.export` but not the Directory, which is the administrator's alone.
+   * An administrator's downloads sit in their Directory, so they are not
+   * offered this as well: two places for one thing is how they drift.
+   */
+  seesRecords: boolean;
   /** The client-funds ledger is finance + admin only. */
   seesLedger: boolean;
   /**
@@ -408,6 +416,12 @@ export const NAV_GROUPS: NavGroup[] = [
         href: "/dashboard/people",
         icon: UserPlus,
         show: (c) => c.canEnroll,
+      },
+      {
+        label: "Download Records",
+        href: "/dashboard/records",
+        icon: FileDown,
+        show: (c) => c.seesRecords,
       },
       {
         // Every role, without exception. The guide is written per role and is

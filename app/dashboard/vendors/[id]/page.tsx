@@ -4,6 +4,7 @@ import { ArrowLeft, Mail, Phone, Clock } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
 import PayoutRecipientForm from "./PayoutRecipientForm";
+import BankTransferAccount from "@/components/payouts/BankTransferAccount";
 import {
   WEIGHT_LABELS,
   SCORE_WEIGHTS,
@@ -86,6 +87,10 @@ export default async function VendorDetailPage({
         .select("display_name, bank_name, account_number_last4, verified_at")
         .eq("vendor_id", id)
         .eq("active", true)
+        // ⚠️ The GATEWAY recipient. Since 0289 a vendor may also hold a live
+        // bank-transfer account, and a bare "active" read would find two rows,
+        // fail `maybeSingle`, and show a registered vendor as having nothing.
+        .neq("gateway", "manual")
         .maybeSingle()
     : { data: null };
 
@@ -127,6 +132,23 @@ export default async function VendorDetailPage({
     storage_path: string;
     file_name: string | null;
   } | null;
+
+  // 0289 — how this vendor is paid by bank transfer, beside the gateway
+  // recipient above. Loaded for the two desks that manage accounts only.
+  const { payoutAccountFor, openPayoutRequestFor } = await import("@/lib/payout-views");
+  const orgId = session.profile?.org_id ?? "";
+  const [bankTransferAccount, bankTransferRequest] = isFinanceOrAdmin
+    ? await Promise.all([
+        payoutAccountFor(orgId, { party: "vendor", vendorId: id }),
+        openPayoutRequestFor(orgId, { vendorId: id }),
+      ])
+    : [null, null];
+  // Their approved registration already carries a bank letter — no need to ask
+  // a vetted contractor for what they have already given.
+  const canAdoptRegistration = Boolean(
+    stated?.status === "approved" && stated.bank_name && stated.account_name &&
+    stated.account_number_last4 && evidence
+  );
 
   const [legacyRes, jobRes] = await Promise.all([
     supabase
@@ -201,7 +223,9 @@ export default async function VendorDetailPage({
   // A profile link only for a viewer who can open People at all — anyone else
   // (finance, the chain desks) would follow it into "Not available for your
   // role", which is the nav-and-page split decision 26 recorded.
-  const opensProfiles = ["admin", ...FM_PM, "regional_manager"].includes(session.profile?.role ?? "");
+  // 📌 The administrator's alone since 12 Sept 2026, with the Directory. The
+  // names below still render for everyone who sees this card; only the link goes.
+  const opensProfiles = session.profile?.role === "admin";
 
   const avg = averageComposite(evaluations);
   const band = avg != null ? scoreBand(avg) : null;
@@ -234,9 +258,10 @@ export default async function VendorDetailPage({
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <PageHeader
-        title={vendor.name}
+        title="Vendor"
         description={
           <span className="flex flex-wrap items-center gap-2">
+            <span className="font-medium text-foreground">{vendor.name}</span>
             <Badge variant="outline" className="capitalize">
               {vendor.service_category ?? "—"}
             </Badge>
@@ -430,6 +455,21 @@ export default async function VendorDetailPage({
                   : null
               }
             />
+            <div className="mt-5 border-t border-border pt-5">
+              <BankTransferAccount
+                party="vendor"
+                vendorId={vendor.id}
+                payeeName={vendor.name}
+                purpose="the work you do for us"
+                defaultEmail={vendor.contact_email}
+                defaultPhone={vendor.contact_phone}
+                account={bankTransferAccount}
+                request={bankTransferRequest}
+                canManage={isFinanceOrAdmin}
+                canAdoptRegistration={canAdoptRegistration}
+                path={`/dashboard/vendors/${vendor.id}`}
+              />
+            </div>
           </CardContent>
         </Card>
       )}

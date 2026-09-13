@@ -54,6 +54,32 @@ export async function sendCreatedRemittance(opts: {
     for (const p of opts.revalidate) revalidatePath(p);
   };
 
+  // ⚠️ Which gateway, BEFORE the claim. Since 0288 an organisation with no
+  // Paystack account of its own is refused one — correctly — and this used to
+  // ask only after claiming, so the refusal was thrown with the remittance
+  // already flipped to `sending` and nothing sent: stuck, looking in flight,
+  // and needing a person with database access to put it back. Asking first
+  // leaves it queued and says what the officer can do instead.
+  const { data: pre } = await supabaseAdmin
+    .from("remittances")
+    .select("org_id, currency")
+    .eq("id", opts.remittanceId)
+    .maybeSingle();
+  if (!pre) return fail("That payment could not be found.");
+
+  let gateway: Awaited<ReturnType<typeof getGatewayForOrg>>;
+  try {
+    gateway = await getGatewayForOrg(pre.org_id, pre.currency);
+  } catch (e) {
+    const { GatewayNotConnectedError } = await import("@/lib/gateway");
+    return e instanceof GatewayNotConnectedError
+      ? fail(
+          "This organisation has not connected its own Paystack account, so this cannot go through Paystack.",
+          "Use Record a bank transfer instead: make the transfer from the organisation's bank, then attach the bank's confirmation. Nothing has been sent."
+        )
+      : fail(e instanceof Error ? e.message : "The payment gateway could not be used.", "Nothing has been sent.");
+  }
+
   // 3 — claim it. Losing this race is not an error worth alarming anyone about:
   // it means the transfer is already on its way.
   const { data: claimed, error: claimErr } = await supabaseAdmin.rpc(
@@ -112,7 +138,8 @@ export async function sendCreatedRemittance(opts: {
   // TFML's Paystack balance, never OEA's — before 0156 both drew on whichever
   // account PAYSTACK_SECRET_KEY happened to name, which is segregation failing
   // silently rather than loudly.
-  const gateway = await getGatewayForOrg(row.org_id, row.currency);
+  // `gateway` was resolved before the claim, above — for this remittance's own
+  // organisation and currency, which is what `row` would have said.
   const result = await gateway.transfer({
     reference: row.reference,
     recipientCode: recipient.recipient_code,

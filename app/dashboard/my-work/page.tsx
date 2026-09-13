@@ -233,8 +233,8 @@ export default async function MyWorkPage() {
           reached their notifications and not their work list. */}
       <LiveRefresh />
       <PageHeader
-        title={vendor.name}
-        description={[vendor.service_category, "Your jobs, score and payment status"]
+        title="My Work"
+        description={[vendor.name, vendor.service_category, "Your jobs, score and payment status"]
           .filter(Boolean)
           .join(" · ")}
         actions={<StatusBadge status={vendor.status} />}
