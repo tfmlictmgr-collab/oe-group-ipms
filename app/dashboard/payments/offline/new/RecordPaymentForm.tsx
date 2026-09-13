@@ -523,7 +523,9 @@ export default function RecordPaymentForm({
 
       {/* ── Summary and submit ─────────────────────────────────────────── */}
       <div className="space-y-4">
-        <Card className="lg:sticky lg:top-4">
+        {/* Pinned BELOW the page heading, which now stays under the 4rem top
+            bar (globals.css). `top-4` was already under the top bar itself. */}
+        <Card className="lg:sticky lg:top-[11rem]">
           <CardHeader className="pb-3">
             <CardTitle className="text-base">You are reporting</CardTitle>
           </CardHeader>

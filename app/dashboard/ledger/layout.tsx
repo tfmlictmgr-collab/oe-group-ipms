@@ -77,14 +77,20 @@ export default async function LedgerLayout({
         subtitle="Money held on behalf of tenants, landlords and owners"
         by={printedByLine}
       />
-      <div data-print="screen-only">
-        <PageHeader
-          title="Client Funds"
-          description="Money held on behalf of tenants, landlords and owners — and its agreement with the bank."
-          actions={<PrintButton />}
-        />
+      {/* Heading and tabs pin together (globals.css, `data-section-head`). */}
+      <div
+        data-section-head
+        className="-mx-4 -my-3 space-y-6 bg-background px-4 py-3 sm:-mx-6 sm:px-6"
+      >
+        <div data-print="screen-only">
+          <PageHeader
+            title="Client Funds"
+            description="Money held on behalf of tenants, landlords and owners — and its agreement with the bank."
+            actions={<PrintButton />}
+          />
+        </div>
+        <LedgerNav variance={latest ? Number(latest.variance) : undefined} />
       </div>
-      <LedgerNav variance={latest ? Number(latest.variance) : undefined} />
       {children}
     </div>
   );

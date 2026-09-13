@@ -288,6 +288,57 @@
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
+   The page heading stays in view (13 Sept 2026).
+
+   Asked for as "make the heading static across all features in the app for
+   all roles / org / platform": scrolling a long register must not scroll away
+   the name of the screen you are on. Every dashboard page's <PageHeader>
+   carries `data-page-head`; it pins directly under the 4rem top bar.
+
+   Three details make it work on every page rather than most:
+
+   1. A sticky element only sticks inside its PARENT. Many pages wrap the
+      heading in `<div data-print="screen-only">` — a div exactly as tall as
+      the heading, inside which it has nowhere to travel. So that wrapper is
+      the thing pinned when it holds a heading.
+
+   2. A section that owns a heading AND tabs (People, Client Funds, Settings)
+      pins them as ONE block, `data-section-head`, so the tabs stay reachable
+      too — and a page inside that section keeps its own heading in the flow,
+      because two bars pinned at the same height would paint over each other.
+
+   3. Screen only, and from 640px up. On paper it would be meaningless, and
+      on a phone a pinned heading, description and action row can cost a
+      third of the screen — the thing it exists to help with is scrolling.
+
+   Scoped to `data-shell-main` (the dashboard column), where the top bar the
+   4rem offset measures is known to exist.
+   ───────────────────────────────────────────────────────────────────────── */
+@media screen and (min-width: 640px) {
+  [data-shell-main] [data-page-head],
+  [data-shell-main] [data-print="screen-only"]:has(> [data-page-head]),
+  [data-shell-main] [data-section-head] {
+    position: sticky;
+    top: 4rem;
+    z-index: 10;
+  }
+
+  /* Inside a pinned section block, the heading rides with the block. */
+  [data-shell-main] [data-section-head] [data-page-head],
+  [data-shell-main] [data-section-head] [data-print="screen-only"]:has(> [data-page-head]) {
+    position: static;
+  }
+
+  /* A page inside a section keeps its own heading in the flow. */
+  [data-shell-main] [data-section-head] ~ [data-page-head],
+  [data-shell-main] [data-section-head] ~ * [data-page-head],
+  [data-shell-main] [data-section-head] ~ [data-print="screen-only"]:has(> [data-page-head]),
+  [data-shell-main] [data-section-head] ~ * [data-print="screen-only"]:has(> [data-page-head]) {
+    position: static;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
    Print.
 
    Scoped to `.printable` rather than applied to every page: these rules hide

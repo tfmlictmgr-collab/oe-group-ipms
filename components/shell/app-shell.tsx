@@ -133,7 +133,12 @@ export function AppShell({
           </div>
         </header>
 
-        <main className="mx-auto w-full max-w-6xl animate-fade-in px-4 py-6 sm:px-6 sm:py-8 print:max-w-none print:p-0">
+        {/* `data-shell-main` scopes the pinned page heading (globals.css) to
+            this column, where the 4rem top bar above it is known to exist. */}
+        <main
+          data-shell-main
+          className="mx-auto w-full max-w-6xl animate-fade-in px-4 py-6 sm:px-6 sm:py-8 print:max-w-none print:p-0"
+        >
           {children}
         </main>
       </div>

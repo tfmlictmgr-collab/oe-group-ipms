@@ -18,15 +18,21 @@ export default async function SettingsLayout({
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Settings"
-        description={
-          isAdmin
-            ? "Organisation configuration and your own preferences."
-            : "Your account and how we reach you."
-        }
-      />
-      <SettingsNav isAdmin={isAdmin} />
+      {/* Heading and tabs pin together (globals.css, `data-section-head`). */}
+      <div
+        data-section-head
+        className="-mx-4 -my-3 space-y-6 bg-background px-4 py-3 sm:-mx-6 sm:px-6"
+      >
+        <PageHeader
+          title="Settings"
+          description={
+            isAdmin
+              ? "Organisation configuration and your own preferences."
+              : "Your account and how we reach you."
+          }
+        />
+        <SettingsNav isAdmin={isAdmin} />
+      </div>
       {children}
     </div>
   );

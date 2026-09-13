@@ -55,19 +55,26 @@ export default async function PeopleLayout({
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="People &amp; Onboarding"
-        description="Invite staff, vendors and tenants, and set what each of them can reach."
-      />
-      <SubNav
-        counts={{
-          invites: invites.count ?? 0,
-          apps: apps.count ?? 0,
-          tenancy: tenancyApps.count ?? 0,
-        }}
-        modules={{ lettings: Boolean(lettings.data) }}
-        isAdmin={session.profile?.role === "admin"}
-      />
+      {/* Heading and tabs pin together (globals.css, `data-section-head`), so
+          the section's name and its tabs stay in reach on a long Directory. */}
+      <div
+        data-section-head
+        className="-mx-4 -my-3 space-y-6 bg-background px-4 py-3 sm:-mx-6 sm:px-6"
+      >
+        <PageHeader
+          title="People &amp; Onboarding"
+          description="Invite staff, vendors and tenants, and set what each of them can reach."
+        />
+        <SubNav
+          counts={{
+            invites: invites.count ?? 0,
+            apps: apps.count ?? 0,
+            tenancy: tenancyApps.count ?? 0,
+          }}
+          modules={{ lettings: Boolean(lettings.data) }}
+          isAdmin={session.profile?.role === "admin"}
+        />
+      </div>
       {children}
     </div>
   );
