@@ -36,7 +36,7 @@ export default async function LeasesPage() {
     supabase
       .from("rent_roll")
       .select(
-        "lease_id, property_name, unit_label, tenant_user_id, tenant_name, tenant_email, status, " +
+        "lease_id, property_name, unit_label, tenant_user_id, tenant_name, tenant_phone, tenant_email, status, " +
         "start_date, end_date, days_to_expiry, rent_amount, rent_frequency, currency, " +
         "rent_billed, rent_collected, rent_outstanding, landlord_net"
       )
@@ -62,7 +62,8 @@ export default async function LeasesPage() {
   // so the client types its rows as errors.
   const rows = (rollRes.data ?? []) as unknown as {
     lease_id: string; property_name: string; unit_label: string;
-    tenant_user_id: string | null; tenant_name: string | null; tenant_email: string | null;
+    tenant_user_id: string | null; tenant_name: string | null; tenant_phone: string | null;
+    tenant_email: string | null;
     status: string; start_date: string; end_date: string; days_to_expiry: number;
     rent_amount: number; rent_frequency: string; currency: string;
     rent_billed: number; rent_collected: number; rent_outstanding: number;
@@ -71,31 +72,15 @@ export default async function LeasesPage() {
 
   const canWrite = Boolean(canWriteRes.data);
 
-  // ⚠️ `rent_roll` names a tenant from the joined ACCOUNT only, so a company
-  // let and every imported tenancy (decision 37's tenant of record) rendered
-  // here as "Not assigned" while the tenancy schedule named them — and a
-  // search by tenant could never find them. Filled in from `leases` in the
-  // caller's session (`leases_select` carries the same place predicate as the
-  // view, so this reads nothing the row above did not already admit), the
-  // account first, exactly as `tenancy_schedule` coalesces.
-  // 📌 The durable fix is the view itself coalescing `l.tenant_name`; owed.
-  const accountless = rows.filter((r) => !r.tenant_user_id).map((r) => r.lease_id);
-  const { data: ofRecord } = accountless.length
-    ? await supabase
-        .from("leases")
-        .select("id, tenant_name, tenant_phone")
-        .in("id", accountless)
-    : { data: [] as { id: string; tenant_name: string | null; tenant_phone: string | null }[] };
-  const recordFor = new Map((ofRecord ?? []).map((l) => [l.id, l]));
-  const tableRows: RentRollRow[] = rows.map((r) => {
-    const rec = r.tenant_user_id ? null : recordFor.get(r.lease_id);
-    return {
-      ...r,
-      tenant_name: r.tenant_name ?? rec?.tenant_name ?? null,
-      tenant_phone: rec?.tenant_phone ?? null,
-      of_record: Boolean(rec?.tenant_name),
-    };
-  });
+  // 📌 12 Sept 2026: `rent_roll` now coalesces the portal account with the
+  // tenant of record itself (0291, matching `tenancy_schedule`'s pattern), so
+  // a company let or an imported tenancy is named without a second query here.
+  // `of_record` — "no portal account, only a name on file" — is just the
+  // absence of `tenant_user_id` on a row that still has a name.
+  const tableRows: RentRollRow[] = rows.map((r) => ({
+    ...r,
+    of_record: !r.tenant_user_id && Boolean(r.tenant_name),
+  }));
   const live = rows.filter((r) => r.status === "active" || r.status === "renewed");
   // The totals moved into LeaseStats with the tiles. `expiring` stays here —
   // the banner below it is a separate call to action, not a tile.

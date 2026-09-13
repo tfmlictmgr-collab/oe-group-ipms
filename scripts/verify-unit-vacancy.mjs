@@ -10,6 +10,16 @@
 //   • expiry alone does NOT free a unit — a hold-over tenant is still in it
 //   • ending a tenancy leaves an audit entry naming who and why
 //
+// And (0287), asked from a signed-in manager's own session, never the service
+// role's, because the defect this closes was reached through the Retire button:
+//   • a unit under a live tenancy cannot be retired, by `retire_unit` OR by a
+//     direct PATCH, and the refusal names `end_tenancy` as the remedy
+//   • that holds for a caller who cannot even SEE the tenancy
+//   • a unit with an occupant and no tenancy is refused with the other remedy
+//   • once the tenancy is ended the unit retires, and the retirement is audited
+//     with the person who did it
+//   • a retired unit cannot take a live tenancy from the lease side either
+//
 // Usage: node scripts/verify-unit-vacancy.mjs
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,6 +30,8 @@ const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 config({ path: path.join(rootDir, ".env.local") });
 
 const URL_ = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const PW = "ProbeUnitVacancy!2026";
 
 let failures = 0;
 const ok = (m) => console.log(`  \x1b[32mPASS\x1b[0m ${m}`);
@@ -295,13 +307,199 @@ console.log("\nG. Expiry alone does not evict anyone");
   }
 }
 
+console.log("\nH. A let unit cannot be retired — asked from a manager's own session (0287)");
+const madeUsers = [];
+{
+  const mkUser = async (role, tag, attachTo) => {
+    const email = `probeunitvac.${tag}.${S.toLowerCase()}@oegroup.test`;
+    const { data: created, error } = await svc.auth.admin.createUser({
+      email, password: PW, email_confirm: true,
+    });
+    if (error) throw new Error(error.message);
+    madeUsers.push(created.user.id);
+    await svc.from("users").upsert({
+      id: created.user.id, org_id: oea.id, email, full_name: `Probe ${tag}`, role,
+    });
+    await svc.from("property_stakeholders").insert({
+      org_id: oea.id, property_id: attachTo, user_id: created.user.id, relation: "manager",
+    });
+    const c = createClient(URL_, ANON, { auth: { persistSession: false } });
+    const { error: e } = await c.auth.signInWithPassword({ email, password: PW });
+    if (e) throw new Error(`${email}: ${e.message}`);
+    return { id: created.user.id, c };
+  };
+  const unitIsLive = async (id) =>
+    (await svc.from("units").select("deleted_at").eq("id", id).single()).data?.deleted_at === null;
+  // What `retireUnit` in app/dashboard/properties/actions.ts puts on the screen.
+  const shown = (msg) => msg.replace(/^.*?:\s*/, "");
+  const day = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+
+  // The defect's exact shape: a company let, so no portal user and no occupant.
+  const bldg = await mkProperty(`PROBE-Retire-${S}`);
+  await svc.rpc("create_units", {
+    p_property_id: bldg,
+    p_rows: [{ label: "Office Suite", factor: 30, quantity: 3, description: null }],
+  });
+  const { data: rows } = await svc.from("units")
+    .select("id").eq("property_id", bldg).order("description");
+  const [let1, occ2, bare3] = rows.map((r) => r.id);
+
+  const { data: live } = await svc.from("leases").insert({
+    org_id: oea.id, property_id: bldg, unit_id: let1, tenant_user_id: null,
+    tenant_name: `Probe Company ${S}`,
+    start_date: day(-1), end_date: day(365), rent_amount: 2400000,
+  }).select("id").single();
+  leases.push(live.id);
+  await svc.rpc("activate_lease", { p_lease_id: live.id });
+
+  // A draft on the same unit, for the reverse door below. A draft is not live,
+  // so it must NOT stop the unit being retired once the live one is ended.
+  const { data: draft } = await svc.from("leases").insert({
+    org_id: oea.id, property_id: bldg, unit_id: let1, tenant_user_id: null,
+    tenant_name: `Probe Successor ${S}`,
+    start_date: day(400), end_date: day(765), rent_amount: 2600000,
+  }).select("id").single();
+  leases.push(draft.id);
+
+  const pm = await mkUser("property_manager", "pm", bldg);
+  const fm = await mkUser("facility_manager", "fm", bldg);
+
+  {
+    const { error } = await pm.c.rpc("retire_unit", { p_unit_id: let1 });
+    error && /End the tenancy first/.test(error.message)
+      ? ok("the Retire button refuses a unit under a live tenancy, naming the remedy")
+      : bad(`A LET UNIT WAS RETIRED THROUGH retire_unit: ${error?.message ?? "no error at all"}`);
+    (await unitIsLive(let1))
+      ? ok("...and the unit is still on the register")
+      : bad("the unit was retired despite the refusal");
+    error && shown(error.message) === error.message
+      ? ok("the whole sentence reaches the screen (no colon for retireUnit to cut at)")
+      : bad(`the screen would show a truncated refusal: "${error ? shown(error.message) : ""}"`);
+  }
+
+  {
+    // `authenticated` holds UPDATE on units.deleted_at, so the rule has to live
+    // on the table, not in the function. `return=minimal` is the PATCH that
+    // would otherwise slip past the select policy unnoticed.
+    const { error } = await pm.c.from("units")
+      .update({ deleted_at: new Date().toISOString() }).eq("id", let1);
+    error && /End the tenancy first/.test(error.message)
+      ? ok("a direct PATCH of deleted_at is refused by the same rule")
+      : bad(`A DIRECT PATCH RETIRED A LET UNIT: ${error?.message ?? "no error at all"}`);
+    (await unitIsLive(let1))
+      ? ok("...and the unit is still on the register")
+      : bad("the PATCH retired the unit");
+  }
+
+  {
+    // The facilities manager holds properties.write and NOT leases.write. If
+    // the guard read leases as the caller, what they cannot see could not stop
+    // them (decision 37's false pass).
+    const { data: seen } = await fm.c.from("leases").select("id").eq("unit_id", let1);
+    const { error } = await fm.c.rpc("retire_unit", { p_unit_id: let1 });
+    error && /End the tenancy first/.test(error.message)
+      ? ok(`a facilities manager is refused too (they can see ${seen?.length ?? 0} of its tenancies — the rule does not depend on it)`)
+      : bad(`A FACILITIES MANAGER RETIRED A LET UNIT: ${error?.message ?? "no error at all"}`);
+  }
+
+  if (tenant?.id) {
+    await svc.from("units").update({ occupant_user_id: tenant.id }).eq("id", occ2);
+    const { error } = await pm.c.rpc("retire_unit", { p_unit_id: occ2 });
+    error && /occupant recorded/.test(error.message) && !/unassign them first/.test(error.message)
+      ? ok("an occupant with no tenancy is refused with the other remedy (clear the occupant)")
+      : bad(`occupant-only unit: ${error?.message ?? "RETIRED WITH SOMEBODY IN IT"}`);
+    await svc.from("units").update({ occupant_user_id: null }).eq("id", occ2);
+  } else {
+    bad("no OEA demo tenant to record as an occupant — the occupant case was not tested");
+  }
+
+  {
+    const { error: endErr } = await pm.c.rpc("end_tenancy", {
+      p_lease_id: live.id, p_reason: `verify ${S}`,
+    });
+    endErr ? bad(`the manager could not end the tenancy: ${endErr.message}`)
+           : ok("the manager ends the tenancy, as the refusal told them to");
+
+    const { error } = await pm.c.rpc("retire_unit", { p_unit_id: let1 });
+    error
+      ? bad(`with the tenancy ended the unit still could not be retired: ${error.message}`)
+      : ok("...and now the unit retires — a draft tenancy on it does not hold it");
+    !(await unitIsLive(let1))
+      ? ok("the unit is off the register")
+      : bad("retire_unit returned no error and the unit is still live");
+
+    const { data: trail } = await svc.from("audit_log")
+      .select("actor_id").eq("action", "unit.retired").eq("entity_id", let1);
+    trail?.length === 1 && trail[0].actor_id === pm.id
+      ? ok("the retirement is in the audit trail, naming the manager who did it")
+      : bad(`expected one unit.retired row by the manager, found ${JSON.stringify(trail)}`);
+  }
+
+  {
+    // The reverse door: activate_lease and renew_lease are SECURITY DEFINER and
+    // never asked whether the unit was retired.
+    const { error } = await pm.c.rpc("activate_lease", { p_lease_id: draft.id });
+    error && /cannot hold a live tenancy/.test(error.message)
+      ? ok("a tenancy cannot be made live on a retired unit")
+      : bad(`A RETIRED UNIT TOOK A LIVE TENANCY: ${error?.message ?? "no error at all"}`);
+    const { data: still } = await svc.from("leases").select("status").eq("id", draft.id).single();
+    still.status === "draft"
+      ? ok("...and the lease is still a draft")
+      : bad(`the lease on a retired unit reads \`${still.status}\``);
+  }
+
+  {
+    await svc.from("units").update({ deleted_at: null }).eq("id", let1);
+    const { data: trail } = await svc.from("audit_log")
+      .select("id").eq("action", "unit.restored").eq("entity_id", let1);
+    trail?.length === 1
+      ? ok("restoring a unit is audited too")
+      : bad(`expected one unit.restored row, found ${trail?.length ?? 0}`);
+  }
+
+  {
+    const { error } = await pm.c.rpc("retire_unit", { p_unit_id: bare3 });
+    error
+      ? bad(`a unit holding nothing could not be retired: ${error.message}`)
+      : ok("a unit holding nothing retires without complaint — the rule is not a blanket refusal");
+  }
+}
+
 // ── Cleanup ────────────────────────────────────────────────────────────────
-await svc.from("audit_log").delete().eq("action", "lease.ended").in("entity_id", leases);
-await svc.from("leases").delete().in("id", leases);
-await svc.from("units").delete().in("property_id", props);
-await svc.from("properties").delete().in("id", props);
-await svc.from("orgs").update({ tenant_applications_open: windowWasOpen }).eq("id", oea.id);
-console.log("\n(cleaned up)");
+// Units, properties and leases are never hard-deleted (`block_hard_delete`),
+// and the audit trail is immutable, so the delete-delete-delete that used to
+// sit here removed nothing and printed "(cleaned up)" anyway. Every PROBE
+// property this suite ever made was left on OEA's register, live. Fixtures now
+// retire the way the product does: end what is live, clear occupants, retire
+// the units (0287 refuses the other order), then the property.
+{
+  for (const id of leases) {
+    await svc.rpc("end_tenancy", { p_lease_id: id, p_reason: `verify teardown ${S}` });
+  }
+  const now = new Date().toISOString();
+  await svc.from("units").update({ occupant_user_id: null })
+    .in("property_id", props).not("occupant_user_id", "is", null);
+  const { error: uErr } = await svc.from("units").update({ deleted_at: now })
+    .in("property_id", props).is("deleted_at", null);
+  const { error: pErr } = await svc.from("properties").update({ deleted_at: now })
+    .in("id", props).is("deleted_at", null);
+  await svc.from("property_stakeholders").delete().in("user_id", madeUsers);
+  // A probe who acted has audit rows and cannot be erased; deactivate it
+  // instead (decision 41) rather than leave a live role in a real org.
+  for (const id of madeUsers) {
+    const { error } = await svc.from("users").delete().eq("id", id);
+    if (error) {
+      await svc.from("users").update({ deactivated_at: now }).eq("id", id);
+      await svc.auth.admin.updateUserById(id, { ban_duration: "876000h" }).catch(() => {});
+    } else {
+      await svc.auth.admin.deleteUser(id).catch(() => {});
+    }
+  }
+  await svc.from("orgs").update({ tenant_applications_open: windowWasOpen }).eq("id", oea.id);
+  uErr || pErr
+    ? console.log(`\n(teardown incomplete — ${(uErr ?? pErr).message})`)
+    : console.log("\n(fixtures retired; probe accounts removed or deactivated)");
+}
 
 console.log(
   failures === 0

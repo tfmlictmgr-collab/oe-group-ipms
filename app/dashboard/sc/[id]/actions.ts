@@ -102,27 +102,30 @@ export async function generateInvoices(budgetId: string): Promise<ActionResult> 
     method
   );
 
-  // Regenerate cleanly: clear prior invoices for this budget first.
+  // Regenerate cleanly: retire prior invoices for this budget first.
   //
-  // The delete's error was previously discarded, and that was a double-billing
-  // bug waiting to happen. `payment_intents.service_charge_id` has no ON DELETE
-  // clause, so once a payment has been requested against any of these invoices
-  // the delete FAILS — and the insert below would then have added a second
-  // invoice for the same unit and period, alongside one that may already be
-  // paid. A budget cannot be silently re-invoiced over live collections.
-  const { error: delErr } = await supabase
-    .from("service_charges")
-    .delete()
-    .eq("budget_id", budgetId);
+  // 📌 12 Sept 2026 (0292). This used to be `.delete()`, and its error was
+  // silently never raised: `service_charges` carries no DELETE policy, so
+  // under RLS the delete matched ZERO rows and Supabase reported success —
+  // meaning every regenerate duplicated the invoice set rather than replacing
+  // it, and the "a payment has already been requested" refusal below could
+  // never actually fire. `retire_service_charges_for_regenerate` does the real
+  // check (under full visibility, not this session's own read scope) and
+  // retires the old rows with a soft-delete, which is the only kind this table
+  // allows for a human caller.
+  const { error: retireErr } = await supabase.rpc(
+    "retire_service_charges_for_regenerate",
+    { p_budget_id: budgetId }
+  );
 
-  if (delErr) {
-    if (/foreign key/i.test(delErr.message)) {
+  if (retireErr) {
+    if (/PAYMENT_REQUESTED/.test(retireErr.message)) {
       return fail(
         "These invoices cannot be regenerated: a payment has already been requested against at least one of them.",
         "Regenerating would raise a second invoice for the same unit and period. Cancel the outstanding payment requests first, or issue an adjustment instead."
       );
     }
-    return failFromDb(delErr, "clear the previous invoices");
+    return failFromDb(retireErr, "clear the previous invoices");
   }
 
   const rows = shares.map((s) => ({
