@@ -115,14 +115,19 @@ export type AllocationInput = {
 export const CONFIRMATION_STAGES = [
   { order: 1, label: "Audit verification of the evidence", role: "payment_audit_approver" },
   { order: 2, label: "Executive authorisation", role: "executive" },
-  { order: 3, label: "Payment Officer confirmation and ledger posting", role: "finance_approver" },
+  // 13 Sept 2026 (board): moved from finance_approver to payment_approver —
+  // the Payment Approver is the chief accounting officer and confirms what
+  // arrives; the Payment Officer's role narrows to disbursement. Reversed a
+  // specific board-confirmed line in decision 45; see the migration header
+  // for what was checked before this changed.
+  { order: 3, label: "Payment Approver confirmation and ledger posting", role: "payment_approver" },
 ] as const;
 
 /** Roles that sit on the confirmation chain — mirrors `offline_confirmation_roles()`. */
 export const CONFIRMATION_ROLES = [
   "payment_audit_approver",
   "executive",
-  "finance_approver",
+  "payment_approver",
 ] as const;
 
 export function isConfirmer(role: string | null | undefined): boolean {

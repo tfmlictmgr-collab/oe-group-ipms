@@ -13,8 +13,14 @@
 //   • the new write is BOUNDED: a regional manager may raise a budget on a
 //     property they hold and is refused on one they do not. Without this,
 //     granting sc.manage would have reached the whole organisation.
-//   • admin, the payment officer and the executive are unchanged
+//   • admin and the executive are unchanged
 //   • a tenant gained nothing
+//
+// ⚠️ 13 Sept 2026 (0293): the payment officer's own sc.manage was stripped in
+// a LATER, unrelated board decision — administering the service charge moved
+// to the payment approver, "the chief accounting officer". Section D below
+// asserts the new distribution rather than the one this file originally
+// shipped with; decision 38's own lesson, applied to this suite.
 //
 // Usage: node scripts/verify-regional-authority.mjs
 import path from "node:path";
@@ -52,6 +58,7 @@ const pm = await login("oea.pm@oegroup.test");
 const fm = await login("oea.fmgr@oegroup.test");
 const fin = await login("oea.finance@oegroup.test");
 const exec = await login("oea.executive@oegroup.test");
+const appr = await login("oea.paymentapprover@oegroup.test");
 const ten = await login("oea.tenant@oegroup.test");
 if (!reg || !pm || !fm || !fin || !exec || !ten) {
   console.log("\n\x1b[31mfixtures missing — run the brand seeds first\x1b[0m");
@@ -182,9 +189,17 @@ for (const [label, c] of [["the payment officer", fin], ["the executive", exec]]
     ? ok(`${label} still reads all ${seen.length} budget(s), org-wide`)
     : bad(`${label} reads ${(seen ?? []).length} of ${(allBudgets ?? []).length} — oversight was narrowed`);
 }
+// 13 Sept 2026 (0293): sc.manage moved off the payment officer to the payment
+// approver — administering the service charge is not disbursement, and the
+// approver already held it as "the senior accounting desk" (0246).
 (await holds(fin, "sc.manage"))
-  ? ok("the payment officer still holds sc.manage")
-  : bad("the payment officer lost sc.manage");
+  ? bad("the payment officer holds sc.manage — this moved to the payment approver (0293)")
+  : ok("the payment officer no longer holds sc.manage");
+if (appr) {
+  (await holds(appr, "sc.manage"))
+    ? ok("the payment approver holds sc.manage")
+    : bad("the payment approver should hold sc.manage (0293)");
+}
 (await holds(exec, "sc.manage"))
   ? bad("the executive holds sc.manage — oversight authorises, it does not administer")
   : ok("the executive still does not hold sc.manage");

@@ -12,6 +12,15 @@ import LedgerNav from "./LedgerNav";
 // The books are for finance, admin — and oversight. An FM/PM runs operations,
 // not the money.
 //
+// ⚠️ `payment_approver` was missing here too (13 Sept 2026), the identical
+// fault one layer over. They have been in `oversight_roles()` since 0157/0246
+// — full RLS read on `ledger_entries`, `bank_accounts` and every balances view
+// — and the board asked directly that they be able to see the online
+// (gateway) collections ledger and reconciliation, now that they are the desk
+// confirming what arrives off-platform too. Nothing granted here reaches
+// disbursement: `assert_may_disburse` and `enforce_payment_transition` still
+// name `finance_approver` alone, exactly as decision 16 states.
+//
 // ⚠️ `executive` was missing here, and three things disagreed as a result. The
 // database puts an MD / Managing Partner in `oversight_roles()` (0072a), which
 // grants them `ledger_entries`, `bank_accounts` and the balances views — a live
@@ -36,7 +45,7 @@ export default async function LedgerLayout({
   const session = await getSessionProfile();
   if (!session) redirect("/login");
 
-  if (!["admin", "finance_approver", "executive"].includes(session.profile?.role ?? "")) {
+  if (!["admin", "finance_approver", "executive", "payment_approver"].includes(session.profile?.role ?? "")) {
     return (
       <div className="space-y-6">
         <PageHeader title="Client Funds" />

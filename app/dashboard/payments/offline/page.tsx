@@ -74,7 +74,7 @@ export default async function OfflinePaymentsPage({
           title="Nothing reported yet"
           description={
             canRecord
-              ? "When a tenant pays by transfer or at the bank, record it here with their proof of payment. It reaches the ledger once the audit, executive and Payment Officer desks have each confirmed it."
+              ? "When a tenant pays by transfer or at the bank, record it here with their proof of payment. It reaches the ledger once the audit, executive and Payment Approver desks have each confirmed it."
               : "When someone reports a payment made outside the portal, it will appear here for confirmation."
           }
           action={

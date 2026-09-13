@@ -443,6 +443,12 @@ export const ROLE_GUIDES: Record<string, RoleGuide> = {
     sections: [
       SIGNING_IN,
       {
+        // Narrowed 13 Sept 2026 (board): confirming and posting a reported
+        // off-platform payment, and sc.manage, moved to the Payment Approver
+        // — "the chief accounting officer" who now confirms both directions
+        // of money. This desk still raises collections and can take a
+        // walk-in report; a colleague confirms it, and reconciliation stays
+        // here — it is a ledger-wide check, not a stage in that chain.
         heading: "Money coming in",
         steps: [
           {
@@ -456,34 +462,26 @@ export const ROLE_GUIDES: Record<string, RoleGuide> = {
             title: "Payments made outside the platform",
             body:
               "Plenty of rent arrives as a straight bank transfer or over a counter, " +
-              "and the platform sees nothing until somebody says so. \"Off-platform " +
-              "payments\" is where those are reported — by the tenant, or by you on " +
-              "their behalf for a walk-in. Every one carries the payer's own receipt.",
-          },
-          {
-            title: "Yours is the step that makes it money",
-            body:
-              "The auditor checks the evidence and the Managing Partner authorises, " +
-              "but nothing touches the ledger until YOU confirm. Check the money " +
-              "genuinely reached the designated account first — match it to a bank " +
-              "statement line where you have imported one — then confirm. It posts " +
-              "exactly as a card payment does: the fee comes out at the rate frozen " +
-              "on that demand, the landlord is credited net, and a receipt is issued.",
+              "and the platform sees nothing until somebody says so. If a tenant " +
+              "tells you rather than the portal — a walk-in at the office — record " +
+              "it under \"Off-platform payments\" with their receipt. It is a " +
+              "report, not a payment: the audit, executive and Payment Approver " +
+              "desks confirm it against the bank before it touches anyone's balance.",
           },
           {
             title: "You cannot confirm one you recorded yourself",
             body:
-              "If you took the walk-in, a colleague confirms it. That is not a bug " +
-              "to work around — it is the same rule that stops one person paying " +
-              "themselves out, and it needs a second pair of hands.",
+              "If you took the walk-in, you are not one of the confirming desks for " +
+              "it — that is the Payment Approver's stage now, after audit and the " +
+              "Managing Partner. The same rule stops one person paying themselves " +
+              "out; it just runs on a different desk to the one you sit at.",
           },
           {
             title: "Reconcile daily",
             body:
               "Compare the bank against the ledger every day rather than at month end. " +
               "A difference found today is a question; the same difference found in " +
-              "four weeks is an investigation. Reported payments waiting on you show " +
-              "up here too — an unconfirmed one is money the books do not yet have.",
+              "four weeks is an investigation.",
           },
           {
             title: "Client funds are separate",
@@ -534,12 +532,15 @@ export const ROLE_GUIDES: Record<string, RoleGuide> = {
       "Change the approval threshold you approve against.",
       "Release a payment you personally approved.",
       "See the operational request queue — a request reaches you only once money attached to it reaches your desk.",
+      // 13 Sept 2026 (board): confirming a reported off-platform payment moved
+      // to the Payment Approver.
+      "Confirm or post a reported (off-platform) payment — that is the Payment Approver's stage now, even one you took as a walk-in yourself.",
     ],
   },
 
   payment_approver: {
     title: "Your approver guide",
-    audience: "For payment approvers — checking and authorising what is about to be paid.",
+    audience: "For payment approvers — the chief accounting officer, confirming money in both directions.",
     sections: [
       SIGNING_IN,
       {
@@ -548,9 +549,9 @@ export const ROLE_GUIDES: Record<string, RoleGuide> = {
           {
             title: "Only what is at your stage",
             body:
-              "\"Approvals\" shows payments that have climbed to your stage and are " +
-              "within your limit. Your limit is set when you are appointed and can be " +
-              "changed by an administrator — not by you.",
+              "\"Approvals\" shows outbound payments that have climbed to your stage " +
+              "and are within your limit. Your limit is set when you are appointed " +
+              "and can be changed by an administrator — not by you.",
           },
           {
             title: "What to check before approving",
@@ -567,12 +568,51 @@ export const ROLE_GUIDES: Record<string, RoleGuide> = {
           },
         ],
       },
+      {
+        // Added 13 Sept 2026 (board): the confirming desks for money COMING IN
+        // moved here from the Payment Officer, "reversed on direct instruction:
+        // the Payment Approver is the chief accounting officer who confirms
+        // what arrives" (see the migration header).
+        heading: "Money coming in",
+        steps: [
+          {
+            title: "Off-platform payments — yours is the step that makes it money",
+            body:
+              "When a tenant reports paying by bank transfer or over a bank " +
+              "counter, you are the last of three desks under \"Off-platform " +
+              "payments\" — after the auditor has checked the receipt and the " +
+              "Managing Partner has authorised. Check the money genuinely " +
+              "reached the designated account — match it to a bank statement " +
+              "line where one has been imported — then confirm. It posts " +
+              "exactly as a card payment does: the fee comes out at the rate " +
+              "frozen on that demand, the landlord is credited net, and a " +
+              "receipt is issued.",
+          },
+          {
+            title: "You cannot confirm one you or an earlier desk recorded",
+            body:
+              "If whoever took the walk-in confirms it too, that is the same " +
+              "fault as approving your own payment — it needs a second pair of " +
+              "hands, and the system refuses either way.",
+          },
+          {
+            title: "Online collections",
+            body:
+              "Card and bank-transfer payments made through the portal post " +
+              "themselves the moment the gateway confirms them — nobody " +
+              "approves those, and that stays true. You can read the whole " +
+              "client-funds ledger, including these, under \"Client Funds\", " +
+              "for reconciliation and oversight.",
+          },
+        ],
+      },
       GETTING_HELP,
     ],
     cannot: [
       "Release money — approving and paying are separate on purpose.",
       "Approve above your own limit.",
       "Change your own limit.",
+      "Post to the ledger directly, or edit a payment once confirmed and posted.",
     ],
   },
 
@@ -600,7 +640,7 @@ export const ROLE_GUIDES: Record<string, RoleGuide> = {
               "transfer, you are the desk that opens their receipt and checks it " +
               "says what they say it says — the amount, the date, and that it went " +
               "to our account. Nothing reaches the ledger until you, the Managing " +
-              "Partner and the Payment Officer have each confirmed.",
+              "Partner and the Payment Approver have each confirmed.",
           },
           {
             title: "Open the receipt, every time",
@@ -688,7 +728,7 @@ export const ROLE_GUIDES: Record<string, RoleGuide> = {
               "If somebody pays into the bank and tells you rather than the portal, " +
               "record it under \"Off-platform payments\" with their receipt — only " +
               "for demands on properties you hold. It is a report, not a payment: " +
-              "the audit, executive and Payment Officer desks confirm it against the " +
+              "the audit, executive and Payment Approver desks confirm it against the " +
               "bank before it comes off anyone's balance.",
           },
           {
@@ -743,7 +783,7 @@ export const ROLE_GUIDES: Record<string, RoleGuide> = {
             body:
               "When a tenant reports paying by bank transfer, you are the second of " +
               "three desks under \"Off-platform payments\" — after the auditor has " +
-              "checked the receipt and before the Payment Officer posts it. You see " +
+              "checked the receipt and before the Payment Approver posts it. You see " +
               "the whole record: the payer, the breakdown, their own note and the " +
               "receipt itself.",
           },
@@ -762,7 +802,7 @@ export const ROLE_GUIDES: Record<string, RoleGuide> = {
     ],
     cannot: [
       "Execute a remittance, add or change a bank account, or post to the ledger.",
-      "Post a reported payment to the ledger — that is the Payment Officer's step.",
+      "Post a reported payment to the ledger — that is the Payment Approver's step.",
       "Change the approval threshold you approve against.",
     ],
   },
@@ -941,7 +981,7 @@ export function managerGuide(roleLabel: string, handlesMoney = false): RoleGuide
               title: "It is a report, not a payment",
               body:
                 "Recording one changes nobody's balance. The audit desk, the " +
-                "Managing Partner and the Payment Officer each confirm it against " +
+                "Managing Partner and the Payment Approver each confirm it against " +
                 "our bank account first, and only then does the demand settle. Tell " +
                 "the tenant that plainly — they will otherwise expect it to clear " +
                 "straight away and chase you.",

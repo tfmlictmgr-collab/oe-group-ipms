@@ -257,8 +257,13 @@ export function invitableBy(inviterRole: string | null | undefined): InvitableRo
 export const ROLE_HINTS: Partial<Record<string, string>> = {
   viewer:
     "Read-only, organisation-wide. Sees properties, assets, vendors and request volumes — never money, personal contact details, or the audit trail. Intended for someone outside the organisation.",
+  // Narrowed 13 Sept 2026 (board): confirming a reported off-platform payment
+  // and administering the service charge (sc.manage) moved to payment_approver
+  // — "the chief accounting officer" — leaving this desk majorly disbursement.
+  // They can still RECORD a walk-in claim (0281's "commonest way one arrives")
+  // and still read the SC register; they no longer confirm or post one.
   finance_approver:
-    "Releases money the approval chain has cleared: the client-funds ledger, collections, remittances and daily reconciliation. Does not approve — approval belongs to the chain, and the person who approved a payment may never also send it.",
+    "Releases money the approval chain has cleared: the client-funds ledger, remittances and daily reconciliation. Can log a payment reported at the walk-in desk, but a colleague confirms it. Does not approve — approval belongs to the chain, and the person who approved a payment may never also send it.",
   fm_ops_staff: "Works the jobs dispatched to them. No financial access.",
   facility_manager:
     "Maintenance, plant and services on the properties assigned to them — and on OEA, that is now a distinct job from the property manager's. Sees requests on their properties, dispatches them, and signs off the work.",
@@ -266,8 +271,13 @@ export const ROLE_HINTS: Partial<Record<string, string>> = {
     "Lettings, tenancies and owner relations on the properties assigned to them. Identical authority to a facilities manager over a different discipline; both sign off their own work only.",
   payment_audit_approver:
     "The audit check on the payment chain — on OEA it is the first stage, elsewhere the second. Checks an invoice against the job card, the evidence and the attachments before it reaches anyone with a spending limit, and sees every service request in order to do it. Nothing in the ledger.",
+  // Widened 13 Sept 2026 (board): the chief accounting officer. Confirms both
+  // directions of money now — the last stage of the OUTBOUND chain (final
+  // approval, never disbursement) and the terminal, ledger-posting stage of
+  // the INBOUND off-platform chain (moved off finance_approver) — plus
+  // sc.manage, and a read of the online-collections ledger and reconciliation.
   payment_approver:
-    "The last stage of the payment chain: final approval, bounded by an amount rather than by a place. Give them a tier — 1 approves up to the tier-1 limit, 2 up to the approval limit, 3 without limit. On OEA they are the only role at this stage, so the organisation needs one whose tier covers its largest payment.",
+    "The chief accounting officer. Gives final approval on outbound payments (bounded by an amount rather than a place — give them a tier: 1 up to the tier-1 limit, 2 up to the approval limit, 3 without limit) and confirms and posts a reported off-platform payment after the auditor and the executive have signed it. Reads the client-funds ledger, including online collections. Never disburses — that stays with the Payment Officer. On OEA they are the only role at the outbound stage, so the organisation needs one whose tier covers its largest payment.",
   property_owner: "Their own portfolio only — summary, statements and vendor performance.",
   regional_manager:
     // Rewritten 11 Sept 2026 — the old line ("plus inviting operational staff

@@ -22,7 +22,7 @@ import ClaimDetail, { type ClaimRow, type LineRow, type ChainRow } from "./Claim
 // separate PDF is a second copy of the report that can disagree with the first.
 // The receipt stays on @react-pdf because it is a document SENT to someone; this
 // is a screen a person prints, and it is the same screen for the payer, the
-// auditor, the executive and the Payment Officer — so nobody is printing a
+// auditor, the executive and the Payment Approver — so nobody is printing a
 // different account of the same payment.
 //
 // Access is `may_read_offline_claim` throughout: the claim row comes back under
@@ -67,7 +67,8 @@ export default async function OfflineClaimPage({
       .select("id, full_name, email")
       .in("id", [claim.payer_user_id, claim.recorded_by].filter(Boolean) as string[]),
     // The receipt lives against the intent each line posted (0253). Only present
-    // once the Payment Officer has actually posted it.
+    // once the Payment Approver has actually posted it (13 Sept 2026 — moved
+    // off finance_approver, see the migration header).
     supabase
       .from("offline_payment_allocations")
       .select("intent_id")
@@ -153,7 +154,7 @@ export default async function OfflineClaimPage({
             <p className="font-medium">This is not a receipt.</p>
             <p className="text-muted-foreground">
               It records what was reported. The payment is applied to the account
-              only after the audit, executive and Payment Officer desks have each
+              only after the audit, executive and Payment Approver desks have each
               confirmed it against our bank account — a receipt is issued then.
             </p>
           </CardContent>

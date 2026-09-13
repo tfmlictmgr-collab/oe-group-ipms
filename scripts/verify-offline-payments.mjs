@@ -5,9 +5,13 @@
 // The claims that matter:
 //   • proof and an amount are COMPULSORY, and the breakdown has to reconcile
 //   • a claim has NO ledger effect until the chain completes
-//   • the chain is auditor -> executive -> Payment Officer, in that order, and
-//     the Payment Officer alone posts
-//   • the person who RECORDED it can never confirm it, at any stage
+//   • the chain is auditor -> executive -> Payment Approver, in that order,
+//     and the Payment Approver alone posts (13 Sept 2026: moved off
+//     finance_approver — the Payment Approver is the chief accounting
+//     officer who confirms what arrives; see 0293)
+//   • the person who RECORDED it can never confirm it, at any stage — and
+//     since nobody who can record (FM/PM/RM/the Payment Officer) is also a
+//     confirming desk, that is now enforced by role separation as well
 //   • a returned claim has a way back; a rejected one is terminal
 //   • the posting goes through record_collection, so the fee split, the
 //     property's own SC fund and the charge's balance all move exactly as they
@@ -69,8 +73,11 @@ console.log(`\nOff-platform payments — 0281/0282   (fixture tag ${stamp})`);
 const tenant = await login("oea.tenant@oegroup.test");
 const auditor = await login("oea.paymentauditapprover@oegroup.test");
 const exec = await login("oea.executive@oegroup.test");
+// `officer` — the Payment Officer — still RECORDS a walk-in (0293 kept
+// payments.record_offline on finance_approver). `approver` — the Payment
+// Approver — now CONFIRMS and posts stage 3, moved off finance_approver.
 const officer = await login("oea.financeapprover@oegroup.test");
-const officer2 = await login("oea.finance@oegroup.test");
+const approver = await login("oea.paymentapprover@oegroup.test");
 const pm = await login("oea.pm@oegroup.test");
 const otherTenant = await login("tfml.tenant@oegroup.test");
 
@@ -366,7 +373,7 @@ const fundsBefore = await balanceOf(fundsAccountId);
 // ════════════════════════════════════════════════════════════════════════════
 section("D. Every confirmer sees the whole record");
 
-for (const [who, s] of [["auditor", auditor], ["executive", exec], ["Payment Officer", officer]]) {
+for (const [who, s] of [["auditor", auditor], ["executive", exec], ["Payment Approver", approver]]) {
   const { data: rows } = await s.c.from("offline_payment_claims")
     .select("id, reference, claimed_amount, payer_note, proof_path").eq("id", claimId);
   const { data: lines } = await s.c.rpc("offline_claim_lines", { p_claim_id: claimId });
@@ -401,11 +408,18 @@ for (const [who, s] of [["auditor", auditor], ["executive", exec], ["Payment Off
 section("E. The chain: order, roles, and one pair of hands per desk");
 
 {
-  const m = await refused(officer.c, "confirm_offline_payment",
+  const m = await refused(approver.c, "confirm_offline_payment",
     { p_claim_id: claimId, p_stage: 3, p_decision: "confirmed" });
   m && /earlier stage/i.test(m)
-    ? ok("the Payment Officer cannot post before the desks below have signed")
+    ? ok("the Payment Approver cannot post before the desks below have signed")
     : bad(`stage 3 before stages 1-2 should be refused, got: ${m}`);
+}
+{
+  const m = await refused(officer.c, "confirm_offline_payment",
+    { p_claim_id: claimId, p_stage: 3, p_decision: "confirmed" });
+  m && /actioned by/i.test(m)
+    ? ok("the Payment Officer is not one of the confirming desks at all — disbursement is a different act")
+    : bad(`the Payment Officer should be refused at stage 3, got: ${m}`);
 }
 {
   const m = await refused(exec.c, "confirm_offline_payment",
@@ -443,17 +457,17 @@ section("E. The chain: order, roles, and one pair of hands per desk");
   const { data: rc } = await svc.from("rent_charges").select("amount_paid").eq("id", charge.id).single();
   Number(rc.amount_paid) === 0
     ? ok("two desks in, and the demand's balance still has not moved")
-    : bad("money moved before the Payment Officer confirmed");
+    : bad("money moved before the Payment Approver confirmed");
 }
 
 // ════════════════════════════════════════════════════════════════════════════
 section("F. The terminal desk posts it, and the arithmetic is right");
 
 {
-  const { error } = await officer.c.rpc("confirm_offline_payment",
+  const { error } = await approver.c.rpc("confirm_offline_payment",
     { p_claim_id: claimId, p_stage: 3, p_decision: "confirmed" });
-  error ? bad(`the Payment Officer could not post: ${error.message}`)
-        : ok("stage 3 — the Payment Officer confirms, and it becomes money");
+  error ? bad(`the Payment Approver could not post: ${error.message}`)
+        : ok("stage 3 — the Payment Approver confirms, and it becomes money");
 }
 {
   const { data: c } = await svc.from("offline_payment_claims")
@@ -461,7 +475,7 @@ section("F. The terminal desk posts it, and the arithmetic is right");
   c.status === "confirmed" && c.posted_at && Number(c.confirmed_amount) === RENT
     ? ok(`the claim is confirmed at ${RENT.toLocaleString()} and stamped as posted`)
     : bad(`expected confirmed/posted, got ${c.status}/${c.posted_at}/${c.confirmed_amount}`);
-  c.confirmed_by === officer.id
+  c.confirmed_by === approver.id
     ? ok("who authorised the posting is recorded — decision 23's missing actor is not repeated")
     : bad("the posting names no confirmer");
 }
@@ -486,8 +500,8 @@ section("F. The terminal desk posts it, and the arithmetic is right");
   intent.gateway === "manual"
     ? ok("it posted through a `manual` intent — the enum value 0032 reserved for exactly this")
     : bad(`expected gateway manual, got ${intent.gateway}`);
-  intent.created_by === officer.id
-    ? ok("the ledger entry is attributed to the officer who authorised it")
+  intent.created_by === approver.id
+    ? ok("the ledger entry is attributed to the approver who authorised it")
     : bad("the posting is attributed to nobody, or to the wrong person");
 
   // The fee split — record_collection's own arithmetic, reached unchanged.
@@ -515,14 +529,14 @@ section("F. The terminal desk posts it, and the arithmetic is right");
     : bad(`funds moved by ${after - fundsBefore}, expected ${RENT}`);
 }
 {
-  const m = await refused(officer.c, "confirm_offline_payment",
+  const m = await refused(approver.c, "confirm_offline_payment",
     { p_claim_id: claimId, p_stage: 3, p_decision: "confirmed" });
   m && /already/i.test(m)
     ? ok("a posted claim cannot be actioned again — no double posting")
     : bad(`re-confirming should be refused, got: ${m}`);
 }
 {
-  const { data: chain } = await officer.c.rpc("offline_claim_chain", { p_claim_id: claimId });
+  const { data: chain } = await approver.c.rpc("offline_claim_chain", { p_claim_id: claimId });
   const done = (chain ?? []).filter((s) => s.decision === "confirmed");
   done.length === 3 && done.every((s) => s.decided_by)
     ? ok("the trail names all three desks, each with a person and a time")
@@ -560,16 +574,23 @@ section("G. Maker-checker: the recorder can never confirm");
     await exec.c.rpc("confirm_offline_payment",
       { p_claim_id: walkIn, p_stage: 2, p_decision: "confirmed" });
 
+    // ⚠️ 13 Sept 2026. Still refused as "you recorded this payment" —
+    // `enforce_offline_confirmation_rules` checks the self-record rule BEFORE
+    // the role check, so it fires whether or not the recorder's role is even
+    // eligible for the stage. That is now doubly true: the Officer is refused
+    // here for recording it AND would be refused separately for not being a
+    // confirming desk at all (0293 moved that off finance_approver) — checked
+    // directly below.
     const m = await refused(officer.c, "confirm_offline_payment",
       { p_claim_id: walkIn, p_stage: 3, p_decision: "confirmed" });
     m && /recorded this payment/i.test(m)
       ? ok("…and is then refused their own stage 3 — it needs a second pair of hands")
-      : bad(`the recorder was able to confirm their own claim: ${m}`);
+      : bad(`the recorder was able to reach stage 3: ${m}`);
 
-    const { error: e2 } = await officer2.c.rpc("confirm_offline_payment",
+    const { error: e2 } = await approver.c.rpc("confirm_offline_payment",
       { p_claim_id: walkIn, p_stage: 3, p_decision: "confirmed" });
-    e2 ? bad(`a second Payment Officer could not close it: ${e2.message}`)
-       : ok("a second Payment Officer closes it — the control is a second person, not a dead end");
+    e2 ? bad(`the Payment Approver could not close it: ${e2.message}`)
+       : ok("the Payment Approver — who did not record it — closes it");
   }
 }
 
@@ -721,7 +742,7 @@ section("I. Grants — what anonymous and internal callers can reach");
 {
   const { error } = await tenant.c.from("offline_payment_confirmations").insert({
     org_id: orgId, claim_id: claimId, stage_order: 3, actor_id: tenant.id,
-    actor_role: "finance_approver", amount: 1, decision: "confirmed",
+    actor_role: "payment_approver", amount: 1, decision: "confirmed",
   });
   error ? ok("a tenant cannot forge a confirmation row")
         : bad("a tenant forged a signature on the chain");
@@ -820,7 +841,7 @@ section("J. A payment in a foreign currency");
         { p_claim_id: fxClaim, p_stage: 1, p_decision: "confirmed" });
       await exec.c.rpc("confirm_offline_payment",
         { p_claim_id: fxClaim, p_stage: 2, p_decision: "confirmed" });
-      const { error: postErr } = await officer.c.rpc("confirm_offline_payment",
+      const { error: postErr } = await approver.c.rpc("confirm_offline_payment",
         { p_claim_id: fxClaim, p_stage: 3, p_decision: "confirmed" });
       postErr
         ? bad(`the ${FX} payment could not be posted: ${postErr.message}`)
@@ -1056,7 +1077,7 @@ console.log("  DEMANDS are removed, so they stop appearing on a real tenant's My
 
 console.log("");
 if (failures === 0) {
-  console.log("\x1b[32mALL CHECKS PASSED — an off-platform payment is recorded with compulsory proof, moves no money until the auditor, the executive and the Payment Officer have each signed, and then posts through record_collection with the fee split intact.\x1b[0m");
+  console.log("\x1b[32mALL CHECKS PASSED — an off-platform payment is recorded with compulsory proof, moves no money until the auditor, the executive and the Payment Approver have each signed, and then posts through record_collection with the fee split intact.\x1b[0m");
 } else {
   console.log(`\x1b[31m${failures} check(s) failed.\x1b[0m`);
 }

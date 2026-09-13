@@ -153,9 +153,13 @@ try {
   const oea = orgs.find((o) => o.slug === "oea");
   const tfml = orgs.find((o) => o.slug === "tfml");
 
-  const finance = await login("oea.financeapprover@oegroup.test");
+  // 13 Sept 2026: sc.manage moved off finance_approver (the Payment Officer)
+  // to payment_approver (the Payment Approver, chief accounting officer) —
+  // see 0293. This fixture signs in as whoever currently holds the
+  // capability the test is actually about.
+  const approver = await login("oea.paymentapprover@oegroup.test");
   const fm = await login("oea.facilitymanager@oegroup.test");
-  if (!finance) { console.error("No OEA finance fixture — cannot run."); await cleanup(); process.exit(1); }
+  if (!approver) { console.error("No OEA approver fixture — cannot run."); await cleanup(); process.exit(1); }
 
   const { data: prop } = await svc.from("properties")
     .insert({ org_id: oea.id, name: `PROBEAPP-Property-${S}` }).select("id").single();
@@ -188,7 +192,7 @@ try {
   // ── §B The reconciliation state, as the screen and the guard both read it ─
   head("§B sc_manual_shares_state — one answer, two consumers");
 
-  const state = async (client = finance.c) => {
+  const state = async (client = approver.c) => {
     const { data, error } = await client.rpc("sc_manual_shares_state", { p_budget_id: budget.id });
     if (error) return { error };
     return Array.isArray(data) ? data[0] : data;
@@ -202,12 +206,12 @@ try {
     bad(`unexpected empty state: ${JSON.stringify(st)}`);
   }
 
-  await finance.c.from("sc_budgets").update({ apportion_method: "manual" }).eq("id", budget.id);
+  await approver.c.from("sc_budgets").update({ apportion_method: "manual" }).eq("id", budget.id);
 
   // Two of three stated, and short.
-  await finance.c.from("sc_budget_shares").upsert([
-    { org_id: oea.id, budget_id: budget.id, unit_id: unitRows[0].id, amount: 90_000, set_by: finance.id },
-    { org_id: oea.id, budget_id: budget.id, unit_id: unitRows[1].id, amount: 60_000, set_by: finance.id },
+  await approver.c.from("sc_budget_shares").upsert([
+    { org_id: oea.id, budget_id: budget.id, unit_id: unitRows[0].id, amount: 90_000, set_by: approver.id },
+    { org_id: oea.id, budget_id: budget.id, unit_id: unitRows[1].id, amount: 60_000, set_by: approver.id },
   ], { onConflict: "budget_id,unit_id" });
 
   st = await state();
@@ -219,8 +223,8 @@ try {
   }
 
   // Complete, but a kobo over.
-  await finance.c.from("sc_budget_shares").upsert(
-    [{ org_id: oea.id, budget_id: budget.id, unit_id: unitRows[2].id, amount: 50_000.01, set_by: finance.id }],
+  await approver.c.from("sc_budget_shares").upsert(
+    [{ org_id: oea.id, budget_id: budget.id, unit_id: unitRows[2].id, amount: 50_000.01, set_by: approver.id }],
     { onConflict: "budget_id,unit_id" }
   );
   st = await state();
@@ -231,8 +235,8 @@ try {
   }
 
   // Exactly right.
-  await finance.c.from("sc_budget_shares").upsert(
-    [{ org_id: oea.id, budget_id: budget.id, unit_id: unitRows[2].id, amount: 50_000, set_by: finance.id }],
+  await approver.c.from("sc_budget_shares").upsert(
+    [{ org_id: oea.id, budget_id: budget.id, unit_id: unitRows[2].id, amount: 50_000, set_by: approver.id }],
     { onConflict: "budget_id,unit_id" }
   );
   st = await state();
@@ -259,8 +263,8 @@ try {
     const { data: theirUnit } = await svc
       .from("units").select("id").eq("org_id", tfml.id).limit(1).maybeSingle();
     if (theirUnit) {
-      const { error } = await finance.c.from("sc_budget_shares").insert({
-        org_id: oea.id, budget_id: budget.id, unit_id: theirUnit.id, amount: 1, set_by: finance.id,
+      const { error } = await approver.c.from("sc_budget_shares").insert({
+        org_id: oea.id, budget_id: budget.id, unit_id: theirUnit.id, amount: 1, set_by: approver.id,
       });
       if (error) ok("a share cannot name a unit belonging to the other brand — B1 holds at the FK");
       else bad("⚠️ a share was written against another organisation's unit");
@@ -272,8 +276,8 @@ try {
   const { data: elsewhere } = await svc
     .from("units").select("id").eq("org_id", oea.id).neq("property_id", prop.id).limit(1).maybeSingle();
   if (elsewhere) {
-    const { error } = await finance.c.from("sc_budget_shares").insert({
-      org_id: oea.id, budget_id: budget.id, unit_id: elsewhere.id, amount: 1, set_by: finance.id,
+    const { error } = await approver.c.from("sc_budget_shares").insert({
+      org_id: oea.id, budget_id: budget.id, unit_id: elsewhere.id, amount: 1, set_by: approver.id,
     });
     if (error) {
       ok("the database also refuses a unit from another property in the same org");
@@ -292,10 +296,10 @@ try {
 
   // Generation is a server action, not an RPC, so this exercises the same
   // arithmetic against the same rows rather than calling it.
-  const { data: liveUnits } = await finance.c
+  const { data: liveUnits } = await approver.c
     .from("units").select("id, label, apportionment_factor, unit_quantity, occupant_user_id")
     .eq("property_id", prop.id).is("deleted_at", null);
-  const { data: liveShares } = await finance.c
+  const { data: liveShares } = await approver.c
     .from("sc_budget_shares").select("unit_id, amount").eq("budget_id", budget.id);
   const statedBy = new Map((liveShares ?? []).map((s) => [s.unit_id, Number(s.amount)]));
 
@@ -327,7 +331,7 @@ try {
   if (Math.abs(pctSum - 1) < 0.0001) ok("derived percentages sum to 100%");
   else bad(`derived percentages sum to ${(pctSum * 100).toFixed(4)}%`);
 
-  // The method rides onto the invoice. Written through finance's own session,
+  // The method rides onto the invoice. Written through the approver's own session,
   // so `service_charges_insert` decides — the column being writable at all is
   // part of the claim.
   const rows = manualShares.map((s) => ({
@@ -340,7 +344,7 @@ try {
   if (insErr) {
     bad(`could not write the invoices — ${insErr.message}`);
   } else {
-    const { data: back } = await finance.c
+    const { data: back } = await approver.c
       .from("service_charges").select("amount, apportion_method")
       .eq("budget_id", budget.id);
     const allManual = (back ?? []).every((r) => r.apportion_method === "manual");
@@ -353,7 +357,7 @@ try {
     // ⚠️ Changing the budget's method must NOT rewrite what a raised invoice
     // says it was — the same rule decision 14 applies to the fee rate.
     await svc.from("sc_budgets").update({ apportion_method: "area" }).eq("id", budget.id);
-    const { data: after } = await finance.c
+    const { data: after } = await approver.c
       .from("service_charges").select("apportion_method").eq("budget_id", budget.id);
     if ((after ?? []).every((r) => r.apportion_method === "manual")) {
       ok("changing the budget's method afterwards leaves every raised invoice saying `manual`");

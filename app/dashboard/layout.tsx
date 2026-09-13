@@ -277,8 +277,14 @@ export default async function DashboardLayout({
     // in a ledger write, which decision 7 lists among the controls that never
     // appear as toggles — plus anyone the MATRIX lets record one on a payer's
     // behalf, which genuinely is operator-governed.
+    //
+    // 13 Sept 2026 (board): the confirming desks are payment_audit_approver,
+    // executive, payment_approver — finance_approver moved off the chain and
+    // reaches this page now only through the `can("payments.record_offline")`
+    // clause, exactly as it already does for an FM/PM/RM who can record a
+    // walk-in but does not confirm one.
     seesOfflinePayments:
-      ["payment_audit_approver", "executive", "finance_approver"].includes(role) ||
+      ["payment_audit_approver", "executive", "payment_approver"].includes(role) ||
       can("payments.record_offline"),
     canEnroll: can("people.invite"),
     // The capability still decides (`/api/records/export`); this only offers
