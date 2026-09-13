@@ -3,7 +3,8 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { CreditCard, ExternalLink, CheckCircle2, Loader2 } from "lucide-react";
+import Link from "next/link";
+import { CreditCard, ExternalLink, CheckCircle2, Loader2, Landmark } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatusBadge } from "@/components/patterns/status-badge";
@@ -118,24 +119,45 @@ export default function ServiceCharges({ charges }: { charges: ServiceChargeRow[
                     <CheckCircle2 className="size-4" /> Paid
                   </span>
                 ) : (
-                  <Button
-                    variant="brand"
-                    disabled={busy === c.charge_id}
-                    onClick={() => pay(c)}
-                  >
-                    {busy === c.charge_id ? (
-                      <Loader2 className="animate-spin" />
-                    ) : c.open_intent_reference ? (
-                      <ExternalLink />
-                    ) : (
-                      <CreditCard />
-                    )}
-                    {busy === c.charge_id
-                      ? "Opening…"
-                      : c.open_intent_reference
-                        ? "Continue payment"
-                        : "Pay now"}
-                  </Button>
+                  <div className="flex flex-col items-stretch gap-1.5">
+                    <Button
+                      variant="brand"
+                      disabled={busy === c.charge_id}
+                      onClick={() => pay(c)}
+                    >
+                      {busy === c.charge_id ? (
+                        <Loader2 className="animate-spin" />
+                      ) : c.open_intent_reference ? (
+                        <ExternalLink />
+                      ) : (
+                        <CreditCard />
+                      )}
+                      {busy === c.charge_id
+                        ? "Opening…"
+                        : c.open_intent_reference
+                          ? "Continue payment"
+                          : "Pay now"}
+                    </Button>
+                    {/* 📌 13 Sept 2026. `RentCharges` has carried the
+                        off-platform route (0281) on the demand itself since
+                        it was written; this sibling component — built
+                        "shaped like RentCharges deliberately" per its own
+                        header comment — never got it, so a tenant who had
+                        already transferred a service charge by bank had no
+                        way to report it, while the identical screen for rent
+                        did. `offline_allocatable_charges()` and
+                        `RecordPaymentForm`'s `preselectSc` were already built
+                        to take a service-charge id; nothing on this page ever
+                        linked to them. */}
+                    <Button asChild variant="ghost" size="sm">
+                      <Link
+                        href={`/dashboard/payments/offline/new?sc=${encodeURIComponent(c.charge_id)}`}
+                      >
+                        <Landmark className="size-4" />
+                        Bank transfer / pay another way
+                      </Link>
+                    </Button>
+                  </div>
                 )}
               </div>
             </CardContent>
