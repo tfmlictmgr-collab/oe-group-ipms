@@ -21,6 +21,7 @@ import {
   TableCell,
 } from "@/components/ui/table";
 import ServiceCharges, { type ServiceChargeRow } from "./ServiceCharges";
+import StatementTabs from "./StatementTabs";
 import StatementsRegister, { type RegisterRow } from "./StatementsRegister";
 import { unitDisplayLabel } from "@/lib/apportionment";
 import { readsServiceChargeRegister } from "@/lib/roles";
@@ -75,7 +76,8 @@ const fmtDateTime = (d: string | null) =>
 export default async function StatementsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ ref?: string; reference?: string; trxref?: string }>;
+  // `tab` opens the payer's statement on "payments" rather than "charges".
+  searchParams: Promise<{ ref?: string; reference?: string; trxref?: string; tab?: string }>;
 }) {
   // The gateway's return (see PaymentReturn).
   const sp = await searchParams;
@@ -275,79 +277,81 @@ export default async function StatementsPage({
         </div>
       )}
 
-      {rows.length === 0 ? (
-        <>
-          {/* ⚠️ Both empty states below were written for the PAYER and shown to
-              everybody. Reported 9 Sept 2026 from a regional manager's screen:
-              "Invoices appear here once a billing cycle is issued for YOUR
-              property", then "Once YOU pay an invoice, the receipt appears
-              here" — to a manager who is billed nothing and pays nothing. The
-              register's own emptiness means something different and has a
-              different remedy: nobody has issued a cycle on the buildings they
-              hold. Same fault the nav comment above this page already records
-              twice (vendor, ops staff): the page branches audiences everywhere
-              except where it says there is nothing to show. */}
-          <EmptyState
-            icon={<FileText />}
-            title={isStaff ? "No invoices issued yet" : "No service-charge invoices yet"}
-            description={
-              isStaff
-                ? "Once a service-charge cycle is issued on a property you hold, its invoices are listed here."
-                : "Invoices appear here once a billing cycle is issued for your property."
-            }
-          />
-          {paymentHistory}
-        </>
-      ) : (
-        <>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Card className="p-4 sm:p-5">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Total billed
-              </p>
-              <p className="mt-1 text-2xl font-semibold tabular-nums">
-                {formatNaira(total)}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {rows.length} invoice{rows.length === 1 ? "" : "s"}
-              </p>
-            </Card>
-            <Card className="p-4 sm:p-5">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Outstanding
-              </p>
-              <p
-                className={`mt-1 text-2xl font-semibold tabular-nums ${
-                  outstanding > 0 ? "text-warning" : "text-success"
-                }`}
-              >
-                {formatNaira(outstanding)}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {outstanding > 0 ? "Payment due" : "All settled"}
-              </p>
-            </Card>
-          </div>
-
-          {isStaff ? (
-            <StatementsRegister rows={registerRows} />
-          ) : (
-            <ServiceCharges charges={mine} />
-          )}
-
-          {paymentHistory}
-        </>
+      {rows.length > 0 && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Card className="p-4 sm:p-5">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Total billed
+            </p>
+            <p className="mt-1 text-2xl font-semibold tabular-nums">
+              {formatNaira(total)}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {rows.length} invoice{rows.length === 1 ? "" : "s"}
+            </p>
+          </Card>
+          <Card className="p-4 sm:p-5">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Outstanding
+            </p>
+            <p
+              className={`mt-1 text-2xl font-semibold tabular-nums ${
+                outstanding > 0 ? "text-warning" : "text-success"
+              }`}
+            >
+              {formatNaira(outstanding)}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {outstanding > 0 ? "Payment due" : "All settled"}
+            </p>
+          </Card>
+        </div>
       )}
 
-      {/* The payment half is the BILLED person's own history, so it is offered
-          to the billed person only. A manager reads the register above; their
-          payment history is empty by definition, not by circumstance, and
-          telling them to go and pay something is addressed to nobody. */}
-      {!isStaff && rows.length === 0 && history.length === 0 && (
-        <EmptyState
-          icon={<Receipt />}
-          title="No payments yet"
-          description="Once you pay an invoice, the receipt and its reference appear here."
+      {isStaff ? (
+        // ⚠️ Both empty states on this page were once written for the PAYER and
+        // shown to everybody (reported 9 Sept 2026 from a regional manager's
+        // screen). The register's own emptiness has a different remedy: nobody
+        // has issued a cycle on the buildings they hold.
+        rows.length === 0 ? (
+          <EmptyState
+            icon={<FileText />}
+            title="No invoices issued yet"
+            description="Once a service-charge cycle is issued on a property you hold, its invoices are listed here."
+          />
+        ) : (
+          <>
+            <StatementsRegister rows={registerRows} />
+            {paymentHistory}
+          </>
+        )
+      ) : (
+        // The payer's two questions — what was I billed, what have I paid — as
+        // two tabs rather than one long page (14 Sept 2026). Both still print.
+        <StatementTabs
+          initialTab={sp.tab === "payments" ? "payments" : "charges"}
+          chargesCount={rows.length}
+          paymentsCount={history.length}
+          charges={
+            rows.length === 0 ? (
+              <EmptyState
+                icon={<FileText />}
+                title="No service-charge invoices yet"
+                description="Invoices appear here once a billing cycle is issued for your property."
+              />
+            ) : (
+              <ServiceCharges charges={mine} />
+            )
+          }
+          payments={
+            paymentHistory || (
+              <EmptyState
+                icon={<Receipt />}
+                title="No payments yet"
+                description="Once you pay an invoice, the receipt and its reference appear here."
+              />
+            )
+          }
         />
       )}
     </div>

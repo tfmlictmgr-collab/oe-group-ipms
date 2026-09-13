@@ -75,6 +75,10 @@ export default function RecordPaymentForm({
   const [payerBankCode, setPayerBankCode] = React.useState("");
   const [payerAccountNumber, setPayerAccountNumber] = React.useState("");
   const [payerAccountName, setPayerAccountName] = React.useState("");
+  // Whether the name came from the bank or was typed by the payer. The form
+  // told a payer whose lookup failed to "type the account name" and had no box
+  // to type it in (reported 14 Sept 2026), so the name was silently dropped.
+  const [nameFromBank, setNameFromBank] = React.useState(false);
   const [payerLast4, setPayerLast4] = React.useState("");
   const [resolving, setResolving] = React.useState(false);
   const [resolveProblem, setResolveProblem] = React.useState<string | null>(null);
@@ -108,12 +112,15 @@ export default function RecordPaymentForm({
         setResolving(false);
         if (r.ok) {
           setPayerAccountName(r.data.accountName);
+          setNameFromBank(true);
           setPayerLast4(r.data.last4);
         } else {
           // NOT a blocker. A person whose bank cannot be reached must still be
           // able to report a payment they really made — the receipt is the
           // evidence, and this field is a convenience for whoever matches it.
+          // The name box below opens so they can type it themselves.
           setPayerAccountName("");
+          setNameFromBank(false);
           setPayerLast4(payerAccountNumber.slice(-4));
           setResolveProblem(r.message);
         }
@@ -367,7 +374,7 @@ export default function RecordPaymentForm({
                   <Label htmlFor="payerBank" className="text-xs">Your bank</Label>
                   <select
                     id="payerBank" value={payerBankCode}
-                    onChange={(e) => { setPayerBankCode(e.target.value); setPayerAccountName(""); }}
+                    onChange={(e) => { setPayerBankCode(e.target.value); setPayerAccountName(""); setNameFromBank(false); }}
                     className="mt-1 w-full rounded-md border bg-background p-2 text-sm"
                   >
                     <option value="">Choose your bank…</option>
@@ -384,6 +391,7 @@ export default function RecordPaymentForm({
                     onChange={(e) => {
                       setPayerAccountNumber(e.target.value.replace(/\D/g, "").slice(0, 10));
                       setPayerAccountName("");
+                      setNameFromBank(false);
                     }}
                   />
                 </div>
@@ -393,7 +401,7 @@ export default function RecordPaymentForm({
                   <Loader2 className="size-3.5 animate-spin" /> Checking with the bank…
                 </p>
               )}
-              {payerAccountName && !resolving && (
+              {nameFromBank && payerAccountName && !resolving && (
                 <p className="flex items-start gap-2 rounded-md bg-emerald-500/10 p-2 text-xs">
                   <ShieldCheck className="mt-0.5 size-3.5 shrink-0 text-emerald-600" />
                   <span>
@@ -401,6 +409,26 @@ export default function RecordPaymentForm({
                     <strong>{payerAccountName}</strong>.
                   </span>
                 </p>
+              )}
+              {/* 📌 14 Sept 2026. The name box the message below asks for. It
+                  opens whenever the bank has not vouched for a name — the
+                  lookup failed, was rate-limited, or this organisation has no
+                  gateway key — and never covers a name the bank DID return,
+                  so a typed name can't be mistaken for a verified one. */}
+              {!nameFromBank && !resolving && (resolveProblem ||
+                (payerBankCode !== "" && payerAccountNumber.length === 10)) && (
+                <div>
+                  <Label htmlFor="payerName" className="text-xs">
+                    Account name, exactly as your bank shows it
+                  </Label>
+                  <Input
+                    id="payerName"
+                    value={payerAccountName}
+                    maxLength={120}
+                    placeholder="e.g. ADAEZE N. OKAFOR"
+                    onChange={(e) => setPayerAccountName(e.target.value)}
+                  />
+                </div>
               )}
               {resolveProblem && !resolving && (
                 <p className="text-xs text-muted-foreground">{resolveProblem}</p>

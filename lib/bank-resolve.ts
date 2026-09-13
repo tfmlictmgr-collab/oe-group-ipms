@@ -71,6 +71,22 @@ export async function lookUpAccountName(
       { headers: { Authorization: `Bearer ${key}` }, cache: "no-store" }
     );
     const json = (await res.json()) as { status?: boolean; message?: string; data?: { account_name?: string } };
+    // ⚠️ 14 Sept 2026. A rate limit is not "that account does not exist".
+    // Paystack answers a TEST secret key's fourth real lookup of the day with
+    // 429 "Test mode daily limit of 3 live bank resolves exceeded" — measured
+    // on OEA's own key — and this branch used to fall through to "could not
+    // be found at the bank you chose", telling a payer their correct account
+    // was wrong. Said as what it is, and the name box opens for them to type.
+    if (res.status === 429) {
+      return {
+        ok: false,
+        reason: /test mode/i.test(json.message ?? "")
+          ? "The bank lookup is not available right now (this organisation's Paystack account is in test mode). Type the account name exactly as your bank shows it."
+          : "The bank lookup is busy right now. Type the account name exactly as your bank shows it.",
+        unavailable: true,
+        last4,
+      };
+    }
     if (!res.ok || !json.status || !json.data?.account_name) {
       return {
         ok: false,
