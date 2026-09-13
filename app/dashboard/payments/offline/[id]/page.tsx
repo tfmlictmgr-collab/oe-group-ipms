@@ -107,22 +107,26 @@ export default async function OfflineClaimPage({
         </Button>
       </div>
 
+      {/* 📌 13 Sept 2026. This page predates decision 51 (12 Sept) — the one
+          heading in the offline-payments feature never fixed. "Offline
+          payment" is now what the page IS; the reference, status and the
+          rest of the record move into the description underneath, the same
+          split every other detail page uses (e.g. remittances/[id]). */}
       <PageHeader
-        title={
+        title="Offline payment"
+        description={
           <span className="flex flex-wrap items-center gap-2">
             <span className="font-mono">{claim.reference}</span>
             <Badge variant={TONE[STATUS_TONE[status]]}>{STATUS_LABEL[status]}</Badge>
+            <span>
+              {formatMoney(amount, claim.currency)} ·{" "}
+              {METHOD_LABEL[claim.method as keyof typeof METHOD_LABEL]} on{" "}
+              {new Date(claim.paid_on).toLocaleDateString("en-GB", {
+                day: "numeric", month: "long", year: "numeric",
+              })}
+              {bank?.label ? ` · into ${bank.label}` : ""}
+            </span>
           </span>
-        }
-        description={
-          <>
-            {formatMoney(amount, claim.currency)} ·{" "}
-            {METHOD_LABEL[claim.method as keyof typeof METHOD_LABEL]} on{" "}
-            {new Date(claim.paid_on).toLocaleDateString("en-GB", {
-              day: "numeric", month: "long", year: "numeric",
-            })}
-            {bank?.label ? ` · into ${bank.label}` : ""}
-          </>
         }
         actions={
           <div className="flex flex-wrap items-center gap-2 print:hidden">
