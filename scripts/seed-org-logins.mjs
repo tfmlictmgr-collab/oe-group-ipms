@@ -50,7 +50,10 @@ const TENANT_ROLES = [
   ["executive", "Managing Director"],
   ["finance_approver", "Payment Officer"],
   ["payment_audit_approver", "Payment Auditor"],
-  ["payment_approver", "Payment Approver (tier 1)", 1],
+  // No tier in the NAME (0295). Approval bands are off by default (0261), and
+  // a name is printed in every decision trail — "Payment Approver (tier 1)"
+  // read as though a tier were in play. The tier itself is still set below.
+  ["payment_approver", "Payment Approver", 1],
   ["regional_manager", "Regional Manager"],
   ["facility_manager", "Manager"],
   ["fm_ops_staff", "Operations Staff"],
@@ -62,7 +65,7 @@ const TENANT_ROLES = [
 // A second approver, higher up the ladder, so a payment above ₦100,000 has
 // somebody who can actually clear it.
 const EXTRA_APPROVERS = [
-  ["payment_approver", "Payment Approver (tier 3)", 3, "approver3"],
+  ["payment_approver", "Second Payment Approver", 3, "approver3"],
 ];
 
 // ── 1. Sweep the probe accounts ───────────────────────────────────────────

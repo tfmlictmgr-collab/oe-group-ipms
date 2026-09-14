@@ -523,8 +523,12 @@ export async function getChainState(
   const rejectedRow = approvals.find((a) => a.decision === "rejected");
   const rejected = Boolean(rejectedRow);
 
-  // An outstanding return (0250b). At most one can be live: answering a stage
-  // supersedes its own return, and the return itself retires the rung below.
+  // An outstanding return (0250b). At most one can be live — since 0295. Until
+  // then a return was retired only by a decision at its OWN stage, so a stage-3
+  // return answered by stage 2's re-approval stayed live, this line found it,
+  // `nextStage` came out null, and the card read "Every stage is already
+  // approved" over a payment waiting on the payment approver (14 Sept 2026).
+  // A decision now retires every live return at its stage or above.
   const returnedRow = approvals.find((a) => a.decision === "returned");
   const returnedToRaiser = Boolean(returnedRow && returnedRow.stage_order === 1);
 

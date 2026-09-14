@@ -784,6 +784,61 @@ console.log("\n14. An approver states the sum, and the ladder re-climbs at it");
 
   await auditorC.auth.signOut();
 }
+
+console.log("\n15. A return is answered by the desk it was sent to (0295)");
+// ---------------------------------------------------------------------------
+//
+// Reported from the payment approver's own screen (14 Sept 2026): stage 3 sent
+// an invoice back to stage 2, stage 2 re-approved, and the payment then sat
+// under "Waiting on someone else" reading "Every stage is already approved".
+// The rule retired a return only when the SAME stage decided again, so stage
+// 3's return — answered by stage 2 — stayed live, and the read side took it
+// for stage 3's decision. Section 14 above exercises a return too; it is the
+// kind stage 3 never makes, which is why it passed.
+{
+  const signIn = async (email) => {
+    const c = createClient(URL_, ANON, { auth: { persistSession: false } });
+    const { error } = await c.auth.signInWithPassword({ email, password: PW });
+    if (error) throw new Error(`${email}: ${error.message}`);
+    return c;
+  };
+
+  const p = await mkPayment(90000);
+  await decide(p, fm, 1);
+  await decide(p, auditor, 2);
+
+  const approverC = await signIn(tier3.email);
+  const { error: retErr } = await approverC.rpc("record_payment_approval", {
+    p_payable_type: "vendor_payment", p_payable_id: p, p_stage: 3,
+    p_decision: "returned", p_reason: "Please confirm the scope with the vendor before I approve.",
+  });
+  retErr ? bad(`stage 3 could not send it back — ${retErr.message.slice(0, 80)}`)
+         : ok("stage 3 sends the payment back to stage 2");
+
+  // Stage 2 looks again and re-approves.
+  await decide(p, auditor, 2);
+
+  const { data: live } = await svc.from("payment_approvals")
+    .select("stage_order, decision").eq("payable_id", p).is("superseded_at", null);
+  const liveReturn = (live ?? []).find((r) => r.decision === "returned");
+  !liveReturn
+    ? ok("stage 2's re-approval answers stage 3's return — no return is left live")
+    : bad(`!!! a stage-${liveReturn.stage_order} return is still live after the desk it was sent to answered it`);
+
+  const nextOpen = [1, 2, 3].find((s) => !(live ?? []).some((r) => r.stage_order === s));
+  eq("so stage 3 is the desk the payment is waiting on", nextOpen, 3);
+
+  // …and the payment approver can act, in their own session.
+  const { error: apErr } = await approverC.rpc("record_payment_approval", {
+    p_payable_type: "vendor_payment", p_payable_id: p, p_stage: 3,
+    p_decision: "approved", p_reason: "Scope confirmed.",
+  });
+  apErr ? bad(`the payment approver still cannot act — ${apErr.message.slice(0, 80)}`)
+        : ok("the payment approver approves it at stage 3");
+  eq("and the payment clears", await cleared(p, 90000), true);
+
+  await approverC.auth.signOut();
+}
 // ---------------------------------------------------------------------------
 // Teardown
 // ---------------------------------------------------------------------------
