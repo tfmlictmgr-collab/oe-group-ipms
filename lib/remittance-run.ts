@@ -62,10 +62,38 @@ export async function sendCreatedRemittance(opts: {
   // leaves it queued and says what the officer can do instead.
   const { data: pre } = await supabaseAdmin
     .from("remittances")
-    .select("org_id, currency")
+    .select("org_id, currency, recipient_id")
     .eq("id", opts.remittanceId)
     .maybeSingle();
   if (!pre) return fail("That payment could not be found.");
+
+  // ⚠️ 14 Sept 2026. A Paystack recipient lives on the merchant account it was
+  // CREATED on. Before 0288 every organisation without its own key created
+  // recipients on the platform (TFML) account — 4 at OEA and 35 at Foundation
+  // POC — and a send from the organisation's own account now cannot reach
+  // them. Asked before the claim, like the gateway check below, so the payout
+  // stays queued with a sentence instead of going to `sending` and failing at
+  // Paystack. The owner of the platform key is exempt: those were its own.
+  if (pre.recipient_id) {
+    const [{ data: rcp }, { data: orgRow }, { data: firstKey }] = await Promise.all([
+      supabaseAdmin.from("payout_recipients")
+        .select("gateway, created_at, bank_name, account_number_last4")
+        .eq("id", pre.recipient_id).maybeSingle(),
+      supabaseAdmin.from("orgs").select("uses_platform_gateway").eq("id", pre.org_id).maybeSingle(),
+      supabaseAdmin.from("org_gateway_credentials").select("created_at")
+        .eq("org_id", pre.org_id).eq("gateway", "paystack")
+        .order("created_at", { ascending: true }).limit(1).maybeSingle(),
+    ]);
+    const onSharedAccount =
+      rcp && rcp.gateway === "paystack" && !orgRow?.uses_platform_gateway &&
+      (!firstKey || new Date(rcp.created_at) < new Date(firstKey.created_at));
+    if (onSharedAccount) {
+      return fail(
+        `The ${rcp!.bank_name ?? "bank"} account ending ${rcp!.account_number_last4 ?? "…"} was registered on the shared platform Paystack account, before this organisation connected its own — a send from this organisation's account cannot reach it.`,
+        "Pay by bank transfer instead (their page can use this verified account once a document showing its full number is attached), or register the account again. Nothing has been sent."
+      );
+    }
+  }
 
   let gateway: Awaited<ReturnType<typeof getGatewayForOrg>>;
   try {

@@ -3,6 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { ok, fail, type ActionResult } from "@/lib/action-result";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { PAYOUT_NAME_NEEDED } from "@/lib/payout-evidence-rules";
 
 // The payee's side of 0289. No session — the token in the address is the whole
 // authority, re-checked on every call, and only its hash is ever compared.
@@ -42,7 +43,27 @@ export async function checkAccountName(
 
   const { lookUpAccountName } = await import("@/lib/bank-resolve");
   const found = await lookUpAccountName(req.org_id, accountNumber, bankCode);
-  if (found.ok) return ok({ accountName: found.accountName, confirmed: true, note: null });
+  if (found.ok) {
+    // ⚠️ 0296. KEPT, against this link and this exact account, so the submit
+    // does not have to ask the bank a second time. It used to — and on a
+    // Paystack test key (three real lookups a day) the second ask was refused,
+    // the server demanded a typed name, and the page had already hidden the
+    // name box because the first ask had worked: the right name on screen and
+    // no way to send it. The binding is a hash of the raw token, the bank and
+    // the number — never the number itself (decision 17).
+    const { supabaseAdmin } = await import("@/lib/supabase/admin");
+    const { payoutNameBinding } = await import("@/lib/payout-evidence");
+    await supabaseAdmin
+      .from("payout_detail_requests")
+      .update({
+        name_check_binding: payoutNameBinding(decodeURIComponent(token), bankCode, accountNumber),
+        name_check_name: found.accountName,
+        name_checked_at: new Date().toISOString(),
+      })
+      .eq("id", req.request_id)
+      .is("submitted_at", null);
+    return ok({ accountName: found.accountName, confirmed: true, note: null });
+  }
   if (found.unavailable) return ok({ accountName: null, confirmed: false, note: found.reason });
   return fail(found.reason);
 }
@@ -88,24 +109,40 @@ export async function submitPayoutDetails(input: {
   const bankName = banks.ok ? banks.data.find((b) => b.code === input.bankCode)?.name : undefined;
   if (!bankName) return fail("Choose your bank from the list.");
 
-  // Asked AGAIN here, rather than trusting what the page showed: the name that
-  // is stored is the bank's, whenever the bank can be asked.
-  const { lookUpAccountName } = await import("@/lib/bank-resolve");
-  const found = await lookUpAccountName(req.org_id, number, input.bankCode);
+  const { supabaseAdmin } = await import("@/lib/supabase/admin");
+  const { hashPayoutToken, payoutNameBinding } = await import("@/lib/payout-evidence");
+
+  // The name that is stored is the bank's, whenever the bank has been asked.
+  // First: did the bank already vouch for THIS account through THIS link? The
+  // binding only matches the same token, bank and number, so the kept answer
+  // cannot be carried over to a different account. Otherwise it is asked now.
+  const { data: kept } = await supabaseAdmin
+    .from("payout_detail_requests")
+    .select("name_check_binding, name_check_name")
+    .eq("id", req.request_id)
+    .maybeSingle();
+  const binding = payoutNameBinding(decodeURIComponent(input.token), input.bankCode, number);
+
   let accountName: string;
   let confirmed = false;
-  if (found.ok) {
-    accountName = found.accountName;
+  if (kept?.name_check_binding === binding && kept.name_check_name) {
+    accountName = kept.name_check_name;
     confirmed = true;
-  } else if (found.unavailable) {
-    accountName = (input.typedAccountName ?? "").trim();
-    if (accountName.length < 3) return fail("Type the account name exactly as your bank shows it.");
   } else {
-    return fail(found.reason);
+    const { lookUpAccountName } = await import("@/lib/bank-resolve");
+    const found = await lookUpAccountName(req.org_id, number, input.bankCode);
+    if (found.ok) {
+      accountName = found.accountName;
+      confirmed = true;
+    } else if (found.unavailable) {
+      accountName = (input.typedAccountName ?? "").trim();
+      // Matched exactly by the page, which opens the name box on it.
+      if (accountName.length < 3) return fail(PAYOUT_NAME_NEEDED);
+    } else {
+      return fail(found.reason);
+    }
   }
 
-  const { supabaseAdmin } = await import("@/lib/supabase/admin");
-  const { hashPayoutToken } = await import("@/lib/payout-evidence");
   const { data: recipientId, error } = await supabaseAdmin.rpc("submit_payout_details", {
     p_token_hash: hashPayoutToken(decodeURIComponent(input.token)),
     p_bank_name: bankName,

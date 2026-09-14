@@ -438,6 +438,82 @@ try {
   inner && /permission denied/.test(inner)
     ? ok("the inner recorder is reachable from nowhere but its one caller")
     : bad(`record_manual_remittance is callable: ${inner}`);
+
+  // ══════════════════════════════════════════════════════════════════════════
+  section("F. A verified gateway account can be used for a bank transfer, with a document (0296)");
+  // Reported 14 Sept 2026: a vendor with a verified Paystack account, and the
+  // bank-transfer dialog saying "no bank-transfer account yet". The gateway
+  // holds the full number, so the account is adopted against a document.
+  await asOwner();
+  const bare = await one(
+    `select v.id from vendors v
+      where v.org_id = $1
+        and not exists (select 1 from payout_recipients r where r.vendor_id = v.id and r.active)
+      order by v.created_at limit 1`,
+    [org.id]
+  );
+  if (!bare) {
+    ok("(skipped — every OEA vendor already holds an account; nothing to adopt against)");
+  } else {
+    const gw = await one(
+      `insert into payout_recipients (org_id, party, vendor_id, display_name, bank_name, account_name,
+         account_number_last4, gateway, recipient_code, currency, active, verified_at, created_by)
+       values ($1, 'vendor', $2, 'PROBE Gateway Payee', 'First Bank of Nigeria', 'PROBE GATEWAY PAYEE',
+         '8803', 'paystack', 'RCP_probe0296', 'NGN', true, now(), $3)
+       returning id`,
+      [org.id, bare.id, admin.id]
+    );
+
+    await as(fm.id);
+    const byFm = await refused("select adopt_gateway_account_for_transfer($1, 'x', 'x')", [gw.id]);
+    byFm && /payment officer or an administrator/.test(byFm)
+      ? ok("a facilities manager cannot adopt an account — the paying desks set how someone is paid")
+      : bad(`a facilities manager adopted an account: ${byFm}`);
+
+    await as(admin.id);
+    const noDoc = await refused(
+      "select adopt_gateway_account_for_transfer($1, $2, 'x')",
+      [gw.id, `${org.id}/accounts/${gw.id}/not-uploaded.png`]
+    );
+    noDoc && /attach a document/.test(noDoc)
+      ? ok("adopting is refused until the document is really in storage")
+      : bad(`an account was adopted against a document that does not exist: ${noDoc}`);
+
+    const wrongFolder = await upload(`${org.id}/transfers/probe-0296/${Date.now()}-doc.png`);
+    const outside = await refused("select adopt_gateway_account_for_transfer($1, $2, 'x')", [gw.id, wrongFolder]);
+    outside && /attach a document/.test(outside)
+      ? ok("a document from outside this organisation's accounts folder is refused")
+      : bad(`a document from another folder was accepted: ${outside}`);
+
+    const doc = await upload(`${org.id}/accounts/${gw.id}/${Date.now()}-bank-letter.png`);
+    const adopted = await refused("select adopt_gateway_account_for_transfer($1, $2, 'bank-letter.png') as id", [gw.id, doc]);
+    if (adopted) {
+      bad(`the administrator could not adopt the verified account: ${adopted}`);
+    } else {
+      const newId = refused.last.rows[0].id;
+      await asOwner();
+      const row = await one(
+        `select gateway, details_source, bank_name, account_name, account_number_last4, verified_by, evidence_path, active
+           from payout_recipients where id = $1`,
+        [newId]
+      );
+      row?.gateway === "manual" && row.details_source === "gateway" && row.account_number_last4 === "8803" &&
+      row.account_name === "PROBE GATEWAY PAYEE" && row.active && row.evidence_path === doc
+        ? ok("it becomes a bank-transfer account: same bank, name and last four, with the document on file")
+        : bad(`the adopted account is wrong: ${JSON.stringify(row)}`);
+      row?.verified_by === admin.id
+        ? ok("the adopter is recorded as its confirmer — so they cannot also pay into it (decision 48)")
+        : bad(`the adopter was not recorded as the confirmer: ${row?.verified_by}`);
+
+      await as(finance.id);
+      const fin = await one("select may_read_payout_evidence($1) as ok", [doc]);
+      await as(fm.id);
+      const fmRead = await one("select may_read_payout_evidence($1) as ok", [doc]);
+      fin?.ok === true && fmRead?.ok === false
+        ? ok("the payment officer can open the document to read the number; a facilities manager cannot")
+        : bad(`the accounts folder is readable by the wrong desks (officer ${fin?.ok}, FM ${fmRead?.ok})`);
+    }
+  }
 } finally {
   await db.query("rollback").catch(() => {});
   if (uploaded.length) {

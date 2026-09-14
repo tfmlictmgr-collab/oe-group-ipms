@@ -290,8 +290,16 @@ if (!finance) {
     const leaseIds = (leases ?? []).map((l) => l.id);
     if (leaseIds.length === 0) continue;
 
+    // ⚠️ The SAME window the statement was asked about. `property_statement`
+    // counts charges whose period STARTS inside [p_from, p_to], and this check
+    // summed every charge the property ever had — true until something landed
+    // outside the window. On 14 Sept 2026 a fixture rent charge dated 2304
+    // (verify-offline-payments spreads fixture periods over centuries) sat on
+    // Parkview Terraces, and this check reported the statement wrong for
+    // correctly leaving it out. Measure what was asked for.
     const { data: charges } = await svc
-      .from("rent_charges").select("currency, amount").in("lease_id", leaseIds);
+      .from("rent_charges").select("currency, amount")
+      .in("lease_id", leaseIds).gte("period_start", FROM).lte("period_start", TO);
     const all = charges ?? [];
     if (all.length === 0) continue;
 

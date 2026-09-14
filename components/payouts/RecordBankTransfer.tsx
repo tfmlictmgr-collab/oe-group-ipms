@@ -191,11 +191,30 @@ export default function RecordBankTransfer({
               {/* ── Where it goes ─────────────────────────────────────────── */}
               {!account ? (
                 <div className="rounded-md border border-warning/40 bg-warning/8 p-3">
-                  <p className="font-medium">{target.payeeName} has no bank-transfer account yet.</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Ask them for their bank details first — they get a secure link and send a document
-                    showing their account.
-                  </p>
+                  {target.gatewayAccount ? (
+                    <>
+                      {/* 0296. Said instead of "no account yet" over a vendor
+                          whose page shows a verified account a line above. */}
+                      <p className="font-medium">
+                        {target.payeeName} has a verified account — {target.gatewayAccount.accountName},{" "}
+                        {target.gatewayAccount.bankName} ending {target.gatewayAccount.last4} — but not yet for
+                        bank transfers.
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        The payment gateway holds its full number; this system keeps only the last four. On
+                        their page, attach a document showing the full number to use it here — or ask them for
+                        their bank details.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="font-medium">{target.payeeName} has no bank-transfer account yet.</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Ask them for their bank details first — they get a secure link and send a document
+                        showing their account.
+                      </p>
+                    </>
+                  )}
                   <Button asChild size="sm" variant="outline" className="mt-2">
                     <Link href={target.setupHref}>Set it up</Link>
                   </Button>

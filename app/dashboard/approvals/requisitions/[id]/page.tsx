@@ -16,6 +16,7 @@ import { getChainState, canActorAction, formatNaira } from "@/lib/approvals/chai
 import LinePayeeForm from "./LinePayeeForm";
 import SendLineGroup from "./SendLineGroup";
 import BankTransferAccount from "@/components/payouts/BankTransferAccount";
+import type { PayoutRequestView } from "@/lib/payout-views";
 
 export const dynamic = "force-dynamic";
 
@@ -67,11 +68,11 @@ export default async function RequisitionDetailPage({
   const { data: askedRows } = askedLineIds.length
     ? await supabase
         .from("payout_detail_requests")
-        .select("id, requisition_line_id, payee_name, requested_at, expires_at, contact_email, contact_phone, submitted_at, withdrawn_at")
+        .select("id, requisition_line_id, payee_name, requested_at, expires_at, contact_email, contact_phone, link_sent_to, submitted_at, withdrawn_at")
         .in("requisition_line_id", askedLineIds)
         .order("requested_at", { ascending: false })
     : { data: [] };
-  const waiting = new Map<string, { payeeName: string; request: { id: string; sentAt: string; expiresAt: string; lapsed: boolean; to: string } | null }>();
+  const waiting = new Map<string, { payeeName: string; request: PayoutRequestView | null }>();
   for (const q of askedRows ?? []) {
     if (waiting.has(q.requisition_line_id)) continue;   // newest first
     const live = !q.submitted_at && !q.withdrawn_at;
@@ -84,6 +85,9 @@ export default async function RequisitionDetailPage({
             expiresAt: q.expires_at,
             lapsed: new Date(q.expires_at).getTime() < Date.now(),
             to: [q.contact_email, q.contact_phone].filter(Boolean).join(" and "),
+            // 0296 — where it actually went, not only what was typed.
+            sentTo: (q.link_sent_to as string[] | null) ?? null,
+            typedPhone: q.contact_phone ?? null,
           }
         : null,
     });

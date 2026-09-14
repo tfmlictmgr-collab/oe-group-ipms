@@ -4,19 +4,28 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
-  Landmark, FileText, CheckCircle2, Send, Link2, Copy, Clock, ShieldCheck, TriangleAlert,
+  Landmark, FileText, CheckCircle2, Send, Link2, Copy, Clock, ShieldCheck, TriangleAlert, Paperclip,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { PayoutAccountView, PayoutRequestView } from "@/lib/payout-views";
+import { createClient } from "@/lib/supabase/client";
+import type { GatewayAccountView, PayoutAccountView, PayoutRequestView } from "@/lib/payout-views";
+import {
+  PAYOUT_BUCKET,
+  PAYOUT_EVIDENCE_RULES,
+  payoutEvidenceProblem,
+  payoutEvidenceType,
+} from "@/lib/payout-evidence-rules";
 import {
   requestPayoutDetails,
   withdrawPayoutRequest,
   adoptRegistrationBankDetails,
   confirmPayoutAccountEvidence,
   openPayoutEvidence,
+  prepareAccountEvidenceUpload,
+  adoptGatewayAccount,
   type PayoutParty,
 } from "@/lib/payout-actions";
 
@@ -31,8 +40,8 @@ function shortDate(iso: string): string {
  * place, for a contractor, a landlord or a one-off payee on a requisition.
  *
  * The full account number is never on this screen or anywhere in the system.
- * The payment officer reads it off the payee's own document, opened from here,
- * at the moment they make the transfer (0289: evidence, not a stored field).
+ * The payment officer reads it off a document, opened from here, at the moment
+ * they make the transfer (0289: evidence, not a stored field).
  */
 export default function BankTransferAccount({
   party,
@@ -45,6 +54,7 @@ export default function BankTransferAccount({
   defaultPhone,
   account,
   request,
+  gatewayAccount,
   canManage,
   canAdoptRegistration,
   askForName,
@@ -60,6 +70,8 @@ export default function BankTransferAccount({
   defaultPhone?: string | null;
   account: PayoutAccountView | null;
   request: PayoutRequestView | null;
+  /** A verified gateway account the bank-transfer route can adopt (0296). */
+  gatewayAccount?: GatewayAccountView | null;
   /** The payment officer or an administrator. Everyone else sees only the state. */
   canManage: boolean;
   /** An approved registration with a bank letter is on file. */
@@ -75,6 +87,8 @@ export default function BankTransferAccount({
   const [phone, setPhone] = React.useState(defaultPhone ?? "");
   const [busy, setBusy] = React.useState<string | null>(null);
   const [sentLink, setSentLink] = React.useState<{ link: string; sentTo: string[] } | null>(null);
+  const [adoptFile, setAdoptFile] = React.useState<File | null>(null);
+  const [adoptProblem, setAdoptProblem] = React.useState<string | null>(null);
 
   async function act(key: string, fn: () => Promise<{ ok: boolean; message?: string; hint?: string }>, success: string) {
     setBusy(key);
@@ -136,6 +150,41 @@ export default function BankTransferAccount({
     }
   }
 
+  /** 0296: the verified gateway account, made usable for a bank transfer
+   *  against a document showing its full number. */
+  async function adoptVerified() {
+    if (!gatewayAccount || !adoptFile || adoptProblem) return;
+    setBusy("adopt-gateway");
+    try {
+      const type = payoutEvidenceType(adoptFile);
+      const prep = await prepareAccountEvidenceUpload(gatewayAccount.id, {
+        name: adoptFile.name, size: adoptFile.size, type,
+      });
+      if (!prep.ok) {
+        toast.error(prep.message, { description: prep.hint });
+        return;
+      }
+      const supabase = createClient();
+      const { error: upErr } = await supabase.storage
+        .from(PAYOUT_BUCKET)
+        .uploadToSignedUrl(prep.data.path, prep.data.uploadToken, adoptFile, { contentType: type, upsert: false });
+      if (upErr) {
+        toast.error("The document did not upload.", { description: "Check your connection and try again." });
+        return;
+      }
+      const r = await adoptGatewayAccount(gatewayAccount.id, prep.data.path, adoptFile.name, path);
+      if (!r.ok) {
+        toast.error(r.message, { description: r.hint, duration: Infinity, closeButton: true });
+        return;
+      }
+      toast.success("They can now be paid by bank transfer into this account — by someone other than you.");
+      setAdoptFile(null);
+      router.refresh();
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const status = account ? (
     account.verified ? (
       <Badge variant="success">
@@ -150,6 +199,24 @@ export default function BankTransferAccount({
     <Badge variant="muted">No bank-transfer account</Badge>
   );
 
+  // ⚠️ 0296. The card used to say "A link went to <email> and <phone>" from
+  // the contacts TYPED into the request — while the delivery log showed the
+  // WhatsApp copy skipped and no SMS provider at all. Said from what was
+  // actually delivered, where that was recorded.
+  const phoneDigits = (request?.typedPhone ?? "").replace(/\D/g, "").slice(-10);
+  const phoneMissed =
+    request?.sentTo && phoneDigits.length === 10 &&
+    !request.sentTo.some((s) => s.replace(/\D/g, "").includes(phoneDigits));
+  const requestLine = !request
+    ? null
+    : request.lapsed
+      ? `A link sent on ${shortDate(request.sentAt)} expired unanswered on ${shortDate(request.expiresAt)}.`
+      : request.sentTo === null
+        ? `A link was sent on ${shortDate(request.sentAt)} (to ${request.to || "the payee"}). It works until ${shortDate(request.expiresAt)}.`
+        : request.sentTo.length
+          ? `A link went by ${request.sentTo.join(" and ")} on ${shortDate(request.sentAt)}. It works until ${shortDate(request.expiresAt)}.`
+          : `A link was made on ${shortDate(request.sentAt)} but could not be delivered automatically — copy it and send it yourself, or send a new one. It works until ${shortDate(request.expiresAt)}.`;
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -163,12 +230,16 @@ export default function BankTransferAccount({
           <p className="font-medium">{account.accountName}</p>
           <p className="text-xs text-muted-foreground">
             {account.bankName} · account ending {account.last4} ·{" "}
-            {account.source === "vendor_registration" ? "from their approved registration" : "sent by the payee"} ·{" "}
+            {account.source === "vendor_registration"
+              ? "from their approved registration"
+              : account.source === "gateway"
+                ? "their verified gateway account, with a document attached"
+                : "sent by the payee"} ·{" "}
             {shortDate(account.addedAt)}
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <Button size="sm" variant="outline" disabled={busy !== null} onClick={openDocument}>
-              <FileText className="size-3.5" /> {busy === "doc" ? "Opening…" : "Open their document"}
+              <FileText className="size-3.5" /> {busy === "doc" ? "Opening…" : "Open the document"}
             </Button>
             {!account.verified && (
               <Button
@@ -201,23 +272,78 @@ export default function BankTransferAccount({
         </p>
       )}
 
-      {request && (
-        <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
-          <Clock className="mt-0.5 size-3 flex-shrink-0" />
-          {request.lapsed
-            ? `A link sent on ${shortDate(request.sentAt)} expired unanswered on ${shortDate(request.expiresAt)}.`
-            : `A link went to ${request.to || "the payee"} on ${shortDate(request.sentAt)}. It works until ${shortDate(request.expiresAt)}.`}
-          {!request.lapsed && (canManage || !account) && (
-            <button
-              type="button"
-              className="ml-1 font-medium text-brand underline-offset-2 hover:underline"
-              disabled={busy !== null}
-              onClick={() => act("withdraw", () => withdrawPayoutRequest(request.id, path), "The link has been cancelled.")}
+      {/* 0296 — a verified gateway account, offered for bank transfers. */}
+      {!account && gatewayAccount && canManage && (
+        <div className="space-y-2 rounded-md border border-border bg-muted/40 p-3 text-sm">
+          <p className="font-medium">Use their verified account for bank transfers</p>
+          <p className="text-xs text-muted-foreground">
+            {gatewayAccount.accountName} · {gatewayAccount.bankName} · account ending {gatewayAccount.last4} is
+            verified, but the payment gateway holds its full number — this system keeps only the last four.
+            Attach a document showing the full number (a bank letter, a statement, or their invoice with bank
+            details) so whoever pays can read it at the moment of transfer. {PAYOUT_EVIDENCE_RULES}
+          </p>
+          <label
+            htmlFor={`gw-${vendorId ?? userId}`}
+            className="flex cursor-pointer items-center gap-2 rounded-md border border-dashed border-border px-3 py-2 text-xs hover:bg-muted/60"
+          >
+            <Paperclip className="size-3.5 text-muted-foreground" />
+            <span className="truncate">{adoptFile ? adoptFile.name : "Choose a file"}</span>
+          </label>
+          <input
+            id={`gw-${vendorId ?? userId}`}
+            type="file"
+            accept="application/pdf,image/*"
+            className="sr-only"
+            onChange={(e) => {
+              const f = e.target.files?.[0] ?? null;
+              setAdoptFile(f);
+              setAdoptProblem(f ? payoutEvidenceProblem({ size: f.size, type: f.type, name: f.name }) : null);
+            }}
+          />
+          {adoptProblem && <p className="text-xs text-destructive">{adoptProblem}</p>}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy !== null || !adoptFile || Boolean(adoptProblem)}
+              onClick={adoptVerified}
             >
-              Cancel it
-            </button>
+              <Link2 className="size-3.5" /> {busy === "adopt-gateway" ? "Attaching…" : "Use it for bank transfers"}
+            </Button>
+          </div>
+          <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+            <ShieldCheck className="mt-0.5 size-3 flex-shrink-0" />
+            You are recorded as the person who checked this document, so someone else must make the transfer.
+          </p>
+        </div>
+      )}
+
+      {request && requestLine && (
+        <div className="space-y-1">
+          <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+            <Clock className="mt-0.5 size-3 flex-shrink-0" />
+            <span>
+              {requestLine}
+              {!request.lapsed && (canManage || !account) && (
+                <button
+                  type="button"
+                  className="ml-1 font-medium text-brand underline-offset-2 hover:underline"
+                  disabled={busy !== null}
+                  onClick={() => act("withdraw", () => withdrawPayoutRequest(request.id, path), "The link has been cancelled.")}
+                >
+                  Cancel it
+                </button>
+              )}
+            </span>
+          </p>
+          {!request.lapsed && phoneMissed && (
+            <p className="flex items-start gap-1.5 text-xs text-warning">
+              <TriangleAlert className="mt-0.5 size-3 flex-shrink-0" />
+              Nothing reached {request.typedPhone} by WhatsApp or text message. WhatsApp only goes to someone
+              who has agreed to receive it on that number, and text messages are not set up yet.
+            </p>
           )}
-        </p>
+        </div>
       )}
 
       {sentLink && (
@@ -315,7 +441,8 @@ export default function BankTransferAccount({
           </div>
           <p className="text-xs text-muted-foreground">
             Either will do. They get a secure link that asks for their bank, their account number and a
-            document showing both — we keep the bank, the name and the last four digits only.
+            document showing both — we keep the bank, the name and the last four digits only. WhatsApp only
+            reaches someone who has agreed to it on that number; email always goes.
           </p>
           <div className="flex flex-wrap gap-2">
             <Button

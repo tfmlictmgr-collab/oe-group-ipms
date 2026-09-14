@@ -84,7 +84,7 @@ export default async function VendorDetailPage({
   const { data: recipient } = isFinanceOrAdmin
     ? await supabase
         .from("payout_recipients")
-        .select("display_name, bank_name, account_number_last4, verified_at")
+        .select("id, display_name, account_name, bank_name, account_number_last4, verified_at")
         .eq("vendor_id", id)
         .eq("active", true)
         // ⚠️ The GATEWAY recipient. Since 0289 a vendor may also hold a live
@@ -465,6 +465,18 @@ export default async function VendorDetailPage({
                 defaultPhone={vendor.contact_phone}
                 account={bankTransferAccount}
                 request={bankTransferRequest}
+                // 0296 — the verified gateway account above, offered to the
+                // bank-transfer route rather than reported as "no account".
+                gatewayAccount={
+                  recipient?.verified_at && recipient.bank_name && recipient.account_number_last4
+                    ? {
+                        id: recipient.id,
+                        bankName: recipient.bank_name,
+                        accountName: recipient.account_name ?? recipient.display_name ?? "",
+                        last4: recipient.account_number_last4,
+                      }
+                    : null
+                }
                 canManage={isFinanceOrAdmin}
                 canAdoptRegistration={canAdoptRegistration}
                 path={`/dashboard/vendors/${vendor.id}`}

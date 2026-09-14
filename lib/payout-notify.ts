@@ -151,6 +151,39 @@ async function tell(opts: {
   return sentTo;
 }
 
+/**
+ * The live person in this organisation this number belongs to, if any — the
+ * payee's own record first (their vendor login, or the landlord themselves),
+ * then anyone else in the organisation. Compared on the last ten digits, so
+ * "+234 806…", "2348 06…" and "0806…" are one number.
+ */
+async function personForNumber(
+  orgId: string,
+  phone: string | null,
+  vendorId: string | null,
+  userId: string | null
+): Promise<string | null> {
+  const want = (phone ?? "").replace(/\D/g, "").slice(-10);
+  if (want.length < 10) return null;
+
+  const candidates: string[] = [];
+  if (userId) candidates.push(userId);
+  if (vendorId) {
+    const { data: people } = await supabaseAdmin
+      .from("vendor_users").select("user_id").eq("vendor_id", vendorId);
+    for (const p of people ?? []) candidates.push(p.user_id as string);
+  }
+
+  const { data: users } = await supabaseAdmin
+    .from("users").select("id, phone")
+    .eq("org_id", orgId).is("deactivated_at", null).not("phone", "is", null);
+  const matches = (users ?? []).filter(
+    (u) => (u.phone ?? "").replace(/\D/g, "").slice(-10) === want
+  );
+  const own = matches.find((u) => candidates.includes(u.id));
+  return (own ?? (matches.length === 1 ? matches[0] : null))?.id ?? null;
+}
+
 /** The one-time link, to the payee. */
 export async function sendPayoutDetailsLink(opts: {
   requestId: string;
@@ -170,9 +203,17 @@ export async function sendPayoutDetailsLink(opts: {
   // To the contact the requester gave — this is the one message that has to
   // reach the payee wherever they are. The account-change warning after they
   // submit goes to the contact on their OWN record.
+  // ⚠️ 14 Sept 2026. WhatsApp's consent gate (0148) is recorded against a
+  // PERSON, and this message went out with nobody attached — so it was skipped
+  // as "not a portal user" even when the number typed was a portal user's own,
+  // one who receives this organisation's WhatsApp messages every day. The
+  // number is matched to a live person in THIS organisation, and the gate then
+  // asks whether they agreed, for that exact number. A stranger's number still
+  // finds nobody and is still skipped — that is the rule working.
+  const personId = await personForNumber(q.org_id, q.contact_phone, q.vendor_id, q.user_id);
   const reach: Reach = {
     name: q.payee_name,
-    userIds: [],
+    userIds: personId ? [personId] : [],
     email: q.contact_email,
     phone: q.contact_phone,
   };

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { ok, fail, type ActionResult } from "@/lib/action-result";
 import { checkRateLimit, REMITTANCE_LIMIT } from "@/lib/rate-limit";
-import { namesAgree, type PayoutAccountView } from "@/lib/payout-views";
+import { namesAgree, type GatewayAccountView, type PayoutAccountView } from "@/lib/payout-views";
 
 // Paying somebody by bank transfer (0289) — the staff side.
 //
@@ -86,6 +86,12 @@ export async function requestPayoutDetails(input: {
   const { sendPayoutDetailsLink } = await import("@/lib/payout-notify");
   const { link, sentTo } = await sendPayoutDetailsLink({ requestId: requestId as string, token });
 
+  // 0296: where it actually went, so the card stops reporting the contacts
+  // that were TYPED as though they were where the link was delivered.
+  const { supabaseAdmin } = await import("@/lib/supabase/admin");
+  await supabaseAdmin
+    .from("payout_detail_requests").update({ link_sent_to: sentTo }).eq("id", requestId as string);
+
   touch([input.path]);
   return ok({ requestId: requestId as string, link, sentTo });
 }
@@ -111,6 +117,64 @@ export async function adoptRegistrationBankDetails(vendorId: string): Promise<Ac
   await notifyPayoutAccountAdded(id as string);
 
   touch([`/dashboard/vendors/${vendorId}`]);
+  return ok();
+}
+
+/**
+ * 0296 — a signed upload into this organisation's `accounts` folder, for a
+ * document showing the full number of a verified gateway account. Signed by the
+ * server so the storage path is ours to choose, never the browser's.
+ */
+export async function prepareAccountEvidenceUpload(
+  recipientId: string,
+  file: { name: string; size: number; type: string }
+): Promise<ActionResult<{ path: string; uploadToken: string }>> {
+  const me = await signedIn();
+  if (!me) return fail(SESSION_EXPIRED);
+  if (!["admin", "finance_approver"].includes(me.role)) {
+    return fail("Only the payment officer or an administrator may set how someone is paid.");
+  }
+  const { payoutEvidenceProblem, safeFileName, PAYOUT_BUCKET } = await import("@/lib/payout-evidence");
+  const problem = payoutEvidenceProblem(file);
+  if (problem) return fail(problem);
+
+  const { supabaseAdmin } = await import("@/lib/supabase/admin");
+  const { data: acct } = await supabaseAdmin
+    .from("payout_recipients").select("id").eq("id", recipientId).eq("org_id", me.org_id).maybeSingle();
+  if (!acct) return fail("That account could not be found.");
+
+  const { randomUUID } = await import("node:crypto");
+  const path = `${me.org_id}/accounts/${recipientId}/${randomUUID()}-${safeFileName(file.name)}`;
+  const { data, error } = await supabaseAdmin.storage.from(PAYOUT_BUCKET).createSignedUploadUrl(path);
+  if (error || !data) return fail("The upload could not be prepared.", "Try again in a moment.");
+  return ok({ path, uploadToken: data.token });
+}
+
+/**
+ * 0296 — a verified gateway account, made usable for a bank transfer against
+ * the document just attached. `adopt_gateway_account_for_transfer` checks the
+ * caller, the account and that the document is really in storage, and records
+ * the caller as its confirmer — so they cannot also pay into it (decision 48).
+ */
+export async function adoptGatewayAccount(
+  recipientId: string,
+  evidencePath: string,
+  evidenceFilename: string,
+  path?: string
+): Promise<ActionResult> {
+  const me = await signedIn();
+  if (!me) return fail(SESSION_EXPIRED);
+  const { data: id, error } = await me.supabase.rpc("adopt_gateway_account_for_transfer", {
+    p_recipient_id: recipientId,
+    p_evidence_path: evidencePath,
+    p_evidence_filename: evidenceFilename,
+  });
+  if (error) return fail(said(error.message));
+
+  const { notifyPayoutAccountAdded } = await import("@/lib/payout-notify");
+  await notifyPayoutAccountAdded(id as string);
+
+  touch([path]);
   return ok();
 }
 
@@ -168,13 +232,19 @@ export type BankTransferTarget = {
   paidFrom: { label: string; bankName: string | null; last4: string | null } | null;
   /** Where the account is set up, when it is not ready. */
   setupHref: string;
+  /**
+   * 0296 — a verified gateway account the payee already has, when there is no
+   * bank-transfer account yet. Named, so the dialog does not say "no account"
+   * over a payee whose own page shows a verified one.
+   */
+  gatewayAccount: GatewayAccountView | null;
 };
 
 type TargetInput = { payableType: BankTransferPayable; payableId: string; targetId?: string | null };
 
 async function loadTarget(me: Me, input: TargetInput): Promise<ActionResult<BankTransferTarget>> {
   const { supabaseAdmin } = await import("@/lib/supabase/admin");
-  const { payoutAccountFor } = await import("@/lib/payout-views");
+  const { payoutAccountFor, verifiedGatewayAccountFor } = await import("@/lib/payout-views");
   const org = me.org_id;
 
   let payeeName = "";
@@ -182,6 +252,7 @@ async function loadTarget(me: Me, input: TargetInput): Promise<ActionResult<Bank
   let currency = "NGN";
   let account: PayoutAccountView | null = null;
   let setupHref = "/dashboard/approvals";
+  let gatewayWho: { party: "vendor"; vendorId: string } | { party: "landlord"; userId: string } | null = null;
 
   if (input.payableType === "vendor_payment") {
     const { data: p } = await supabaseAdmin
@@ -191,6 +262,7 @@ async function loadTarget(me: Me, input: TargetInput): Promise<ActionResult<Bank
     payeeName = (p.vendors as unknown as { name?: string } | null)?.name ?? "the contractor";
     amount = Number(p.amount);
     account = await payoutAccountFor(org, { party: "vendor", vendorId: p.vendor_id });
+    gatewayWho = { party: "vendor", vendorId: p.vendor_id };
     setupHref = `/dashboard/vendors/${p.vendor_id}`;
   } else if (input.payableType === "requisition_vendor" || input.payableType === "requisition_payee") {
     if (!input.targetId) return fail("Choose who on this requisition is being paid.");
@@ -205,6 +277,7 @@ async function loadTarget(me: Me, input: TargetInput): Promise<ActionResult<Bank
         .from("vendors").select("name").eq("id", input.targetId).eq("org_id", org).maybeSingle();
       payeeName = v?.name ?? "the contractor";
       account = await payoutAccountFor(org, { party: "vendor", vendorId: input.targetId });
+      gatewayWho = { party: "vendor", vendorId: input.targetId };
       setupHref = `/dashboard/vendors/${input.targetId}`;
     } else {
       const { data: r } = await supabaseAdmin
@@ -226,9 +299,12 @@ async function loadTarget(me: Me, input: TargetInput): Promise<ActionResult<Bank
       const { data: u } = await supabaseAdmin.from("users").select("full_name").eq("id", who.user_id).maybeSingle();
       payeeName = u?.full_name ?? payeeName;
       account = await payoutAccountFor(org, { party: "landlord", userId: who.user_id });
+      gatewayWho = { party: "landlord", userId: who.user_id };
     }
     setupHref = "/dashboard/ledger/payouts";
   }
+
+  const gatewayAccount = !account && gatewayWho ? await verifiedGatewayAccountFor(org, gatewayWho) : null;
 
   const { data: bank } = await supabaseAdmin
     .from("bank_accounts").select("label, bank_name, account_number_last4")
@@ -244,6 +320,7 @@ async function loadTarget(me: Me, input: TargetInput): Promise<ActionResult<Bank
     confirmedByMe: Boolean(account?.verifiedById && account.verifiedById === me.id),
     paidFrom: bank ? { label: bank.label, bankName: bank.bank_name, last4: bank.account_number_last4 } : null,
     setupHref,
+    gatewayAccount,
   });
 }
 

@@ -28,6 +28,17 @@ export const PAYOUT_LINK_DAYS = 14;
 export const hashPayoutToken = (t: string) =>
   crypto.createHash("sha256").update(t.trim()).digest("hex");
 
+/**
+ * Binds the bank's answer to one link and one account (0296): the raw token,
+ * the bank and the number, hashed together. Not the number, and not
+ * recoverable from the table — only the payee's link holds the raw token.
+ */
+export const payoutNameBinding = (token: string, bankCode: string, accountNumber: string) =>
+  crypto
+    .createHash("sha256")
+    .update(`${token.trim()}|${bankCode.trim()}|${accountNumber.replace(/\D/g, "")}`)
+    .digest("hex");
+
 export function newPayoutToken(): string {
   return crypto.randomBytes(24).toString("base64url");
 }

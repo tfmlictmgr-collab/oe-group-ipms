@@ -10,6 +10,7 @@ import { listBanks } from "@/lib/bank-actions";
 import {
   PAYOUT_BUCKET,
   PAYOUT_EVIDENCE_RULES,
+  PAYOUT_NAME_NEEDED,
   payoutEvidenceProblem,
   payoutEvidenceType,
 } from "@/lib/payout-evidence-rules";
@@ -110,7 +111,20 @@ export default function PayoutDetailsForm({
         evidencePath: prep.data.path,
         evidenceFilename: file.name,
       });
-      if (!r.ok) throw new Error(r.message);
+      if (!r.ok) {
+        // 0296: the server could not have the bank's name and needs it typed.
+        // Open the box — with the name the bank gave earlier, if it did —
+        // rather than showing an instruction with nowhere to follow it.
+        if (r.message === PAYOUT_NAME_NEEDED) {
+          if (lookup.state === "confirmed") setTypedName(lookup.name);
+          setLookup({
+            state: "type-it",
+            note: "The bank could not be asked just now. Type the account name exactly as your bank shows it, then send again.",
+          });
+          return;
+        }
+        throw new Error(r.message);
+      }
       setDone(r.data);
       setAccountNumber("");
     } catch (e) {

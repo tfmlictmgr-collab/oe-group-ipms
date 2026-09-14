@@ -29,7 +29,23 @@ export type PayoutRequestView = {
   sentAt: string;
   expiresAt: string;
   lapsed: boolean;
+  /** The contacts TYPED into the request. */
   to: string;
+  /**
+   * Where it was actually delivered (0296), or null for a link sent before the
+   * delivery was recorded. An empty array means nothing got through on its own.
+   */
+  sentTo: string[] | null;
+  typedPhone: string | null;
+};
+
+/** A verified account held by a payment gateway — usable for a bank transfer
+ *  only once someone attaches a document showing its full number (0296). */
+export type GatewayAccountView = {
+  id: string;
+  bankName: string;
+  accountName: string;
+  last4: string;
 };
 
 export type PayoutWho =
@@ -94,6 +110,33 @@ export async function payoutAccountFor(orgId: string, who: PayoutWho): Promise<P
   return view(data as Row | null);
 }
 
+/**
+ * The payee's verified GATEWAY account, if any (0296). Offered to the bank-
+ * transfer route when there is no bank-transfer account yet: it is the same
+ * bank, name and last four, and becomes usable once a document showing its
+ * full number is attached — the gateway, not this system, holds the number.
+ */
+export async function verifiedGatewayAccountFor(
+  orgId: string,
+  who: { party: "vendor"; vendorId: string } | { party: "landlord"; userId: string }
+): Promise<GatewayAccountView | null> {
+  const base = supabaseAdmin
+    .from("payout_recipients")
+    .select("id, bank_name, account_name, display_name, account_number_last4")
+    .eq("org_id", orgId).eq("party", who.party).eq("active", true)
+    .neq("gateway", "manual").not("verified_at", "is", null);
+  const { data } = who.party === "vendor"
+    ? await base.eq("vendor_id", who.vendorId).limit(1).maybeSingle()
+    : await base.eq("user_id", who.userId).limit(1).maybeSingle();
+  if (!data || !data.bank_name || !data.account_number_last4) return null;
+  return {
+    id: data.id,
+    bankName: data.bank_name,
+    accountName: data.account_name ?? data.display_name ?? "",
+    last4: data.account_number_last4,
+  };
+}
+
 /** A link that has been sent and not answered or cancelled. Lapsed ones are
  *  returned too, flagged, so the screen can offer a fresh one. */
 export async function openPayoutRequestFor(
@@ -102,7 +145,7 @@ export async function openPayoutRequestFor(
 ): Promise<PayoutRequestView | null> {
   let q = supabaseAdmin
     .from("payout_detail_requests")
-    .select("id, requested_at, expires_at, contact_email, contact_phone")
+    .select("id, requested_at, expires_at, contact_email, contact_phone, link_sent_to")
     .eq("org_id", orgId)
     .is("submitted_at", null)
     .is("withdrawn_at", null)
@@ -120,6 +163,8 @@ export async function openPayoutRequestFor(
     expiresAt: data.expires_at,
     lapsed: new Date(data.expires_at).getTime() < Date.now(),
     to: [data.contact_email, data.contact_phone].filter(Boolean).join(" and "),
+    sentTo: (data.link_sent_to as string[] | null) ?? null,
+    typedPhone: data.contact_phone ?? null,
   };
 }
 
