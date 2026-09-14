@@ -56,3 +56,20 @@ if (error) {
 } else {
   console.log(`  Rows returned: ${data.length} (expected: 0)`);
 }
+
+// ── What running this actually proves ─────────────────────────────────────
+//
+// ⚠️ Nothing that fails. It LISTS the tables and their policy counts and shows
+// an anonymous query returning no rows — a useful thing to read, and not an
+// assertion: there is no expected shape to compare against, no failure
+// counter, and it exits 0 however the numbers come out. `verify-all` reported
+// it as a green PASS with "(no summary line)", which reads as a suite that
+// passed and forgot to say so.
+//
+// The enforced version of what this displays is `verify-security-posture`
+// (RLS on everywhere, anon reaches only the public surfaces) and
+// `verify-rls-rest`.
+console.log(
+  "\nDEMONSTRATION ONLY — this script prints the RLS surface and asserts nothing. " +
+  "The enforced behaviour is covered by verify-security-posture and verify-rls-rest."
+);
