@@ -259,6 +259,57 @@ console.log("\nE. The 30-day rule keeps what still needs a person");
   await db.query("rollback");
 }
 
+// ── F. A notice is filed as the thing its link opens (0294) ───────────────
+//
+// 📌 Sections A–D watch for links pointing at NOTHING. The 14 Sept report was
+// the other failure: a live claim, filed as a "payment" because the link
+// resolver did not know the offline-claim page, so `my_notifications` looked in
+// the wrong table, called it gone, and the bell switched a working link off. A
+// subject that disagrees with its own link is the shape both failures share.
+console.log("\nF. Every notice is filed as the subject its link opens");
+try {
+  const { rows: [mis] } = await db.query(`
+    select count(*)::int as n
+      from user_notifications n
+      cross join lateral notification_entity_from_link(n.link) r
+     where r.entity_type is not null
+       and (n.entity_type is distinct from r.entity_type or n.entity_id is distinct from r.entity_id)`);
+  mis.n === 0
+    ? ok("every notice whose link names a record is filed as that record, so none is switched off for being looked up in the wrong table")
+    : bad(`${mis.n} notice(s) are filed as a different subject than their link opens`);
+
+  const k = "00000000-0000-0000-0000-000000000001";
+  const shape = async (link) =>
+    (await db.query("select entity_type, entity_id from notification_entity_from_link($1)", [link])).rows[0];
+  const off = await shape(`/dashboard/payments/offline/${k}`);
+  off.entity_type === "offline_payment" && off.entity_id === k
+    ? ok("an offline-claim link is filed as the claim, not as a payment")
+    : bad(`an offline-claim link resolved as ${off.entity_type}`);
+  const req = await shape(`/dashboard/approvals/requisitions/${k}`);
+  req.entity_type === "ops_requisition"
+    ? ok("a requisition link is filed as the requisition")
+    : bad(`a requisition link resolved as ${req.entity_type}`);
+  const odd = await shape(`/dashboard/somewhere/${k}`);
+  odd.entity_type === null && odd.entity_id === null
+    ? ok("an unrecognised link is a plain link, never an id with no type (which the bell would believe forever)")
+    : bad(`an unrecognised link was half-filed as ${odd.entity_type}/${odd.entity_id}`);
+
+  const { rows: [q] } = await db.query(
+    `select count(*)::int as n from user_notifications
+      where title = 'A requisition was raised' and link = '/dashboard/approvals'`);
+  q.n === 0
+    ? ok("no requisition notice opens the whole Approvals queue instead of its own requisition")
+    : bad(`${q.n} requisition notice(s) still open the queue, not the requisition`);
+
+  const { rows: [def] } = await db.query(
+    `select pg_get_functiondef('public.raise_ops_requisition(text,jsonb,uuid,text,text)'::regprocedure) as d`);
+  def.d.includes("/dashboard/approvals/requisitions/")
+    ? ok("and a NEW requisition's notice links to that requisition")
+    : bad("raise_ops_requisition still links new notices to the whole queue");
+} catch (e) {
+  bad(`subject-matches-link check failed: ${e.message.slice(0, 120)}`);
+}
+
 await db.end();
 
 console.log(
