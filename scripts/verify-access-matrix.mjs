@@ -59,31 +59,78 @@ async function asUser(uid, fn) {
 
 await client.connect();
 try {
+  // ⚠️ ONE user per (org, role) — not every account.
+  //
+  // This swept every active user against all ten tables: with ~45 accounts that
+  // is roughly 2,250 round trips on a single pooled connection held open for
+  // eight minutes, which the Supabase pooler eventually closes underneath us.
+  // The suite then died with ECONNRESET after passing cleanly an hour earlier —
+  // a fragility that reads as a flaky security test.
+  //
+  // 📌 What this asserts is org isolation and role scoping. A SECOND
+  // administrator in the same org exercises the identical policy path and proves
+  // nothing new, so the extra rows bought fragility and no coverage.
+  //
+  // `distinct on (org, role)` preferring the canonical `<slug>.<role>@…` logins
+  // keeps the specific accounts the later sections look up by email.
   const { rows: users } = await client.query(`
-    select u.id, u.role, u.email, u.org_id, o.name as org_name, o.delivery_brand
+    select distinct on (u.org_id, u.role)
+           u.id, u.role, u.email, u.org_id, o.name as org_name, o.delivery_brand
     from users u join orgs o on o.id = u.org_id
-    order by o.delivery_brand, u.role;`);
+    -- Retired accounts cannot sign in, so sweeping them proves nothing and
+    -- costs a round trip per table. Test debris accumulates here quickly.
+    where u.deactivated_at is null
+    order by u.org_id, u.role,
+             -- the seeded per-org credential wins over any other holder of the
+             -- same role, so the by-email lookups below still resolve
+             case when u.email like o.slug || '.%' then 0 else 1 end,
+             u.email;`);
+
+  // Presentation order: grouped by brand, as the report reads.
+  users.sort(
+    (a, b) =>
+      String(a.delivery_brand).localeCompare(String(b.delivery_brand)) ||
+      String(a.role).localeCompare(String(b.role))
+  );
 
   // ── A. ORG ISOLATION ──────────────────────────────────────────────────────
   console.log("A. ORG ISOLATION — every readable row belongs to the caller's org");
   const visibleCounts = {}; // uid -> {table -> count}
+  // ⚠️ ONE query per user, not one per table.
+  //
+  // A separate round trip for each of the ten tables — inside its own
+  // impersonation transaction — is what made this suite an eight-minute run on a
+  // single pooled connection, and eventually an ECONNRESET. The tables are
+  // independent counts against the same session, so they belong in one
+  // statement: ~45 round trips instead of ~450, with identical assertions.
+  //
+  // Every count still runs as the impersonated user, so RLS decides each one
+  // exactly as before — the batching changes the number of trips, not the
+  // security question being asked.
+  const countsSql =
+    "select " +
+    TABLES.map(
+      (t, i) =>
+        `(select count(*)::int from ${t}) as n_${i}, ` +
+        `(select count(*)::int from ${t} where org_id <> $1) as f_${i}`
+    ).join(", ");
+
   for (const u of users) {
     visibleCounts[u.id] = {};
     let leaked = false;
-    for (const table of TABLES) {
-      const rows = await asUser(u.id, async () => {
-        const r = await client.query(
-          `select count(*)::int as n,
-                  count(*) filter (where org_id <> $1)::int as foreign
-           from ${table}`,
-          [u.org_id]
-        );
-        return r.rows;
-      });
-      visibleCounts[u.id][table] = rows[0].n;
-      if (rows[0].foreign > 0) {
+
+    const row = await asUser(u.id, async () => {
+      const r = await client.query(countsSql, [u.org_id]);
+      return r.rows[0];
+    });
+
+    for (const [i, table] of TABLES.entries()) {
+      const n = row[`n_${i}`];
+      const foreign = row[`f_${i}`];
+      visibleCounts[u.id][table] = n;
+      if (foreign > 0) {
         leaked = true;
-        fail(`${u.email} (${u.role}) can read ${rows[0].foreign} ${table} rows from ANOTHER org`);
+        fail(`${u.email} (${u.role}) can read ${foreign} ${table} rows from ANOTHER org`);
       }
     }
     if (!leaked) pass(`${u.email.padEnd(24)} (${u.role}) — no cross-org rows in any table`);
@@ -92,10 +139,15 @@ try {
   // ── B. ROLE SCOPING (within the POC org) ─────────────────────────────────
   console.log("\nB. ROLE SCOPING — restricted roles see less than admin, in-org");
   const pocUsers = users.filter((u) => u.org_name.includes("Foundation POC"));
-  const admin = pocUsers.find((u) => u.role === "admin");
-  const tenant = pocUsers.find((u) => u.role === "tenant");
-  const vendor = pocUsers.find((u) => u.role === "vendor");
-  const finance = pocUsers.find((u) => u.role === "finance_approver");
+  // Select the SEEDED principals by email, not by "first user with this role".
+  // A real org has many users per role, and a newly-invited FM with no property
+  // assignment yet legitimately sees nothing — picking one of those would make
+  // this script fail on correct behaviour.
+  const byEmail = (e) => pocUsers.find((u) => u.email === e);
+  const admin = byEmail("oe-group-foundation-poc.admin@oegroup.test") ?? pocUsers.find((u) => u.role === "admin");
+  const tenant = byEmail("oe-group-foundation-poc.tenant@oegroup.test") ?? pocUsers.find((u) => u.role === "tenant");
+  const vendor = byEmail("oe-group-foundation-poc.vendor@oegroup.test") ?? pocUsers.find((u) => u.role === "vendor");
+  const finance = byEmail("oe-group-foundation-poc.financeapprover@oegroup.test") ?? pocUsers.find((u) => u.role === "finance_approver");
 
   if (admin && tenant) {
     const a = visibleCounts[admin.id].tickets;
@@ -123,8 +175,8 @@ try {
 
   // Property scoping: FM sees managed-property tickets/budgets only; owner sees
   // owned-property only; both strictly less than admin.
-  const fm = pocUsers.find((u) => u.role === "facility_manager");
-  const owner = pocUsers.find((u) => u.role === "property_owner");
+  const fm = byEmail("oe-group-foundation-poc.facilitymanager@oegroup.test") ?? pocUsers.find((u) => u.role === "facility_manager");
+  const owner = byEmail("oe-group-foundation-poc.propertyowner@oegroup.test") ?? pocUsers.find((u) => u.role === "property_owner");
   if (fm && admin) {
     const ft = visibleCounts[fm.id].tickets;
     const at = visibleCounts[admin.id].tickets;
@@ -135,12 +187,46 @@ try {
     fb > 0 && fb < visibleCounts[admin.id].sc_budgets
       ? pass(`FM sees ${fb} budgets (managed) < admin ${visibleCounts[admin.id].sc_budgets}`)
       : fail(`FM budgets ${fb} not property-scoped`);
+
+    // S5 money-side scoping: FM sees payments/evaluations only for vendors on
+    // their properties — strictly fewer than admin, and NOT the Victoria-Court
+    // vendor's (SecureGuard) payout.
+    const fp = visibleCounts[fm.id].payments;
+    const ap = visibleCounts[admin.id].payments;
+    fp > 0 && fp < ap
+      ? pass(`FM sees ${fp} payments (own properties' vendors) < admin ${ap}`)
+      : fail(`FM payments ${fp} not money-scoped (admin ${ap})`);
+    const fe = visibleCounts[fm.id].vendor_evaluations;
+    const ae = visibleCounts[admin.id].vendor_evaluations;
+    fe > 0 && fe < ae
+      ? pass(`FM sees ${fe} evaluations (own vendors) < admin ${ae}`)
+      : fail(`FM evaluations ${fe} not money-scoped (admin ${ae})`);
   }
   if (owner && admin) {
+    // ⚠️ INVERTED, 21 Aug 2026. This used to assert that a landlord saw SOME
+    // tickets — the ones on properties they own — and passed for a year while
+    // describing a leak.
+    //
+    // `current_user_property_ids()` does not distinguish an owner from a
+    // manager (by design; decision 8 made it the single resolver), so the
+    // unguarded place branch of `tickets_select` handed every landlord every
+    // tenant complaint on every building they own. B7's Service-requests cell
+    // for `property_owner` has always read "—". 0184 gated that branch to
+    // `fm_roles()`; the assertion now says what B7 says.
+    //
+    // A landlord still sees requests they RAISED themselves (sender_id), so
+    // this is bounded by what they reported, not pinned at zero.
     const ot = visibleCounts[owner.id].tickets;
-    ot > 0 && ot < visibleCounts[admin.id].tickets
-      ? pass(`owner sees ${ot} tickets (owned property) < admin ${visibleCounts[admin.id].tickets}`)
-      : fail(`owner tickets ${ot} not property-scoped`);
+    const ownRaised = await asUser(owner.id, async () => {
+      const { rows } = await client.query(
+        "select count(*)::int as n from tickets where sender_id = $1",
+        [owner.id]
+      );
+      return rows[0].n;
+    });
+    ot <= ownRaised
+      ? pass(`owner sees ${ot} tickets — all self-raised (B7: no tenant requests)`)
+      : fail(`owner sees ${ot} tickets but raised only ${ownRaised} — reading tenants' requests`);
     const osc = visibleCounts[owner.id].service_charges;
     osc > 0
       ? pass(`owner sees ${osc} SC rows (owned portfolio)`)

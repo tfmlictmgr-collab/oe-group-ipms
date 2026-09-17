@@ -132,3 +132,49 @@ flagged, and access-restricted (see guardrails).
    rent billing/roll, landlord dashboards, marketing/leasing. TFML keeps
    facilities-ops with **no** tenant/lease/rent modules. One codebase, toggled by the
    per-org module registry.
+
+
+---
+
+## Built, and what changed in building it (30 July 2026)
+
+**Required documents are configuration, not code.** `application_document_requirements`
+holds them per org and per application type, and
+`submit_tenant_application()` enforces them. The list in `lib/application-form.ts`
+seeded it and no longer decides anything — one rule, one place.
+
+**The completeness gate lives inside the transition.** It used to sit in the server
+action, reading `application_attachments` through the applicant's own anon session
+— which has no SELECT policy, so it returned zero rows *without erroring* and every
+uploaded document read as missing. Submission was impossible for every applicant.
+The RPC is also granted to `anon`, so a check outside it could be posted past. Both
+answered by asking the question where the answer is visible and cannot be routed
+around.
+
+**Save-and-resume is real.** `startApplication` emails the link, the public page
+accepts `?resume=<token>` and rehydrates through `resume_application()`, and the
+page re-checks the draft's `org_id` against the org in the URL so a token cannot be
+replayed through another organisation's page. `/tenancy/*` sends
+`Referrer-Policy: no-referrer` and `Cache-Control: no-store`.
+
+**Two columns are unreadable to `authenticated`:** `sensitive` (special-category —
+RLS is row-level and cannot withhold a column) and `resume_token_hash` (the
+resume/save/submit functions take that hash as their argument, so reading it is
+equivalent to holding the applicant's link). Column privileges cannot be carved out
+of a table-level grant, so the grant was replaced with an explicit column list.
+
+### Amendment to locked decision 2 — AI verification (board, 29 July 2026)
+
+Screening stays **human and two-tier**. Automated **document verification** is now
+permitted as decision *support* — extraction, format and consistency checks,
+completeness, duplicates — and may never decide, score, rank or recommend. Findings
+are tied to the evidence they came from; the reviewer must record their own reason;
+special-category data never reaches a model. See `CLAUDE.md` v3.3 decision 10.
+
+### Still open
+
+- Per-property application window (`auto` / `open` / `closed`), which gives an
+  application its `property_id` and makes property-scoped PM review possible — the
+  Day 8 blocker.
+- A verified Resend sending domain for `oraegbunike.com`, or the resume email will
+  not reach an OEA applicant.

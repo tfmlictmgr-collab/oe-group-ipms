@@ -35,43 +35,72 @@ const pgc = new pg.Client({
 });
 await pgc.connect();
 await pgc.query(`truncate table
-  notifications, audit_log, property_stakeholders, payment_settings, payments,
-  service_charges, sc_budgets, units, properties, vendor_evaluations, vendors,
-  tickets, users, orgs restart identity cascade;`);
+  channel_routes, vendor_properties, notifications, audit_log,
+  property_stakeholders, payment_settings, payments, service_charges, sc_budgets,
+  units, properties, vendor_evaluations, vendors, tickets, users, orgs
+  restart identity cascade;`);
+await pgc.query(`select ensure_platform_orgs();`);
 await pgc.end();
-console.log("Truncated all app tables.");
+console.log("Truncated all app tables; restored the operator org and the SC client.");
+
+// ⚠️ `ensure_platform_orgs()` above is not optional and not decoration.
+//
+// The truncate takes `orgs` with it, and TWO organisations in that table were
+// created by a MIGRATION rather than by this file: `oe-group`, the platform
+// operator (0088), and `sc-client`, the service-charge client the whole
+// engagement is about (0094). A migration runs once; truncating its rows
+// removes them for good. Section 2 below puts back three orgs, not five.
+//
+// This went unnoticed for eight days on staging: `verify-sc-client` stopped at
+// "the service-charge client org exists" and the B4 vendor-remittance chain had
+// no client to demonstrate it for, while every screen simply showed one fewer
+// organisation and looked entirely normal. See 0208.
 
 // ── 2. Orgs ────────────────────────────────────────────────────────────────
 await supabase.from("orgs").insert({ id: POC_ORG_ID, name: "OE Group — Foundation POC", delivery_brand: "direct" });
-const { data: tfmlOrg } = await supabase.from("orgs").insert({ name: "TFML — Total Facilities Management", delivery_brand: "TFML" }).select().single();
+const { data: tfmlOrg } = await supabase.from("orgs").insert({ name: "Total Facilities Management Limited", delivery_brand: "TFML" }).select().single();
 const { data: oeaOrg } = await supabase.from("orgs").insert({ name: "OEA — Ora Egbunike & Associates", delivery_brand: "OEA" }).select().single();
 console.log("Orgs: POC + TFML + OEA");
 
 // ── 3. Users (auth users reused across reseeds; profiles re-created) ────────
+// Org/brand/role are stamped into app_metadata → they ride inside the SIGNED
+// JWT (Day 2 org claims). app_metadata is admin-only writable, so the client
+// can't forge it. RLS remains the enforced backstop; the claim is a trusted,
+// zero-DB-hit signal for the brand middleware.
+const orgBrand = {
+  [POC_ORG_ID]: "direct",
+  [tfmlOrg.id]: "TFML",
+  [oeaOrg.id]: "OEA",
+};
 const { data: authList } = await supabase.auth.admin.listUsers();
-async function ensureAuth(email) {
+async function ensureAuth(email, appMetadata) {
   let u = authList?.users?.find((x) => x.email === email);
   if (!u) {
-    const { data, error } = await supabase.auth.admin.createUser({ email, password: PASSWORD, email_confirm: true });
+    const { data, error } = await supabase.auth.admin.createUser({
+      email, password: PASSWORD, email_confirm: true, app_metadata: appMetadata,
+    });
     if (error) throw error;
     u = data.user;
+  } else {
+    // Reused across reseeds → refresh the claim so it always matches the profile.
+    await supabase.auth.admin.updateUserById(u.id, { app_metadata: appMetadata });
   }
   return u.id;
 }
 async function profile(email, orgId, role, fullName) {
-  const id = await ensureAuth(email);
+  const id = await ensureAuth(email, { org_id: orgId, delivery_brand: orgBrand[orgId] ?? "direct", role });
   await supabase.from("users").insert({ id, org_id: orgId, role, full_name: fullName, email });
   return id;
 }
-const adminId = await profile("demo@oegroup.test", POC_ORG_ID, "admin", "Demo Admin");
-const financeId = await profile("finance@oegroup.test", POC_ORG_ID, "finance_approver", "Oke Anderson");
-const fmId = await profile("fm@oegroup.test", POC_ORG_ID, "facility_manager", "Abdul Owo");
-const opsId = await profile("ops@oegroup.test", POC_ORG_ID, "fm_ops_staff", "Emeka Ade");
-const ownerId = await profile("owner@oegroup.test", POC_ORG_ID, "property_owner", "Bola Adeyemi");
-const vendorUserId = await profile("vendor@oegroup.test", POC_ORG_ID, "vendor", "Sparkle Cleaning (Vendor)");
-const residentId = await profile("resident@oegroup.test", POC_ORG_ID, "tenant", "Tamuno Gab");
-await profile("tfml@oegroup.test", tfmlOrg.id, "admin", "Ifeanyi Uche (TFML)");
-await profile("oea@oegroup.test", oeaOrg.id, "admin", "Zainab Bello (OEA)");
+const adminId = await profile("oe-group-foundation-poc.admin@oegroup.test", POC_ORG_ID, "admin", "Demo Admin");
+const financeId = await profile("oe-group-foundation-poc.financeapprover@oegroup.test", POC_ORG_ID, "finance_approver", "Oke Anderson");
+const fmId = await profile("oe-group-foundation-poc.facilitymanager@oegroup.test", POC_ORG_ID, "facility_manager", "Abdul Owo");
+const opsId = await profile("oe-group-foundation-poc.fmopsstaff@oegroup.test", POC_ORG_ID, "fm_ops_staff", "Emeka Ade");
+const ownerId = await profile("oe-group-foundation-poc.propertyowner@oegroup.test", POC_ORG_ID, "property_owner", "Bola Adeyemi");
+const vendorUserId = await profile("oe-group-foundation-poc.vendor@oegroup.test", POC_ORG_ID, "vendor", "Sparkle Cleaning (Vendor)");
+const residentId = await profile("oe-group-foundation-poc.tenant@oegroup.test", POC_ORG_ID, "tenant", "Tamuno Gab");
+await profile("tfml.admin@oegroup.test", tfmlOrg.id, "admin", "Ifeanyi Uche (TFML)");
+await profile("oea.admin@oegroup.test", oeaOrg.id, "admin", "Zainab Bello (OEA)");
 console.log("Users: 7 POC roles + 2 brand admins");
 
 // ── 4. Vendors + evaluation histories (0–100) ──────────────────────────────
@@ -179,13 +208,21 @@ const TICKETS = [
   ["Good morning", "general", "low"],
   ["What are the estate office hours?", "general", "low"],
 ];
+// ⚠️ 0117 refuses 'assigned'/'acknowledged'/'in_progress' with neither
+// assigned_vendor_id nor assigned_to_user_id — "a job in hand, in nobody's
+// hand". This insert used to set in_progress with neither, which the trigger
+// rejects for the WHOLE batch (one statement, all-or-nothing) — so this
+// silently seeded ZERO tickets for months while printing success, because the
+// error was never checked either. Both fixed together.
 const ticketRows = TICKETS.map((t, i) => ({
   org_id: POC_ORG_ID, channel: CH[i % 3], channel_sender_ref: `demo-${i}`,
   message_text: t[0], category: t[1], urgency: t[2], summary: t[0],
   property_id: propList[i % propList.length],
   status: i % 5 === 0 ? "resolved" : i % 5 === 1 ? "in_progress" : "open",
+  assigned_to_user_id: i % 5 === 1 ? opsId : null,
 }));
-await supabase.from("tickets").insert(ticketRows);
+const { error: ticketErr } = await supabase.from("tickets").insert(ticketRows);
+if (ticketErr) throw new Error(`tickets insert: ${ticketErr.message}`);
 console.log(`Tickets: ${TICKETS.length} across all categories/urgencies`);
 
 // ── 9. payment_settings + 3 payments in three gate stages ──────────────────
@@ -203,6 +240,41 @@ await supabase.from("tickets").insert([
   { org_id: tfmlOrg.id, channel: "portal", message_text: "AC servicing overdue in the east wing plant room — TFML site", category: "maintenance", urgency: "normal", summary: "AC servicing overdue — TFML site" },
   { org_id: oeaOrg.id, channel: "portal", message_text: "Tenancy renewal query for a managed property — OEA client", category: "general", urgency: "normal", summary: "Tenancy renewal query — OEA client" },
 ]);
+
+// ── 11. Channel routes: inbound identity → org (Day 2 per-org routing) ──────
+// The real WhatsApp number + Telegram bot keep landing in the POC org so
+// current intake is unbroken. Two placeholder WhatsApp identities map to TFML
+// and OEA so brand routing is provable end-to-end before real second numbers
+// exist (see scripts/verify-channel-routing.mjs). Swap the placeholders for the
+// real phone_number_ids when OEA/TFML get their own numbers.
+const channelRoutes = [];
+if (process.env.WHATSAPP_PHONE_NUMBER_ID)
+  channelRoutes.push({ org_id: POC_ORG_ID, channel: "whatsapp", external_id: process.env.WHATSAPP_PHONE_NUMBER_ID, label: "POC WhatsApp number" });
+if (process.env.TELEGRAM_WEBHOOK_SECRET)
+  channelRoutes.push({ org_id: POC_ORG_ID, channel: "telegram", external_id: process.env.TELEGRAM_WEBHOOK_SECRET, label: "POC Telegram bot" });
+channelRoutes.push(
+  { org_id: tfmlOrg.id, channel: "whatsapp", external_id: "TFML_WA_TEST_1000", label: "TFML WhatsApp (placeholder)" },
+  { org_id: oeaOrg.id, channel: "whatsapp", external_id: "OEA_WA_TEST_2000", label: "OEA WhatsApp (placeholder)" }
+);
+await supabase.from("channel_routes").insert(channelRoutes);
+console.log(`Channel routes: ${channelRoutes.length} (POC live + TFML/OEA placeholders)`);
+
+// ── 12. Vendor↔property associations (Day 2 S5 money-side scoping) ──────────
+// Arranged to DEMONSTRATE scoping: the FM manages Lekki + Ikoyi, not Victoria
+// Court. SecureGuard (the ₦620k recommended payment) is on Victoria Court only,
+// so the FM cannot see that payout; FixIt (Lekki) and Sparkle (Ikoyi) they can.
+// Result: FM sees 2 of 3 payments; admin/finance see all 3.
+const vp = (vendor, property) => ({
+  org_id: POC_ORG_ID, vendor_id: vendorIds[vendor], property_id: propIds[property],
+});
+await supabase.from("vendor_properties").insert([
+  vp("FixIt Plumbing", "Lekki Gardens Estate"),        // FM ✓ (has a payment)
+  vp("Sparkle Cleaning Services", "Ikoyi Heights"),    // FM ✓ (has a payment)
+  vp("CoolAir HVAC", "Lekki Gardens Estate"),          // FM ✓ (no payment)
+  vp("SecureGuard Ltd", "Victoria Court"),             // FM ✗ (has the ₦620k payment)
+  vp("GreenScape Landscaping", "Victoria Court"),      // FM ✗
+]);
+console.log("Vendor↔property: 5 associations (FM sees 2 of 3 payments)");
 
 console.log("\n✅ Demo dataset seeded. All logins: password " + PASSWORD);
 console.log("   demo@ (admin) · finance@ · fm@ · ops@ · owner@ · vendor@ · resident@ · tfml@ · oea@");

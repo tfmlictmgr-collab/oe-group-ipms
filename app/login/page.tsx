@@ -1,92 +1,70 @@
-"use client";
+import { redirect } from "next/navigation";
+import { orgForCurrentHost } from "@/lib/org-host";
+import SignInPanel from "@/components/auth/sign-in-panel";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+// The **platform operator's** front door — OE Group's own staff, not a client's.
+//
+// Deliberately anonymous: it names no organisation and lists none, so loading it
+// reveals nothing about who is on the platform (B1). An organisation's own people
+// use its address instead — /o/<slug> — which carries that org's branding and,
+// still, no mention of any other.
+//
+// Signing in here lands on the org launcher rather than a dashboard: the point of
+// this door is to SEE the organisations and choose one, and the operator org holds
+// no operational data of its own to show (0088). A tenant user who arrives here
+// anyway is forwarded to their own dashboard by /orgs, which reveals nothing —
+// they learn only that they are not an operator, which they already knew.
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ wrong_org?: string; deactivated?: string }>;
+}) {
+  const { wrong_org, deactivated } = await searchParams;
 
-export default function LoginPage() {
-  const router = useRouter();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
-
-    const supabase = createClient();
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-
-    if (error) {
-      setError(error.message);
-      setLoading(false);
-      return;
-    }
-
-    router.push("/dashboard");
-    router.refresh();
+  // The root page (`/`) already sends a bound client hostname straight to its
+  // own door and never lands here. But `/login` is a URL of its own — bookmarked,
+  // typed directly, or linked from an old message — and until this check it
+  // rendered the operator's hardcoded OE Group screen on ANY host, including one
+  // bound to a client. A TFML employee hitting tfmlportal.com/login saw OE
+  // Group's name and colours on their own company's domain: the same cross-brand
+  // leak the sign-in panel's `owner` prop exists to prevent, just reached by a
+  // path that skipped the check. A client org's own door takes over here instead.
+  const hostOrg = await orgForCurrentHost();
+  if (hostOrg?.slug && !hostOrg.is_platform_operator) {
+    redirect(`/o/${hostOrg.slug}`);
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#faf7f6] p-4">
-      <div className="w-full max-w-sm rounded-2xl bg-white p-8 shadow-sm ring-1 ring-black/5">
-        <div className="mb-6 text-center">
-          <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-[#8B1D1D] text-sm font-semibold text-white">
-            OE
-          </div>
-          <h1 className="text-lg font-semibold text-[#8B1D1D]">
-            OE Group Portal
-          </h1>
-          <p className="mt-1 text-sm text-neutral-500">
-            Sign in to your account
-          </p>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="mb-1 block text-sm font-medium text-neutral-700">
-              Email
-            </label>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-[#8B1D1D] focus:ring-1 focus:ring-[#8B1D1D]"
-              placeholder="you@example.com"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-sm font-medium text-neutral-700">
-              Password
-            </label>
-            <input
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-[#8B1D1D] focus:ring-1 focus:ring-[#8B1D1D]"
-              placeholder="••••••••"
-            />
-          </div>
-
-          {error && (
-            <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
-              {error}
-            </p>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-lg bg-[#8B1D1D] py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-          >
-            {loading ? "Signing in…" : "Sign in"}
-          </button>
-        </form>
-      </div>
-    </main>
+    <SignInPanel
+      redirectTo="/orgs"
+      brand={{
+        portalName: "OE Group",
+        logoText: "OE",
+        logoUrl: null,
+        primary: "#003366",
+        headline: "Facilities and property management, unified.",
+        // Names no client, here of all places — this door is public and B1's
+        // "or existence" rule is exactly what a client list in a tagline breaks.
+        tagline:
+          "One auditable workspace for requests, service charges, vendor performance and payments.",
+        owner: "OE Group",
+      }}
+      // Mirrors /o/[slug]'s own wrong_org notice (dashboard's cross-org guard
+      // sends the operator's own hostname here instead, 0112). Says only that a
+      // sign-in is needed — the same reason /o/[slug] keeps this generic rather
+      // than naming the org the stale session belonged to.
+      // `deactivated` names the actual reason, because "please sign in" in
+      // front of an account that can never sign in again is a loop with no
+      // exit. It reveals nothing: the person holding this session already
+      // authenticated as themselves, so being told their own account is closed
+      // tells them only what they just experienced.
+      notice={
+        deactivated
+          ? "This account has been deactivated. Please contact your administrator."
+          : wrong_org
+            ? "Please sign in to continue."
+            : undefined
+      }
+    />
   );
 }
