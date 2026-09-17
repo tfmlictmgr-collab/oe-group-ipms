@@ -1,0 +1,672 @@
+# Go-Live Build Plan — the staged route from `phase-1` to production
+
+**Written:** 2026-09-17 · **Candidate:** `phase-1` @ `384c0af` · **Status:** not started
+
+**What this is.** `GO_LIVE_CHECKLIST.md` is the reference (every variable, every
+rollback, organised by who performs it). `GO_LIVE_RUNWAY.md` sequences the
+external long poles. Neither has been updated since **25 August**, and the code
+has moved to **14 September** — 89 commits and migrations `0203`–`0296` later,
+carrying off-platform payments, bank-transfer payouts, the tenancy
+offer/accept/record flow, the records export and the Directory. **This document
+is the plan that reconciles the two**: it re-verifies the build as it stands
+today, states what genuinely blocks go-live, and lays out the stages, the steps
+inside each, and the tracker that says where we are.
+
+It does not replace the other two. Where a step here says "per checklist §2",
+that is deliberate — one source of truth per fact, and this document is the
+*sequence*, not a second copy of the reference.
+
+**The rule every stage below obeys, restated because it is the one thing that
+cannot be undone:** production starts **empty**. `npm run migrate` (schema
+only), **never** `npm run seed`. `audit_log` is append-only by trigger and
+ledger rows are retained by design, so synthetic data in production cannot be
+cleaned out afterwards — it can only be escaped by destroying and re-creating
+the project.
+
+---
+
+## 0. Where the build actually stands — measured 2026-09-17
+
+Not inherited from the older docs. Re-run today against `phase-1` @ `384c0af`
+in a clean worktree.
+
+| Check | Command | Result |
+|---|---|---|
+| Dependencies install from the lockfile | `npm ci` | ✅ exit 0 |
+| Types | `npx tsc --noEmit` | ✅ exit 0 |
+| Lint | `npx next lint` | ✅ exit 0 — warnings only (2 × `jsx-a11y/alt-text` in the PDF generators) |
+| Production build | `npm run build` | ✅ exit 0 — compiled, 81/81 static pages, **with no environment variables set at all** |
+| Branch topology | `git merge-base --is-ancestor` | ✅ `claude/kyc-records-export` is fully contained in `phase-1` — one line of work, nothing to reconcile |
+| PR #1 (`phase-1` → `main`) | GitHub | ✅ `mergeable_state: clean`, 347 commits, 961 files |
+| Verification suites present | `scripts/verify-*.mjs` | 121 |
+| Verification runner honesty | `scripts/verify-all.mjs:306` | ✅ `process.exit(failed.length === 0 && skipped.length === 0 ? 0 : 1)` — the "exits 0 while suites fail" defect named in PR #1's reviewer notes is **fixed** |
+
+**Three blockers recorded in the older docs are closed:**
+
+- *"No application code anywhere creates a new org"* (19 Aug, the thing that
+  blocked provisioning TFML/OEA through the real UI) → `app/orgs/CreateOrgForm.tsx`,
+  `app/orgs/actions.ts`, `scripts/verify-org-creation.mjs`, and `0176` gives an
+  org its slug at creation rather than by backfill.
+- *"Add `/dashboard/new` to `outputFileTracingIncludes` before production ever
+  builds"* (20 Aug) → present in `next.config.mjs`.
+- *`0178_a_request_is_reviewed_before_it_is_dispatched`* was "built but not
+  merged" → it is on `phase-1`.
+
+**What was NOT verified today, and cannot be from here:** anything needing
+database credentials. `npm run verify` (121 suites), the migration run, and
+every RLS assertion are green *as of the last recorded run*, not as of today.
+Re-running them against the release tag is step 0.3 below, and it is not a
+formality — it is the only thing that proves the 89 commits since the last
+full-suite record did not break something.
+
+---
+
+## 1. What stands in the way
+
+The honest answer is: **nothing in the code**, and **nine things around it**.
+Six are other people's timelines, three are ours.
+
+### 1a. Ours — real gaps found today, none large
+
+| # | Gap | Why it matters | Where it lands |
+|---|---|---|---|
+| A | **The cutover doc names 3 storage buckets. The migrations create 7.** `org-logos` (public by design), `application-documents`, `work-order-media`, `vendor-documents`, `invoice-attachments`, `payment-proofs`, `payout-evidence`. | The cutover step "confirm the buckets exist and the private ones are private" would verify three and wave four through. Four of the missing ones hold identity documents, vendor KYC, payment proof and payout evidence. A bucket silently public in production is a disclosure of exactly the material this system exists to protect. | 2.1, 3.4 |
+| B | **`GATEWAY_CREDENTIAL_KEY` is absent from the env-var table.** It is the AES key for every organisation's stored gateway credentials, held in the application environment *by design* so it is not in the database. `lib/gateway/credentials.ts:12` states the consequence: losing it makes every stored credential unrecoverable. | It is not optional and it has no fallback. Missing at cutover = no organisation can take a payment. Lost after cutover = credentials must be re-entered by every org, with no recovery path. | 2.2, 2.3 |
+| C | **`NEXT_PUBLIC_SITE_URL` is absent from the env-var table**, and `lib/portal-origin.ts` (11 Sept) exists precisely because it is the wrong answer to "whose portal is this link for". It is now step 3 of 3, behind the request host and `orgs.custom_domain`. | If an org has no bound domain in production, every invitation, receipt link, renewal notice and gateway return URL falls through to the deployment address. B1 says a user on one portal must never see the other brand's existence, and an address is the most visible thing in a message. **Binding `custom_domain` per org on production is a cutover step that appears in no current document.** | 2.2, 5.8 |
+| D | **No production bootstrap path for the first operator admin.** `0088` creates the operator org `oe-group` by migration, so that part is handled. Every script that creates a *user* (`seed-demo-user`, `seed-org-logins`, `seed.mjs`, …) is a demo seeder, and `0208` records that the seed **truncates orgs the migrations created**. | There is currently no safe way to create the one account production needs without reaching for a script that must never touch it. This is the single highest-risk moment of the whole cutover and it has no tooling. | 2.4 |
+| E | **No CI.** `.github/workflows/` does not exist. The only check on PR #1 is `Vercel Preview Comments`. | Nothing automatically runs types, lint, build or the suites before a merge to `main`. For the branch that becomes the production build of a system that moves client money, the gate should not be "someone remembered". | 0.6 |
+| F | **No backup or restore policy, and no restore drill.** `DEPLOYMENT.md`, `GO_LIVE_CHECKLIST.md`, `NDPA_COMPLIANCE_PACK.md` and `DAY12_SECURITY_PASS.md` contain no mention of backups, PITR or restore. The one place it appears — `INCIDENT_2026-08-06` — says of the demo project that *"the only lever is a daily-backup restore, which is blunter still"*, i.e. PITR is not enabled. | NDPA s.39 is not only confidentiality; availability and recoverability are part of it. A ledger with no tested restore is a ledger with one copy. | 2.5, 7.6 |
+| G | **The rollback story covers the application and not the database.** Reverting the Vercel deployment is real and instant. There is no rehearsed answer to "the schema is fine but the data is wrong". | Fix-forward is the right default given additive migrations — but it should be a decision with a rehearsed alternative, not the absence of one. | 4.5 |
+
+Two more are decisions rather than gaps, and both are cheap now and expensive
+late: **rate-limit posture** for payment webhooks and remittance execution
+(currently fails open, correct for intake, arguable for money), and **Gemini
+failover** (key set, free tier's *daily* quota exhausted on first use — either
+enable billing or record that failover shortens an outage rather than
+preventing one).
+
+### 1b. Theirs — the six that set the date
+
+None of these can be shortened by anything in this repository, and every one of
+them gates real data or real money. They are Stage 1 and they start today.
+
+1. **13 processor DPAs, all unsigned** (`NDPA_COMPLIANCE_PACK.md` §4). Drafts
+   exist in `DPA_TEMPLATE_AND_TRACKER.md`. This is the largest compliance gap
+   and it gates *any* real personal data.
+2. **Privacy notice unpublished** — drafted, needs legal review and the DPO's
+   contact details.
+3. **Breach procedure (NDPA s.40, 72 hours) unwritten.**
+4. **Data-subject-rights procedure unpublished**; subject-access export and
+   portability are not built.
+5. **Live Paystack keys** — production is still test mode. KYC is a queue at
+   their end.
+6. **External penetration test not commissioned** — and its only clean window
+   is *after* cutover and *before* the first client is onboarded.
+
+Alongside them: NDPC registration threshold, the cross-border/hosting-region
+basis, the board's decision on whether special-category data is collected at
+all, the segregated client-funds bank account, and an explicit in-or-out on
+Flutterwave (FX).
+
+### 1c. Accepted, with reasons, and not blockers
+
+- **`next@14.2.35`, 21 advisories.** Applicability was assessed rather than
+  assumed (`DAY12_SECURITY_PASS.md` §4a): the Image Optimizer, Pages Router,
+  custom-server and CSP-nonce classes do not apply to this deployment. What
+  does apply is a Server Components DoS (7.5) and RSC cache poisoning (5.4) —
+  availability and cache-correctness, not disclosure. **Upgrading two majors in
+  the cutover window trades non-applicable advisories for an untested
+  regression surface across the money path.** First post-go-live work item
+  (7.4), not a cutover edit.
+- **CSP is `Content-Security-Policy-Report-Only`.** Deliberate: a report-only
+  header cannot break checkout, and it is the only way to learn what an
+  enforcing policy would refuse. Promote after UAT runs against it with a
+  clean console (7.3).
+- **ZAP active scan not run.** It needs an empty production, which does not yet
+  exist. That is a sequencing fact, not an omission — it is step 6.1.
+
+---
+
+## 2. The stages
+
+| Stage | Name | Owner | Gate to leave it |
+|---|---|---|---|
+| **0** | Freeze the candidate | Engineering | Tagged RC, full suite green against it, CI running |
+| **1** | External long poles | Board / legal / DPO / bank | DPAs signed, notice published, live keys in hand |
+| **2** | Close the technical gaps | Engineering | 1a A–G closed or explicitly accepted in writing |
+| **3** | Provision production, empty | Engineering | Schema-only production proven empty by query |
+| **4** | Dress rehearsal on staging | Everyone | A clean end-to-end rehearsal run with no fixes needed |
+| **5** | Cutover | Engineering | Every hostname serving the new deployment, verified by content |
+| **6** | Prove it, then open it | Everyone | Security pass green, UAT passed, board go/no-go given |
+| **7** | Operate | Everyone | — ongoing |
+
+Stages 0, 1 and 2 **run in parallel**. Stage 1 starts first and finishes last;
+starting it late is the classic go-live delay and nothing in Stage 0 or 2 waits
+on it. Stages 3→6 are strictly sequential.
+
+---
+
+## Stage 0 — Freeze the candidate
+
+**Purpose:** establish one immutable commit that is the thing being taken live,
+and prove it against the suites rather than against memory.
+
+**0.1 Merge PR #1 and tag.** `main` is still the POC (`0001`–`0010`). Production
+must ship from a tag, not from a moving branch.
+
+```
+# PR #1 reports mergeable_state: clean
+# merge phase-1 -> main via the PR, then:
+git fetch origin main
+git checkout main && git pull origin main
+git tag -a v1.0.0-rc1 -m "Phase 1 release candidate 1"
+git push origin v1.0.0-rc1
+```
+
+**Why a tag and not a branch:** every later stage — the staging rehearsal, the
+production deploy, the security pass — must run against *the same bytes*. A
+branch moves; a tag does not. If Stage 2 or Stage 4 changes anything, cut
+`rc2` and start the sequence again rather than deploying a branch tip.
+
+**0.2 Re-run the local gates on the tag.** Already green at `384c0af` today; do
+it again on the tag because the merge commit is a different commit.
+
+```
+npm ci && npx tsc --noEmit && npx next lint && npm run build
+```
+
+**0.3 Run every verification suite against `dev`, and record it.** 121 suites.
+Do **not** run it against staging or production.
+
+```
+node scripts/use-env.mjs dev
+npm run verify 2>&1 | tee docs/verify-runs/rc1-dev.log
+```
+
+⚠️ **Exclude `verify-checkout-e2e`** — it drives the simulated gateway, which
+`getAdapterByName()` correctly refuses wherever a real gateway key exists. Ten
+"got 403" failures there are the control working. ⚠️ `verify-fx-collections`
+passes once per database (it enables GBP and does not clean up);
+`scripts/lib/reset-fx-probe.mjs` clears the fixture. ⚠️ Six suites are slow by
+nature (`verify-access-matrix`, `verify-bi-scoping`, `verify-finance-journey`,
+`verify-conversational-intelligence`, `verify-notification-links`,
+`verify-role-workflows`) — the runner already gives them room; a timeout there
+is the budget, not the code.
+
+**The exit condition is not "mostly green".** Every failure is either fixed or
+written down with a named reason before Stage 3. A suite that fails and is
+waved through teaches everyone to discount failures — this repository has
+already recorded that lesson twice.
+
+**0.4 Secret scan the full history on the tag.** `gitleaks detect --log-opts="v1.0.0-rc1"`.
+The last run found 4 hits, all false positives; confirm that is still true, and
+that `.gitleaksignore` still names only those.
+
+**0.5 Dependency snapshot.** `npm audit --json > docs/verify-runs/rc1-audit.json`.
+Confirm the Next-14 deferral (1c) is still the decision and that nothing new
+and *applicable* has appeared.
+
+**0.6 Add CI — gap E.** `.github/workflows/ci.yml`: on every PR to `main` and on
+the tag, run `npm ci`, `tsc --noEmit`, `next lint`, `next build`. Make it a
+required status check on `main`. Do **not** put `npm run verify` in CI: it needs
+live database credentials, and a CI secret with service-role access to a real
+project is a worse trade than running it manually. CI proves the build; the
+operator proves the database.
+
+**Exit gate:** a tag exists; 0.2 is green on it; 0.3's log is committed with
+every failure resolved or reasoned; CI is running and required.
+
+---
+
+## Stage 1 — External long poles (start today, in parallel)
+
+**Purpose:** start every clock that somebody else controls. Nothing in this
+stage needs anything from engineering first.
+
+| # | Action | Owner | Lead time | Blocks |
+|---|---|---|---|---|
+| 1.1 | Sign the 13 processor DPAs — drafts in `DPA_TEMPLATE_AND_TRACKER.md` | Legal + DPO | 2–6 weeks | **All real personal data.** Hard gate on Stage 6. |
+| 1.2 | Legal review and publish the privacy notice — must carry the automated document-verification line (locked decision 10) | Legal | 1–2 weeks | Sign-in and application screens |
+| 1.3 | Write the 72-hour breach procedure | DPO + legal | days | Stage 6 go/no-go |
+| 1.4 | Publish the data-subject-rights procedure, naming who receives a request | DPO | days | Stage 6 go/no-go |
+| 1.5 | Confirm NDPC registration threshold; register the DPO; publish contact details | Legal | 1–3 weeks | 1.2 |
+| 1.6 | Board decision: is special-category data (religion, marital status) necessary at all? The cleanest NDPA position is not to collect it | Board | days | Application form scope |
+| 1.7 | Confirm cross-border transfer basis **and the production hosting region** | DPO | days | **3.1 — cannot provision until the region is decided** |
+| 1.8 | Complete Paystack business verification; obtain live key pair | Finance | 1–3 weeks | **Real money. Hard gate on Stage 6.** |
+| 1.9 | Open/confirm the segregated client-funds bank account (locked decision 2) | Finance | 1–4 weeks | Daily reconciliation (7.1) |
+| 1.10 | **Decide: is Flutterwave/FX in scope for go-live?** An explicit *no* is a good answer; the code is built and verified and turns on later with a key and no code change | Board | now | 2.2 env table |
+| 1.11 | Commission the external penetration test, scheduled for the empty-production window between 5 and 6 | Board | 2–4 weeks to book | 6.2 |
+| 1.12 | Set the target go-live date and the board go/no-go slot | Board | now | Everything |
+
+**The single most useful thing to do today is 1.1, 1.8 and 1.11 in one
+sitting** — they are the three longest queues and they are independent.
+
+---
+
+## Stage 2 — Close the technical gaps
+
+**Purpose:** everything in §1a, plus the decisions that change what gets
+deployed. Runs in parallel with Stage 1. Each item is small; the list is what
+makes it a stage.
+
+**2.1 Refresh the cutover documents to the code as it is.** The checklist is
+three weeks and 89 commits behind. Specifically:
+
+- Bucket list **3 → 7**, each with its intended `public` flag, size limit and
+  MIME allowlist read out of the migration that creates it (gap A).
+- Env-var table: add `GATEWAY_CREDENTIAL_KEY`, `NEXT_PUBLIC_SITE_URL`,
+  `SENTRY_ORG`/`SENTRY_PROJECT` (build-time, for source maps) and the tunables
+  that currently have silent defaults — `INTAKE_IP_LIMIT`, `INTAKE_IP_WINDOW`,
+  `INTAKE_SENDER_LIMIT`, `INTAKE_SENDER_WINDOW`, `REMITTANCE_LIMIT`,
+  `REMITTANCE_WINDOW`, `ANTHROPIC_MODEL`, `ANTHROPIC_EFFORT` (gaps B, C).
+- New cutover steps the older doc cannot know about: binding `custom_domain`
+  per org, the offline-payment and bank-transfer-payout paths (`0281`–`0296`),
+  the tenancy offer/accept/record flow (`0263`), and the operator-governed
+  records export (`0239`).
+
+**2.2 Put every production secret in the secret manager**, `GATEWAY_CREDENTIAL_KEY`
+first (gap B). Generate it with `openssl rand -base64 32` — `credentials.ts`
+refuses anything that does not decode to 32 bytes, which is the good kind of
+failure. Record, in the manager and in the runbook, that **losing this key is
+not recoverable**; that is the deliberate trade for keeping it out of the
+database. Escrow it the way the bank mandate is escrowed, not the way an API
+key is.
+
+**2.3 Prove the key works before production depends on it.** On staging: store a
+gateway credential, restart the deployment, read it back. A key that is present
+but wrong fails at the first payment, not at deploy.
+
+**2.4 Build `scripts/bootstrap-production.mjs` (gap D).** One script, one job:
+create the first operator admin. It must
+
+- refuse unless the target is the production project **and** `orgs` contains
+  only what the migrations created and every business table is empty — the
+  same shape of guard `migrate.mjs` already applies to the frozen demo;
+- create exactly one auth user, attach it to the `oe-group` operator org as
+  `admin`, and write an `audit_log` row naming the act;
+- issue a one-time password that must be changed on first sign-in, and print it
+  once to the operator's terminal rather than storing it anywhere;
+- be idempotent — a second run against a bootstrapped project is a no-op, not a
+  second admin;
+- **never** import from `seed.mjs` or anything it touches (`0208`: the seed
+  truncates orgs the migrations created).
+
+Ship `scripts/verify-bootstrap.mjs` beside it, proving on staging that the
+guards refuse a non-empty target and that the created admin can sign in, create
+an org, and nothing else it should not.
+
+**2.5 Decide and enable the backup posture (gap F).** For a system holding a
+client-funds ledger the recommendation is **PITR enabled on the production
+Supabase project from day one**, with the retention window written into
+`NDPA_COMPLIANCE_PACK.md` §8 as a stated security measure. Daily backups alone
+mean the worst case is a day of ledger entries re-keyed from bank statements.
+
+**2.6 Decide the rate-limit posture for the money path.** General intake stays
+fail-open (an outage in the limiter must not take intake down — that reasoning
+still holds). Payment webhooks and remittance execution are the two routes
+where failing open is the worse risk. Recommendation: **fail closed on those
+two, fail open everywhere else**, and say so in the code at the call site.
+
+**2.7 Gemini.** Enable billing on the Google Cloud project, or record in writing
+that failover is best-effort. The failure mode to avoid is neither of those —
+it is believing failover works because a key is present. Settings → AI &
+Classification already tests reachability rather than configuration and reported
+the 429 correctly on its first run; that screen is the check.
+
+**2.8 Turnstile and SMS — an explicit in or out.** Both no-op cleanly when
+unconfigured, so *out* is defensible: the public vendor-application form still
+has per-IP rate limiting, a honeypot and submission timing in front of it. What
+is not defensible is discovering on cutover day that the layer was silently off.
+
+**2.9 Retention and subject rights.** The 6-year approved-application clock has
+no job (`NDPA_COMPLIANCE_PACK.md` §5) — build it or record it as accepted with a
+review date. Assess whether the operator-governed records export (`0239`) can
+serve a subject-access request; if it can, document the procedure, and if it
+cannot, write the manual one. 1.4 cannot be published without an answer.
+
+**2.10 Add `prod` to `scripts/use-env.mjs`'s `HOSTS`** and create
+`.env.prod.local` **from the new project's own dashboard**. Never by copying
+another world's file and editing it — a stray unedited value is how two worlds
+end up sharing a secret.
+
+**Exit gate:** A–G each either closed or accepted in writing by a named person;
+2.6, 2.7, 2.8 decided; a fresh RC tag cut if any of this changed code.
+
+---
+
+## Stage 3 — Provision production, empty
+
+**Entry gate:** 1.7 answered (the region), Stage 0 exit gate met, Stage 2 exit
+gate met. Do not start this early "to save time" — an idle production project
+is a project someone experiments on.
+
+**3.1** Create the production Supabase project in the region confirmed at 1.7.
+Record the project ref in the runbook.
+
+**3.2** Create the production Vercel project. Link a **separate** checkout, or
+`vercel switch`, and back the link up as `.vercel.prod.bak` beside the existing
+`.vercel.dev.bak` / `.vercel.staging.bak`.
+
+**3.3 Confirm what every tool is pointed at, before anything runs.** Two
+incidents in seven days came from a stale environment pointer — one aimed a
+deploy at the wrong Vercel project, one aimed a migration at the frozen demo
+database. With four worlds the risk is worse, not better.
+
+```
+node scripts/use-env.mjs prod     # then read back what it prints
+node scripts/use-env.mjs          # active() — confirm the ref matches 3.1
+```
+
+Then, and only then:
+
+```
+npm run migrate                   # schema only. npm run seed is NEVER run here.
+```
+
+`migrate.mjs` refuses a mismatched target and refuses the frozen demo on its
+own. That guard is a backstop for a mistake, not a substitute for reading the
+target.
+
+**3.4 Verify all seven buckets** — that each exists, that only `org-logos` is
+public, and that the caps match the migrations:
+
+| Bucket | Public | Holds | Created by |
+|---|---|---|---|
+| `org-logos` | **yes, by design** | brand marks painted on the sign-in page | `0015` |
+| `application-documents` | no | tenancy applicants' identity documents | `0062` |
+| `work-order-media` | no | photographs inside client homes, 25 MB, image/video | `0106` |
+| `vendor-documents` | no | vendor KYC, 15 MB | `0164` |
+| `invoice-attachments` | no | vendor and staff-filed invoices | `0140` |
+| `payment-proofs` | no | payers' evidence of off-platform payment | `0281` |
+| `payout-evidence` | no | payees' bank evidence | `0289` |
+
+A bucket silently missing means an upload fails at the moment a technician is
+standing in front of the work. A bucket silently **public** means the inside of
+a client's home, or somebody's ID, is reachable by URL. Check the flag, do not
+assume the migration ran.
+
+**3.5 Set every environment variable** from the table refreshed at 2.1 — live
+keys, not the test ones. Then confirm on screen: `gatewayMode()` reads the
+key's own prefix (`sk_test_` / `sk_live_`) and displays it. That label is the
+proof a live key was pasted, not a rehearsal leftover.
+
+**3.6 Prove production is empty by query, not by eye.** Count rows in every
+business table; the only non-zero results permitted are what the migrations
+themselves create — the operator org (`0088`), the permission baseline, the
+chart of accounts. Commit the query and its output. This is the Day 12 exit
+gate and it is the last moment it is cheap to check.
+
+**Exit gate:** schema at `0296`, seven buckets correct, every variable set, the
+emptiness query committed with its output.
+
+---
+
+## Stage 4 — Dress rehearsal on staging
+
+**Purpose:** staging exists so that nothing in Stage 5 is being done for the
+first time. Rehearse on staging, never on production.
+
+**4.1** Bring staging to the exact RC tag and schema: `npm run migrate:all -- staging`,
+deploy the tag to `oe-group-ipms-staging`.
+
+**4.2 Run the whole of Stage 5 against staging, in order, timed.** Including the
+bootstrap script (2.4), the per-org `custom_domain` binding, and re-registering
+both WhatsApp and both Telegram webhooks to a staging host. The output is a
+runbook with real durations, not estimates.
+
+**4.3 Full multi-role UAT** on staging against `UAT_SCRIPT.md` and the UAT
+decks — all ten roles, each one's golden path.
+
+**4.4 Money-path rehearsal, end to end, on test keys.** Collection → ledger
+posting → bank reconciliation → three-stage approval chain → payout by gateway
+**and** payout by bank transfer (`0289`) → remittance advice → receipt. Plus one
+off-platform payment recorded with proof and confirmed by three desks (`0282`).
+This is the path where a defect costs money rather than time.
+
+**4.5 Rehearse the rollback (gap G).** Prove that pointing the Vercel production
+project back at the previous deployment works and how long it takes. Prove the
+database answer too: with PITR enabled (2.5), restore staging to a point ten
+minutes earlier and confirm what is lost. Fix-forward remains the default —
+migrations are additive, so there is no schema to roll back — but "we would fix
+forward" should be a choice, not the only thing anyone knows how to do.
+
+**4.6** Fix what the rehearsal finds. **If anything changed, cut `rc2` and
+repeat 4.1–4.5.** A rehearsal whose findings ship untested is not a rehearsal.
+
+**Exit gate:** one complete rehearsal run start to finish with no fixes needed.
+
+---
+
+## Stage 5 — Cutover
+
+**Entry gate:** Stages 3 and 4 complete; 1.8 delivered (live keys in hand); a
+date and a person for every step. One sitting, one person driving, one person
+reading the steps aloud. Verify after each step; do not batch.
+
+1. **Confirm the target** — `use-env.mjs prod`, read the ref back, compare with
+   3.1. Every time, including now.
+2. **Deploy the RC tag** to the production Vercel project from the checkout
+   linked to it.
+3. **Set/confirm every environment variable** (3.5 if not already done), then
+   check the gateway-mode label on screen says *live*.
+4. **Bootstrap the first operator admin** — `scripts/bootstrap-production.mjs`.
+   Capture the one-time password out of band; change it at first sign-in;
+   **enable MFA on that account before it does anything else** (`0139`).
+5. **Re-register both 360dialog webhooks** to the production host —
+   `scripts/register-whatsapp-number.mjs`, per org, tokens rotated.
+6. **Re-register both Telegram webhooks** — `scripts/register-telegram-bot.mjs`.
+   ⚠️ While here, fix the stale label: `dev` still carries the pre-rename
+   `@tfml_facilities_bot`. Register production with the real usernames
+   (`@tfml_support_bot`, `@oea_properties_bot`).
+7. **Move the three domains** — `tfmlportal.com`, `oeaportal.com`,
+   `portal.tfmlconsultant.com` — Settings → Domains → Add Domain → take the
+   **move** option. ⚠️ **Move, never `vercel alias set`.** An assigned domain
+   follows the project's production deployment forever; an alias pins the
+   hostname to one immutable deployment. That mistake left both brand portals
+   serving an 18-day-old build across four deploys, found the day before a demo.
+   ⚠️ The apex `tfmlconsultant.com` stays where it is — Vercel will warn it is
+   unconfigured and that warning is correct to ignore.
+8. **Bind each organisation's `custom_domain`** through the operator's
+   `set_org_domain` (gap C). Until this is done, `portal-origin.ts` falls
+   through to the deployment address and OEA's tenants receive links on a host
+   that is not OEA's.
+9. **Verify propagation by content, not by status code:**
+
+```
+curl -sSL https://tfmlportal.com/login | grep -o 'dpl_[A-Za-z0-9]*' | head -1
+curl -sSL https://oeaportal.com/login | grep -o 'dpl_[A-Za-z0-9]*' | head -1
+curl -sSL https://portal.tfmlconsultant.com/login | grep -o 'dpl_[A-Za-z0-9]*' | head -1
+```
+
+   All three must return the same `dpl_` id as the deployment from step 2.
+
+10. **Run `npm run verify` against production credentials** — minus
+    `verify-checkout-e2e` (1c/0.3). Then re-run the emptiness query from 3.6:
+    the suites must not have left rows behind.
+
+**Exit gate:** every hostname serving the new deployment, verified by `dpl_`
+id; production still empty apart from the operator org and its one admin.
+
+---
+
+## Stage 6 — Prove it, then open it
+
+**6.1 Security pass against the production URL** — `security/README.md` has the
+ordered sequence and a pre-flight that refuses an unsafe target.
+
+```
+npm run pentest:preflight
+npm run pentest:baseline      # passive
+npm run pentest:full          # ACTIVE — empty production only
+npm run loadtest && npm run loadtest:ratelimit
+```
+
+⚠️ **Target the production alias or a custom domain — never a
+deployment-specific `…-abc123-….vercel.app` URL.** Vercel Deployment Protection
+answers those anonymously before the application runs, so a scan aimed there
+measures Vercel's SSO wall and reports a clean bill of health for a target it
+never reached. ⚠️ The **active** scan's window is now and only now: after
+cutover, before the first client. Once production holds client data it becomes a
+third-party test against a staging clone instead.
+
+**6.2 External penetration test** (1.11) in the same window, with written
+authorisation. This is NDPA_COMPLIANCE_PACK §8's one remaining ⛔ under security
+measures.
+
+**6.3 Production UAT with real staff** across all ten roles, on the real
+hostnames, with realistic rehearsal data — entered through the real screens, so
+it is indistinguishable from real use and leaves no fixture behind.
+
+**6.4 Board go/no-go.** Its inputs: 6.1 and 6.2 clean, 6.3 passed, and **Stage 1
+items 1.1–1.5 complete** — no real personal data may flow before the DPAs are
+signed and the notice is published. This is a person's decision, not a technical
+one, and it should be minuted.
+
+**6.5 Onboard the first real org end to end** through the real UI: create the
+org, bind its domain, invite its people, add a property with at least one unit
+(`0252`), then application → review → tenancy offer → accept → record → first
+demand. This is the proof the clean-data gate held, and it is deliberately a
+real org rather than a synthetic stand-in.
+
+**6.6 First real money, watched.** One collection through the live gateway, one
+bank reconciliation against the real statement, one payout through the full
+three-stage chain. Reconcile every figure by hand once. Everything after this is
+routine; this one is not.
+
+---
+
+## Stage 7 — Operate
+
+| # | Item | Why it is here and not earlier |
+|---|---|---|
+| 7.1 | **Daily bank reconciliation becomes a real routine** (locked decision 2) | It is the thing an auditor asks to see, and it only exists once there is money to reconcile |
+| 7.2 | **Role-based user guides** — one per role, plus the combined admin/onboarding guide, as PDF and two screen recordings (tenant raising a request; finance approving and remitting) | Written from the production screens, so no guide describes a button that moved. **The admin guide must exist before a second org is provisioned.** |
+| 7.3 | **Promote CSP from report-only to enforcing** | Needs UAT to have run against it with a clean console first |
+| 7.4 | **Next 14 → 16 and `@sentry/nextjs` major upgrade**, with its own regression cycle | Two majors across routing, caching and Server Actions. First post-go-live work item, never a cutover edit |
+| 7.5 | **Monitoring that someone actually reads** — Sentry (root-cause the `NEXT_PUBLIC_SENTRY_DSN` rejection seen on staging first), cron-job failure alerts, and a standing query on `tickets.classified_by` so "are we quietly running on the fallback?" is a fact rather than a hunch | |
+| 7.6 | **Restore drill on production**, quarterly, from the PITR window enabled at 2.5 | A backup nobody has restored is a belief, not a backup |
+| 7.7 | **Re-run `npm run verify` after every production deploy** | 121 suites are the regression net; CI proves the build, this proves the database |
+
+---
+
+## 3. The tracker
+
+Status: `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked ·
+`[-]` accepted/out of scope, with the reason written in.
+
+Update in place. If a step turns out to be wrong, strike it through with a
+one-line reason rather than deleting it silently.
+
+### Stage 0 — Freeze the candidate
+- [ ] 0.1 Merge PR #1, tag `v1.0.0-rc1`
+- [ ] 0.2 `npm ci` · `tsc --noEmit` · `next lint` · `next build` green **on the tag**
+- [ ] 0.3 `npm run verify` against `dev`, log committed, every failure resolved or reasoned
+- [ ] 0.4 `gitleaks` on the tag — confirm the 4 known false positives and nothing else
+- [ ] 0.5 `npm audit` snapshot; Next-14 deferral re-affirmed
+- [ ] 0.6 CI workflow added and required on `main` *(gap E)*
+
+### Stage 1 — External (start today)
+- [ ] 1.1 13 processor DPAs signed *(hard gate on Stage 6)*
+- [ ] 1.2 Privacy notice legally reviewed and published
+- [ ] 1.3 72-hour breach procedure written
+- [ ] 1.4 Data-subject-rights procedure published
+- [ ] 1.5 NDPC threshold confirmed; DPO registered; contact published
+- [ ] 1.6 Board decision on special-category data
+- [ ] 1.7 Cross-border basis + **production hosting region** confirmed *(blocks 3.1)*
+- [ ] 1.8 Paystack live keys obtained *(hard gate on Stage 6)*
+- [ ] 1.9 Segregated client-funds bank account confirmed
+- [ ] 1.10 Flutterwave / FX — explicit in or out
+- [ ] 1.11 External pen test commissioned and booked for the empty-production window
+- [ ] 1.12 Target date and board go/no-go slot set
+
+### Stage 2 — Close the technical gaps
+- [ ] 2.1 Cutover docs refreshed: 7 buckets, full env table, new flows *(gaps A, B, C)*
+- [ ] 2.2 All production secrets in the manager, `GATEWAY_CREDENTIAL_KEY` escrowed *(gap B)*
+- [ ] 2.3 Gateway credential store/restart/read-back proven on staging
+- [ ] 2.4 `bootstrap-production.mjs` + `verify-bootstrap.mjs` built and proven *(gap D)*
+- [ ] 2.5 PITR enabled and retention window recorded in the compliance pack *(gap F)*
+- [ ] 2.6 Rate-limit posture decided for payment webhooks and remittance
+- [ ] 2.7 Gemini — billing enabled, or best-effort accepted in writing
+- [ ] 2.8 Turnstile and SMS — explicit in or out
+- [ ] 2.9 6-year retention clock; subject-access procedure written *(feeds 1.4)*
+- [ ] 2.10 `prod` added to `use-env.mjs`; `.env.prod.local` created from the dashboard
+- [ ] 2.11 If any of the above changed code: cut `rc2`, re-run Stage 0
+
+### Stage 3 — Provision production, empty
+- [ ] 3.1 Production Supabase project created in the confirmed region; ref recorded
+- [ ] 3.2 Production Vercel project created and linked; `.vercel.prod.bak` saved
+- [ ] 3.3 Target confirmed out loud, then `npm run migrate` — **schema only**
+- [ ] 3.4 All 7 buckets verified: existence, public flag, size and MIME caps *(gap A)*
+- [ ] 3.5 Every environment variable set; gateway-mode label reads **live**
+- [ ] 3.6 Emptiness proven by committed query and output
+
+### Stage 4 — Dress rehearsal on staging
+- [ ] 4.1 Staging on the exact RC tag and schema
+- [ ] 4.2 Full Stage 5 rehearsed on staging, timed, runbook written from it
+- [ ] 4.3 Multi-role UAT, all ten roles
+- [ ] 4.4 Money path end to end — gateway payout, bank-transfer payout, off-platform payment
+- [ ] 4.5 Rollback rehearsed: deployment revert **and** PITR restore *(gap G)*
+- [ ] 4.6 Findings fixed; if anything changed, `rc2` cut and 4.1–4.5 repeated
+
+### Stage 5 — Cutover
+- [ ] 5.1 Target confirmed
+- [ ] 5.2 RC tag deployed to production
+- [ ] 5.3 Variables set; gateway-mode label reads live
+- [ ] 5.4 Operator admin bootstrapped; password changed; **MFA enabled**
+- [ ] 5.5 Both 360dialog webhooks re-registered
+- [ ] 5.6 Both Telegram webhooks re-registered with the correct usernames
+- [ ] 5.7 Three domains **moved** (never aliased)
+- [ ] 5.8 `custom_domain` bound per org *(gap C)*
+- [ ] 5.9 Propagation verified by matching `dpl_` id on all three hostnames
+- [ ] 5.10 `npm run verify` against production; emptiness re-confirmed
+
+### Stage 6 — Prove it, then open it
+- [ ] 6.1 Security pass against the production hostname — passive, **active**, load, rate limit
+- [ ] 6.2 External penetration test completed in the empty window
+- [ ] 6.3 Production UAT with real staff, all ten roles
+- [ ] 6.4 Board go/no-go minuted *(requires 1.1–1.5)*
+- [ ] 6.5 First real org onboarded end to end through the real UI
+- [ ] 6.6 First real collection, reconciliation and payout, reconciled by hand
+
+### Stage 7 — Operate
+- [ ] 7.1 Daily bank reconciliation running as a routine
+- [ ] 7.2 Role guides + admin/onboarding guide + two screen recordings *(admin guide before org #2)*
+- [ ] 7.3 CSP promoted to enforcing
+- [ ] 7.4 Next 16 + Sentry upgrade, with its own regression cycle
+- [ ] 7.5 Monitoring wired and watched
+- [ ] 7.6 Quarterly restore drill scheduled; first one done
+- [ ] 7.7 `npm run verify` after every production deploy
+
+---
+
+## 4. Rules that hold in every stage
+
+These are not stage-specific, which is exactly why they are the ones that get
+skipped under time pressure.
+
+1. **Production is never seeded.** `npm run seed` has no legitimate use against
+   `prod`, ever. `0208` records that the seed truncates orgs the migrations
+   created, so the damage is not confined to the rows it adds.
+2. **Confirm the target before every destructive or deploying command.** Two
+   incidents in seven days came from a stale pointer. `use-env.mjs` and
+   `migrate.mjs`'s own guard are the tools; reading what they print is the
+   habit.
+3. **No command in this codebase copies data between worlds, and none should be
+   written.** Seeding is per-world and manual. That boundary is the reason four
+   worlds exist.
+4. **Real personal data waits for the DPAs.** 1.1 is a gate, not a formality —
+   `CLAUDE.md` A3 requires a processing agreement with every processor before
+   personal data reaches it.
+5. **Verify by content, never by status code.** A 200 from a hostname proves a
+   hostname answers. The `dpl_` id proves *which build* answered.
+6. **A failing suite is a finding, not noise.** Fix it or write down why it is
+   expected, with a name against the reason. The two exceptions
+   (`verify-checkout-e2e` against a real gateway; `verify-fx-collections` run
+   twice) are already documented — anything else is new and must be treated as
+   new.
+7. **If a fix lands after the tag, the tag is dead.** Cut a new RC and re-run
+   Stage 0 against it. Deploying "the tag plus one small fix" is how a
+   rehearsed sequence stops describing the thing being deployed.
+8. **Secrets are generated at the destination, never copied between worlds.**
+   `.env.prod.local` is built from the production dashboard, not from
+   `.env.staging.local` with the values edited.
