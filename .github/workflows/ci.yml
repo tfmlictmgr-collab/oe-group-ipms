@@ -1,1 +1,48 @@
-# WILL BE REPLACED - placeholder
+name: CI
+
+# Proves the build, nothing else. It never touches a database: `npm run
+# verify` needs live Supabase credentials (dev, never a CI secret with
+# service-role access to a real project — GO_LIVE_BUILD_PLAN.md 0.6), so that
+# stays a manual step the operator runs and records. This workflow is what
+# was missing before v1.0.0-rc1 — the only prior check on PR #1 was
+# "Vercel Preview Comments", which proves a deploy happened, not that the
+# code is sound.
+#
+# No Node version was pinned anywhere in this repo (no .nvmrc, no
+# package.json engines field) when this was written, so 20.x is chosen here
+# as the current Node LTS most Next 14 projects target — revisit if the
+# project later pins one explicitly.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: types, lint, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install
+        run: npm ci
+
+      - name: Types
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npx next lint
+
+      - name: Build
+        run: npm run build
