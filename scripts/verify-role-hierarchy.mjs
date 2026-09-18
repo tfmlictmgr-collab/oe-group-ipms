@@ -65,8 +65,19 @@ const mkProp = async (name) => {
 {
   const { data: stale } = await svc.from("users").select("id").like("email", "probehier.%@oegroup.test").is("deactivated_at", null);
   for (const u of stale ?? []) {
-    await svc.from("users").delete().eq("id", u.id);
-    await svc.auth.admin.deleteUser(u.id).catch(() => {});
+    const { error } = await svc.from("users").delete().eq("id", u.id);
+    if (!error) {
+      await svc.auth.admin.deleteUser(u.id).catch(() => {});
+      continue;
+    }
+    // Refused by `audit_log_actor_id_fkey` — the trail keeps its actor, so the
+    // account cannot be erased. Deactivate instead: it leaves every picker and
+    // the login stops working, and the select above skips it from now on
+    // rather than retrying this same doomed delete on every future run.
+    await svc.from("users")
+      .update({ deactivated_at: new Date().toISOString() })
+      .eq("id", u.id)
+      .is("deactivated_at", null);
   }
   await svc.from("invitations").delete().like("email", "probehier-invitee%@oegroup.test");
 }
