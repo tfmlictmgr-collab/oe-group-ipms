@@ -70,7 +70,7 @@ async function retireProbeOrgs() {
   }
 }
 async function cleanupStaleProbeUsers() {
-  const { data } = await svc.from("users").select("id").like("email", "probeorg.%@oegroup.test");
+  const { data } = await svc.from("users").select("id").like("email", "probeorg.%@oegroup.test").is("deactivated_at", null);
   for (const u of data ?? []) {
     await svc.from("users").delete().eq("id", u.id);
     await svc.auth.admin.deleteUser(u.id).catch(() => {});

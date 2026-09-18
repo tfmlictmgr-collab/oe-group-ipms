@@ -66,7 +66,7 @@ const madeVendors = [];
 // done by anyone (0175's guard), and the attempt is what silently made the
 // teardown in the sibling suite a no-op for every run before it was fixed.
 {
-  const { data: stale } = await svc.from("users").select("id").like("email", "probeoea.%@oegroup.test");
+  const { data: stale } = await svc.from("users").select("id").like("email", "probeoea.%@oegroup.test").is("deactivated_at", null);
   for (const u of stale ?? []) {
     const { error } = await svc.from("users").delete().eq("id", u.id);
     if (!error) await svc.auth.admin.deleteUser(u.id).catch(() => {});

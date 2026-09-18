@@ -62,7 +62,7 @@ const made = [];
 // an earlier failure throws before it is ever reached (the verify-application-
 // review lesson).
 {
-  const { data: stale } = await svc.from("users").select("id").like("email", "probegate.%@oegroup.test");
+  const { data: stale } = await svc.from("users").select("id").like("email", "probegate.%@oegroup.test").is("deactivated_at", null);
   for (const u of stale ?? []) {
     await svc.from("users").delete().eq("id", u.id);
     await svc.auth.admin.deleteUser(u.id).catch(() => {});

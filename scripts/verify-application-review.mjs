@@ -70,7 +70,7 @@ const madeApps = [];
 
 // Sweep debris from an earlier crashed run.
 {
-  const { data: stale } = await svc.from("users").select("id").like("email", "probereview.%@oegroup.test");
+  const { data: stale } = await svc.from("users").select("id").like("email", "probereview.%@oegroup.test").is("deactivated_at", null);
   for (const u of stale ?? []) {
     await svc.from("users").delete().eq("id", u.id);
     await svc.auth.admin.deleteUser(u.id).catch(() => {});

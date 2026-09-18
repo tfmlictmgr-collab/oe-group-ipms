@@ -99,7 +99,7 @@ await setBands(true);
 // returned both errors rather than throwing, and nothing read either. An
 // account that authored an approval is deactivated instead — see the teardown.
 {
-  const { data: stale } = await svc.from("users").select("id").like("email", "probechain.%@oegroup.test");
+  const { data: stale } = await svc.from("users").select("id").like("email", "probechain.%@oegroup.test").is("deactivated_at", null);
   for (const u of stale ?? []) {
     const { error } = await svc.from("users").delete().eq("id", u.id);
     if (!error) {

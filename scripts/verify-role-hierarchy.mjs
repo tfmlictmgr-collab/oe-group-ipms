@@ -63,7 +63,7 @@ const mkProp = async (name) => {
 };
 
 {
-  const { data: stale } = await svc.from("users").select("id").like("email", "probehier.%@oegroup.test");
+  const { data: stale } = await svc.from("users").select("id").like("email", "probehier.%@oegroup.test").is("deactivated_at", null);
   for (const u of stale ?? []) {
     await svc.from("users").delete().eq("id", u.id);
     await svc.auth.admin.deleteUser(u.id).catch(() => {});
