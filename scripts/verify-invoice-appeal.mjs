@@ -114,7 +114,24 @@ async function scenario(orgId, vendorId, status, actorId, sql, extra = "") {
                                           actor_id, actor_role, actor_tier, amount, decision)
            select distinct on (s.stage_order)
                   $1::uuid, 'vendor_payment', $2::uuid, s.stage_order, u.id,
-                  'viewer', null, 1, 'approved'
+                  -- ⚠️ THE PAYABLE'S OWN AMOUNT, not a placeholder.
+                  --
+                  -- This was a literal 1, and 0270's ordering check reads
+                  -- amount = the new row's amount: an earlier stage counts as
+                  -- approved only if it signed for the sum now in front of the
+                  -- desk. A fixture signed for ₦1 satisfies nothing, so the
+                  -- first REAL approval landing on a later stage was refused
+                  -- with "this payment has 1 earlier stage(s) still to be
+                  -- approved at 5,000.00" — the chain working, reported as the
+                  -- separation rule failing.
+                  --
+                  -- 📌 It hid for as long as it did because it is only
+                  -- reachable where the acting role lands on a stage that HAS
+                  -- an earlier one. Everywhere else stage_order <
+                  -- new.stage_order counted nothing and never looked at the
+                  -- figure. One ladder, one role, and a placeholder nobody had
+                  -- a reason to read.
+                  'viewer', null, (select p.amount from payments p where p.id = $2::uuid), 'approved'
              from payment_chain_stages($1::uuid) s
              cross join lateral unnest(s.required_roles) as want
              join users u
