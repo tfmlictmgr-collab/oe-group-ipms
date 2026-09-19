@@ -280,7 +280,15 @@ const db = new pg.Client({
 // Mirrors the EXEMPT map in scripts/generate-deactivation-guards.mjs. Kept in
 // two places on purpose: the migration's copy decides what shipped, this one
 // decides what is still believed, and a disagreement is worth a failed check.
-const EXEMPT = new Set(["accept_invitation", "reject_payment"]);
+const EXEMPT = new Set([
+  "accept_invitation",
+  "reject_payment",
+  // 0297. Writes one session.signed_in / session.signed_out audit row and
+  // nothing else. Deliberately reachable by a deactivated account: guarding it
+  // would delete the sign-out of the account somebody has just deactivated
+  // from the trail — the row a security reviewer most wants.
+  "record_session_event",
+]);
 
 try {
   await db.connect();
