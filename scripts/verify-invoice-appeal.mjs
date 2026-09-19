@@ -125,6 +125,46 @@ async function scenario(orgId, vendorId, status, actorId, sql, extra = "") {
             order by s.stage_order, u.approval_tier desc nulls last`,
           [orgId, id, actorId]
         );
+
+        // ⚠️ AND THEN CHECK IT WORKED.
+        //
+        // The insert above can quietly fill FEWER stages than the ladder has,
+        // and a short fixture does not look like a short fixture downstream —
+        // it looks like the rule under test refusing the act. On OEA it did
+        // exactly that: the executive scenario came back "this payment has 1
+        // earlier stage(s) still to be approved at 5,000.00", the assertion
+        // matched neither spelling of the remit refusal it was looking for, and
+        // a MISSING FIXTURE ROW was reported as a failure of separation of
+        // duties. The same class of bug the note above records having already
+        // fixed once, from the other end: that time the roles were wrong, this
+        // time they were right and unheld.
+        //
+        // It goes short whenever a stage has no holder but the actor —
+        // `u.id <> actorId` is separation of duties and is not negotiable, so
+        // where an org's cast cannot staff the ladder AROUND this actor, the
+        // scenario is unreachable on that org and must say so. Raised with a
+        // `FIXTURE:` prefix and reported as a NOTE, never a PASS: a scenario
+        // that could not be staged has proved nothing, and must not be able to
+        // masquerade as the rule holding.
+        const { rows: unfilled } = await db.query(
+          `select s.stage_order, array_to_string(s.required_roles, '/') as roles
+             from payment_chain_stages($1::uuid) s
+            where not exists (
+                  select 1 from payment_approvals a
+                   where a.payable_type = 'vendor_payment' and a.payable_id = $2::uuid
+                     and a.stage_order = s.stage_order)
+            order by s.stage_order`,
+          [orgId, id]
+        );
+        if (unfilled.length > 0) {
+          throw new Error(
+            // Kept short: `scenario()` truncates at 150 characters, and the
+            // NAMES of the unstaffed stages are the whole value of this.
+            `FIXTURE: stage(s) ${unfilled.map((r) => `${r.stage_order} (${r.roles})`).join(", ")} ` +
+            `unheld on this org except by the actor`
+          );
+        }
+
         await db.query("set local role authenticated");
         await db.query(asClaims(actorId));
         continue;
@@ -248,7 +288,9 @@ for (const org of (orgs ?? []).filter((o) => !o.is_platform_operator)) {
       ]);
       finRemit.ok
         ? ok("and finance remits it")
-        : bad(`finance could not remit: ${finRemit.err}`);
+        : /^FIXTURE:/.test(finRemit.err ?? "")
+          ? note(`finance remittance not staged here — ${finRemit.err.replace(/^FIXTURE: /, "")}`)
+          : bad(`finance could not remit: ${finRemit.err}`);
     }
 
     if (who.executive) {
@@ -261,9 +303,11 @@ for (const org of (orgs ?? []).filter((o) => !o.is_platform_operator)) {
       // Decision 23 reworded this and narrowed it to the payment officer alone,
       // where 0151 also allowed an administrator. Both spellings are matched so
       // the check does not depend on which migration a world has reached.
-      !execRemit.ok && /may remit payments|only finance or an administrator may remit/i.test(execRemit.err ?? "")
-        ? ok("an executive approves and still cannot remit — oversight authorises, the payment officer disburses")
-        : bad(`executive remittance: ${execRemit.err ?? "ALLOWED"}`);
+      /^FIXTURE:/.test(execRemit.err ?? "")
+        ? note(`executive remittance not staged here — ${execRemit.err.replace(/^FIXTURE: /, "")}`)
+        : !execRemit.ok && /may remit payments|only finance or an administrator may remit/i.test(execRemit.err ?? "")
+          ? ok("an executive approves and still cannot remit — oversight authorises, the payment officer disburses")
+          : bad(`executive remittance: ${execRemit.err ?? "ALLOWED"}`);
     }
   }
 
