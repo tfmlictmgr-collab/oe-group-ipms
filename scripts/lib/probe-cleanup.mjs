@@ -100,27 +100,57 @@ export async function sweepProbeProperties(svc, prefixes = ["PROBE", "Probe Cour
  * assertion passing has no cleanup on exactly the runs that need it.
  */
 export async function sweepProbeVendors(svc, prefixes = ["Perm probe", "PROBE", "PROBEBI-"]) {
-  let removed = 0;
+  // ⚠️ The prefixes OVERLAP, because `ilike` is case-insensitive: "Probe Chain
+  // Co" matches both `PROBE%` and `Probe %`. Looping the prefixes and deleting
+  // inside each one therefore attempted the same vendor two and three times
+  // and printed the same refusal as many times — eleven vendors produced
+  // twenty-seven warnings on dev (18 Sept), which reads as far more wrong than
+  // it is. Collect across every prefix first, then act on each vendor once.
+  const seen = new Set();
   for (const prefix of prefixes) {
     const { data } = await svc.from("vendors").select("id").ilike("name", `${prefix}%`);
-    if (!data?.length) continue;
-    const ids = data.map((v) => v.id);
+    for (const v of data ?? []) seen.add(v.id);
+  }
+  if (seen.size === 0) return 0;
+  const ids = [...seen];
 
-    // Anything pointing at them first, or the delete is refused and the sweep
-    // fails silently in the way it exists to prevent.
-    await svc.from("tickets").update({ assigned_vendor_id: null }).in("assigned_vendor_id", ids);
-    await svc.from("vendor_properties").delete().in("vendor_id", ids);
-    await svc.from("vendor_evaluations").delete().in("vendor_id", ids);
+  // Anything pointing at them first, or the delete is refused and the sweep
+  // fails silently in the way it exists to prevent.
+  await svc.from("tickets").update({ assigned_vendor_id: null }).in("assigned_vendor_id", ids);
+  await svc.from("vendor_properties").delete().in("vendor_id", ids);
+  await svc.from("vendor_evaluations").delete().in("vendor_id", ids);
 
-    for (const id of ids) {
-      const { error } = await svc.from("vendors").delete().eq("id", id);
-      if (!error) { removed++; continue; }
-      // ⚠️ Never swallow this. Between 0163 and 0180 EVERY vendor delete was
-      // refused by the last-owner trigger, and this loop reported `0` — which
-      // reads identically to "there was nothing to remove". A probe contractor
-      // sat in the analytics filter for weeks behind that silence.
-      console.warn(`  probe-cleanup: vendor ${id} NOT removed — ${error.message}`);
-    }
+  // `payout_recipients_vendor_id_fkey` refused eleven of twelve vendors on dev
+  // (18 Sept), and the four recipients that WOULD have unblocked them were not
+  // swept until later in the same run — children after parents, in the one
+  // function whose header promises the opposite.
+  //
+  // A payout destination is deletable only when no remittance names it. That is
+  // the rule `sweep-probe-residue.mjs` already applies to the recipients it
+  // sweeps directly, and it holds for the same reason: deleting a destination
+  // out from under a settled payout is the ledger equivalent of erasing an
+  // audit row. A recipient that IS named stays, and the vendor behind it stays
+  // with it — correctly, and it will be refused below with its reason printed.
+  const { data: recips } = await svc
+    .from("payout_recipients").select("id,vendor_id").in("vendor_id", ids);
+  for (const r of recips ?? []) {
+    const { count } = await svc.from("remittances")
+      .select("id", { count: "exact", head: true }).eq("recipient_id", r.id);
+    if ((count ?? 0) === 0) await svc.from("payout_recipients").delete().eq("id", r.id);
+  }
+
+  let removed = 0;
+  for (const id of ids) {
+    const { error } = await svc.from("vendors").delete().eq("id", id);
+    if (!error) { removed++; continue; }
+    // ⚠️ Never swallow this. Between 0163 and 0180 EVERY vendor delete was
+    // refused by the last-owner trigger, and this loop reported `0` — which
+    // reads identically to "there was nothing to remove". A probe contractor
+    // sat in the analytics filter for weeks behind that silence.
+    //
+    // A vendor held by `payments` is refused permanently and correctly: money
+    // that moved is retained, so the contractor it names is retained with it.
+    console.warn(`  probe-cleanup: vendor ${id} NOT removed — ${error.message}`);
   }
   return removed;
 }
