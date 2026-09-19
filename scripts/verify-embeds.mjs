@@ -60,15 +60,58 @@ function sources(dir, out = []) {
   return out;
 }
 
-// `.from("x")` … `.select("…")` — the select may sit on a later line, so the
-// gap is allowed to span whitespace, comments and chained calls.
-const CALL = /\.from\(\s*"([a-z_]+)"\s*\)[\s\S]{0,400}?\.select\(\s*(["'`])([\s\S]*?)\2/g;
+// `.from("x")` then the select that belongs to it. The select may sit on a
+// later line, so the gap spans whitespace, comments and chained calls.
+//
+// ⚠️ This was ONE regex — `.from\("x"\)[\s\S]{0,400}?\.select\("…"` — and
+// that shape reports embeds the application never asks for. The gap was lazy
+// but unrestricted, so a `.select(` whose argument is an IDENTIFIER rather
+// than a literal did not stop the search: the matcher walked straight past it
+// and paired the table with the NEXT query's select. In
+// `app/dashboard/people/directory/page.tsx` that produced
+// `users :: "user_id, properties(name)"` — `users` has no `user_id` column, so
+// the suite failed on a query nothing in the codebase makes, and reported it
+// as "a page that fails for every user".
+//
+// 📌 The false positive was the visible half. The silent half is worse and is
+// why this is a rewrite rather than a tightened quantifier: the run-on match
+// CONSUMED the `.from("property_stakeholders")` that the select actually
+// belonged to, so the real embed was never extracted and never executed. An
+// extractor that mis-attributes one query is also losing another.
+//
+// So the first `.select(` after a `.from(` is the one that belongs to it, and
+// if its argument is not a string literal this `.from(` simply has no embed to
+// replay. Two things end the search outright: another `.from(`, and 400
+// characters. Neither the table nor the select may be inferred across them.
+const FROM = /\.from\(\s*"([a-z_]+)"\s*\)/g;
 
 const found = new Map();   // "table::select" -> [files]
 for (const file of [...sources(path.join(rootDir, "app")), ...sources(path.join(rootDir, "lib"))]) {
   const src = fs.readFileSync(file, "utf8");
-  for (const m of src.matchAll(CALL)) {
-    const [, table, , select] = m;
+  for (const m of src.matchAll(FROM)) {
+    const table = m[1];
+    const after = m.index + m[0].length;
+    // The 400-character window bounds the GAP — how far a `.select(` may sit
+    // from its `.from(` — and nothing else. The select's own text is read from
+    // the unbounded remainder, or a long column list straddling the boundary
+    // would be silently dropped.
+    const gap = src.slice(after, after + 400);
+
+    const sel = gap.match(/\.select\(\s*/);
+    if (!sel) continue;
+    // A `.from(` in the gap means the select belongs to that one, not this.
+    if (/\.from\(/.test(gap.slice(0, sel.index))) continue;
+
+    const arg = src.slice(after + sel.index + sel[0].length);
+    const quote = arg[0];
+    // `.select(USER_COLUMNS)` and friends: a shared constant, not a literal
+    // this suite can replay. Skipped deliberately — see the note above about
+    // what happened when it was skipped by walking PAST it instead.
+    if (quote !== '"' && quote !== "'" && quote !== "`") continue;
+    const end = arg.indexOf(quote, 1);
+    if (end === -1) continue;
+    const select = arg.slice(1, end);
+
     // Only selects containing an EMBED are interesting; a plain column list
     // cannot be ambiguous, and running every one of them would be noise.
     if (!/\w\s*\(/.test(select)) continue;

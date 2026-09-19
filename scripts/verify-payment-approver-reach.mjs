@@ -111,23 +111,51 @@ if (auditor) {
 // arriving at the finance desk is the commonest way one of these turns up, and
 // the consequence — that a colleague must confirm it — is the control working.
 //
-// So the set is asserted as "identical APART FROM that one", in both directions,
-// rather than relaxed to a subset check: an approver quietly gaining a
-// capability the officer lacks is exactly what this section exists to catch,
-// and a subset check on one side would never see it.
-console.log("\n\x1b[1m§B The payment officer's capabilities, less the one that would break the chain\x1b[0m");
-const OFFICER_ONLY = ["payments.record_offline"];
+// So the set is asserted as "identical APART FROM the named few", in both
+// directions, rather than relaxed to a subset check: an approver quietly
+// gaining a capability the officer lacks is exactly what this section exists
+// to catch, and a subset check on one side would never see it.
+//
+// ⚠️ 0293 (13 Sept 2026, board) made the second deliberate exception, and this
+// section failed on it because the model only had room for the first. The
+// Payment Officer's role narrows to disbursement, so `sc.manage` — running the
+// service-charge budget and its apportionment — left `finance_approver` and
+// now sits with `property_manager` and the Approver, who already held it
+// through their own closed-list arm in `b7_grants`.
+//
+// 📌 The divergence is therefore TWO-SIDED now, and the asymmetry is the point:
+// `payments.record_offline` is the officer's alone because recording bars you
+// from confirming (0281/0282), and `sc.manage` is the approver's alone because
+// the officer's remit shrank. Naming each side separately keeps the REASON
+// attached to the exception instead of leaving a reader to work out which way
+// round it went — and keeps the check two-directional, which is what would
+// catch a third exception appearing without a decision behind it.
+console.log("\n\x1b[1m§B The two desks' capabilities, and the named few that differ\x1b[0m");
+const OFFICER_ONLY = ["payments.record_offline"];   // 0281, decision 45
+const APPROVER_ONLY = ["sc.manage"];                // 0293, 13 Sept 2026
 const capsFor = async (role) => {
   const { data } = await svc.rpc("b7_baseline");
   return (data ?? []).filter((r) => r.role === role && r.granted).map((r) => r.capability).sort();
 };
 const officerCaps = await capsFor("finance_approver");
 const approverCaps = await capsFor("payment_approver");
-const expected = officerCaps.filter((c) => !OFFICER_ONLY.includes(c));
+const expected = [
+  ...officerCaps.filter((c) => !OFFICER_ONLY.includes(c)),
+  ...APPROVER_ONLY.filter((c) => !officerCaps.includes(c)),
+].sort();
 
 JSON.stringify(approverCaps) === JSON.stringify(expected)
-  ? ok(`the officer's set less ${OFFICER_ONLY.join(", ")} (${approverCaps.length}): ${approverCaps.join(", ")}`)
+  ? ok(`the officer's set, less [${OFFICER_ONLY.join(", ")}], plus [${APPROVER_ONLY.join(", ")}] (${approverCaps.length}): ${approverCaps.join(", ")}`)
   : bad(`officer has [${officerCaps.join(", ")}], approver has [${approverCaps.join(", ")}], expected [${expected.join(", ")}]`);
+
+// Each exception named directly as well, so a future edit to the sets cannot
+// quietly satisfy the comparison above by moving BOTH desks at once.
+officerCaps.includes("sc.manage")
+  ? bad("the payment officer regained sc.manage — 0293 moved budget administration off the disbursement desk")
+  : ok("the payment officer holds no sc.manage — their remit is disbursement (0293)");
+approverCaps.includes("sc.manage")
+  ? ok("the payment approver administers the service charge — the senior accounting desk (0246, kept by 0293)")
+  : bad("the payment approver lost sc.manage — nobody senior to the property manager can run the budget");
 
 // Named directly, so the REASON survives a future change to either set. 0281
 // asserts the same thing in the migration; this proves it of the live baseline.

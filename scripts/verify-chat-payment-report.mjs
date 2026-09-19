@@ -249,8 +249,23 @@ section("C. Recording it");
     await auditor.auth.signInWithPassword({ email: "oea.paymentauditapprover@oegroup.test", password: PW });
     const exec = createClient(URL_, ANON, { auth: { persistSession: false } });
     await exec.auth.signInWithPassword({ email: "oea.executive@oegroup.test", password: PW });
-    const officer = createClient(URL_, ANON, { auth: { persistSession: false } });
-    await officer.auth.signInWithPassword({ email: "oea.financeapprover@oegroup.test", password: PW });
+    // ⚠️ Stage 3 is the PAYMENT APPROVER, not the Payment Officer.
+    //
+    // This signed in as `oea.financeapprover` until 0293 (13 Sept 2026, board)
+    // narrowed the Payment Officer's role to disbursement and moved
+    // "confirmation and ledger posting" to `payment_approver`. The chain then
+    // refused this suite's own stage 3 with "…is actioned by payment_approver,
+    // and you are finance_approver" — the control working, reported as a
+    // failure, and the "demand did not settle" line below was nothing but its
+    // shadow.
+    //
+    // 📌 `verify-offline-payments.mjs` was moved onto the new desk when 0293
+    // landed and this suite was not, which is how a decision that WAS applied
+    // to the database came back looking like two money bugs. The claim table
+    // and the chain are shared (that is section C's whole assertion), so
+    // whoever drives the chain in one suite drives it in both.
+    const approver = createClient(URL_, ANON, { auth: { persistSession: false } });
+    await approver.auth.signInWithPassword({ email: "oea.paymentapprover@oegroup.test", password: PW });
 
     const { data: lines } = await auditor.rpc("offline_claim_lines", { p_claim_id: claimId });
     (lines ?? []).length === 1
@@ -259,7 +274,7 @@ section("C. Recording it");
 
     await auditor.rpc("confirm_offline_payment", { p_claim_id: claimId, p_stage: 1, p_decision: "confirmed" });
     await exec.rpc("confirm_offline_payment", { p_claim_id: claimId, p_stage: 2, p_decision: "confirmed" });
-    const { error: postErr } = await officer.rpc("confirm_offline_payment",
+    const { error: postErr } = await approver.rpc("confirm_offline_payment",
       { p_claim_id: claimId, p_stage: 3, p_decision: "confirmed" });
     postErr ? bad(`the chain refused a chat claim: ${postErr.message}`)
             : ok("the three desks confirm it and it posts — one claim table, one chain");
