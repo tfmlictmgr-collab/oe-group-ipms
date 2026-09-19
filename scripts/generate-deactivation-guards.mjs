@@ -102,6 +102,8 @@ const EXEMPT = {
     "creates the users row - a guard reading that row would refuse every new joiner",
   reject_payment:
     "not SECURITY DEFINER - runs under RLS as the caller, which already fails closed",
+  record_session_event:
+    "0297 - writes one audit row and nothing else; a guard would delete the sign-out of the account you just deactivated",
 };
 
 const GUARD_SQL = `  -- Deactivation guard. Null-safe by construction: current_user_is_active()
