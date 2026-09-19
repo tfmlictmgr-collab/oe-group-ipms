@@ -113,6 +113,37 @@ console.log("\nB. The deliberate exclusions still hold");
     approval_chain_shape: "single_stage",
     approval_tiers_enabled: true,
   };
+
+  // ⚠️ 0288, and probed with the value the row ALREADY HOLDS — the one entry
+  // here that is not a hostile value, deliberately.
+  //
+  // `uses_platform_gateway` says which organisation owns the platform's own
+  // Paystack/Flutterwave merchant account. An administrator who could set it
+  // would be claiming ANOTHER organisation's merchant key, so their tenants'
+  // rent would settle into an account that is not theirs. It reads like a
+  // feature flag and is a money-routing control.
+  //
+  // Two reasons not to write `true` here the way the entries above write a
+  // hostile value:
+  //
+  //   1. `orgs_one_platform_gateway_owner` is a UNIQUE index over the single
+  //      org that holds it. On any other org, `true` would be refused BY THE
+  //      INDEX — and this section cannot tell an index from a missing grant, so
+  //      a widened allowlist would be reported as "still refused". A check that
+  //      passes for the wrong reason is worse than no check.
+  //   2. On the org that DOES hold it, a successful write of `false` would
+  //      strip the platform's merchant owner — this suite already has one
+  //      incident (section C's note) from writing a value it had no business
+  //      writing.
+  //
+  // A same-value write is still a real probe: the column-level privilege is
+  // checked against the columns NAMED in the payload, not against whether any
+  // value changes, so a missing grant refuses it either way. That is the
+  // opposite of the "a no-op cannot pass" caution on `admin_fee_basis` above,
+  // which is about a value assertion, not a permission one.
+  const { data: gw } = await svc.from("orgs")
+    .select("uses_platform_gateway").eq("id", me.org_id).single();
+  forbidden.uses_platform_gateway = gw?.uses_platform_gateway ?? false;
   for (const [col, value] of Object.entries(forbidden)) {
     const { error } = await admin.from("orgs").update({ [col]: value }).eq("id", me.org_id);
     error
@@ -170,6 +201,17 @@ console.log("\nC. Every orgs column is either allowed or deliberately excluded")
     // against is approving against nothing. Section B attempts both.
     "approval_chain_shape",
     "approval_tiers_enabled",
+    // ⚠️ 0288, and the reason this section pays for itself: the column was
+    // added with its own guard asserting it is NOT in an UPDATE allowlist, and
+    // it still arrived here unclassified — because "0288 deliberately withheld
+    // it" and "nobody thought about it" are indistinguishable from this side of
+    // the line. That is the entire point of section C, and it worked.
+    //
+    // Owning the platform merchant account is an OPERATOR decision: at most one
+    // org holds it (unique index), and the org that holds it is the one whose
+    // merchant key the platform's own configuration carries. Section B attempts
+    // the write.
+    "uses_platform_gateway",
   ]);
 
   // ⚠️ THE CALLER'S OWN ROW. Not `.limit(1)`.
