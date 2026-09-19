@@ -534,7 +534,7 @@ console.log("\n\x1b[1m§G The tenancy schedule\x1b[0m");
 
   const { data: rows, error } = await admin
     .from("tenancy_schedule")
-    .select("property_name, owner_name, unit_label, tenant_name, rent_amount, rent_billed, management_fee_pct, service_charge_billed, remark")
+    .select("property_id, property_name, owner_name, unit_label, tenant_name, rent_amount, rent_billed, management_fee_pct, service_charge_billed, remark")
     .limit(200);
 
   if (error) {
@@ -547,9 +547,50 @@ console.log("\n\x1b[1m§G The tenancy schedule\x1b[0m");
     ok(`an administrator reads ${rows.length} of ${count} tenancies on the schedule`);
     const withOwner = rows.filter((r) => r.owner_name).length;
     const withFee = rows.filter((r) => r.management_fee_pct != null).length;
-    withOwner > 0
-      ? ok(`${withOwner} row(s) name their landlord — the workbook's header block`)
-      : bad("no schedule row could name a landlord");
+
+    // ⚠️ "No landlord named" has TWO causes and only one of them is a defect.
+    //
+    // This asserted `withOwner > 0` outright and failed on OEA, whose 12
+    // tenancies sit on properties with no owner-of-record on file at all —
+    // measured: 0 rows in `property_stakeholders` with `relation = 'owner'`,
+    // nothing dangling, no user with a blank name. There is no landlord for the
+    // schedule to name, so the view is behaving correctly and the check was
+    // reporting an EMPTY REGISTER as a broken one.
+    //
+    // 📌 The distinction is the whole value of this check, so it is drawn
+    // rather than relaxed. `owner_name` is `ownu.full_name` reached through a
+    // lateral join on `property_stakeholders` (0254), and the view is
+    // `security_invoker`, so a null arrives by three different routes:
+    //
+    //   1. nobody recorded an owner       — a gap in the RECORDS. A note.
+    //   2. an owner is recorded and the join cannot reach them — broken view.
+    //   3. an owner is recorded and RLS hides the row from this administrator
+    //      — an administrator who cannot see their own org's landlords.
+    //
+    // (2) and (3) are both faults and both still fail, because the count below
+    // is taken with the SERVICE ROLE: it is ground truth about what exists,
+    // not about what this caller can see, so an RLS gap cannot masquerade as an
+    // empty register.
+    if (withOwner > 0) {
+      ok(`${withOwner} row(s) name their landlord — the workbook's header block`);
+    } else {
+      const propertyIds = [...new Set(rows.map((r) => r.property_id).filter(Boolean))];
+      const { count: ownerRows } = await svc
+        .from("property_stakeholders")
+        .select("property_id", { count: "exact", head: true })
+        .eq("relation", "owner")
+        .in("property_id", propertyIds);
+
+      (ownerRows ?? 0) === 0
+        ? note(
+            `no owner of record is on file for any of the ${propertyIds.length} propert(ies) behind ` +
+            `these tenancies, so the schedule has no landlord to name — the register is empty, not unreachable`
+          )
+        : bad(
+            `no schedule row could name a landlord, yet ${ownerRows} owner stakeholder row(s) exist on ` +
+            `these properties — the schedule cannot reach an owner that IS on file`
+          );
+    }
     withFee > 0
       ? ok(`${withFee} row(s) carry the fee at the rate that applied`)
       : note("no tenancy has been billed yet, so no fee rate has been snapshotted");
