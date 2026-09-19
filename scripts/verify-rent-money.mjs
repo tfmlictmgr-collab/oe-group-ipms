@@ -86,13 +86,27 @@ const PCT = Number(oea.management_fee_pct);
 const FEE = Math.round(RENT * PCT / 100 * 100) / 100;
 // ⚠️ The flat admin fee counts too. `record_collection` posts ONE combined
 // `fee_income` line (0092) — management + admin together — and OEA carries a
-// non-zero `admin_fee_flat` (₦25,000, decision 14: "the admin fee stays an
-// org-wide flat placeholder"). A FEE constant that only knows the pct made
-// every landlord-share and fee_income comparison below wrong by exactly that
-// amount; the product was deducting both and being reported as wrong for it —
-// the same defect `verify-remittance-race` already found and fixed.
+// non-zero `admin_fee_flat` (₦25,000). A FEE constant that only knows the pct
+// made every landlord-share and fee_income comparison below wrong by exactly
+// that amount; the product was deducting both and being reported as wrong for
+// it — the same defect `verify-remittance-race` already found and fixed.
+//
+// ⚠️ TOTAL_FEE is the FIRST demand's fee and only that one. Decision 14's
+// "org-wide flat placeholder" was superseded on 21 Aug 2026 by `0181`: the
+// admin fee is charged ONCE PER TENANCY, on the first demand, unless the org
+// or the lease says `per_demand`. `orgs.admin_fee_basis` defaults to
+// `per_tenancy`, so the second and third demands below carry management fee
+// only. Sections C and D assumed TOTAL_FEE applied to every demand and failed
+// by exactly the admin fee each time — ₦12,500 on a half payment, ₦37,500 on
+// the remittance — reporting the product as wrong for obeying the decision.
+// They now read each demand's own snapshot, which is right under either basis.
 const ADMIN_FEE = Number(oea.admin_fee_flat ?? 0);
 const TOTAL_FEE = FEE + ADMIN_FEE;
+
+// Each demand's fee as the database snapshotted it, in the order raised.
+const chargeFees = [];
+const feeOf = (row) =>
+  Number(row.management_fee_amount ?? 0) + Number(row.admin_fee_amount ?? 0);
 
 console.log("Rent money, from tenant to landlord\n");
 
@@ -104,6 +118,7 @@ let charge, entryId;
   });
   if (error) { bad(`could not raise the demand — ${error.message.slice(0, 70)}`); }
   charge = (await svc.from("rent_charges").select("*").eq("id", chargeId).single()).data;
+  chargeFees.push(feeOf(charge));
 
   const { data: intentId, error: ie } = await svc.rpc("create_rent_payment_intent", {
     p_rent_charge_id: chargeId,
@@ -170,7 +185,8 @@ console.log("\nB. The snapshot governs, not a rate read at payment time");
   });
   const snap = (await svc.from("rent_charges")
     .select("management_fee_amount, admin_fee_amount").eq("id", cid).single()).data;
-  const snapFee = Number(snap.management_fee_amount) + Number(snap.admin_fee_amount);
+  const snapFee = feeOf(snap);
+  chargeFees.push(snapFee);
 
   await svc.from("orgs").update({ management_fee_pct: 40 }).eq("id", oea.id);
 
@@ -196,6 +212,11 @@ console.log("\nC. A part payment apportions the fee");
   const { data: cid } = await svc.rpc("raise_rent_charge", {
     p_lease_id: lease.id, p_period_start: "2028-09-01", p_period_end: "2029-09-01",
   });
+  const snapC = (await svc.from("rent_charges")
+    .select("management_fee_amount, admin_fee_amount").eq("id", cid).single()).data;
+  const feeC = feeOf(snapC);
+  chargeFees.push(feeC);
+
   const { data: iid } = await svc.rpc("create_rent_payment_intent", { p_rent_charge_id: cid });
   made.intents.push(iid);
 
@@ -208,9 +229,13 @@ console.log("\nC. A part payment apportions the fee");
   const fee = -(postings ?? []).filter((p) => p.ledger_accounts?.purpose === "fee_income")
     .reduce((s, p) => s + Number(p.amount), 0);
 
-  Math.abs(fee - TOTAL_FEE / 2) < 0.01
+  // ⚠️ Half of THIS demand's fee, not half of the first demand's. Under the
+  // default `per_tenancy` basis (0181) this demand carries management fee only,
+  // the admin fee having been taken on the first. Asserting against TOTAL_FEE
+  // failed by ₦12,500 — half the admin fee — and blamed the apportionment.
+  Math.abs(fee - feeC / 2) < 0.01
     ? ok(`half the rent takes half the fee (${naira(fee)}), not the whole of it`)
-    : bad(`took ${naira(fee)} on a half payment; the full fee is ${naira(TOTAL_FEE)}`);
+    : bad(`took ${naira(fee)} on a half payment; this demand's fee is ${naira(feeC)}`);
 
   const { data: st } = await svc.from("rent_charges").select("status").eq("id", cid).single();
   st.status === "part_paid" ? ok("and the demand reads part paid") : bad(`status is ${st.status}`);
@@ -258,10 +283,16 @@ console.log("\nD. The fee is taken once — remittance deducts nothing further")
       ? ok("so gross and net are the same figure")
       : bad(`gross ${rem.gross_amount} but net ${rem.net_amount}`);
 
-    // Collected only: two full charges (net RENT - TOTAL_FEE each) plus half of
-    // the part-paid one (net (RENT - TOTAL_FEE) / 2) — the unpaid remainder must
-    // NOT be remitted.
-    const expected = (RENT - TOTAL_FEE) * 2 + (RENT - TOTAL_FEE) / 2;
+    // Collected only: the two demands paid in full, plus half of the part-paid
+    // one — the unpaid remainder must NOT be remitted.
+    //
+    // ⚠️ Each demand nets RENT minus ITS OWN fee, which is not the same figure
+    // three times. Under `per_tenancy` (0181, the default) only the first
+    // carries the admin fee. Assuming TOTAL_FEE throughout understated the
+    // payout by ₦37,500 — the admin fee on the second demand plus half of it on
+    // the third — and reported the remittance as overpaying when it was right.
+    const [feeA, feeB, feeCharged] = chargeFees;
+    const expected = (RENT - feeA) + (RENT - feeB) + (RENT - feeCharged) / 2;
     Math.abs(Number(rem.net_amount) - expected) < 1
       ? ok(`it pays out only what was collected (${naira(rem.net_amount)})`)
       : bad(`paid out ${naira(rem.net_amount)}, expected ${naira(expected)}`);
