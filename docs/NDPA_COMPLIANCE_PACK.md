@@ -37,8 +37,25 @@ where international clients are in scope (`CLAUDE.md` A3).
 | **Special category** | `tenant_applications.sensitive` — religion, marital status | applicants |
 | Identity documents | `application-documents` bucket (private) | applicants |
 | Property imagery | `work-order-media` bucket (private) — photographs taken **inside** client homes | tenants, incidentally |
+| Vendor due diligence | `vendor-documents` bucket (private) — CAC certificates, tax clearance, insurance | vendors, and the named directors in them |
+| Invoices & completion evidence | `invoice-attachments` bucket (private) | vendors, tenants incidentally |
+| Proof of payment | `payment-proofs` bucket (private) — teller slips and transfer receipts | tenants, and whoever's name is on the slip |
+| Proof of bank details & payout | `payout-evidence` bucket (private) — a payee's own bank letter or statement | vendors, landlords, ops staff |
+| Brand marks | `org-logos` bucket — **public by design**, painted on the sign-in page before anyone authenticates | no personal data |
 | Financial | `payments`, `rent_charges`, `service_charges`, `ledger_*`, `payout_recipients` (bank details) | tenants, vendors, landlords |
 | Behavioural | `tickets`, `ticket_messages`, `audit_log`, `user_notifications` | everyone |
+
+⚠️ **This inventory listed two buckets until 20 Sept 2026.** Four holding
+personal data — vendor KYC, invoices, payment proof and bank evidence — were
+built after it was written (`0140`, `0164`, `0281`, `0289`) and never added. All
+seven, with their `public` flag, size limit and MIME allowlist read out of their
+creating migration, are tabulated in `GO_LIVE_CHECKLIST.md` §1.
+
+⚠️ **The full bank account number is never stored** (decision 17, `0289`). A
+payee uploads a document showing it, the payment officer reads it off that
+document to make the transfer, and the system retains only the bank, the account
+name and the last four digits. The document itself lives in `payout-evidence`
+and is therefore subject to the same retention clock as every other record here.
 
 ### ✅ Special-category data is walled off
 

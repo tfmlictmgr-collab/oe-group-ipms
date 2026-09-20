@@ -5,6 +5,17 @@
 > describes the frozen `poc-demo-v1` demo, not the current `phase-1` dev world.
 > For current deployment facts see `HANDOFF.md`; for the production cutover
 > checklist see `GO_LIVE_CHECKLIST.md`.
+>
+> ⚠️ **Do not use the environment-variable list below for production**
+> (note added 20 Sept 2026). It is a true record of what the POC needed in July
+> and is wrong for this system now in both directions: it omits
+> `GATEWAY_CREDENTIAL_KEY`, `NEXT_PUBLIC_SITE_URL`, the Sentry build-time pair
+> and the six rate-limit tunables, and it lists `DEMO_ORG_ID`,
+> `WHATSAPP_ACCESS_TOKEN` and `WHATSAPP_PHONE_NUMBER_ID`, none of which the
+> application reads at runtime any more. **The authoritative list is
+> `GO_LIVE_CHECKLIST.md` §2.** This page is kept as the dated snapshot it says
+> it is, not corrected in place, because rewriting it would destroy the record
+> of what the POC actually ran on.
 
 **Reviewed:** 2026-07-22 · **Pathway A** (already live on Vercel since Day 1).
 **Gate:** nothing about demo day depends on a laptop's network connection.

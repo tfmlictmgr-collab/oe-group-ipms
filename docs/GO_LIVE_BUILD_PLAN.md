@@ -410,6 +410,64 @@ three weeks and 89 commits behind. Specifically:
   the tenancy offer/accept/record flow (`0263`), and the operator-governed
   records export (`0239`).
 
+**✅ Done 20 Sept 2026.** Four documents changed, everything measured against
+`supabase/migrations/`, `lib/` and `app/` rather than carried forward:
+
+- `GO_LIVE_CHECKLIST.md` §1 — the bucket check is now a **seven-row table**
+  with each bucket's `public` flag, size limit, MIME allowlist and creating
+  migration. Two things the count alone would have hidden: **`vendor-documents`
+  is 2 MiB, not the 15 MiB `0164` created it at** (`0213` lowered it and cut the
+  allowlist to four types), and the operator-admin step is no longer marked
+  blocked — it now names `scripts/bootstrap-production.mjs` (§2.4) and records
+  that `0088` creates the `oe-group` org by migration, so there is nothing to
+  seed.
+- `GO_LIVE_CHECKLIST.md` §2 — the eight named variables added, **and three
+  struck that the code no longer reads**, found by sweeping every
+  `process.env.*` in `lib/`, `app/`, `middleware.ts` and `next.config.mjs`:
+  `NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY` (read **nowhere** — checkout is Paystack's
+  hosted page, initialised server-side, so there is one key and not a pair),
+  and `WHATSAPP_ACCESS_TOKEN` / `WHATSAPP_PHONE_NUMBER_ID` (the shared-token
+  fallback was deliberately removed from `lib/notify.ts` on 11 Sept 2026;
+  outbound resolves from `channel_routes.outbound_token` only). Both are still
+  needed **locally** by the registration scripts at cutover, which is now
+  stated. `TELEGRAM_WEBHOOK_SECRET` is likewise not a runtime variable —
+  webhook auth is the per-bot header matched against `channel_routes`.
+- `GO_LIVE_CHECKLIST.md` **§2a, new** — eight configuration steps that are a
+  *row in the production database*, not a bucket or a variable, none of which
+  appeared in any document: binding `custom_domain` per org; designating the
+  **one** org that may hold `uses_platform_gateway` (`0288` defaults it false
+  for every org with a unique index enforcing at most one — so **every other org
+  cannot take an online payment until it connects its own merchant account**);
+  publishing each org's collection account number (`0286`); staffing the four
+  desks the inflow and outflow chains need (`0282`/`0293`); confirming each
+  org's approval-chain shape and bands, which ship off/null by default
+  (`0248`/`0261`, screen added by `0268`); deciding `records.export` per client
+  org (`0239`, off for every role including admin); rehearsing the tenancy
+  offer → acceptance → lease sequence (`0263`) in production UAT by name; and
+  the standing fact that payout bank details are **evidence, not a stored
+  field** (`0289`/`0296`).
+- `GO_LIVE_RUNWAY.md` step 2 and `NDPA_COMPLIANCE_PACK.md` §2 carried the same
+  stale count — the compliance pack's data inventory named **two** buckets of
+  seven, omitting four that hold personal data (vendor KYC, invoices, payment
+  proof, bank evidence). Both corrected; the inventory now also records that the
+  full bank account number is never stored.
+- `DEPLOYMENT.md` — **not** rewritten. It is a dated POC snapshot and rewriting
+  it would destroy the record of what the POC ran on; its banner now says
+  explicitly that its env list is wrong in both directions and points at
+  `GO_LIVE_CHECKLIST.md` §2.
+
+⚠️ **One finding a document cannot fix, recorded as an open question in
+`GO_LIVE_CHECKLIST.md` §5 rather than changed here.** `application-documents`
+carries **no size limit and no MIME allowlist**, and it is the system's only
+anonymous-writable surface (`0062` grants `insert` to `anon`, gated on the org
+accepting applications). Every bucket built since sets both. The only ceiling
+today is the Supabase **project-level** upload limit. Two defensible answers —
+set the project-level limit deliberately at cutover (no code change), or narrow
+the bucket by migration the way `0213` narrowed `vendor-documents` (safer, but
+it re-opens §2.11: cut `rc3`, re-run Stage 0). **This needs a decision; 2.1
+could not make it**, because 2.1 is a documentation refresh and this is a
+property of the schema.
+
 **2.2 Put every production secret in the secret manager**, `GATEWAY_CREDENTIAL_KEY`
 first (gap B). Generate it with `openssl rand -base64 32` — `credentials.ts`
 refuses anything that does not decode to 32 bytes, which is the good kind of
@@ -759,7 +817,7 @@ one-line reason rather than deleting it silently.
 - [ ] 1.12 Target date and board go/no-go slot set
 
 ### Stage 2 — Close the technical gaps
-- [ ] 2.1 Cutover docs refreshed: 7 buckets, full env table, new flows *(gaps A, B, C)*
+- [x] 2.1 Cutover docs refreshed: 7 buckets, full env table, new flows *(gaps A, B, C)* — **done 20 Sept 2026**
 - [ ] 2.2 All production secrets in the manager, `GATEWAY_CREDENTIAL_KEY` escrowed *(gap B)*
 - [ ] 2.3 Gateway credential store/restart/read-back proven on staging
 - [~] 2.4 `bootstrap-production.mjs` + `verify-bootstrap.mjs` **built 2026-09-20**

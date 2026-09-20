@@ -143,20 +143,44 @@ Detailed steps are in `GO_LIVE_CHECKLIST.md` §1. The order that matters:
    `npm run migrate` — **schema only, `npm run seed` is never run.** Production
    starts empty by construction; every real row arrives through the real
    onboarding flow.
-2. **I** verify the three storage buckets exist and that the two private ones
-   really are private (`work-order-media` and `application-documents` hold
-   photographs of client homes and identity documents respectively).
+2. **I** verify the **seven** storage buckets exist and that the **six**
+   private ones really are private — `work-order-media` (photographs inside
+   client homes), `application-documents` (identity documents),
+   `vendor-documents` (vendor KYC), `invoice-attachments`, `payment-proofs` and
+   `payout-evidence` (bank evidence); `org-logos` is public by design. Sizes,
+   MIME allowlists and the migration each comes from are the table in
+   `GO_LIVE_CHECKLIST.md` §1. **This step read “three” until 20 Sept 2026**,
+   which would have verified three and waved four through.
 3. **I** set every production environment variable — live keys, not the test
    ones (full table: `GO_LIVE_CHECKLIST.md` §2).
-4. **I** seed **only** the operator organisation and its first admin account —
-   the minimum needed for a human to provision TFML, OEA and any client org
-   through the real UI.
+4. **I** create **only** the first operator admin account, with
+   `scripts/bootstrap-production.mjs` — the minimum needed for a human to
+   provision TFML, OEA and any client org through the real UI. The operator org
+   `oe-group` itself is created by migration `0088`, so there is nothing to
+   seed; the script refuses any target that is not the production project or
+   whose tables are not empty, and `npm run seed` is never run.
 5. **I** re-register both 360dialog webhooks and both Telegram webhooks to the
    production host.
 6. **I** confirm `tfmlportal.com` / `oeaportal.com` resolve to the **new**
    deployment, verified by content rather than status code.
-7. **You** run multi-role UAT against production.
-8. **You** give the go/no-go.
+7. **I** apply the post-cutover configuration — the settings that are a **row
+   in the database**, not a bucket or a variable, and that nothing creates for
+   you: binding `custom_domain` on every org (immediately after step 6, and
+   before any invitation or receipt is sent), designating the one org that may
+   hold `uses_platform_gateway`, publishing each org's collection account
+   number, confirming the approval-chain shape and bands per org, and deciding
+   `records.export` per client org. Full list with the reason for each:
+   `GO_LIVE_CHECKLIST.md` §2a — **new 20 Sept 2026**, none of it was written
+   down anywhere before.
+8. **You** confirm a real person holds each of the four money desks
+   (`payment_audit_approver`, `executive`, `payment_approver`,
+   `finance_approver`) in each org. A chain whose desk is empty stalls silently
+   at that stage, and the place to find that out is not the first real payment.
+9. **You** run multi-role UAT against production — including the **tenancy
+   offer → acceptance → lease** sequence (`0263`) by name. It is the first
+   thing a real applicant touches, it runs entirely outside an authenticated
+   session, and its failure mode is a one-time link that silently does not open.
+10. **You** give the go/no-go.
 
 ---
 
