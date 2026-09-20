@@ -762,7 +762,18 @@ one-line reason rather than deleting it silently.
 - [ ] 2.1 Cutover docs refreshed: 7 buckets, full env table, new flows *(gaps A, B, C)*
 - [ ] 2.2 All production secrets in the manager, `GATEWAY_CREDENTIAL_KEY` escrowed *(gap B)*
 - [ ] 2.3 Gateway credential store/restart/read-back proven on staging
-- [ ] 2.4 `bootstrap-production.mjs` + `verify-bootstrap.mjs` built and proven *(gap D)*
+- [~] 2.4 `bootstrap-production.mjs` + `verify-bootstrap.mjs` **built 2026-09-20**
+      *(gap D)*. Guard chain exercised across 10 scenarios against stubs: it
+      refuses demo/dev/staging by name with no override, refuses a `--confirm`
+      that does not match `.env.local`, refuses without `--email`, refuses a
+      project with no operator org, with a third organisation, or with any
+      existing account — and on a clean target creates exactly one admin, writes
+      `operator.bootstrapped` to the trail, and issues a one-time link. A second
+      run is a no-op.
+      ⚠️ **Not yet proven on staging.** The half that needs a real world is
+      "the created admin can sign in and create an org", and that needs an empty
+      production project, which exists once. Run `verify-bootstrap.mjs` on
+      staging to confirm the refusals hold against a real database.
 - [ ] 2.5 PITR enabled and retention window recorded in the compliance pack *(gap F)*
 - [ ] 2.6 Rate-limit posture decided for payment webhooks and remittance
 - [ ] 2.7 Gemini — billing enabled, or best-effort accepted in writing
