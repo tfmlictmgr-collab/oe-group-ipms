@@ -34,6 +34,14 @@ export default function ApplyForm({
   // Used to reject submissions that arrive impossibly fast for a human.
   const renderedAt = React.useRef<number>(Date.now());
 
+  // Mint a fresh Turnstile token. Safe to call when Turnstile is off or the
+  // script has not loaded — both leave `window.turnstile` undefined.
+  const resetTurnstile = () => {
+    if (typeof window === "undefined") return;
+    (window as unknown as { turnstile?: { reset: (w?: string) => void } })
+      .turnstile?.reset();
+  };
+
   const set = (k: string) => (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
   ) => setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -70,10 +78,21 @@ export default function ApplyForm({
         setDone(true);
         toast.success("Application submitted");
       } else {
+        // ⚠️ A Turnstile token is SINGLE USE. Without this reset, the token
+        // spent on a failed attempt is the same one `getResponse()` hands back
+        // on the next — so every retry fails the bot check, whatever the first
+        // failure actually was.
+        //
+        // The trap is worst for the innocent case: Turnstile is verified before
+        // validation, so mistyping an email spends the token, and correcting
+        // the typo then fails with "Bot check failed. Please reload the page".
+        // An applicant fixing their own mistake is told they look like a bot.
+        resetTurnstile();
         setError(res.message);
         toast.error("Not submitted", { description: res.message });
       }
     } catch {
+      resetTurnstile();
       setError("Something went wrong. Please try again.");
     } finally {
       setBusy(false);
