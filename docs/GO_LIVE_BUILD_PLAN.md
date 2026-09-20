@@ -53,7 +53,7 @@ in a clean worktree.
   merged" → it is on `phase-1`.
 
 **What was NOT verified today, and cannot be from here:** anything needing
-database credentials. `npm run verify` (123 suites), the migration run, and
+database credentials. `npm run verify` (124 suites), the migration run, and
 every RLS assertion are green *as of the last recorded run*, not as of today.
 Re-running them against the release tag is step 0.3 below, and it is not a
 formality — it is the only thing that proves the 89 commits since the last
@@ -199,7 +199,7 @@ it again on the tag because the merge commit is a different commit.
 npm ci && npx tsc --noEmit && npx next lint && npm run build
 ```
 
-**0.3 Run every verification suite against `dev`, and record it.** 123 suites.
+**0.3 Run every verification suite against `dev`, and record it.** 124 suites.
 Do **not** run it against staging or production.
 
 ```
@@ -806,7 +806,7 @@ routine; this one is not.
 | 7.4 | **Next 14 → 16 and `@sentry/nextjs` major upgrade**, with its own regression cycle | Two majors across routing, caching and Server Actions. First post-go-live work item, never a cutover edit |
 | 7.5 | **Monitoring that someone actually reads** — Sentry (root-cause the `NEXT_PUBLIC_SENTRY_DSN` rejection seen on staging first), cron-job failure alerts, and a standing query on `tickets.classified_by` so "are we quietly running on the fallback?" is a fact rather than a hunch | |
 | 7.6 | **Restore drill on production**, quarterly, from the PITR window enabled at 2.5 | A backup nobody has restored is a belief, not a backup |
-| 7.7 | **Re-run `npm run verify` after every production deploy** | 123 suites are the regression net; CI proves the build, this proves the database |
+| 7.7 | **Re-run `npm run verify` after every production deploy** | 124 suites are the regression net; CI proves the build, this proves the database |
 
 ---
 
@@ -875,8 +875,28 @@ one-line reason rather than deleting it silently.
 
 ### Stage 2 — Close the technical gaps
 - [x] 2.1 Cutover docs refreshed: 7 buckets, full env table, new flows *(gaps A, B, C)* — **done 20 Sept 2026**
-- [ ] 2.2 All production secrets in the manager, `GATEWAY_CREDENTIAL_KEY` escrowed *(gap B)*
-- [ ] 2.3 Gateway credential store/restart/read-back proven on staging
+- [~] 2.2 `GATEWAY_CREDENTIAL_KEY` **generated and set on staging Vercel,
+      20 Sept 2026** *(gap B)* — and proven to work by 2.3.
+      ⚠️ **Not done until the custody record is signed.** The control is the
+      paperwork, not the safe: `docs/KEY_CUSTODY_RECORD.md` §3, two sealed
+      envelopes with two named holders in different buildings, and the same
+      again for the backup passphrase (K2) once `--encrypt` is first used. A
+      key that only one person can reach is a key the organisation does not
+      have.
+- [x] 2.3 **Gateway credential proven end to end on staging, 20 Sept 2026** —
+      and by a stronger route than the one planned. Raising a payment request
+      from Collections calls `resolveOrgGateway` → `getOrgCredential` →
+      `decryptSecret`, then hands the DECRYPTED key to Paystack's
+      `initialise`. A request was raised successfully
+      (`OE-F2ED01-SE-MUAB9ZBY-55FBD4`), which means three things in sequence:
+      the stored ciphertext was read, `GATEWAY_CREDENTIAL_KEY` on the
+      deployment decrypted it, and **Paystack accepted the result**. A key that
+      decrypted to garbage would have produced an auth failure, not a payment
+      link — so "present but wrong", which is the failure 2.3 exists to
+      exclude, is excluded by evidence rather than by inspection.
+      ⚠️ The Settings → Banking screen shows only `secret_last4` and never
+      decrypts, so reading it back there would have proven nothing. Noted
+      because it is the obvious place to look.
 - [~] 2.4 `bootstrap-production.mjs` + `verify-bootstrap.mjs` **built 2026-09-20**
       *(gap D)*. Guard chain exercised across 10 scenarios against stubs: it
       refuses demo/dev/staging by name with no override, refuses a `--confirm`
@@ -946,12 +966,23 @@ one-line reason rather than deleting it silently.
       `tickets.classified_by` monitoring query must exist, so "are we quietly
       running on the fallback?" is a fact and not a hunch.
 - [~] 2.8 **Decided 20 Sept 2026. Turnstile IN, SMS OUT.**
-      **Turnstile is in and needs no code** — the layer is wired end to end
-      already (widget, form, server-side verification) and has only ever been
-      missing its keys. ⚠️ **Yours:** get a free Cloudflare site+secret pair
-      and set `TURNSTILE_SECRET_KEY` / `NEXT_PUBLIC_TURNSTILE_SITE_KEY`. Until
-      then the layer is silently off. That is why this row is `[~]` and not
-      `[x]`.
+      **Turnstile keys set on Vercel, 20 Sept 2026.** The layer was already
+      wired end to end (widget, form, server-side verification) and had only
+      ever been missing its keys.
+      ⚠️ **The test was run on 20 Sept and it FAILED — but not on Turnstile.**
+      A real application was refused with "We couldn't accept this submission".
+      A Turnstile failure says "Bot check failed"; this was the **honeypot**,
+      which **Chrome's autofill had filled**. The field was named
+      `company_website_alt`, Chrome's address autofill matches on tokens in the
+      field name, and Chrome ignores `autocomplete="off"` on a form it reads as
+      a contact form — which this is. The applicant had nothing to clear (the
+      field is off-screen) and a message that by design cannot name the control.
+      **Fixed:** renamed to a token no browser targets, opted out of the
+      password managers, and — the deeper fix — the honeypot and timing checks
+      **no longer veto a request Turnstile has vouched for**. Held by
+      `verify-vendor-application-guards`, which lists every autofill token and
+      was tested by putting the old name back.
+      ⚠️ **Re-run the submission once deployed.** That is what closes this row.
       **SMS is out for Phase 1**, recorded: WhatsApp, Telegram and email reach
       every role, and a fourth channel at cutover adds a 14th processor needing
       its own DPA for a path nothing depends on.

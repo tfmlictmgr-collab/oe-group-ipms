@@ -97,15 +97,34 @@ export default function ApplyForm({
   return (
     <form onSubmit={onSubmit} className="space-y-5">
       {/* Honeypot: positioned off-screen rather than display:none, because some
-          bots skip hidden inputs. Real users never see or tab to it. */}
+          bots skip hidden inputs. Real users never see or tab to it.
+
+          ⚠️ THE NAME IS LOAD-BEARING AND MUST STAY MEANINGLESS. It was
+          `company_website_alt` until 20 Sept 2026, and that broke real
+          applications: Chrome's address/contact autofill matches on tokens in
+          the name, "company" and "website" are two of them, and **Chrome
+          ignores autocomplete="off" on a form it reads as a contact form** —
+          which this is, asking for a business address, a contact person, an
+          email and a phone number. So the browser filled the hidden field for
+          a real person and the server refused them, with no visible field they
+          could clear and a message that could not say why.
+
+          Anything resembling name, company, website, address, email, phone,
+          tel, city, country, postal, organization or fax will be autofilled
+          again. `verify-vendor-application-guards` fails if one comes back. */}
       <div aria-hidden="true" className="absolute left-[-9999px] top-auto h-px w-px overflow-hidden">
-        <label htmlFor="company_website_alt">Leave this field empty</label>
+        <label htmlFor="zz_field_2">Leave this field empty</label>
         <input
-          id="company_website_alt"
-          name="company_website_alt"
+          id="zz_field_2"
+          name="zz_field_2"
           type="text"
           tabIndex={-1}
           autoComplete="off"
+          // Password managers run their own heuristics and ignore
+          // autocomplete="off" too; these are the opt-outs 1Password and
+          // LastPass respect.
+          data-1p-ignore
+          data-lpignore="true"
           value={honeypot}
           onChange={(e) => setHoneypot(e.target.value)}
         />
