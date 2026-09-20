@@ -25,6 +25,16 @@ of them was a real defect at some point in this build.
 **Before you start:** confirm the environment is the production one, and that
 the database is clean (schema only, no synthetic rows) — the Day 12 exit gate.
 
+⚠️ **Section M is not optional and should be run first.** It covers the pages a
+stranger reaches with no account, and those are the pages this build keeps
+breaking on: on 20 Sept 2026 the public vendor form produced **two** go-live
+defects in one afternoon — Chrome's autofill filling the hidden anti-bot field,
+and a single-use Turnstile token refusing every retry after any failure. Neither
+was caught by any of the 124 automated suites, because they call the database
+functions directly and never open a browser. A signed-in tester walking a
+dashboard will not find these; only somebody behaving like a member of the
+public will.
+
 ---
 
 ## A · Administrator (2 people: TFML admin, OEA admin)
@@ -93,6 +103,31 @@ the database is clean (schema only, no synthetic rows) — the Day 12 exit gate.
 | E9 | Resubmit a corrected invoice for the same job | Accepted | |
 | E10 | **Must refuse:** submit a second invoice for a job that already has a live one | Refused | |
 | E11 | **Must refuse:** invoice a job that is not yours | Refused | |
+
+### E · Vendor — the company registers and runs itself
+
+Added 20 Sept 2026. The rows above test a vendor DOING WORK; these test a
+vendor company **being a company** — its registration pack, and its own people.
+None of it was in this script, and it is the half of the vendor relationship a
+contractor touches before they ever see a job.
+
+| # | Action | Expected | P/F |
+|---|---|---|---|
+| E12 | Accept the first invitation for a company and sign in | This person is the **Owner**. Only the managing org can create one | |
+| E13 | My Company → fill the registration and attach all four documents (CAC, TIN, bank evidence, proof of address) → submit | Goes to *awaiting review* | |
+| E14 | Check what is asked for | Bank, account **name**, **last four only**. **No full account number field anywhere** — decision 17 | |
+| E15 | **Must refuse:** type the account NUMBER into the account-name box | Refused, and says which field the number belongs in | |
+| E16 | **Must refuse:** attach a 5 MB document | Refused — the cap is **2 MB** (`0213`) | |
+| E17 | **Must refuse:** attach a `.docx` or `.zip` | Refused — PDF/JPEG/PNG/WEBP only | |
+| E18 | After the org sends it back: read the reason | **Word for word** what the reviewer wrote | |
+| E19 | Correct and resubmit → org approves | Registration shows approved | |
+| E20 | Owner invites a colleague as **Member** | Invitation issued; the URL is shown, so no email round-trip is needed to test | |
+| E21 | Sign in as that Member | Jobs and invoices, yes. **No** company management, **no** inviting | |
+| E22 | Owner invites a colleague as **Admin**; sign in as them | Can invite colleagues and act on contracts | |
+| E23 | **Must refuse:** that Admin edits the company registration | Refused — the registration is owner-only, because it is the thing the org verified | |
+| E24 | **Must refuse:** the vendor assigns **Owner** to anybody | Not offered at all. Member and Admin are the only two a vendor may assign | |
+| E25 | **Must refuse:** invite an email that already has a login on the platform | Refused — one login cannot belong to two companies | |
+| E26 | Remove a colleague, then re-invite the same address | Works; the old invitation is superseded rather than colliding | |
 
 ## F · Tenant / Resident
 
@@ -177,6 +212,34 @@ the database is clean (schema only, no synthetic rows) — the Day 12 exit gate.
 | L3 | Turn off wifi mid-journey, then back on | Recovers without losing what was typed | |
 | L4 | Two people approve the same payment simultaneously | **One** approval, no error to the loser | |
 | L5 | Refresh a checkout page twice after paying | Charged **once**; the ledger shows one entry | |
+| L6 | Type a few letters into the **menu search** as each role | Only destinations that role can actually open | |
+| L7 | **Must refuse:** as a tenant, search "ledger", "payouts", "directory" | **Nothing**, and the wording says only that nothing in *your* menu matches | |
+
+## M · Public surfaces — nobody is signed in
+
+**Added 20 Sept 2026, and it is here because it was missing.** Every row below
+is a page a stranger reaches with no account. Two real go-live defects were
+found in one afternoon on the vendor form alone — Chrome's autofill filling the
+honeypot, and a spent Turnstile token refusing every retry — and **no automated
+suite caught either**, because the suites call the database functions directly
+and never touch a browser. These rows are the only thing that would have.
+
+Use a **private window** for all of them, and leave **browser autofill ON** —
+turning it off would skip the exact condition that broke E1.
+
+| # | Action | Expected | P/F |
+|---|---|---|---|
+| M1 | Open `/apply/<org-id>` and look above the Submit button | The **Cloudflare widget is visible**. If it is missing, the site key never reached the build — stop and fix that first, everything below will fail | |
+| M2 | Fill the form using the browser's own autofill, then submit | **Accepted.** Autofill must not look like a bot | |
+| M3 | Submit with a deliberately malformed email, read the error, correct it, submit again | The second attempt is **accepted** — not "Bot check failed". Turnstile tokens are single use; the widget must reset | |
+| M4 | **Must refuse:** submit a 4th application from the same email inside 24 hours | Refused — 3 per day per address | |
+| M5 | **Must refuse:** open `/apply/<id>` for an org that is not accepting applications | "Applications aren't open" — **the same words** as for an org that does not exist. It must not reveal which | |
+| M6 | Open the tenancy application link and attach a file over **10 MB** | Refused | |
+| M7 | **Must refuse:** attach a `.exe` or `.zip` to a tenancy application | Refused by type — PDF/JPEG/PNG/WEBP only (`0300`) | |
+| M8 | Save a tenancy application, close the browser, return via the resume link | Comes back with what was typed | |
+| M9 | **Must refuse:** reuse a tenancy acceptance or payout link a second time | Refused — one-time by design (`0263`, `0289`) | |
+| M10 | Open a payment link from a Collections request and pay it on the test key | Receipt shown; the ledger records it **once** | |
+| M11 | **Must refuse:** on a TFML hostname, find anything naming OEA (or the reverse) | Nothing — not in a page, not in an error, not in a link. B1 | |
 
 ---
 
