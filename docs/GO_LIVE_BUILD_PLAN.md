@@ -733,7 +733,13 @@ one-line reason rather than deleting it silently.
 - [ ] 1.4 Data-subject-rights procedure published
 - [ ] 1.5 NDPC threshold confirmed; DPO registered; contact published
 - [ ] 1.6 Board decision on special-category data
-- [ ] 1.7 Cross-border basis + **production hosting region** confirmed *(blocks 3.1)*
+- [~] 1.7 Cross-border basis + **production hosting region** confirmed *(blocks 3.1)*
+      — region decided 2026-09-20: Supabase `eu-west-1`, Vercel `dub1` (both
+      Ireland). Basis drafted in `CROSS_BORDER_TRANSFER_BASIS.md` and **awaiting
+      DPO + Legal review**. ⚠️ Not closed: GAID 2025 repealed the NDPR whitelist
+      and the NDPC has issued no adequacy decision, so the basis is contractual
+      and rides on the 13 DPAs (1.1). Hosting in the EU supplies nothing on its
+      own.
 - [ ] 1.8 Paystack live keys obtained *(hard gate on Stage 6)*
 - [ ] 1.9 Segregated client-funds bank account confirmed
 - [ ] 1.10 Flutterwave / FX — explicit in or out

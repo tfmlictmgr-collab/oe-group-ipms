@@ -204,9 +204,20 @@ procedure.
 Supabase, Vercel, Anthropic, Sentry and Upstash process outside Nigeria. NDPA
 restricts transfers to countries without adequate protection.
 
-⛔ **Action:** confirm the hosting region for the production Supabase and Vercel
-projects, and record the transfer basis (adequacy, standard contractual clauses,
-or explicit consent) for each processor in §4.
+✅ **Answered 2026-09-20 — see `CROSS_BORDER_TRANSFER_BASIS.md`.** Production
+Supabase is `eu-west-1` and Vercel is `dub1`, both Ireland. The basis for every
+row in §4 is **contractual clauses under s.41**, because GAID 2025 repealed the
+NDPR whitelist and the NDPC has issued no adequacy decision for any country —
+so hosting in the EU supplies no basis on its own.
+
+⚠️ The sentence above this one says five processors work outside Nigeria. That
+count is wrong; it is closer to eleven. Paystack and Flutterwave are the only
+plausible exceptions and only if their hosting is Nigerian, which is one of the
+open questions in that document.
+
+📌 It also means the transfer basis and the thirteen unsigned DPAs (§11 row 2)
+are **one piece of work**: a DPA without transfer clauses does not discharge
+s.41. Still a working document pending DPO and Legal review.
 
 ---
 
@@ -218,7 +229,7 @@ or explicit consent) for each processor in §4.
 | 2 | Sign 13 processor DPAs — drafts prepared, see `DPA_TEMPLATE_AND_TRACKER.md` | Legal |
 | 3 | Write the breach procedure | DPO + legal |
 | 4 | Publish the privacy notice | Legal |
-| 5 | Confirm cross-border transfer basis and hosting region | DPO |
+| 5 | ~~Confirm cross-border transfer basis and hosting region~~ — drafted 2026-09-20, `CROSS_BORDER_TRANSFER_BASIS.md`; **awaiting DPO review** | DPO 🔄 |
 | 6 | Publish the data-subject-rights procedure | DPO |
 | 7 | Decide whether special-category data is necessary at all | Board |
 | 8 | Commission an external penetration test | Board |
