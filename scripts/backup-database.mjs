@@ -39,6 +39,8 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { spawnSync, execFileSync } from "node:child_process";
+import { pipeline } from "node:stream/promises";
+import readline from "node:readline";
 import { fileURLToPath } from "node:url";
 import { config } from "dotenv";
 import pg from "pg";
@@ -49,9 +51,124 @@ config({ path: path.join(rootDir, ".env.local"), processEnv: env });
 
 const argv = process.argv.slice(2);
 const flag = (n) => { const i = argv.indexOf(`--${n}`); return i === -1 ? null : argv[i + 1]; };
+const has = (n) => argv.includes(`--${n}`);
 
 const die = (msg) => { console.error(`\n${msg}\n`); process.exit(1); };
 const ok = (m) => console.log(`  \x1b[32m✓\x1b[0m ${m}`);
+
+// ── Encryption, so a copy can safely leave this machine ───────────────
+//
+// `--encrypt` turns the dump into a file whose destination no longer has to be
+// trusted. That is the whole point: an unencrypted dump in a cloud drive is
+// every tenant's identity document sitting in somebody else's datacentre under
+// somebody else's access controls. The same file encrypted here is ciphertext
+// wherever it lands, and the storage provider becomes a place that holds bytes
+// rather than a processor of personal data in any meaningful sense.
+//
+// AES-256-GCM, key derived with scrypt from a passphrase you supply. GCM is
+// authenticated: a file that has been altered by one byte fails to decrypt
+// rather than decrypting into quiet nonsense.
+//
+// ⚠️ THIS PASSPHRASE IS AS UNRECOVERABLE AS `GATEWAY_CREDENTIAL_KEY`. Lose it
+// and the backup is a pile of random bytes. Escrow it the same way — sealed,
+// two holders, written in the runbook — and never in the same envelope as the
+// thing it protects.
+//
+// Layout: MAGIC(8) VERSION(1) SALT(16) IV(12) CIPHERTEXT… TAG(16, at the end)
+// The tag trails because GCM only knows it once the last byte is encrypted,
+// and the file is streamed rather than held in memory — a database backup
+// outgrows a buffer long before it outgrows a disk.
+const MAGIC = Buffer.from("OEIPMSB1", "ascii");
+// N=2^15 costs 128*N*r = 32 MiB per derivation, which is deliberate — it is
+// what makes guessing the passphrase expensive. `maxmem` must be raised to
+// allow it: node defaults to exactly 32 MiB and refuses its own parameters.
+const SCRYPT = { N: 1 << 15, r: 8, p: 1, keylen: 32, maxmem: 64 * 1024 * 1024 };
+
+async function passphrase(confirm) {
+  const fromEnv = process.env.BACKUP_PASSPHRASE;
+  if (fromEnv) {
+    console.log("  using BACKUP_PASSPHRASE from the environment");
+    return fromEnv;
+  }
+  if (!process.stdin.isTTY) {
+    die("No passphrase. Run this in a terminal, or set BACKUP_PASSPHRASE for an unattended run.");
+  }
+  const ask = (prompt) => new Promise((resolve) => {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
+    // Echo nothing: a passphrase on screen is a passphrase in a screenshot.
+    const onData = () => rl.output.write("\x1b[2K\r" + prompt);
+    rl.output.write(prompt);
+    process.stdin.on("data", onData);
+    rl.question("", (answer) => {
+      process.stdin.removeListener("data", onData);
+      rl.close();
+      process.stdout.write("\n");
+      resolve(answer);
+    });
+  });
+  const a = await ask("  passphrase: ");
+  if (a.length < 12) die("Use at least 12 characters. This is the only thing standing between the file and whoever finds it.");
+  if (!confirm) return a;
+  const b = await ask("  again     : ");
+  if (a !== b) die("The two passphrases do not match. Nothing has been written.");
+  return a;
+}
+
+async function encryptFile(src, dest, pass) {
+  const salt = crypto.randomBytes(16);
+  const iv = crypto.randomBytes(12);
+  const key = crypto.scryptSync(pass, salt, SCRYPT.keylen, { N: SCRYPT.N, r: SCRYPT.r, p: SCRYPT.p, maxmem: SCRYPT.maxmem });
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  const out = fs.createWriteStream(dest);
+  out.write(Buffer.concat([MAGIC, Buffer.from([1]), salt, iv]));
+  await pipeline(fs.createReadStream(src), cipher, out, { end: false });
+  await new Promise((res, rej) => out.end(cipher.getAuthTag(), (e) => (e ? rej(e) : res())));
+}
+
+async function decryptFile(src, dest, pass) {
+  const total = fs.statSync(src).size;
+  const head = Buffer.alloc(37);
+  const fd = fs.openSync(src, "r");
+  fs.readSync(fd, head, 0, 37, 0);
+  const tag = Buffer.alloc(16);
+  fs.readSync(fd, tag, 0, 16, total - 16);
+  fs.closeSync(fd);
+  if (!head.subarray(0, 8).equals(MAGIC)) die(`${src} is not a backup this script wrote.`);
+  const salt = head.subarray(9, 25);
+  const iv = head.subarray(25, 37);
+  const key = crypto.scryptSync(pass, salt, SCRYPT.keylen, { N: SCRYPT.N, r: SCRYPT.r, p: SCRYPT.p, maxmem: SCRYPT.maxmem });
+  const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
+  decipher.setAuthTag(tag);
+  await pipeline(
+    fs.createReadStream(src, { start: 37, end: total - 17 }),
+    decipher,
+    fs.createWriteStream(dest)
+  );
+}
+
+// ── `--decrypt <file>` is its own mode and needs no database ───────────
+if (flag("decrypt")) {
+  const src = path.resolve(flag("decrypt"));
+  if (!fs.existsSync(src)) die(`No such file: ${src}`);
+  const dest = src.replace(/\.enc$/, "") + (src.endsWith(".enc") ? "" : ".decrypted");
+  console.log(`\nDecrypting ${path.basename(src)}\n`);
+  const pass = await passphrase(false);
+  try {
+    await decryptFile(src, dest, pass);
+  } catch (err) {
+    fs.rmSync(dest, { force: true });
+    die(
+      `Could not decrypt. Either the passphrase is wrong, or the file has been altered.\n\n` +
+      `  ${err.message}\n\n` +
+      `  AES-GCM refuses a file that does not match its authentication tag, so this\n` +
+      `  is a real answer rather than a guess — the partial output has been deleted.`
+    );
+  }
+  ok(`decrypted to ${dest}`);
+  console.log(`\n  sha256 ${crypto.createHash("sha256").update(fs.readFileSync(dest)).digest("hex")}`);
+  console.log("  Compare that against the manifest's `sha256` to prove it is byte-identical.\n");
+  process.exit(0);
+}
 
 // ── Which world are we about to copy? ──────────────────────────────────────
 //
@@ -223,18 +340,64 @@ ok(`${(bytes / 1048576).toFixed(1)} MB, readable by pg_restore, ${tableData} tab
 
 const sha256 = crypto.createHash("sha256").update(fs.readFileSync(dumpFile)).digest("hex");
 
+// ── Encrypt, and prove the encryption round-trips before keeping it ─────
+//
+// Ordering is deliberate: the dump is verified by pg_restore FIRST, then
+// encrypted. Encrypting an unverified dump would produce a file that is
+// provably intact and provably useless.
+//
+// The round-trip is the same discipline one level up. An encrypted backup
+// nobody has decrypted is exactly the belief this script exists to refuse, and
+// a mistyped passphrase stays silent until the day you need the file. So it is
+// decrypted straight back and compared byte for byte.
+let finalFile = dumpFile;
+let encrypted = false;
+if (has("encrypt")) {
+  console.log("\n  encrypting…");
+  const pass = await passphrase(true);
+  const encFile = `${dumpFile}.enc`;
+  await encryptFile(dumpFile, encFile, pass);
+
+  const check = `${dumpFile}.roundtrip`;
+  try {
+    await decryptFile(encFile, check, pass);
+  } catch (err) {
+    fs.rmSync(encFile, { force: true });
+    fs.rmSync(check, { force: true });
+    die(`The encrypted file would not decrypt: ${err.message}\n\n  Nothing encrypted has been kept; the plaintext dump is still at ${dumpFile}.`);
+  }
+  const back = crypto.createHash("sha256").update(fs.readFileSync(check)).digest("hex");
+  fs.rmSync(check, { force: true });
+  if (back !== sha256) {
+    fs.rmSync(encFile, { force: true });
+    die(`The encrypted file decrypted to different bytes.\n\n  expected ${sha256}\n  got      ${back}\n\n  Nothing encrypted has been kept.`);
+  }
+  ok("decrypts back to the identical file — proven, not assumed");
+
+  fs.rmSync(dumpFile, { force: true });
+  finalFile = encFile;
+  encrypted = true;
+  ok(`plaintext removed — ${path.basename(encFile)} is the only copy on this disk`);
+}
+
 // ── The manifest: what a future restore is checked AGAINST ─────────────────
 const manifest = {
   takenAt: new Date().toISOString(),
   world,
   projectRef: dbRef ?? null,
   schemaVersion,
-  file: path.basename(dumpFile),
+  file: path.basename(finalFile),
+  encrypted,
+  // ⚠️ `bytes` and `sha256` describe the PLAINTEXT dump — what you get back
+  // after decrypting — not the encrypted file. That is the number worth
+  // keeping: it is what proves a restore produced the right bytes.
   bytes,
   sha256,
   tablesOfData: tableData,
   rowCounts: counts,
-  restoreWith: `pg_restore --clean --if-exists --no-owner --no-privileges -d "<target>" "${path.basename(dumpFile)}"`,
+  restoreWith: encrypted
+    ? `npm run backup -- --decrypt "${path.basename(finalFile)}"  →  pg_restore --clean --if-exists --no-owner --no-privileges -d "<target>" "${path.basename(dumpFile)}"`
+    : `pg_restore --clean --if-exists --no-owner --no-privileges -d "<target>" "${path.basename(dumpFile)}"`,
   covers: "The `public` schema of Postgres only.",
   doesNotCover: [
     "Storage buckets — identity documents, work-order media, vendor KYC, payment proofs and payout evidence are NOT in this file.",
@@ -276,10 +439,21 @@ try {
   console.log(`  \x1b[33m!\x1b[0m backup succeeded, but the audit row could not be written: ${err.message}`);
 }
 
-console.log(`\n\x1b[32mBackup verified.\x1b[0m  ${dumpFile}\n`);
-console.log("  ⚠️  This file contains every personal record in the system.");
-console.log("      Encrypted disk only. Never a shared drive, never email.");
-console.log("      Delete it once the reason you took it has passed.\n");
+console.log(`\n\x1b[32mBackup verified.\x1b[0m  ${finalFile}\n`);
+if (encrypted) {
+  console.log("  ✓  Encrypted, and proven to decrypt back to the identical file.");
+  console.log("      It is ciphertext wherever it goes — a cloud drive, an external disk,");
+  console.log("      a colleague's machine. The destination no longer has to be trusted.");
+  console.log("");
+  console.log("  ⚠️  THE PASSPHRASE IS AS UNRECOVERABLE AS GATEWAY_CREDENTIAL_KEY.");
+  console.log("      Escrow it the same way — sealed, two holders, named in the runbook —");
+  console.log("      and never in the same envelope as the file it protects.\n");
+} else {
+  console.log("  ⚠️  This file holds every personal record in the system, in the clear.");
+  console.log("      Encrypted disk only. Never a shared drive, never email.");
+  console.log("      Delete it once the reason you took it has passed.");
+  console.log("      Add --encrypt if this copy is going to leave this machine.\n");
+}
 console.log("  ⚠️  It does NOT contain the storage buckets — identity documents,");
 console.log("      payment proofs and payout evidence are not in this file.");
 console.log("      See docs/BACKUP_AND_RESTORE.md for what covers those.\n");
