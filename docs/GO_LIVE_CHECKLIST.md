@@ -361,15 +361,15 @@ feature that fails closed with no obvious cause.
 | ~~`NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY`~~ | **read nowhere in the codebase** — struck 20 Sept 2026 | listed here since Day 12, never used | **do not set.** Checkout is Paystack's own hosted page, initialised server-side with the secret key; no publishable key is ever handed to the browser. Setting it is harmless but it is not "the live key pair" — there is one key |
 | `FLUTTERWAVE_SECRET_KEY`, `FLUTTERWAVE_WEBHOOK_HASH` | FX collections | ❌ not set — but the code path IS built and verified now (`verify-fx-collections`, §1); this is purely a missing credential | decide in/out of scope for go-live (§1) |
 | `RESEND_API_KEY`, `RESEND_FROM`, `RESEND_WEBHOOK_SECRET` | email notifications | ✅ set (Preview + Production) | reuse or rotate; confirm the sending domain is verified for both brands (`notify.tfmlconsultant.com`, `notify.oraegbunike.com`) |
-| `AFRICASTALKING_API_KEY` | SMS fallback | ❌ not set — cascade logs `skipped`, other channels unaffected | decide in/out of scope |
+| `AFRICASTALKING_API_KEY` | SMS fallback | ❌ not set — cascade logs `skipped`, other channels unaffected | ✅ **DECIDED OUT for Phase 1, 20 Sept 2026.** WhatsApp, Telegram and email already reach every role, and adding a fourth channel at cutover would add a 14th processor needing its own DPA (1.1) for a path nothing depends on. Revisit post-go-live. Do not set |
 | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | rate limiting | ✅ set (Production) | reuse; confirm fail-open posture is still intended (§5) |
 | `INTAKE_IP_LIMIT`, `INTAKE_IP_WINDOW` | per-IP intake rate limit (`lib/rate-limit.ts:97`). Added 20 Sept 2026 | ❌ not set — silent defaults of **100 per 10 s** | set them explicitly if the default is not the intended posture. A tunable with a silent default is a setting nobody knows they have |
 | `INTAKE_SENDER_LIMIT`, `INTAKE_SENDER_WINDOW` | per-sender intake rate limit (`lib/rate-limit.ts:101`). Added 20 Sept 2026 | ❌ not set — silent defaults of **5 per 10 s** | as above |
 | `REMITTANCE_LIMIT`, `REMITTANCE_WINDOW` | ceiling on **remittance execution** per user (`lib/rate-limit.ts:110`, enforced in `lib/payout-actions.ts:353` and `app/dashboard/requisitions/send-actions.ts:32`). Added 20 Sept 2026 | ❌ not set — silent defaults of **30 per 5 min** | **decide this one deliberately** — it is the only rate limit on the money-out path, and §5's open question about fail-open posture is specifically about this route |
 | `NEXT_PUBLIC_SENTRY_DSN` | error tracking | ✅ set (Production) | reuse or point at a production Sentry project |
 | `SENTRY_ORG`, `SENTRY_PROJECT` | **build-time only** — source-map upload (`next.config.mjs:188`). Added 20 Sept 2026 | ❌ not set | set on the production Vercel project if stack traces should be readable. Without them the build succeeds and Sentry receives minified frames, which is a debugging cost discovered during an incident rather than before one |
-| `TURNSTILE_SECRET_KEY`, `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | bot resistance on the **public vendor-application form** | ❌ not set on any environment — added to this table 2026-08-09, having been missing from it entirely | **decide in/out of scope.** `lib/turnstile.ts` no-ops cleanly when unconfigured, so the layer is silently off today. Three defences remain in front of it (per-IP rate limit → honeypot → submission timing) on one of the few anonymous write surfaces in the system, so out is a defensible answer — but it should be a decision, not a discovery. Free Cloudflare product; ~5 minutes if in. |
-| `GEMINI_API_KEY`, `GEMINI_MODEL` | LLM failover when Anthropic is unavailable | ✅ key set — but the free tier's **daily** quota was exhausted immediately | enable billing on the Google Cloud project, or accept the failover is best-effort. See `GO_LIVE_RUNWAY.md` Stage 1. |
+| `TURNSTILE_SECRET_KEY`, `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | bot resistance on the **public vendor-application form** | ❌ not set on any environment — added to this table 2026-08-09, having been missing from it entirely | ✅ **DECIDED IN, 20 Sept 2026.** Get a free Cloudflare Turnstile site+secret key pair and set both. **No code change is needed — the layer is already wired end to end** (`app/apply/[orgId]/page.tsx` loads the widget, `ApplyForm.tsx` reads the token, `actions.ts` verifies it); it has only ever been missing its keys. It guards one of the few anonymous write surfaces in the system — the same surface `0300` just capped. `lib/turnstile.ts` no-ops when unconfigured, so until the keys are set the layer is silently off and the three defences in front of it (per-IP rate limit → honeypot → submission timing) are all there is. ~5 minutes |
+| `GEMINI_API_KEY`, `GEMINI_MODEL` | LLM failover when Anthropic is unavailable | ✅ key set — but the free tier's **daily** quota was exhausted immediately | ✅ **BEST-EFFORT ACCEPTED, 20 Sept 2026.** Billing not enabled for Phase 1: an Anthropic outage degrades triage to "needs human review", which is a correct and safe behaviour rather than a broken one, and cutover is the wrong moment to add a paid dependency to improve a path that already fails safely. **Paired with a condition:** the `tickets.classified_by` monitoring query at 7.5 must exist, so "are we quietly running on the fallback?" is a fact rather than a hunch. Revisit post-go-live |
 | `SIMULATED_GATEWAY_SECRET` | the simulated payment gateway | n/a | **never set in production.** Simulation is refused wherever a real gateway key exists or `NODE_ENV=production`, which is the control that stops an endpoint marking invoices paid without money arriving. |
 | `SUPABASE_DB_*` | local migrate/seed only | n/a — local-only | never needed on Vercel |
 
@@ -485,6 +485,15 @@ authenticated session, and its failure mode is a link that silently does not
 open — so it belongs in production UAT (§1, "Sequenced together") explicitly,
 by name.
 
+**9. Set the Supabase project-level upload limit deliberately** — Dashboard →
+Storage → Settings. `0300` caps `application-documents` at 10 MB with a
+four-type allowlist, which closes the anonymous surface. The project-level
+limit is the backstop for every **other** bucket, and it is the only control
+covering `org-logos` — which is authenticated-write, **public**, and still
+carries no size limit of its own, so an org admin can put an arbitrarily large
+file on a publicly-reachable URL. Choose a ceiling rather than inheriting the
+default.
+
 **8. Know that payout bank details are evidence, not a stored field** — `0289`.
 The full account number is **never stored**: the payee uploads a document
 showing it, the payment officer reads the number off that document, and the
@@ -538,6 +547,13 @@ screens that won't change again before go-live.
   (Vercel keeps every deployment addressable) while the database issue is fixed
   forward — Postgres migrations in this codebase are additive, not destructive,
   so there is no "roll the schema back" step to worry about.
+- **The database half of rollback is `BACKUP_AND_RESTORE.md`** (added 20 Sept
+  2026 — gap G). Fix-forward stays the default for *schema* problems, because
+  migrations are additive and there is nothing to roll back. A restore is for
+  **wrong data**, which is the case a deployment revert never covered: take a
+  verified copy with `npm run backup` before any migration or bulk correction,
+  restore into a scratch database first, and check the restored row counts
+  against the manifest rather than by eye.
 - **The staging world exists so this shouldn't happen.** Rehearsal, UAT
   rehearsals and training recordings run on `staging`, never on `prod` — see
   `GO_LIVE_RUNWAY.md` §"Four worlds, one codebase". Production only ever sees
@@ -560,15 +576,39 @@ screens that won't change again before go-live.
   and not yet implemented; today an Anthropic outage degrades triage to a static
   "needs human review" rather than failing over. Decide whether this ships
   before go-live or is accepted as a known gap with a monitoring alert instead.
-- Whether Upstash rate-limiting's fail-open posture is acceptable for production
-  as-is, or needs to fail closed for specific high-risk routes (payment
-  webhooks, remittance execution) even if general request rate-limiting stays
-  fail-open for availability. — **Note added 20 Sept 2026:** the limits
-  themselves are the six silent defaults now listed in §2. The money-out one is
-  `REMITTANCE_LIMIT` / `REMITTANCE_WINDOW`, defaulting to 30 per 5 minutes per
-  user; deciding the posture and deciding the number are the same decision.
-- **Whether `application-documents` should carry a size limit and a MIME
-  allowlist** — raised 20 Sept 2026 by the bucket re-measurement in §1. It is
+- ~~Whether Upstash rate-limiting's fail-open posture is acceptable for
+  production as-is, or needs to fail closed for specific high-risk routes.~~
+  **CLOSED 20 Sept 2026 — and it was already closed in code.** Checked before
+  changing anything: the payment webhook answers **503** on `degraded`, and all
+  four remittance routes refuse. `lib/rate-limit.ts`'s `RateResult.degraded`
+  exists precisely to separate "never configured" (fail open, correct for the
+  demo) from "the limiter was meant to be running and is not" (fail closed on
+  money). This question sat open in this document long after the code had
+  answered it, which is how a control gets re-litigated or built twice; the
+  posture is now recorded in `lib/rate-limit.ts`'s own header.
+  **What genuinely was a decision:** the ceiling. `REMITTANCE_LIMIT` moved
+  **30 → 20 per 5 minutes per user**. Not lower, on measurement: the four call
+  sites share one namespace keyed by user id and there is **no bulk-payout
+  path**, so a payment officer settling twenty landlords performs twenty
+  separate actions. One every 30 seconds is an ordinary pace, so 10 per 5
+  minutes would have invented an outage on the first real payout day. A runaway
+  loop does hundreds per minute; the low twenties sit in the gap.
+- ~~**Whether `application-documents` should carry a size limit and a MIME
+  allowlist**~~ — **CLOSED 20 Sept 2026, both answers taken** (`0300` plus a
+  deliberate project-level ceiling at cutover, §2a step 9). Reading the upload
+  path to size the limits found the reason it mattered: the application code
+  **already** refuses anything but PDF/JPEG/PNG/WEBP over 10 MB — but it checks
+  the `contentType` and `sizeBytes` the **caller supplies**, then issues a
+  signed upload URL, and the file goes straight to Storage with that token.
+  Nothing re-checks the bytes that arrive. A caller claiming `application/pdf`
+  and 1 KB could push anything of any size through it. The bucket was the only
+  place it could be enforced, and it had no opinion. `0300` sets exactly the
+  limits the form already claims — the same numbers, not stricter, because
+  `0213`'s lesson is that a bucket and a form disagreeing about the limit *is*
+  the defect. Original wording kept below for the record.
+
+- *(original, 20 Sept 2026)* **Whether `application-documents` should carry a
+  size limit and a MIME allowlist** — raised 20 Sept 2026 by the bucket re-measurement in §1. It is
   the system's only anonymous-writable surface (`0062` grants `insert` to
   `anon`, gated on the org accepting applications) and its bucket carries
   neither, so the only ceiling is the Supabase project-level upload limit. Every

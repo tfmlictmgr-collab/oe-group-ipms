@@ -17,7 +17,8 @@
     "pentest:full": "node scripts/run-zap.mjs full",
     "loadtest": "node scripts/run-k6.mjs journey",
     "loadtest:spike": "node scripts/run-k6.mjs spike",
-    "loadtest:ratelimit": "node scripts/run-k6.mjs rate-limit"
+    "loadtest:ratelimit": "node scripts/run-k6.mjs rate-limit",
+    "backup": "node scripts/backup-database.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.112.3",
