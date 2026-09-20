@@ -30,17 +30,47 @@ const src = fs.readFileSync(SCRIPT, "utf8");
 const URL_ = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
 const ref = URL_.match(/^https:\/\/([a-z0-9]{20})\.supabase\.co/i)?.[1] ?? "";
 
-/** Run the bootstrap and hand back its exit code and combined output. */
-function run(args) {
+/**
+ * Run the bootstrap and hand back its exit code and combined output.
+ *
+ * `envOverride` replaces variables in the child's environment. It works
+ * because `bootstrap-production.mjs` loads `.env.local` with plain `dotenv`,
+ * which does NOT overwrite a variable already present in `process.env` — so a
+ * value set here wins over the file.
+ */
+function run(args, envOverride = {}) {
   try {
     const out = execFileSync("node", [SCRIPT, ...args], {
       cwd: rootDir, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, ...envOverride },
     });
     return { code: 0, out };
   } catch (e) {
     return { code: e.status ?? 1, out: `${e.stdout ?? ""}${e.stderr ?? ""}` };
   }
 }
+
+// ⚠️ A project ref that is deliberately NOT on the never-list (20 chars, the
+// Supabase shape). Added 20 Sept 2026 after the first real run of this suite.
+//
+// The three flag guards below — --confirm missing, --confirm mismatched,
+// --email missing — are UNREACHABLE on any world this suite is safe to run on,
+// because `bootstrap-production.mjs` checks the never-list FIRST and dies
+// there. Pointed at dev or staging, all three checks therefore observed the
+// never-list refusal instead of the guard they name, and reported FAIL for a
+// script that was behaving perfectly. The suite passed against stubs and could
+// not have passed against a real world.
+//
+// So the flag guards are exercised against a world the never-list does not
+// know, which is the only way to reach them.
+//
+// ⚠️ Every case below dies at a FLAG check, which happens before the first
+// network call (`svc.from("orgs")`). Never pass this ref a matching --confirm
+// AND an --email together: that combination passes every flag guard and would
+// try to reach a project that does not exist.
+const UNKNOWN_REF = "zzzzzzzzzzzzzzzzzzzz";
+const asUnknownWorld = (args) =>
+  run(args, { NEXT_PUBLIC_SUPABASE_URL: `https://${UNKNOWN_REF}.supabase.co` });
 
 console.log("Production bootstrap — it refuses everything it should\n");
 
@@ -127,20 +157,31 @@ if (!ref) {
 } else {
   const probe = "bootstrap-probe@oegroup.test";
 
-  const noConfirm = run(["--email", probe]);
+  // ⚠️ The flag guards are exercised against UNKNOWN_REF, not this world — see
+  // its note above. Against dev or staging the never-list fires first and none
+  // of these three could ever be observed.
+  //
+  // First, prove the premise rather than assuming it: if UNKNOWN_REF ever
+  // reached the never-list, these three would silently go back to testing
+  // nothing, which is exactly the failure being fixed here.
+  !new RegExp(`^\\s{2}${UNKNOWN_REF}:`, "m").test(src)
+    ? ok("the flag guards are exercised against a world the never-list does not know")
+    : bad(`${UNKNOWN_REF} is on the never-list — the three checks below would test nothing`);
+
+  const noConfirm = asUnknownWorld(["--email", probe]);
   noConfirm.code !== 0 && /--confirm/.test(noConfirm.out)
     ? ok("refuses without --confirm")
-    : bad(`ran, or refused for the wrong reason, without --confirm: ${noConfirm.out.slice(0, 120)}`);
+    : bad(`ran, or refused for the wrong reason, without --confirm: ${noConfirm.out.slice(0, 160)}`);
 
-  const wrongConfirm = run(["--confirm", "aaaaaaaaaaaaaaaaaaaa", "--email", probe]);
+  const wrongConfirm = asUnknownWorld(["--confirm", "aaaaaaaaaaaaaaaaaaaa", "--email", probe]);
   wrongConfirm.code !== 0 && /did not match/.test(wrongConfirm.out)
     ? ok("refuses when --confirm names a different project")
-    : bad(`accepted a --confirm that did not match the .env.local project`);
+    : bad(`accepted a --confirm that did not match the project .env.local names: ${wrongConfirm.out.slice(0, 160)}`);
 
-  const noEmail = run(["--confirm", ref]);
+  const noEmail = asUnknownWorld(["--confirm", UNKNOWN_REF]);
   noEmail.code !== 0 && /--email/.test(noEmail.out)
     ? ok("refuses without --email")
-    : bad("ran without being told whose account to create");
+    : bad(`ran without being told whose account to create: ${noEmail.out.slice(0, 160)}`);
 
   // The real one: correct flags, wrong world.
   const armed = run(["--confirm", ref, "--email", probe]);
