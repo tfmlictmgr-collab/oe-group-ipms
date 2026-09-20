@@ -56,27 +56,69 @@ export async function submitVendorApplication(input: ApplyInput): Promise<ApplyR
     return fail("Too many applications from this connection. Please try again later.");
   }
 
-  // 2 — honeypot and timing. Both are silent-ish: a bot gets a generic refusal,
-  // never a hint about which control it tripped.
-  if (input.honeypot && input.honeypot.trim() !== "") {
-    console.warn("vendor application rejected: honeypot filled", { ip });
+  // 2 — Turnstile (no-ops when unconfigured; see lib/turnstile.ts).
+  //
+  // ⚠️ Moved AHEAD of the honeypot and timing checks on 20 Sept 2026, because
+  // its answer now decides how much those two are allowed to do.
+  const ts = await verifyTurnstile(input.turnstileToken, ip);
+  if (!ts.ok) {
+    return fail("Bot check failed. Please reload the page and try again.");
+  }
+
+  // Did Cloudflare actually judge this request, or is Turnstile simply not
+  // configured here? `skipped` is the difference, and it is the whole basis of
+  // the rule below.
+  const vouched = !ts.skipped;
+
+  // 3 — honeypot and timing. Both are silent-ish: a bot gets a generic
+  // refusal, never a hint about which control it tripped.
+  //
+  // ⚠️ **They no longer VETO a request Turnstile has vouched for.** A real
+  // application was refused on 20 Sept 2026 because Chrome's autofill filled
+  // the off-screen honeypot — see the note on the field in `ApplyForm.tsx`.
+  // The field has been renamed so that should not recur, but the deeper fault
+  // was the arrangement: a weak browser-behaviour heuristic was overruling a
+  // real person, unrecoverably (the field is off-screen, so there is nothing
+  // to clear) and undiagnosably (the message cannot say which control tripped,
+  // by design).
+  //
+  // So when Cloudflare has judged the request a human, these two become a
+  // LOGGED SIGNAL rather than a refusal. When Turnstile is not configured they
+  // reject exactly as before — they are the only control left, and defence in
+  // depth is the point.
+  //
+  // The trade, stated plainly: a bot that defeats Turnstile AND fills the
+  // honeypot now gets through where it was previously stopped. What that costs
+  // is one spam row in a review queue that a person still has to approve —
+  // `lib/turnstile.ts` already weighs the same trade the same way. What the old
+  // arrangement cost was a real contractor unable to apply at all, silently.
+  const tripped = (control: string, detail?: Record<string, unknown>) => {
+    if (vouched) {
+      console.warn(
+        `vendor application: ${control} tripped but Turnstile vouched for the request — allowing`,
+        { ip, ...detail }
+      );
+      return null;
+    }
+    console.warn(`vendor application rejected: ${control}`, { ip, ...detail });
     return fail("We couldn't accept this submission. Please try again.");
+  };
+
+  if (input.honeypot && input.honeypot.trim() !== "") {
+    const refusal = tripped("honeypot filled");
+    if (refusal) return refusal;
   }
   if (input.renderedAt) {
     const elapsed = Date.now() - input.renderedAt;
     if (elapsed < MIN_FILL_SECONDS * 1000) {
-      console.warn("vendor application rejected: submitted too fast", { ip, elapsed });
-      return fail("We couldn't accept this submission. Please try again.");
+      const refusal = tripped("submitted too fast", { elapsed });
+      if (refusal) return refusal;
     }
+    // Not a bot heuristic — a stale form is a correctness problem whoever sent
+    // it, so this still refuses unconditionally.
     if (elapsed > MAX_FORM_AGE_MS) {
       return fail("This form has expired. Please reload the page and try again.");
     }
-  }
-
-  // 3 — Turnstile (no-ops when unconfigured; see lib/turnstile.ts).
-  const ts = await verifyTurnstile(input.turnstileToken, ip);
-  if (!ts.ok) {
-    return fail("Bot check failed. Please reload the page and try again.");
   }
 
   // 4/5 — validation.
