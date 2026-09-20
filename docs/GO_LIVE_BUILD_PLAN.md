@@ -53,7 +53,7 @@ in a clean worktree.
   merged" → it is on `phase-1`.
 
 **What was NOT verified today, and cannot be from here:** anything needing
-database credentials. `npm run verify` (122 suites), the migration run, and
+database credentials. `npm run verify` (123 suites), the migration run, and
 every RLS assertion are green *as of the last recorded run*, not as of today.
 Re-running them against the release tag is step 0.3 below, and it is not a
 formality — it is the only thing that proves the 89 commits since the last
@@ -199,7 +199,7 @@ it again on the tag because the merge commit is a different commit.
 npm ci && npx tsc --noEmit && npx next lint && npm run build
 ```
 
-**0.3 Run every verification suite against `dev`, and record it.** 122 suites.
+**0.3 Run every verification suite against `dev`, and record it.** 123 suites.
 Do **not** run it against staging or production.
 
 ```
@@ -806,7 +806,7 @@ routine; this one is not.
 | 7.4 | **Next 14 → 16 and `@sentry/nextjs` major upgrade**, with its own regression cycle | Two majors across routing, caching and Server Actions. First post-go-live work item, never a cutover edit |
 | 7.5 | **Monitoring that someone actually reads** — Sentry (root-cause the `NEXT_PUBLIC_SENTRY_DSN` rejection seen on staging first), cron-job failure alerts, and a standing query on `tickets.classified_by` so "are we quietly running on the fallback?" is a fact rather than a hunch | |
 | 7.6 | **Restore drill on production**, quarterly, from the PITR window enabled at 2.5 | A backup nobody has restored is a belief, not a backup |
-| 7.7 | **Re-run `npm run verify` after every production deploy** | 122 suites are the regression net; CI proves the build, this proves the database |
+| 7.7 | **Re-run `npm run verify` after every production deploy** | 123 suites are the regression net; CI proves the build, this proves the database |
 
 ---
 
@@ -994,7 +994,7 @@ one-line reason rather than deleting it silently.
       a corrected `due` count in `/api/jobs/purge-applications`, `use-env.mjs`,
       `verify-bootstrap.mjs`, `lib/target-env.mjs`, and one new suite
       (`verify-retention-clock`, taking the set to 122). **Added 20 Sept 2026:**
-      migration `0300` (the `application-documents` limits), backup encryption, `lib/rate-limit.ts`
+      migration `0300` (the `application-documents` limits), backup encryption, the navigation search, `lib/rate-limit.ts`
       (ceiling 30 → 20, plus the fail-closed posture recorded), and
       `scripts/backup-database.mjs` with `npm run backup`.
 

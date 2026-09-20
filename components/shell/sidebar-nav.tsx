@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { NAV_GROUPS, isActive, type NavContext } from "./nav-config";
+import { NavSearch } from "./nav-search";
 
 // Shared nav body used by both the desktop sidebar and the mobile drawer.
 export function SidebarNav({
@@ -16,7 +17,9 @@ export function SidebarNav({
   const pathname = usePathname();
 
   return (
-    <nav className="flex-1 space-y-6 overflow-y-auto px-3 py-4">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <NavSearch ctx={ctx} onNavigate={onNavigate} />
+      <nav className="flex-1 space-y-6 overflow-y-auto px-3 py-4">
       {NAV_GROUPS.map((group) => {
         const items = group.items.filter((i) => i.show(ctx));
         if (items.length === 0) return null;
@@ -53,7 +56,8 @@ export function SidebarNav({
             })}
           </div>
         );
-      })}
-    </nav>
+        })}
+      </nav>
+    </div>
   );
 }
