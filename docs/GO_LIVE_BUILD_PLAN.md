@@ -729,17 +729,29 @@ one-line reason rather than deleting it silently.
 ### Stage 1 — External (start today)
 - [ ] 1.1 13 processor DPAs signed *(hard gate on Stage 6)*
 - [ ] 1.2 Privacy notice legally reviewed and published
-- [ ] 1.3 72-hour breach procedure written
-- [ ] 1.4 Data-subject-rights procedure published
+- [x] 1.3 72-hour breach procedure written — `BREACH_PROCEDURE.md`, drafted
+      2026-09-20 against NDPA s.40(2). ⚠️ **Contact table must be completed
+      before it is usable**: a procedure whose first step is "tell the DPO"
+      fails at 3am if nobody can find the number.
+- [~] 1.4 Data-subject-rights procedure — `DATA_SUBJECT_RIGHTS_PROCEDURE.md`,
+      drafted 2026-09-20, operationalising the 30-day promise already made in
+      `PRIVACY_NOTICE.md` §6. **Written, not yet published**; publishing is
+      1.2's gate, and both need the same DPO contact details.
 - [ ] 1.5 NDPC threshold confirmed; DPO registered; contact published
 - [ ] 1.6 Board decision on special-category data
-- [~] 1.7 Cross-border basis + **production hosting region** confirmed *(blocks 3.1)*
-      — region decided 2026-09-20: Supabase `eu-west-1`, Vercel `dub1` (both
-      Ireland). Basis drafted in `CROSS_BORDER_TRANSFER_BASIS.md` and **awaiting
-      DPO + Legal review**. ⚠️ Not closed: GAID 2025 repealed the NDPR whitelist
-      and the NDPC has issued no adequacy decision, so the basis is contractual
-      and rides on the 13 DPAs (1.1). Hosting in the EU supplies nothing on its
-      own.
+- [x] 1.7 Cross-border basis + **production hosting region** — **CLOSED
+      2026-09-20. Stage 3 is unblocked.** Region: Supabase `eu-west-1`, Vercel
+      `dub1` (both Ireland), fixed at project creation. Basis: **contractual
+      clauses under NDPA s.41**, recorded in `CROSS_BORDER_TRANSFER_BASIS.md`;
+      Legal confirmed the clauses can be approved and filed, and that work runs
+      in parallel rather than gating the build. Board confirmed Supabase over a
+      Nigerian alternative (§5b — 157 RLS policies and 639 `auth.uid()`
+      references make it a rebuild, not a migration, and Supabase offers no
+      African region).
+      ⚠️ Still true and still load-bearing: GAID 2025 repealed the NDPR
+      whitelist and the NDPC has issued no adequacy decision, so **hosting in
+      the EU supplies no basis on its own** and this rides on the 13 DPAs
+      (1.1). A DPA without transfer clauses does not discharge s.41.
 - [ ] 1.8 Paystack live keys obtained *(hard gate on Stage 6)*
 - [ ] 1.9 Segregated client-funds bank account confirmed
 - [ ] 1.10 Flutterwave / FX — explicit in or out
