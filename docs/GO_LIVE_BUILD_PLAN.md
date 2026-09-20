@@ -902,6 +902,14 @@ one-line reason rather than deleting it silently.
       end against PostgreSQL 16: a real dump, a real restore, counts matching
       the manifest, and a deliberately truncated archive correctly refused and
       deleted.
+      ✅ **Encryption added 20 Sept 2026** (`--encrypt` / `--decrypt`), so a
+      second copy can live off-site — Drive, an external disk, a second office
+      — as ciphertext. It encrypts only AFTER `pg_restore --list` has verified
+      the dump, then decrypts it back and compares byte for byte before
+      deleting the plaintext. Proven: wrong passphrase refused, a single
+      flipped byte refused, correct passphrase restoring to matching row
+      counts. ⚠️ It adds a second unrecoverable secret — escrow the
+      passphrase like `GATEWAY_CREDENTIAL_KEY`, never beside the backups.
       ⛔ **One thing this opened, and it is bigger than PITR:** every backup
       line concerns **Postgres**. Whether Supabase's daily backup covers
       **Storage** — identity documents, payment proofs, payout evidence — is
@@ -975,7 +983,7 @@ one-line reason rather than deleting it silently.
       a corrected `due` count in `/api/jobs/purge-applications`, `use-env.mjs`,
       `verify-bootstrap.mjs`, `lib/target-env.mjs`, and one new suite
       (`verify-retention-clock`, taking the set to 122). **Added 20 Sept 2026:**
-      migration `0300` (the `application-documents` limits), `lib/rate-limit.ts`
+      migration `0300` (the `application-documents` limits), backup encryption, `lib/rate-limit.ts`
       (ceiling 30 → 20, plus the fail-closed posture recorded), and
       `scripts/backup-database.mjs` with `npm run backup`.
 

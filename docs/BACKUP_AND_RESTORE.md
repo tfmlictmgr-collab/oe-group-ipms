@@ -17,6 +17,7 @@ believed.
 |---|---|---|---|
 | **Baseline** | Supabase Pro **daily backups**, 7-day retention | ~24 hours | **included** |
 | **On demand** | `npm run backup` — a verified `pg_dump` taken at a moment you choose | 0, at the moment taken | **$0** |
+| **Off-site copy** | `npm run backup -- --encrypt` — the same, as ciphertext, safe to store anywhere (§3a) | as above | **$0** |
 | *Considered and declined* | ~~Point-in-Time Recovery~~ | seconds | **$100/mo per project** |
 
 ### Why PITR was declined
@@ -99,6 +100,77 @@ gitignored; that is a safety net, not permission to be casual.
 
 **Take one before:** any migration against production, any bulk correction, any
 data fix written by hand, and immediately before cutover.
+
+---
+
+## 3a. A redundant copy somewhere else — and what makes it safe
+
+**Asked 20 Sept 2026: can the database be replicated to Google Workspace, or
+similar, at no cost?** Three separate answers, because the question contains
+three different things.
+
+### A live replica is not available free, and would reopen 1.7
+
+A continuously-synced standby is a Supabase **read replica** (a paid add-on) or
+a Postgres server you run yourself somewhere. Google Workspace cannot be that
+somewhere — Drive stores files, it does not run Postgres, and there is nothing
+to "connect" a database to. A free VM tier elsewhere could, but it would be a
+new hosting location for the entire dataset, which **reopens `1.7`** — the
+cross-border basis and the eu-west-1 / dub1 decision the board has already
+taken and legal is already filing against. That is a large cost with no dollar
+sign on it.
+
+### A redundant *copy* is free, and is worth having
+
+This is the useful version of the idea, and `npm run backup --encrypt` is built
+for it. What makes a second copy safe is not where it goes — it is that it is
+**ciphertext before it leaves this machine**.
+
+```
+npm run backup -- --encrypt          # AES-256-GCM, passphrase-derived key
+npm run backup -- --decrypt <file>   # to get it back
+```
+
+The script encrypts **after** `pg_restore --list` has verified the dump, then
+**decrypts it straight back and compares it byte for byte** before deleting the
+plaintext. An encrypted backup nobody has decrypted is precisely the belief
+this whole document refuses, and a mistyped passphrase is otherwise silent
+until the day the file is needed. If the round-trip fails, nothing encrypted is
+kept and the plaintext is left where it was.
+
+Once the file is ciphertext, the destination stops being a data-protection
+question and becomes a durability one. Google Drive, OneDrive, an external
+disk, a second office — all fine. Two copies in two places is the actual goal.
+
+⚠️ **Google is already a processor on the DPA tracker** (for Gemini failover,
+under the Google Cloud DPA, which also covers Workspace). That makes Drive a
+smaller step than a brand-new vendor — but note that **Workspace data regions
+are an Enterprise feature**, so on a Business tier you do not control where the
+file physically sits. With an encrypted file this matters much less; with an
+unencrypted one it would matter a great deal. Do not put an unencrypted dump in
+Drive.
+
+⚠️ **This adds a second unrecoverable secret.** The backup passphrase is as
+final as `GATEWAY_CREDENTIAL_KEY`: lose it and the copies are random bytes.
+Escrow it the same way — sealed, two holders, named in the runbook — and
+**never in the same envelope as the drive that holds the backups**, or one
+theft takes both. `BACKUP_PASSPHRASE` may be set in the environment for an
+unattended run; prefer the interactive prompt, which never touches shell
+history.
+
+### What a copy still does not cover
+
+Everything in §2. A second copy of the database is still only the database —
+the storage buckets are not in it, and the **Storage question in §2 remains
+open**. Redundancy multiplies what you already have; it does not add what is
+missing.
+
+**Proven 20 Sept 2026** against PostgreSQL 16: an encrypted backup taken and
+round-trip-verified; a **wrong passphrase refused**; a **single flipped byte
+refused** (GCM authenticates, so an altered file fails rather than decrypting
+into quiet nonsense); and the correct passphrase decrypting to a file whose
+SHA-256 matches the manifest, restored into a fresh database with matching row
+counts.
 
 ---
 
