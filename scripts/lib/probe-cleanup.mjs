@@ -136,7 +136,23 @@ export async function sweepProbeVendors(svc, prefixes = ["Perm probe", "PROBE", 
   for (const r of recips ?? []) {
     const { count } = await svc.from("remittances")
       .select("id", { count: "exact", head: true }).eq("recipient_id", r.id);
-    if ((count ?? 0) === 0) await svc.from("payout_recipients").delete().eq("id", r.id);
+    if ((count ?? 0) !== 0) continue;   // named by a payout — kept, correctly
+
+    // ⚠️ THE ERROR IS READ. It was discarded here, in the one function whose
+    // own comment below says "never swallow this" about the very next loop.
+    //
+    // The consequence was not a silent failure but an AMBIGUOUS one. When a
+    // vendor delete was then refused by `payout_recipients_vendor_id_fkey`,
+    // the output gave no way to tell "the destination is named by a remittance
+    // and is correctly retained" from "the delete was refused for some other
+    // reason and nobody noticed". On dev that was eleven vendors, every run,
+    // reported identically under both readings.
+    const { error } = await svc.from("payout_recipients").delete().eq("id", r.id);
+    if (error) {
+      console.warn(
+        `  probe-cleanup: payout recipient ${r.id} NOT removed — ${error.message}`
+      );
+    }
   }
 
   let removed = 0;
