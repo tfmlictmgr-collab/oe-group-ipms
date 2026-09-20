@@ -14,6 +14,10 @@
       "schedule": "45 8 * * *"
     },
     {
+      "path": "/api/jobs/stamp-retention",
+      "schedule": "30 2 * * *"
+    },
+    {
       "path": "/api/jobs/purge-applications",
       "schedule": "0 3 * * *"
     },

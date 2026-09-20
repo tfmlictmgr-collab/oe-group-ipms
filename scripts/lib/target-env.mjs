@@ -9,12 +9,21 @@
 // hardcoded password, so pointed at the wrong world they do not seed a demo,
 // they re-arm a set of known-password logins.
 //
-// `use-env.mjs` copies one of .env.{demo,dev,staging}.local over .env.local, so
-// the safe set is exactly the URLs those files name. Read them rather than
-// hardcoding project refs: an allowlist of refs in here goes stale the first
-// time a project is rotated, and a stale allowlist fails in the dangerous
-// direction. Production has no file in the repo at all — which is the point. It
-// cannot be on the list, so it cannot pass.
+// `use-env.mjs` copies one of .env.{demo,dev,staging,prod}.local over
+// .env.local, so the safe set is exactly the URLs the first three name. Read
+// them rather than hardcoding project refs: an allowlist of refs in here goes
+// stale the first time a project is rotated, and a stale allowlist fails in the
+// dangerous direction.
+//
+// ⚠️ What keeps production out is THIS LIST, and nothing else (clarified
+// 20 Sept 2026). The earlier note said "production has no file in the repo at
+// all — which is the point", and that stops being true at build-plan §2.10,
+// when `.env.prod.local` is created on the operator's machine. It is gitignored
+// like every other backing file, so it is absent from the REPOSITORY and
+// present on the one machine that runs these scripts — which is exactly the
+// machine this guard protects against. The protection is that `.env.prod.local`
+// is not in SAFE_FILES, so production's URL never enters the allowlist and can
+// never match. Do not add it.
 import path from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 
