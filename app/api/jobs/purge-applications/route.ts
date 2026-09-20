@@ -57,9 +57,18 @@ async function run(req: NextRequest) {
   // definition nothing left to count, and a run that reports "0 purged" is
   // indistinguishable from a run that did nothing. A DPO asked "did retention
   // execute last month?" needs an answer.
+  //
+  // ⚠️ `purged_at is null` matters (added 20 Sept 2026). Without it this
+  // counted rows that were purged on some earlier night and still carry a past
+  // `purge_after`, so the log read "N application(s) were due and have been
+  // purged" every night forever for the same N. `purge_expired_applications()`
+  // itself filters on `purged_at is null`, so the count and the function were
+  // answering different questions — and the one being written into the record a
+  // DPO reads was the wrong one.
   const { count: due } = await supabaseAdmin
     .from("tenant_applications")
     .select("id", { count: "exact", head: true })
+    .is("purged_at", null)
     .not("purge_after", "is", null)
     .lt("purge_after", new Date().toISOString());
 

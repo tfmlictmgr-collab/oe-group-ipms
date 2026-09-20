@@ -55,12 +55,48 @@ console.log("A. The never-list");
   // ⚠️ The two files must agree. `use-env.mjs` is where a new world gets added,
   // and a world added there but not here is a hole in this guard that nothing
   // else would report.
+  //
+  // ⚠️ Every world is read, not a named three (fixed 20 Sept 2026). This
+  // previously matched `/(demo|dev|staging):/` — which is every world that
+  // existed when it was written, and therefore could never catch the thing it
+  // says it catches: a NEW world added to `use-env.mjs` and forgotten here
+  // would not match the pattern, so the check would pass by not looking. A
+  // guard against additions must not enumerate what exists today.
   const envSrc = fs.readFileSync(path.join(rootDir, "scripts", "use-env.mjs"), "utf8");
-  const known = [...envSrc.matchAll(/^\s{2}(demo|dev|staging):\s*"([a-z0-9]{20})"/gm)].map((m) => [m[1], m[2]]);
+  const declared = [...envSrc.matchAll(/^\s{2}([a-z][a-z0-9_]*):\s*(?:"([a-z0-9]{20})"|null)/gm)]
+    .map((m) => [m[1], m[2] ?? null]);
+
+  // ⚠️ Prove the PARSE before trusting what it found. `WORLDS` in use-env.mjs
+  // is the authoritative list of worlds; if the HOSTS parse above did not
+  // account for every one of them, this check is reading a subset and would
+  // pass by not looking — the same failure as the enumerated pattern it
+  // replaced, arrived at a different way. A ref written with unexpected
+  // indentation, or not exactly 20 characters, would do it.
+  const worlds = envSrc.match(/const WORLDS = \[([^\]]*)\]/)?.[1];
+  const worldNames = worlds ? [...worlds.matchAll(/"([a-z][a-z0-9_]*)"/g)].map((m) => m[1]) : [];
+  const unparsed = worldNames.filter((w) => !declared.some(([n]) => n === w));
+  worldNames.length > 0 && unparsed.length === 0
+    ? ok(`every world use-env.mjs declares was parsed (${worldNames.join(", ")})`)
+    : bad(
+        worldNames.length === 0
+          ? "could not read WORLDS from use-env.mjs — this check cannot confirm it saw every world"
+          : `use-env.mjs declares worlds this check did not parse, so it is reading a subset: ${unparsed.join(", ")}`
+      );
+
+  // `prod` is the one world this script is FOR, so it must never be refused.
+  const known = declared.filter(([n, r]) => n !== "prod" && r);
   const missing = known.filter(([, r]) => !never.some(([nr]) => nr === r));
   missing.length === 0
-    ? ok(`every non-production world in use-env.mjs is on the never-list (${known.length} checked)`)
+    ? ok(`every non-production world in use-env.mjs is on the never-list (${known.length} checked, of ${declared.length} declared)`)
     : bad(`use-env.mjs knows worlds the bootstrap would happily run on: ${missing.map(([n]) => n).join(", ")}`);
+
+  // The mirror image, and the failure nobody would diagnose quickly: if prod's
+  // ref ever reaches the never-list, this script refuses the only target it
+  // exists to serve, and says the project is dev/demo/staging while doing it.
+  const prodRef = declared.find(([n]) => n === "prod")?.[1];
+  !prodRef || !never.some(([nr]) => nr === prodRef)
+    ? ok("production is not on the never-list — the script can still reach its only valid target")
+    : bad("use-env.mjs's prod ref is on the never-list: bootstrap-production.mjs would refuse production itself");
 
   src.includes("There is no override")
     ? ok("the refusal states it has no override")

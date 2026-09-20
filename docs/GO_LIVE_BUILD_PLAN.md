@@ -53,7 +53,7 @@ in a clean worktree.
   merged" → it is on `phase-1`.
 
 **What was NOT verified today, and cannot be from here:** anything needing
-database credentials. `npm run verify` (121 suites), the migration run, and
+database credentials. `npm run verify` (122 suites), the migration run, and
 every RLS assertion are green *as of the last recorded run*, not as of today.
 Re-running them against the release tag is step 0.3 below, and it is not a
 formality — it is the only thing that proves the 89 commits since the last
@@ -199,7 +199,7 @@ it again on the tag because the merge commit is a different commit.
 npm ci && npx tsc --noEmit && npx next lint && npm run build
 ```
 
-**0.3 Run every verification suite against `dev`, and record it.** 121 suites.
+**0.3 Run every verification suite against `dev`, and record it.** 122 suites.
 Do **not** run it against staging or production.
 
 ```
@@ -528,10 +528,56 @@ review date. Assess whether the operator-governed records export (`0239`) can
 serve a subject-access request; if it can, document the procedure, and if it
 cannot, write the manual one. 1.4 cannot be published without an answer.
 
+**✅ 2.9 done 20 Sept 2026 — `0299`, and the reason it stamps rather than
+purges.** The 6-year rule is closed by adding the one thing that was missing:
+the date. `purge_expired_applications()` (0062) fires on `purge_after < now()`
+alone, and the 90-day rule has always worked only because `0082` sets that date
+on rejection. `0299` sets it on approval — nightly, because the clock runs from
+the end of the **tenancy**, which is unknown at approval and moves every time
+the lease is renewed. It contains no `DELETE` of its own, which
+`verify-retention-clock` asserts against the source, since the behavioural test
+for it is six years away.
+
+⚠️ **The renewal trap.** `leases.application_id` is not carried forward by a
+renewal, so "the end date of the lease this application produced" answers with
+the **first** lease and would stamp a purge clock on a sitting tenant. `0299`
+walks `renewed_from_lease_id` forward recursively and calls the tenancy ended
+only when nothing in the chain is still `draft` or `active`. Same mistake
+`0181` found in the admin fee, with personal data on it instead of money.
+
+A stamp is also **withdrawn** if a renewal is recorded after the clock started.
+That asymmetry is the design: a stamp that is wrong has six years to be
+corrected, a purge that is wrong has none.
+
+Proven against PostgreSQL 16 across eight cases before shipping — no lease, a
+live tenancy, a single ended tenancy, the renewal trap, a fully-ended chain
+(stamped from the **last** end), withdrawal after a late renewal, soft-deleted
+leases in both directions, and a rejection's own 90-day clock left untouched.
+
+Two things found on the way past and fixed here: the purge job's own "how many
+were due" count did not filter `purged_at is null`, so it re-counted
+already-purged rows every night and wrote a wrong number into the record a DPO
+reads; and `verify-bootstrap`'s never-list cross-check matched
+`/(demo|dev|staging)/` — every world that existed when it was written — so it
+could never have caught the new world it exists to catch. Both now hold.
+
 **2.10 Add `prod` to `scripts/use-env.mjs`'s `HOSTS`** and create
 `.env.prod.local` **from the new project's own dashboard**. Never by copying
 another world's file and editing it — a stray unedited value is how two worlds
 end up sharing a secret.
+
+**✅ The code half is done, 20 Sept 2026.** `prod` was already in `WORLDS`, so
+switching to it always worked; everything around it was missing. `active()` now
+names PRODUCTION from the backing file even before the ref is recorded, and the
+switch prints a banner. Two refusals were added, and the first is rule 8 turned
+from a sentence into a guard: a backing file naming the **same project** as
+another world's is refused rather than copied, which is exactly the
+`.env.prod.local`-copied-from-staging mistake this item warns about. The second
+refuses a backing file that disagrees with the ref recorded in `HOSTS`.
+`lib/target-env.mjs`'s reasoning was corrected at the same time — it said
+production is safe because it "has no file in the repo at all", which stops
+being true the moment this item is finished. What keeps production out is that
+`.env.prod.local` is not in `SAFE_FILES`, and nothing else.
 
 **Exit gate:** A–G each either closed or accepted in writing by a named person;
 2.6, 2.7, 2.8 decided; a fresh RC tag cut if any of this changed code.
@@ -579,7 +625,7 @@ public, and that the caps match the migrations:
 | `org-logos` | **yes, by design** | brand marks painted on the sign-in page | `0015` |
 | `application-documents` | no | tenancy applicants' identity documents | `0062` |
 | `work-order-media` | no | photographs inside client homes, 25 MB, image/video | `0106` |
-| `vendor-documents` | no | vendor KYC, 15 MB | `0164` |
+| `vendor-documents` | no | vendor KYC, **2 MB** (`0164` created it at 15 MB; `0213` lowered it) | `0164`, `0213` |
 | `invoice-attachments` | no | vendor and staff-filed invoices | `0140` |
 | `payment-proofs` | no | payers' evidence of off-platform payment | `0281` |
 | `payout-evidence` | no | payees' bank evidence | `0289` |
@@ -749,7 +795,7 @@ routine; this one is not.
 | 7.4 | **Next 14 → 16 and `@sentry/nextjs` major upgrade**, with its own regression cycle | Two majors across routing, caching and Server Actions. First post-go-live work item, never a cutover edit |
 | 7.5 | **Monitoring that someone actually reads** — Sentry (root-cause the `NEXT_PUBLIC_SENTRY_DSN` rejection seen on staging first), cron-job failure alerts, and a standing query on `tickets.classified_by` so "are we quietly running on the fallback?" is a fact rather than a hunch | |
 | 7.6 | **Restore drill on production**, quarterly, from the PITR window enabled at 2.5 | A backup nobody has restored is a belief, not a backup |
-| 7.7 | **Re-run `npm run verify` after every production deploy** | 121 suites are the regression net; CI proves the build, this proves the database |
+| 7.7 | **Re-run `npm run verify` after every production deploy** | 122 suites are the regression net; CI proves the build, this proves the database |
 
 ---
 
@@ -836,9 +882,43 @@ one-line reason rather than deleting it silently.
 - [ ] 2.6 Rate-limit posture decided for payment webhooks and remittance
 - [ ] 2.7 Gemini — billing enabled, or best-effort accepted in writing
 - [ ] 2.8 Turnstile and SMS — explicit in or out
-- [ ] 2.9 6-year retention clock; subject-access procedure written *(feeds 1.4)*
-- [ ] 2.10 `prod` added to `use-env.mjs`; `.env.prod.local` created from the dashboard
-- [ ] 2.11 If any of the above changed code: cut `rc2`, re-run Stage 0
+- [~] 2.9 6-year retention clock **built 2026-09-20** (`0299`) — the last open
+      row in `NDPA_COMPLIANCE_PACK.md` §5. It works by setting `purge_after`,
+      so `purge_expired_applications()` (0062) remains the only code in the
+      system that deletes applicant PII. Proven against PostgreSQL 16 across
+      eight cases before shipping, the headline being the **renewal trap**: a
+      renewal does not carry `application_id` forward, so the obvious query
+      would have stamped a purge clock on a tenant still living there under a
+      later renewal. Held by `verify-retention-clock`.
+      ⚠️ **Not yet run against a real world.** Apply `0299` and run the suite
+      on `dev` and `staging`.
+      ✅ The subject-access half is answered: `DATA_SUBJECT_RIGHTS_PROCEDURE.md`
+      records that `records.export` (`0239`) is an operator-gated internal bulk
+      export and **not** the route for a subject-access request, and writes the
+      manual procedure instead. 1.4 is no longer waiting on this.
+- [~] 2.10 `prod` is now a **first-class world** in `use-env.mjs` (2026-09-20).
+      `WORLDS` already listed it; what it lacked was everything else. Now: the
+      `HOSTS.prod` slot is a visible `null` with the instruction to fill it at
+      3.1 rather than a commented-out line; `active()` names **PRODUCTION**
+      from the backing file even before the ref is recorded, because "unknown"
+      about production is the worst answer this tool can give; switching to it
+      prints an unmissable banner; and two refusals were added — a backing file
+      that names the **same project** as another world's (rule 8's
+      copied-and-edited `.env.prod.local`, caught mechanically rather than
+      written down), and one that disagrees with the ref recorded in `HOSTS`.
+      Exercised across six scenarios against stub env files.
+      ⚠️ **Two halves remain, both needing the project to exist:** record the
+      ref in `HOSTS.prod` (3.1) and create `.env.prod.local` from the
+      production dashboard — never by copying another world's file, which the
+      new guard now refuses outright.
+- [!] 2.11 **Triggered.** 2.9 and 2.10 changed code, so rule 7 applies:
+      `v1.0.0-rc2` no longer describes what would be deployed. Cut **`rc3`** and
+      re-run Stage 0 against it once the remaining Stage 2 items land — not
+      per-item, or the tag is cut three more times. What changed since `rc2`:
+      migration `0299`, the `/api/jobs/stamp-retention` route and its cron entry,
+      a corrected `due` count in `/api/jobs/purge-applications`, `use-env.mjs`,
+      `verify-bootstrap.mjs`, `lib/target-env.mjs`, and one new suite
+      (`verify-retention-clock`, taking the set to 122).
 
 ### Stage 3 — Provision production, empty
 - [ ] 3.1 Production Supabase project created in the confirmed region; ref recorded

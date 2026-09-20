@@ -115,7 +115,7 @@ it is a board/legal action, not a technical one.
 | Data | Rule | Status |
 |---|---|---|
 | Rejected / withdrawn applications | **90 days**, then PII purged | ✅ **now enforced** — see below |
-| Approved applications | tenancy + **6 years** | 📄 `purge_after` is deliberately not set on approval; the 6-year clock runs from tenancy end and **has no job yet** |
+| Approved applications | tenancy + **6 years** | ✅ **now enforced** — `0299`, 20 Sept 2026. See below |
 | Ledger, payments, remittances | retained — financial record | ✅ soft-delete only |
 | Audit trail | retained, append-only | ✅ no UPDATE/DELETE policy exists |
 | Work-order media | follows the ticket | 📄 no separate rule |
@@ -143,9 +143,51 @@ Proven end to end: name and email become `[purged]`, phone becomes null, `form`
 and `sensitive` become `{}`, `purged_at` is stamped, and the anonymised stub
 survives so the decision remains auditable.
 
-⛔ **Still open:** the approved-application 6-year clock has no job. It is years
-away for any real record, so it is not a go-live blocker — but it should be
-built before the first tenancy ends, not after.
+### ✅ The approved-application 6-year clock, and the renewal trap in it
+
+**Closed 20 Sept 2026 (`0299`).** This row read "has no job yet" since the Day
+12 review. It was the last open row in the table above.
+
+**It is closed by stamping a date, not by adding a second deletion path.**
+`purge_expired_applications()` fires on `purge_after < now()` and nothing else.
+The 90-day rule has always worked because `0082` sets that date on rejection;
+the 6-year rule never worked because nothing set it on approval. So the missing
+piece was never the deletion — it was the date. `0299` computes and sets it,
+and the one proven deletion path does the rest.
+
+**The clock cannot start at approval**, which is why this is a nightly
+reconciliation rather than something the approval writes. It runs from the end
+of the **tenancy**, which is unknown at approval and changes every time the
+lease is renewed. The job therefore re-derives the answer for every approved
+application on every run, and **withdraws** a stamp if a renewal has reopened
+the tenancy since. A stamp that is wrong has six years in which to be
+corrected; a purge that is wrong has none.
+
+⚠️ **The trap, stated because it is the whole difficulty.** A renewal does not
+carry `application_id` forward. So the obvious query — "the end date of the
+lease this application produced" — returns the end of the **first** lease, and
+would set a purge clock on a tenant who is still living there under their
+fourth renewal. The applicant whose data this rule protects would be purged
+while still a tenant. `0299` therefore walks `renewed_from_lease_id` forward
+recursively and treats the tenancy as ended only when no lease anywhere in that
+chain is still `draft` or `active`. This is the same mistake `0181` found in
+the admin fee, where it had money attached rather than personal data.
+
+**Approved applications that produced no lease** — an offer never accepted, or
+a lease recorded on paper — have no tenancy and so no clock. They are counted
+and reported on every run rather than left behind, because an approved
+application quietly holding PII with no retention date is the same shape of gap
+as the one this whole section exists to record.
+
+Proven against PostgreSQL 16 before shipping, across eight cases: no lease, a
+live tenancy, a single ended tenancy, the renewal trap, a fully-ended chain
+(stamped from the **last** end, not the first), withdrawal after a late
+renewal, soft-deleted leases in both directions, and a rejected application's
+own 90-day clock left untouched. Held by `verify-retention-clock`.
+
+⚠️ **What is still true:** for any real record this fires years from now. The
+value of building it today is that the renewal rule is understood today. It
+should be re-read — not merely assumed — the first time a real tenancy ends.
 
 ---
 
