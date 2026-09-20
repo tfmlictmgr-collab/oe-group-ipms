@@ -82,7 +82,24 @@ async function scenario(orgId, vendorId, status, actorId, sql, extra = "") {
     // somebody else, which the acting user cannot see and should not be able to.
     const steps = Array.isArray(sql) ? sql : [sql];
     let last = { rows: [] };
+    // ⚠️ WHICH statement raised, not just what it said.
+    //
+    // `scenario()` runs a list of statements and reports only the message of
+    // whichever one threw. Three rounds were spent on OEA's executive case
+    // reading "this payment has 1 earlier stage(s) still to be approved at
+    // 5,000.00" and reasoning about which act could have produced it — the
+    // fixture, the approve, or the remit — when the answer was one variable
+    // away. Each theory was plausible, each cost a run, and none of them was
+    // evidence.
+    //
+    // 📌 The rule this encodes: when a harness hides which of its own steps
+    // failed, the next inference is a guess however well argued. The cheap fix
+    // is to stop guessing, not to guess better.
+    let stepIndex = -1;
+    let stepText = "";
     for (const step of steps) {
+      stepIndex += 1;
+      stepText = String(step).replace(/\s+/g, " ").trim();
       if (step === "AS SUPERUSER") {
         await db.query("reset role");
         await db.query("set local request.jwt.claims = '{}'");
@@ -192,7 +209,28 @@ async function scenario(orgId, vendorId, status, actorId, sql, extra = "") {
     return { ok: true, rows: last.rows, id };
   } catch (e) {
     await db.query("rollback");
-    return { ok: false, err: e.message.slice(0, 150) };
+    // A FIXTURE failure is raised by this function about its own setup, so it
+    // carries its own explanation and needs no statement attached.
+    if (/^FIXTURE:/.test(e.message)) {
+      return { ok: false, err: e.message.slice(0, 150) };
+    }
+    // Postgres's own code, and the statement that drew it. `detail` and `hint`
+    // are carried when present: `enforce_approval_rules` puts the reason a
+    // stage did not count in one of them, and losing it is what made the same
+    // message readable as three different faults.
+    const where =
+      stepIndex < 0
+        ? "fixture setup (before any step ran)"
+        : `step ${stepIndex + 1}/${steps.length}: ${stepText.slice(0, 90)}`;
+    const extra = [e.code && `[${e.code}]`, e.detail, e.hint].filter(Boolean).join(" ");
+    return {
+      ok: false,
+      err: e.message.slice(0, 150),
+      // Kept separate from `err` so every existing assertion that matches on
+      // the message keeps matching exactly as it did.
+      at: where,
+      pg: extra || undefined,
+    };
   }
 }
 
@@ -307,7 +345,11 @@ for (const org of (orgs ?? []).filter((o) => !o.is_platform_operator)) {
         ? ok("and finance remits it")
         : /^FIXTURE:/.test(finRemit.err ?? "")
           ? note(`finance remittance not staged here — ${finRemit.err.replace(/^FIXTURE: /, "")}`)
-          : bad(`finance could not remit: ${finRemit.err}`);
+          : bad(
+              `finance could not remit: ${finRemit.err}` +
+              (finRemit.at ? `\n           raised by ${finRemit.at}` : "") +
+              (finRemit.pg ? `\n           ${finRemit.pg}` : "")
+            );
     }
 
     if (who.executive) {
@@ -324,7 +366,11 @@ for (const org of (orgs ?? []).filter((o) => !o.is_platform_operator)) {
         ? note(`executive remittance not staged here — ${execRemit.err.replace(/^FIXTURE: /, "")}`)
         : !execRemit.ok && /may remit payments|only finance or an administrator may remit/i.test(execRemit.err ?? "")
           ? ok("an executive approves and still cannot remit — oversight authorises, the payment officer disburses")
-          : bad(`executive remittance: ${execRemit.err ?? "ALLOWED"}`);
+          : bad(
+              `executive remittance: ${execRemit.err ?? "ALLOWED"}` +
+              (execRemit.at ? `\n           raised by ${execRemit.at}` : "") +
+              (execRemit.pg ? `\n           ${execRemit.pg}` : "")
+            );
     }
   }
 

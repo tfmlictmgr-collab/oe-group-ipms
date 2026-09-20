@@ -210,11 +210,39 @@ console.log("\nC. B7 role boundaries hold in every organisation");
 console.log("\nD. A vendor sees their own jobs and nobody else's");
 {
   const o = tenantOrgs.find((x) => x.slug === "oe-group-foundation-poc") ?? tenantOrgs[0];
-  const { data: vendors } = await svc.from("vendors").select("id, user_id, name")
-    .eq("org_id", o.id).not("user_id", "is", null).limit(2);
+  // ⚠️ A LOGIN THAT STILL WORKS, and in a fixed order.
+  //
+  // This took the first two vendors with a `user_id`, unordered and without
+  // checking the account behind it. `Sparkle Cleaning Services` points at
+  // `vendor@oegroup.test`, deactivated since 1 Aug 2026 — so `asUser` read as a
+  // deactivated caller, 0194 correctly refused it everything, and the suite
+  // reported "cannot see their own assigned job": the deactivation guard
+  // working, printed as an RLS defect on the vendor portal.
+  //
+  // 📌 It passed for weeks because `.limit(2)` had no `.order()`. Which two
+  // rows came back was up to the planner, and it happened to return two live
+  // ones until a probe sweep deleted four vendors from this org and changed the
+  // shape of the table. A fixture chosen non-deterministically is a test that
+  // reports on the database's mood.
+  //
+  // Deactivated accounts are not skipped out of convenience — that a
+  // deactivated vendor sees NOTHING is a rule, and `verify-deactivation` is
+  // where it is asserted. This section is about a LIVE vendor's reach, so it
+  // needs a live one, and says so plainly when the org cannot supply two.
+  const { data: candidates } = await svc.from("vendors").select("id, user_id, name")
+    .eq("org_id", o.id).not("user_id", "is", null).order("created_at");
 
-  if ((vendors ?? []).length < 2) {
-    note("fewer than two vendors with logins on this org — cannot test cross-vendor isolation");
+  const { data: logins } = await svc.from("users")
+    .select("id, deactivated_at")
+    .in("id", (candidates ?? []).map((v) => v.user_id));
+  const live = new Set((logins ?? []).filter((u) => !u.deactivated_at).map((u) => u.id));
+  const vendors = (candidates ?? []).filter((v) => live.has(v.user_id)).slice(0, 2);
+
+  const dead = (candidates ?? []).length - (candidates ?? []).filter((v) => live.has(v.user_id)).length;
+  if (dead > 0) note(`${dead} vendor(s) on this org point at a deactivated login — skipped, not tested here`);
+
+  if (vendors.length < 2) {
+    note("fewer than two vendors with LIVE logins on this org — cannot test cross-vendor isolation");
   } else {
     const [a, b] = vendors;
     const { data: t } = await svc.from("tickets").insert({
