@@ -259,7 +259,10 @@ for (const org of (orgs ?? []).filter((o) => !o.is_platform_operator)) {
   if (!vendor) { note(`${org.slug}: no vendor — skipped`); continue; }
 
   const who = {};
-  for (const role of ["facility_manager", "finance_approver", "admin", "executive", "vendor"]) {
+  // `payment_approver` joins the cast for section C's final-stage check: on the
+  // OEA ladder they ARE the final stage, where the executive is only stage 2.
+  for (const role of ["facility_manager", "finance_approver", "admin", "executive",
+                      "payment_approver", "vendor"]) {
     const { data: u } = await svc.from("users").select("id")
       .eq("org_id", org.id).eq("role", role).is("deactivated_at", null)
       .limit(1).maybeSingle();
@@ -352,24 +355,56 @@ for (const org of (orgs ?? []).filter((o) => !o.is_platform_operator)) {
             );
     }
 
-    if (who.executive) {
-      // The separation that must never soften.
-      const execRemit = await scenario(org.id, vendor.id, "recommended", who.executive, [
+    // ⚠️ THE FINAL-STAGE HOLDER, read from this org's own ladder — not the
+    // executive, who is only the final stage on three of the four.
+    //
+    // The rule being asserted is "oversight authorises, the payment officer
+    // disburses": whoever gives final approval must still be refused the
+    // remittance. This named `executive` outright, and that is the standard
+    // ladder's answer only. Decision 23 gave OEA audit → Managing Partner →
+    // payment approver (0211), so there the executive is STAGE 2 and final
+    // approval belongs to `payment_approver`.
+    //
+    // 📌 So on OEA the scenario was asking an executive to perform an act that
+    // is not theirs, and `enforce_approval_rules` refused it — correctly — with
+    // "this payment has 1 earlier stage(s) still to be approved at 5,000.00".
+    // The assertion matched neither spelling of the remit refusal it was
+    // looking for and reported the chain doing its job as a failure of the
+    // separation rule. Four runs and three wrong theories went into that
+    // message; what finally settled it was `scenario()` naming the STATEMENT
+    // that raised, which was the approve and never the remit.
+    //
+    // Every role on the final stage that this org actually employs is tested,
+    // rather than one of them: the standard ladder's stage 3 admits
+    // `payment_approver` AND `executive`, and picking whichever came first in
+    // the array would have quietly dropped the executive case from the three
+    // orgs where it is the interesting one.
+    const { data: stages } = await svc.rpc("payment_chain_stages", { p_org_id: org.id });
+    const finalStage = (stages ?? []).reduce(
+      (acc, s) => (acc === null || s.stage_order > acc.stage_order ? s : acc), null);
+    const finalRoles = (finalStage?.required_roles ?? []).filter((r) => who[r]);
+
+    if (finalRoles.length === 0) {
+      note(`no employed role holds this org's final approval stage (${finalStage?.label ?? "?"}) — separation not testable here`);
+    }
+    for (const role of finalRoles) {
+      const actor = who[role];
+      const remit = await scenario(org.id, vendor.id, "recommended", actor, [
         "CLEAR CHAIN",
-        `update payments set status='approved', approved_by='${who.executive}', approved_at=now() where id=$ID`,
+        `update payments set status='approved', approved_by='${actor}', approved_at=now() where id=$ID`,
         `update payments set status='remitted' where id=$ID returning id`,
       ]);
       // Decision 23 reworded this and narrowed it to the payment officer alone,
       // where 0151 also allowed an administrator. Both spellings are matched so
       // the check does not depend on which migration a world has reached.
-      /^FIXTURE:/.test(execRemit.err ?? "")
-        ? note(`executive remittance not staged here — ${execRemit.err.replace(/^FIXTURE: /, "")}`)
-        : !execRemit.ok && /may remit payments|only finance or an administrator may remit/i.test(execRemit.err ?? "")
-          ? ok("an executive approves and still cannot remit — oversight authorises, the payment officer disburses")
+      /^FIXTURE:/.test(remit.err ?? "")
+        ? note(`${role} remittance not staged here — ${remit.err.replace(/^FIXTURE: /, "")}`)
+        : !remit.ok && /may remit payments|only finance or an administrator may remit/i.test(remit.err ?? "")
+          ? ok(`a ${role} gives final approval and still cannot remit — oversight authorises, the payment officer disburses`)
           : bad(
-              `executive remittance: ${execRemit.err ?? "ALLOWED"}` +
-              (execRemit.at ? `\n           raised by ${execRemit.at}` : "") +
-              (execRemit.pg ? `\n           ${execRemit.pg}` : "")
+              `${role} remittance: ${remit.err ?? "ALLOWED"}` +
+              (remit.at ? `\n           raised by ${remit.at}` : "") +
+              (remit.pg ? `\n           ${remit.pg}` : "")
             );
     }
   }

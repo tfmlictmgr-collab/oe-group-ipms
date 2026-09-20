@@ -209,41 +209,63 @@ console.log("\nC. B7 role boundaries hold in every organisation");
 // ── D. A vendor sees only their OWN work ──────────────────────────────────
 console.log("\nD. A vendor sees their own jobs and nobody else's");
 {
-  const o = tenantOrgs.find((x) => x.slug === "oe-group-foundation-poc") ?? tenantOrgs[0];
-  // ⚠️ A LOGIN THAT STILL WORKS, and in a fixed order.
+  // ⚠️ THE ORG IS CHOSEN BY WHETHER IT CAN STAGE THE TEST, not by name.
   //
-  // This took the first two vendors with a `user_id`, unordered and without
+  // Two faults, fixed together because the second was caused by fixing the
+  // first.
+  //
+  // It took the first two vendors with a `user_id`, unordered and without
   // checking the account behind it. `Sparkle Cleaning Services` points at
   // `vendor@oegroup.test`, deactivated since 1 Aug 2026 — so `asUser` read as a
   // deactivated caller, 0194 correctly refused it everything, and the suite
   // reported "cannot see their own assigned job": the deactivation guard
-  // working, printed as an RLS defect on the vendor portal.
+  // working, printed as an RLS defect on the vendor portal. It had passed for
+  // weeks only because `.limit(2)` had no `.order()`, so which two rows came
+  // back was the planner's choice — until a probe sweep deleted four vendors
+  // from this org and changed the shape of the table. A fixture chosen
+  // non-deterministically is a test that reports on the database's mood.
   //
-  // 📌 It passed for weeks because `.limit(2)` had no `.order()`. Which two
-  // rows came back was up to the planner, and it happened to return two live
-  // ones until a probe sweep deleted four vendors from this org and changed the
-  // shape of the table. A fixture chosen non-deterministically is a test that
-  // reports on the database's mood.
+  // 📌 Filtering to live logins then left this org — hardcoded here — with ONE,
+  // so the section noted "cannot test cross-vendor isolation" and passed,
+  // having asserted nothing at all. That is the worse of the two. "A vendor
+  // does not see another vendor's job" is an access-control claim, and a green
+  // suite that has quietly stopped making it is more dangerous than a red one
+  // that makes it wrongly. Trading a false FAIL for silent zero coverage is not
+  // a fix.
   //
-  // Deactivated accounts are not skipped out of convenience — that a
-  // deactivated vendor sees NOTHING is a rule, and `verify-deactivation` is
-  // where it is asserted. This section is about a LIVE vendor's reach, so it
-  // needs a live one, and says so plainly when the org cannot supply two.
-  const { data: candidates } = await svc.from("vendors").select("id, user_id, name")
-    .eq("org_id", o.id).not("user_id", "is", null).order("created_at");
+  // So every organisation is asked, and the first that can supply two LIVE
+  // vendor logins runs the check. Deactivated accounts are skipped on a rule,
+  // not for convenience: that a deactivated vendor sees NOTHING is asserted in
+  // `verify-deactivation`, and this section is about a live vendor's reach. If
+  // no org can stage it, that is stated with the counts — a visible gap in the
+  // seed rather than a blank.
+  const liveVendorsFor = async (org) => {
+    const { data: candidates } = await svc.from("vendors").select("id, user_id, name")
+      .eq("org_id", org.id).not("user_id", "is", null).order("created_at");
+    if (!candidates?.length) return { live: [], dead: 0 };
+    const { data: logins } = await svc.from("users")
+      .select("id, deactivated_at").in("id", candidates.map((v) => v.user_id));
+    const alive = new Set((logins ?? []).filter((u) => !u.deactivated_at).map((u) => u.id));
+    const live = candidates.filter((v) => alive.has(v.user_id));
+    return { live, dead: candidates.length - live.length };
+  };
 
-  const { data: logins } = await svc.from("users")
-    .select("id, deactivated_at")
-    .in("id", (candidates ?? []).map((v) => v.user_id));
-  const live = new Set((logins ?? []).filter((u) => !u.deactivated_at).map((u) => u.id));
-  const vendors = (candidates ?? []).filter((v) => live.has(v.user_id)).slice(0, 2);
+  let o = null;
+  let vendors = [];
+  const shortfall = [];
+  for (const org of tenantOrgs) {
+    const { live, dead } = await liveVendorsFor(org);
+    if (live.length >= 2) { o = org; vendors = live.slice(0, 2); break; }
+    shortfall.push(`${org.slug}: ${live.length} live${dead ? `, ${dead} deactivated` : ""}`);
+  }
 
-  const dead = (candidates ?? []).length - (candidates ?? []).filter((v) => live.has(v.user_id)).length;
-  if (dead > 0) note(`${dead} vendor(s) on this org point at a deactivated login — skipped, not tested here`);
-
-  if (vendors.length < 2) {
-    note("fewer than two vendors with LIVE logins on this org — cannot test cross-vendor isolation");
+  if (!o) {
+    note(
+      `NO org can stage cross-vendor isolation — ${shortfall.join("; ")}. ` +
+      `Two vendors with live logins on one org are needed; this check asserted nothing this run.`
+    );
   } else {
+    note(`cross-vendor isolation tested on ${o.slug}`);
     const [a, b] = vendors;
     const { data: t } = await svc.from("tickets").insert({
       org_id: o.id, channel: "portal", message_text: `${MARK}-${S} isolation`,
