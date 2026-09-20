@@ -402,23 +402,72 @@ for (const org of (orgs ?? []).filter((o) => !o.is_platform_operator)) {
     }
     for (const role of finalRoles) {
       const actor = who[role];
+      // ⚠️ THE OUTCOME IS READ BACK, because "no error" is not "allowed".
+      //
+      // This asserted the rule held only when the remit RAISED. It reported
+      // `payment_approver remittance: ALLOWED` on all four organisations —
+      // which sounds like a payment approver can disburse, and does not mean
+      // it. 0266 is explicit:
+      //
+      //     if new.status = 'remitted' then
+      //       if caller_role <> 'finance_approver' then raise ...
+      //
+      // A row-level trigger fires only on rows actually updated, so a
+      // statement that matches NOTHING raises nothing. `payments_update` is
+      // where that is decided, and a silent zero-row write is indistinguishable
+      // from a permitted one if you only look at the error. This suite already
+      // knows that — `verify-payment-approver-reach` §D counts rows for exactly
+      // this reason, and says so: "PostgREST returned NO error while changing
+      // nothing".
+      //
+      // 📌 So the question asked is the one the rule is actually about: IS THE
+      // PAYMENT REMITTED? That is correct whether the write was refused by the
+      // trigger, refused by RLS, or permitted — and it cannot be satisfied by
+      // an act that quietly did nothing.
+      //
+      // Read back AS SUPERUSER: the actor may not be able to SELECT the row it
+      // just failed to write, and a zero-row read would put us straight back
+      // into the ambiguity this exists to remove. Everything still rolls back.
       const remit = await scenario(org.id, vendor.id, "recommended", actor, [
         "CLEAR CHAIN",
         `update payments set status='approved', approved_by='${actor}', approved_at=now() where id=$ID`,
-        `update payments set status='remitted' where id=$ID returning id`,
+        `update payments set status='remitted' where id=$ID`,
+        "AS SUPERUSER",
+        `select status::text as status, (approved_at is not null) as approved from payments where id = $ID`,
       ]);
-      // Decision 23 reworded this and narrowed it to the payment officer alone,
-      // where 0151 also allowed an administrator. Both spellings are matched so
-      // the check does not depend on which migration a world has reached.
-      /^FIXTURE:/.test(remit.err ?? "")
-        ? note(`${role} remittance not staged here — ${remit.err.replace(/^FIXTURE: /, "")}`)
-        : !remit.ok && /may remit payments|only finance or an administrator may remit/i.test(remit.err ?? "")
-          ? ok(`a ${role} gives final approval and still cannot remit — oversight authorises, the payment officer disburses`)
+      const outcome = remit.rows?.[0];
+
+      if (/^FIXTURE:/.test(remit.err ?? "")) {
+        note(`${role} remittance not staged here — ${remit.err.replace(/^FIXTURE: /, "")}`);
+      } else if (!remit.ok) {
+        // Decision 23 reworded this and narrowed it to the payment officer
+        // alone, where 0151 also allowed an administrator. Both spellings are
+        // matched so the check does not depend on which migration a world has
+        // reached.
+        /may remit payments|only finance or an administrator may remit/i.test(remit.err ?? "")
+          ? ok(`a ${role} gives final approval and still cannot remit — refused in the rule's own words`)
           : bad(
-              `${role} remittance: ${remit.err ?? "ALLOWED"}` +
+              `${role} remittance refused for an unexpected reason: ${remit.err}` +
               (remit.at ? `\n           raised by ${remit.at}` : "") +
               (remit.pg ? `\n           ${remit.pg}` : "")
             );
+      } else if (outcome?.status === "remitted") {
+        // The only reading that is a defect: money moved on the say-so of the
+        // desk that authorised it.
+        bad(`!!! a ${role} APPROVED AND REMITTED the same payment — separation of duties is not holding`);
+      } else if (outcome?.approved === true) {
+        ok(`a ${role} gives final approval and the payment is still ${outcome.status} — the payment officer disburses`);
+      } else {
+        // NOT a pass. The scenario never reached the state it exists to test,
+        // so it has proved nothing about separation of duties — the same trap
+        // §D of verify-role-workflows fell into, where filtering a bad fixture
+        // turned a false failure into silent zero coverage.
+        note(
+          `${role} could not be staged here — the payment never reached 'approved' ` +
+          `(still ${outcome?.status ?? "unreadable"}), so this role's approval was not exercised. ` +
+          `Direct UPDATE on payments is an RLS-gated shortcut; the real path is record_payment_approval.`
+        );
+      }
     }
   }
 
