@@ -1,0 +1,44 @@
+
+> oe-group-ipms@0.1.0 verify
+> tsx scripts/verify-all.mjs
+
+Running 120 suite(s) with tsx
+
+[33mNET [0m verify-access-matrix                  1s  network unavailable — Error: getaddrinfo EAI_AGAIN aws-1-eu-west-2.pooler.supabase
+[32mPASS[0m verify-account-recovery              27s  ALL CHECKS PASSED — a reset token is a hash, single-use, genuinely signs in, and the account is 
+[32mPASS[0m verify-action-errors                 31s  ALL CHECKS PASSED — a user-facing failure reaches the user.
+[32mPASS[0m verify-analytics-console             81s  ALL CHECKS PASSED — the console filters, buckets and scopes, and never invents a duration. (retried once: the network failed the first attempt)
+[32mPASS[0m verify-analytics-drilldown          132s  ALL CHECKS PASSED — the queue and the drill-down agree with the database, in both tier modes.
+[32mPASS[0m verify-application-lga                6s  ALL CHECKS PASSED — an applicant's LGA and statement are recorded as given.
+[31mFAIL[0m verify-application-review           300s  timed out after 300s
+[31mFAIL[0m verify-application-submission       179s  1 CHECK(S) FAILED
+[32mPASS[0m verify-apportionment                 70s  ALL CHECKS PASSED — a budget states its method, and a hand-entered split must reconcile.
+[31mFAIL[0m verify-approval-chain               300s  LEFT REAL ORG SETTINGS CHANGED: oe-group-foundation-poc.approval_tiers_enabled — restored (killed before its teardown)
+[32mPASS[0m verify-asset-access                  62s  ALL CHECKS PASSED — the asset register is role- and property-scoped.
+[33mNET [0m verify-asset-classification          50s  network unavailable — Error(`fixture ${name}: ${error.message}`);
+[32mPASS[0m verify-asset-import-e2e              36s  ALL CHECKS PASSED — import writes only what validation approved.
+[32mPASS[0m verify-asset-import                   0s  ALL CHECKS PASSED — the importer catches every seeded defect.
+[33mNET [0m verify-audit-0729b                  249s  network unavailable — 1 CHECK(S) FAILED
+[31mFAIL[0m verify-audit-followups               79s  1 CHECK(S) FAILED
+[32mPASS[0m verify-bank-transfer-payouts        294s  ALL CHECKS PASSED — a bank transfer is paid against the payee's own evidence, through the whole 
+[33mNET [0m verify-bi-scoping                   364s  network unavailable — Error: read ECONNRESET
+[36mDEMO[0m verify-cascade                      111s  demonstration only — asserts nothing
+[31mFAIL[0m verify-channel-consent                8s  (no summary line — the suite printed nothing recognisable)
+[31mFAIL[0m verify-channel-routing               15s  Error: Cannot read properties of null (reading 'find')
+[31mFAIL[0m verify-chat-payment-report            8s  Error: Cannot read properties of null (reading 'org_id')
+[33mNET [0m verify-chat-request-visibility        8s  network unavailable — Error: fetch failed
+[32mPASS[0m verify-checkout-e2e                  96s  ALL CHECKS PASSED — checkout → signed webhook → verification → ledger → receipt.
+[32mPASS[0m verify-classifier-failover           16s  ALL CHECKS PASSED — an outage fails over instead of degrading, and a reply is read in context.
+[32mPASS[0m verify-collections                   32s  ALL CHECKS PASSED — collections post exactly once, for the verified amount.
+[32mPASS[0m verify-completion-evidence           18s  ALL CHECKS PASSED — completion evidence is readable by whoever can see the payment, and the olde
+[32mPASS[0m verify-conversational-intelligence  302s  ALL CHECKS PASSED — a question is answered, an answer continues the thread, a reference finds it
+[32mPASS[0m verify-conversational-triage         27s  ALL CHECKS PASSED — a reply continues the conversation, and only the person who started it can s
+[32mPASS[0m verify-cross-org-dispatch            16s  ALL CHECKS PASSED — a dispatch cannot cross an organisation, and an ordinary one still works.
+[32mPASS[0m verify-custom-domains                23s  ALL CHECKS PASSED — a hostname paints a front door and decides nothing about access.
+[32mPASS[0m verify-deactivation                  49s  ALL CHECKS PASSED — deactivated means deactivated, everywhere it can be reached from, and reacti
+[32mPASS[0m verify-deployment-safety             13s  ALL CHECKS PASSED — safe to point traffic at this environment.
+[32mPASS[0m verify-document-checks               25s  ALL CHECKS PASSED — the checks report observations against evidence, and cannot become a decisio
+[32mPASS[0m verify-email-release                 27s  ALL CHECKS PASSED — the address comes back; the history does not move.
+[32mPASS[0m verify-email-routing                  1s  ALL CHECKS PASSED — replies route to a real, monitored inbox.
+[32mPASS[0m verify-embeds                        29s  ALL CHECKS PASSED — every embed resolves to exactly one relationship.
+[31mFAIL[0m verify-finance-journey              900s  timed out after 900s
