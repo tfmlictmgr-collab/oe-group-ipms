@@ -1,6 +1,6 @@
 # Go-Live Build Plan — the staged route from `phase-1` to production
 
-**Written:** 2026-09-17 · **Candidate:** `phase-1` @ `384c0af` · **Status:** not started
+**Written:** 2026-09-17 · **Candidate:** `v1.0.0-rc2` · **Status:** Stage 0 exit gate met 2026-09-20 (0.4, 0.5 outstanding) — see *What Stage 0 found*
 
 **What this is.** `GO_LIVE_CHECKLIST.md` is the reference (every variable, every
 rollback, organised by who performs it). `GO_LIVE_RUNWAY.md` sequences the
@@ -215,6 +215,117 @@ operator proves the database.
 
 **Exit gate:** a tag exists; 0.2 is green on it; 0.3's log is committed with
 every failure resolved or reasoned; CI is running and required.
+
+📌 That gate was met on 2026-09-20. **0.4 and 0.5 are steps of this stage and
+are still open** — both were done in the `rc1` era and neither was re-run
+against `rc2` or committed. The gate does not name them, so Stage 1 is not
+blocked; they are owed before Stage 3 provisions anything.
+
+---
+
+## What Stage 0 found — 2026-09-20
+
+Written after the fact, from the runs rather than from the plan. `rc1` was cut
+on 17 Sept; `rc2` replaced it once a migration landed, per rule 7. Logs live in
+`docs/verify-runs/` and that directory's README says which are results and
+which are not.
+
+### The headline
+
+**Of ten suite failures, exactly one was a defect in the product.** The rest
+were suites that had fallen behind decisions the migrations already
+implemented, or fixtures that had rotted. That ratio is the argument for 0.3
+existing at all — and also the reason a failing suite must never be waved
+through, because the one that mattered looked exactly like the nine that did
+not.
+
+### The one real defect
+
+**`escalate_stale_unassigned_requests()` had never written a row** — on any
+organisation, on any hour, since `0212`. `0117` refuses a ticket claiming
+`assigned`/`acknowledged`/`in_progress` with nobody on it, and deliberately
+left the rows already in that state alone, reasoning the trigger "fires on
+UPDATE, so each will refuse the next status change". The escalation's working
+set is exactly those rows, and its first act is `update tickets set
+escalated_at = now()` — not a status change. With no exception handler, the
+first legacy row aborted the entire pass. Dev showed **66 waiting requests**
+with `escalated_at` null on every one: the rescue queue was correct on screen
+and no administrator was ever told.
+
+Fixed by `0298`, which narrows the guard to the write that *moves* a row into
+the state. Rejected alternative: filtering those statuses out of the job's
+SELECT — those rows **are** stale unassigned requests, so hiding them would
+silence exactly the ones most needing rescue.
+
+### The nine that were not
+
+| suite | what it actually was |
+|---|---|
+| `verify-embeds` | The extractor paired `.from("x")` with the next *string-literal* select, walking past `.select(USER_COLUMNS)`. Invented `users::user_id, properties(name)` — a query nothing makes — and *consumed* the `.from()` the select belonged to, so a real embed went untested. One regex, a fabricated failure and lost coverage. |
+| `verify-payment-approver-reach` §B | `0293` moved `sc.manage` off `finance_approver`. The check modelled the two desks' divergence one-sidedly. |
+| `verify-chat-payment-report` | Same migration: stage 3 became the Payment Approver's and the suite still signed in as the Officer. Its second failure was only the first one's shadow. |
+| `verify-lettings-grants` §C | `uses_platform_gateway` (`0288`) arrived unclassified — section C working exactly as designed. |
+| `verify-rent-money` | `0181` made the admin fee once-per-tenancy; the suite still charged it per demand. Reconciled to the naira. |
+| `verify-invoice-appeal` | The assertion named `executive` as the final approver. `0211` puts OEA's executive at **stage 2**; final approval there is `payment_approver`'s. The chain refused an act that was not the executive's, correctly, and that refusal was read as the separation rule failing. |
+| `verify-portfolio-and-controls` §G | OEA has 12 tenancies and **zero** owner-of-record rows. An empty register, not a broken view. |
+| `verify-deactivation` §E | A genuine judgement, not a stale test — resolved by `0297`. |
+| `verify-role-workflows` §D | The fixture pointed at `vendor@oegroup.test`, deactivated since 1 Aug. `0194` refused it everything and the guard working was printed as an RLS defect. |
+
+### The timeouts were never the suites
+
+Four suites hit their budget (`finance-journey` and `notification-links` at
+900s, `application-review` and `approval-chain` at 300s). The cause was a
+backlog of probe users — **752 by 19 Sept** — re-read and retried by sweeps
+that did not skip accounts already neutralised. After adding
+`.is("deactivated_at", null)` to those sweeps and clearing the backlog:
+
+| suite | before | after |
+|---|---|---|
+| `verify-finance-journey` | 900s (timed out) | **173s** |
+| `verify-notification-links` | 900s (timed out) | **693s** |
+| `verify-application-review` | 300s (timed out) | completed |
+| `verify-approval-chain` | 300s (timed out) | completed |
+
+### Two lessons that cost the most
+
+**A run containing `NET` lines is not a result.** Two full runs were triaged
+before it was noticed that `getaddrinfo EAI_AGAIN` and `ECONNRESET` were
+scattered through them, and that crashes reading `Cannot read properties of
+null` were dropped connections rather than defects. Re-run; do not triage.
+
+**`git pull` is not proof you have the code.** A stale `origin/main` ref
+reports "Already up to date" and the suite then runs against whatever is on
+disk. This produced three separate rounds of analysis of code that was not
+being executed. Use `git fetch && git reset --hard origin/main`, and assert the
+SHA before running anything.
+
+Two more, smaller: `tee` will not create its directory and fails quietly into a
+pipe; and `node --check` proves syntax, not scope — two changes passed it and
+threw `ReferenceError` at runtime in a branch that only executes on failure.
+Exercise a change against a stub rather than re-reading it.
+
+### Carried forward — open, and deliberately not closed here
+
+These are *not* Stage 0 blockers. They are written down so they are not
+rediscovered as surprises.
+
+1. **An OEA administrator reads 2 of 12 tenancies** on the schedule. §G only
+   asserts "more than zero", so it passes. Ten rows invisible to a role in
+   `oversight_roles()` has not been explained. **Look at this before Stage 4.**
+2. **OEA has no owner-of-record rows at all.** Whether its buildings have
+   external landlords or OEA holds them is a business question, not a schema
+   one. No records were invented to turn the check green.
+3. **Two stranded tickets on the POC org** (`0117`'s legacy rows). Reported,
+   never rewritten — guessing an assignee puts a name against work nobody was
+   told about. `0298` makes them reachable by the escalation, which is how a
+   human finally hears about them.
+4. **The payment approver is blocked from remitting by RLS, the executive by
+   the trigger.** Both are blocked; the layers differ. Worth knowing before
+   anyone edits `payments_update`.
+5. **`sweepProbeVendors` does not check the error on its `payout_recipients`
+   delete** — in a function whose own comment says "never swallow this" about
+   the next loop. "Retained because a remittance names it" and "delete silently
+   refused" are indistinguishable in its output today.
 
 ---
 
@@ -557,13 +668,23 @@ Status: `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked ·
 Update in place. If a step turns out to be wrong, strike it through with a
 one-line reason rather than deleting it silently.
 
-### Stage 0 — Freeze the candidate
-- [ ] 0.1 Merge PR #1, tag `v1.0.0-rc1`
-- [ ] 0.2 `npm ci` · `tsc --noEmit` · `next lint` · `next build` green **on the tag**
-- [ ] 0.3 `npm run verify` against `dev`, log committed, every failure resolved or reasoned
-- [ ] 0.4 `gitleaks` on the tag — confirm the 4 known false positives and nothing else
-- [ ] 0.5 `npm audit` snapshot; Next-14 deferral re-affirmed
-- [ ] 0.6 CI workflow added and required on `main` *(gap E)*
+### Stage 0 — Freeze the candidate — exit gate met 2026-09-20, two steps open
+- [x] 0.1 Merged PR #1, tagged `v1.0.0-rc1` → superseded by **`v1.0.0-rc2`** once
+      `0297`/`0298` landed (rule 7). All later work is `scripts/` only, outside
+      `next build`, so `rc2` still deploys the bytes it was cut from.
+- [x] 0.2 `npm ci` · `tsc --noEmit` · `next lint` · `next build` green **on the tag**
+- [x] 0.3 `npm run verify` against `dev` — every failure resolved or reasoned.
+      One product defect (`0298`), nine stale suites or fixtures. Logs and their
+      README in `docs/verify-runs/`.
+- [ ] 0.4 `gitleaks` on the tag — confirm the 4 known false positives and nothing else.
+      **Open.** Run at `rc1`-era and clean; never re-run against `rc2` and no
+      output committed. Two migrations have landed since.
+- [ ] 0.5 `npm audit` snapshot; Next-14 deferral re-affirmed. **Open.** Both
+      criticals were assessed non-applicable (Windows-only; `sharp`/libheif AVIF
+      with `sharp` absent and Vercel's managed optimizer in use) — but that was a
+      reading, not a committed snapshot.
+- [x] 0.6 CI workflow added and required on `main` *(gap E)* — `types, lint, build`
+      now blocks direct pushes to `main`, as intended
 
 ### Stage 1 — External (start today)
 - [ ] 1.1 13 processor DPAs signed *(hard gate on Stage 6)*
