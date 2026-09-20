@@ -52,6 +52,22 @@ const asClaims = (id) =>
  * Always rolled back.
  */
 async function scenario(orgId, vendorId, status, actorId, sql, extra = "") {
+  // ⚠️ DECLARED OUT HERE, not inside the `try`.
+  //
+  // These were `let` inside the try block, and a `catch` is a SEPARATE scope —
+  // it cannot see them. So the first statement that threw died with
+  // `ReferenceError: stepIndex is not defined` instead of reporting, and the
+  // suite exited after printing one organisation header. The instrumentation
+  // added to end three rounds of guessing never ran once.
+  //
+  // 📌 `node --check` passes on this: the fault is scope, not syntax, and it
+  // lives in a branch that only executes when a statement fails. Every suite
+  // here is built to be run, and this one was validated by parsing it.
+  // `steps` too: the catch reports "step N/total", so it needs the list.
+  const steps = Array.isArray(sql) ? sql : [sql];
+  let stepIndex = -1;
+  let stepText = "";
+
   await db.query("begin");
   try {
     await db.query("reset role");
@@ -80,7 +96,6 @@ async function scenario(orgId, vendorId, status, actorId, sql, extra = "") {
     // reopen assertion crashed on it. `AS SUPERUSER` drops back out of the
     // impersonation mid-scenario — needed to READ a notification addressed to
     // somebody else, which the acting user cannot see and should not be able to.
-    const steps = Array.isArray(sql) ? sql : [sql];
     let last = { rows: [] };
     // ⚠️ WHICH statement raised, not just what it said.
     //
@@ -95,8 +110,6 @@ async function scenario(orgId, vendorId, status, actorId, sql, extra = "") {
     // 📌 The rule this encodes: when a harness hides which of its own steps
     // failed, the next inference is a guess however well argued. The cheap fix
     // is to stop guessing, not to guess better.
-    let stepIndex = -1;
-    let stepText = "";
     for (const step of steps) {
       stepIndex += 1;
       stepText = String(step).replace(/\s+/g, " ").trim();
