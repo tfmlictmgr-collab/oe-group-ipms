@@ -124,6 +124,41 @@ console.log("\nD. What must still refuse unconditionally");
     : bad("a failed Turnstile challenge no longer refuses");
 }
 
+// ── E. The two Turnstile traps, both found the hard way ─────────────────
+console.log("\nE. Turnstile's two ways of refusing everybody");
+{
+  const ts = fs.readFileSync(path.join(rootDir, "lib/turnstile.ts"), "utf8");
+
+  // 1. Half-configured: secret set, site key not in the build. The widget
+  //    cannot render, so no token can exist, so every applicant is refused —
+  //    and reloading does not help, because there was never a widget.
+  /NEXT_PUBLIC_TURNSTILE_SITE_KEY/.test(ts)
+    ? ok("verifyTurnstile knows whether the SITE key reached this build")
+    : bad("verifyTurnstile checks only the secret — a half-configured deploy refuses every applicant");
+
+  const half = ts.match(/if \(siteKeyMissing\(\)\)\s*\{[\s\S]*?\n  \}/);
+  half && /return \{ ok: true, skipped: true/.test(half[0])
+    ? ok("a half-configured deployment counts as OFF, so the form keeps working")
+    : bad("a half-configured deployment still refuses submissions");
+  half && /console\.error\(/.test(half[0])
+    ? ok("and says so loudly — the fix is a redeploy, which no symptom would suggest")
+    : bad("the misconfiguration is silent");
+
+  // 2. Single-use tokens: Turnstile redeems a token once. Without a reset, a
+  //    retry replays the spent one and fails the bot check forever.
+  /resetTurnstile\(\);/.test(form)
+    ? ok("the widget is reset after a failed submission — the next try gets a fresh token")
+    : bad("a failed submission leaves a spent token: every retry fails the bot check, including fixing a typo");
+
+  (form.match(/resetTurnstile\(\);/g) ?? []).length >= 2
+    ? ok("reset on both the refusal path and the thrown-error path")
+    : bad("one failure path leaves the token spent");
+
+  /turnstile\?\.reset\(\)/.test(form)
+    ? ok("reset is optional-chained — safe when Turnstile is off or the script did not load")
+    : bad("reset would throw when Turnstile is not present");
+}
+
 console.log(
   failures === 0
     ? "\n\x1b[32mAll vendor-application guard checks passed.\x1b[0m"
