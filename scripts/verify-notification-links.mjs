@@ -160,6 +160,13 @@ console.log("\nD. Every role, every org: no dead link is offered");
 
   let checked = 0, deleted = 0, outOfScope = 0;
   const scopeDetail = [];
+  const candidates = [];
+
+  const ENTITY_TABLES = {
+    ticket: "tickets", payment: "payments", asset: "assets",
+    property: "properties", lease: "leases",
+    tenant_application: "tenant_applications",
+  };
 
   for (const org of (orgs ?? []).filter((o) => !o.is_platform_operator)) {
     const { data: users } = await svc.from("users")
@@ -177,28 +184,77 @@ console.log("\nD. Every role, every org: no dead link is offered");
         );
         checked += rows.length;
 
+        // ⚠️ COLLECT HERE, RESOLVE BELOW. This asked the service role whether
+        // each row existed one id at a time, inside this loop:
+        //
+        //     svc.from(table).select("id").eq("id", r.entity_id).maybeSingle()
+        //
+        // Measured on dev: 6,670 notifications read, 2,123 of them needing that
+        // question — 2,123 separate round-trips to a remote pooler, on top of a
+        // transaction per user. The suite took ~600s alone and blew its 900s
+        // budget inside the full run, where the same database is serving 119
+        // other suites.
+        //
+        // 📌 It gets worse on its own, which is why the budget was not simply
+        // raised: notifications accumulate every run, so the count this loop
+        // multiplies by grows with the age of the world. Batching makes the
+        // cost scale with the number of TABLES (six) rather than the number of
+        // notifications.
         for (const r of rows.filter((x) => x.link && x.target_live === false)) {
-          // Ask as SERVICE ROLE whether the row exists at all. That is what
-          // tells the two causes apart.
-          const table = { ticket: "tickets", payment: "payments", asset: "assets",
-                          property: "properties", lease: "leases",
-                          tenant_application: "tenant_applications" }[r.entity_type];
-          let exists = false;
-          if (table && r.entity_id) {
-            let q = svc.from(table).select("id").eq("id", r.entity_id);
-            // Purged, not just deleted — my_notifications()'s own target_live
-            // check for this entity treats a purged row as gone too.
-            if (table === "tenant_applications") q = q.is("purged_at", null);
-            const { data } = await q.maybeSingle();
-            exists = Boolean(data);
-          }
-          if (exists) { outOfScope++; scopeDetail.push(`${org.slug} ${u.role}`); }
-          else { deleted++; bad(`${org.slug} ${u.role} ${u.email}: link to a DELETED ${r.entity_type}`); }
+          candidates.push({
+            org: org.slug, role: u.role, email: u.email,
+            type: r.entity_type, id: r.entity_id,
+          });
         }
       } catch (e) {
         bad(`${org.slug} ${u.email}: my_notifications failed — ${e.message.slice(0, 80)}`);
       }
       await db.query("rollback");
+    }
+  }
+
+  // ── Resolve every candidate in batches, as SERVICE ROLE ──────────────────
+  //
+  // Asking "does this row exist at all" is what tells the two causes apart: a
+  // link to a row that is GONE is a dangling link and a failure; a link to a
+  // row that EXISTS but the reader cannot see is a broadcast scoped wider than
+  // its audience, which is a note. That distinction is unchanged — only the
+  // number of questions is.
+  //
+  // Chunked, because `.in()` rides in the query string and a few thousand
+  // UUIDs in one URL is its own failure mode.
+  const alive = new Set();
+  const byTable = new Map();
+  for (const c of candidates) {
+    const table = ENTITY_TABLES[c.type];
+    if (!table || !c.id) continue;                 // unknown type: stays "gone"
+    if (!byTable.has(table)) byTable.set(table, new Set());
+    byTable.get(table).add(c.id);
+  }
+  for (const [table, idSet] of byTable) {
+    const ids = [...idSet];
+    for (let i = 0; i < ids.length; i += 200) {
+      let q = svc.from(table).select("id").in("id", ids.slice(i, i + 200));
+      // Purged, not just deleted — my_notifications()'s own target_live check
+      // for this entity treats a purged row as gone too.
+      if (table === "tenant_applications") q = q.is("purged_at", null);
+      const { data, error } = await q;
+      if (error) {
+        bad(`could not resolve ${table} ids: ${error.message.slice(0, 80)}`);
+        continue;
+      }
+      for (const row of data ?? []) alive.add(`${table}:${row.id}`);
+    }
+  }
+
+  for (const c of candidates) {
+    const table = ENTITY_TABLES[c.type];
+    if (table && c.id && alive.has(`${table}:${c.id}`)) {
+      outOfScope++;
+      scopeDetail.push(`${c.org} ${c.role}`);
+    } else {
+      deleted++;
+      bad(`${c.org} ${c.role} ${c.email}: link to a DELETED ${c.type}`);
     }
   }
 
