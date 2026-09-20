@@ -110,14 +110,38 @@ Flutterwave (FX).
 
 ### 1c. Accepted, with reasons, and not blockers
 
-- **`next@14.2.35`, 21 advisories.** Applicability was assessed rather than
+- **`next@14.2.35`, 23 advisories.** Applicability was assessed rather than
   assumed (`DAY12_SECURITY_PASS.md` §4a): the Image Optimizer, Pages Router,
-  custom-server and CSP-nonce classes do not apply to this deployment. What
-  does apply is a Server Components DoS (7.5) and RSC cache poisoning (5.4) —
-  availability and cache-correctness, not disclosure. **Upgrading two majors in
-  the cutover window trades non-applicable advisories for an untested
-  regression surface across the money path.** First post-go-live work item
-  (7.4), not a cutover edit.
+  custom-server and CSP-nonce classes do not apply to this deployment.
+  **Upgrading two majors in the cutover window trades non-applicable advisories
+  for an untested regression surface across the money path.** First post-go-live
+  work item (7.4), not a cutover edit.
+
+  ⚠️ **Re-checked 2026-09-20 against `v1.0.0-rc2` (step 0.5), and one clause of
+  the original reasoning has expired.** It read "availability and
+  cache-correctness, not disclosure". That is no longer true:
+  `GHSA-955p-x3mx-jcvp`, *unauthenticated disclosure of internal Server Function
+  endpoints*, applies to App Router applications and this one carries
+  `"use server"` in **54 files**. Two further applicable entries have appeared —
+  `GHSA-m99w-x7hq-7vfj` (DoS in App Router using Server Actions, high) and
+  `GHSA-4c39-4ccg-62r3` (unbounded Server Action payload, Edge runtime).
+
+  Re-confirmed as still NOT applicable, by inspection rather than by title: both
+  criticals (`GHSA-p293-qw3h-jr36` is windows-hosted only and Vercel is Linux;
+  `GHSA-2xp9-vwfh-vxw4` needs the app's own Image Optimization API with AVIF,
+  and `sharp` is absent while Vercel's managed optimizer serves `next/image`),
+  the rewrites SSRF and smuggling pair (no `rewrites` in `next.config.mjs`), the
+  Pages Router i18n middleware bypass (no `pages/`), and the custom-server SSRF
+  (no custom server).
+
+  📌 **The deferral stands; the reason for it narrows.** The fix is
+  `next@>=15.5.24`, which npm marks `isSemVerMajor` — still a two-major
+  migration and still the wrong thing to attempt in a cutover window. But it now
+  defers a disclosure-class advisory, not only availability ones, so it wants a
+  dated owner in Stage 7 rather than an open-ended "first work item". Snapshot:
+  `docs/verify-runs/rc2-audit.json` — 32 findings (1 critical, 10 high, 21
+  moderate); the critical is one of the two non-applicable ones above.
+
 - **CSP is `Content-Security-Policy-Report-Only`.** Deliberate: a report-only
   header cannot break checkout, and it is the only way to learn what an
   enforcing policy would refuse. Promote after UAT runs against it with a
@@ -216,10 +240,10 @@ operator proves the database.
 **Exit gate:** a tag exists; 0.2 is green on it; 0.3's log is committed with
 every failure resolved or reasoned; CI is running and required.
 
-📌 That gate was met on 2026-09-20. **0.4 and 0.5 are steps of this stage and
-are still open** — both were done in the `rc1` era and neither was re-run
-against `rc2` or committed. The gate does not name them, so Stage 1 is not
-blocked; they are owed before Stage 3 provisions anything.
+📌 That gate was met on 2026-09-20, and 0.4 and 0.5 were closed against
+`v1.0.0-rc2` the same day. The secret scan is clean; the dependency snapshot
+is committed and the Next-14 deferral survived re-checking, with one clause of
+its recorded reasoning corrected (1c).
 
 ---
 
@@ -676,13 +700,14 @@ one-line reason rather than deleting it silently.
 - [x] 0.3 `npm run verify` against `dev` — every failure resolved or reasoned.
       One product defect (`0298`), nine stale suites or fixtures. Logs and their
       README in `docs/verify-runs/`.
-- [ ] 0.4 `gitleaks` on the tag — confirm the 4 known false positives and nothing else.
-      **Open.** Run at `rc1`-era and clean; never re-run against `rc2` and no
-      output committed. Two migrations have landed since.
-- [ ] 0.5 `npm audit` snapshot; Next-14 deferral re-affirmed. **Open.** Both
-      criticals were assessed non-applicable (Windows-only; `sharp`/libheif AVIF
-      with `sharp` absent and Vercel's managed optimizer in use) — but that was a
-      reading, not a committed snapshot.
+- [x] 0.4 `gitleaks` on the tag — **clean on `v1.0.0-rc2`, 2026-09-20.** 402
+      commits, 10.65 MB scanned, `no leaks found`, exit 0. `.gitleaksignore`
+      still carries exactly 4 fingerprints, across the same two files it
+      documents (`verify-fx-collections.mjs`, `application-form.ts`).
+- [x] 0.5 `npm audit` snapshot committed (`docs/verify-runs/rc2-audit.json`);
+      Next-14 deferral **re-affirmed with a correction** — see 1c. Both criticals
+      remain non-applicable, but a disclosure-class advisory now does apply, so
+      the recorded reason was amended rather than re-stamped.
 - [x] 0.6 CI workflow added and required on `main` *(gap E)* — `types, lint, build`
       now blocks direct pushes to `main`, as intended
 
