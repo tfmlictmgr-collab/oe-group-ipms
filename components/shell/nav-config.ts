@@ -171,11 +171,43 @@ export type NavContext = {
   isOperator: boolean;
 };
 
+/**
+ * A destination INSIDE a section — the tabs rendered by `LedgerNav`,
+ * `people/SubNav` and `SettingsNav`.
+ *
+ * ⚠️ These are listed here for SEARCH ONLY. The tab strips keep rendering
+ * their own arrays; this is not a second renderer and must never become one.
+ *
+ * Why duplicate at all: a search that covers only the twenty top-level entries
+ * would not have found "Collections", which is the exact thing that prompted
+ * this to be built — it lives at `/dashboard/ledger/collections` and appears in
+ * no sidebar. Lifting the tab strips into this file wholesale would mean
+ * rewriting three working screens that carry per-tab counts, variance flags and
+ * exact-match rules, a week before cutover.
+ *
+ * The duplication is therefore deliberate and GUARDED: `verify-nav-search`
+ * reads both this list and each tab strip's own array and fails when they
+ * disagree. That is the same arrangement `verify-bootstrap` has with
+ * `use-env.mjs`, and it exists because this very file records what happens when
+ * two lists of the same thing drift apart unwatched.
+ */
+export type NavChild = {
+  label: string;
+  href: string;
+  /**
+   * Visibility of the TAB, on top of the parent's own `show`. A child is
+   * offered only when its parent is, so this narrows and never widens.
+   */
+  show: (ctx: NavContext) => boolean;
+};
+
 export type NavItem = {
   label: string;
   href: string;
   icon: LucideIcon;
   show: (ctx: NavContext) => boolean;
+  /** Searchable destinations within this section. See `NavChild`. */
+  children?: NavChild[];
 };
 
 export type NavGroup = { heading: string; items: NavItem[] };
@@ -331,6 +363,16 @@ export const NAV_GROUPS: NavGroup[] = [
         href: "/dashboard/ledger",
         icon: Scale,
         show: (c) => c.seesLedger,
+        // `LedgerNav`'s tabs. None is gated beyond the section itself — the
+        // whole of Client Funds is finance + admin (`seesLedger`).
+        children: [
+          { label: "Balances", href: "/dashboard/ledger", show: () => true },
+          { label: "Collections", href: "/dashboard/ledger/collections", show: () => true },
+          { label: "Journal", href: "/dashboard/ledger/journal", show: () => true },
+          { label: "Reconciliation", href: "/dashboard/ledger/reconciliation", show: () => true },
+          { label: "Payouts", href: "/dashboard/ledger/payouts", show: () => true },
+          { label: "Reports", href: "/dashboard/ledger/reports", show: () => true },
+        ],
       },
       {
         label: "Payments",
@@ -416,6 +458,15 @@ export const NAV_GROUPS: NavGroup[] = [
         href: "/dashboard/people",
         icon: UserPlus,
         show: (c) => c.canEnroll,
+        // `people/SubNav`'s tabs. Directory is the administrator's alone — the
+        // same rule the strip applies with `adminOnly`.
+        children: [
+          { label: "Directory", href: "/dashboard/people/directory", show: (c) => c.isAdmin },
+          { label: "Invitations", href: "/dashboard/people/invitations", show: () => true },
+          { label: "Vendor Applications", href: "/dashboard/people/applications", show: () => true },
+          { label: "Unit Occupancy", href: "/dashboard/people/occupancy", show: () => true },
+          { label: "Tenancy Applications", href: "/dashboard/people/tenancy", show: () => true },
+        ],
       },
       {
         label: "Download Records",
@@ -451,6 +502,20 @@ export const NAV_GROUPS: NavGroup[] = [
         label: "Settings",
         href: "/dashboard/settings",
         icon: Settings,
+        // `SettingsNav`'s tabs. The first three are everyone's own account;
+        // the rest are `adminOnly` in the strip and `isAdmin` here.
+        children: [
+          { label: "My Profile", href: "/dashboard/settings/profile", show: () => true },
+          { label: "My Notifications", href: "/dashboard/settings/notifications", show: () => true },
+          { label: "Security", href: "/dashboard/settings/security", show: () => true },
+          { label: "Branding", href: "/dashboard/settings", show: (c) => c.isAdmin },
+          { label: "Banking", href: "/dashboard/settings/banking", show: (c) => c.isAdmin },
+          { label: "Payment Gate", href: "/dashboard/settings/payments", show: (c) => c.isAdmin },
+          { label: "Lettings", href: "/dashboard/settings/lettings", show: (c) => c.isAdmin },
+          { label: "Evaluation Rubric", href: "/dashboard/settings/evaluation", show: (c) => c.isAdmin },
+          { label: "AI & Classification", href: "/dashboard/settings/ai", show: (c) => c.isAdmin },
+          { label: "Permissions", href: "/dashboard/settings/permissions", show: (c) => c.isAdmin },
+        ],
         // A viewer still has their own notification preferences to manage; the
         // organisation-configuration tabs inside are role-filtered and each
         // re-checks server-side.
@@ -461,6 +526,83 @@ export const NAV_GROUPS: NavGroup[] = [
 ];
 
 // Exact for the index route, prefix-match for nested routes.
+/** A destination the search can offer, flattened out of the groups. */
+export type NavHit = {
+  label: string;
+  href: string;
+  icon: LucideIcon;
+  /** The group heading, or "Section ›" for a child — shown as context. */
+  context: string;
+};
+
+/**
+ * Every destination this context may reach, flattened.
+ *
+ * ⚠️ **`show(ctx)` is applied HERE, before anything is matched against the
+ * query.** That ordering is the whole security property and it is not
+ * incidental: filtering first means an unauthorised destination is never a
+ * candidate, so it can neither be offered nor be revealed by the SHAPE of the
+ * results. Matching first and hiding afterwards would leak by omission — and
+ * on a two-brand system a TFML user typing "OEA" must not learn that OEA
+ * exists at all (B1).
+ *
+ * A child is reachable only when its parent is, so the parent's `show` gates
+ * the whole subtree before the child's own narrows it further.
+ *
+ * This is presentation, not the boundary. Every page re-checks server-side,
+ * and `my_capabilities()` is what actually decides. Hiding a link is a
+ * courtesy; the function behind it is the control.
+ */
+export function reachableDestinations(ctx: NavContext): NavHit[] {
+  const out: NavHit[] = [];
+  for (const group of NAV_GROUPS) {
+    for (const item of group.items) {
+      if (!item.show(ctx)) continue;
+      out.push({ label: item.label, href: item.href, icon: item.icon, context: group.heading });
+      for (const child of item.children ?? []) {
+        if (!child.show(ctx)) continue;
+        out.push({
+          label: child.label,
+          href: child.href,
+          icon: item.icon,
+          context: `${item.label} ›`,
+        });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * The destinations matching `query`, best first.
+ *
+ * Ranking is deliberately dull — a label that STARTS with what was typed beats
+ * one that merely contains it, and a top-level entry beats a tab. Somebody
+ * typing "coll" wants Collections, not a cleverer answer.
+ */
+export function searchDestinations(ctx: NavContext, query: string): NavHit[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  const all = reachableDestinations(ctx);
+  const scored: Array<{ hit: NavHit; score: number }> = [];
+  for (const hit of all) {
+    const label = hit.label.toLowerCase();
+    // The href is searched too, so "collections" finds it even if the label is
+    // ever renamed — but it never widens WHAT is searched, only how it matches.
+    const inHref = hit.href.toLowerCase().includes(q);
+    let score: number;
+    if (label === q) score = 0;
+    else if (label.startsWith(q)) score = 1;
+    else if (label.includes(q)) score = 2;
+    else if (inHref) score = 3;
+    else continue;
+    if (hit.context.endsWith("›")) score += 0.5;
+    scored.push({ hit, score });
+  }
+  scored.sort((a, b) => a.score - b.score || a.hit.label.localeCompare(b.hit.label));
+  return scored.map((s) => s.hit);
+}
+
 export function isActive(pathname: string, href: string): boolean {
   if (href === "/dashboard") return pathname === "/dashboard";
   return pathname === href || pathname.startsWith(href + "/");
