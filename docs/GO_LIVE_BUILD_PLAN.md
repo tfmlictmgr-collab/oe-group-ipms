@@ -1,6 +1,6 @@
 # Go-Live Build Plan — the staged route from `phase-1` to production
 
-**Written:** 2026-09-17 · **Candidate:** `v1.0.0-rc2` · **Status:** Stage 0 exit gate met 2026-09-20 (0.4, 0.5 outstanding) — see *What Stage 0 found*
+**Written:** 2026-09-17 · **Candidate:** `v1.0.0-rc2` · **Status:** **Stage 0 CLOSED 2026-09-20** — all six steps done. Stage 1 is the critical path; 1.7 gates Stage 3. See *What Stage 0 found*.
 
 **What this is.** `GO_LIVE_CHECKLIST.md` is the reference (every variable, every
 rollback, organised by who performs it). `GO_LIVE_RUNWAY.md` sequences the
@@ -333,9 +333,20 @@ Exercise a change against a stub rather than re-reading it.
 These are *not* Stage 0 blockers. They are written down so they are not
 rediscovered as surprises.
 
-1. **An OEA administrator reads 2 of 12 tenancies** on the schedule. §G only
-   asserts "more than zero", so it passes. Ten rows invisible to a role in
-   `oversight_roles()` has not been explained. **Look at this before Stage 4.**
+1. ~~**An OEA administrator reads 2 of 12 tenancies.**~~ **CLOSED 2026-09-20 —
+   not a defect.** Measured rather than assumed: `oea.admin@oegroup.test` is in
+   the org whose slug is `oea` (same id, `is_platform_operator` false), and both
+   report the same live-lease count, so `leases_select` behaves exactly as
+   written. OEA holds **3 live units**, and `tenancy_schedule` INNER JOINs
+   `units` while `units_select` requires `deleted_at is null` — so a tenancy on
+   a retired unit cannot appear. Every such tenancy is `terminated`, `draft` or
+   `expired` (9/3/3, **zero active or renewed**), i.e. the unit was retired
+   *after* the tenancy ended, which is correct. `0287`'s migration-time
+   invariant — no active or renewed tenancy behind a retired unit — holds.
+
+   📌 An earlier count suggested a cross-org leak. It did not exist: I had the
+   queries run while the full verify was mid-flight, so the numbers moved under
+   us. Read-only is not the same as valid.
 2. **OEA has no owner-of-record rows at all.** Whether its buildings have
    external landlords or OEA holds them is a business question, not a schema
    one. No records were invented to turn the check green.
@@ -692,14 +703,18 @@ Status: `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked ·
 Update in place. If a step turns out to be wrong, strike it through with a
 one-line reason rather than deleting it silently.
 
-### Stage 0 — Freeze the candidate — exit gate met 2026-09-20, two steps open
+### Stage 0 — Freeze the candidate — ✅ CLOSED 2026-09-20 (6 of 6)
 - [x] 0.1 Merged PR #1, tagged `v1.0.0-rc1` → superseded by **`v1.0.0-rc2`** once
       `0297`/`0298` landed (rule 7). All later work is `scripts/` only, outside
       `next build`, so `rc2` still deploys the bytes it was cut from.
 - [x] 0.2 `npm ci` · `tsc --noEmit` · `next lint` · `next build` green **on the tag**
 - [x] 0.3 `npm run verify` against `dev` — every failure resolved or reasoned.
-      One product defect (`0298`), nine stale suites or fixtures. Logs and their
-      README in `docs/verify-runs/`.
+      Final run of record **119 of 120, 0 NET** (`rc2-20260920-final.log`); the
+      one failure, `verify-notification-links`, was a 900s timeout closed by
+      batching its target lookups — **600s → 97s**, verified standalone. Ten
+      suite failures in all: **one product defect** (`0298`, the escalation cron
+      that had never written a row), nine stale suites or fixtures. Logs and
+      their README in `docs/verify-runs/`.
 - [x] 0.4 `gitleaks` on the tag — **clean on `v1.0.0-rc2`, 2026-09-20.** 402
       commits, 10.65 MB scanned, `no leaks found`, exit 0. `.gitleaksignore`
       still carries exactly 4 fingerprints, across the same two files it
