@@ -874,10 +874,21 @@ one-line reason rather than deleting it silently.
       existing account — and on a clean target creates exactly one admin, writes
       `operator.bootstrapped` to the trail, and issues a one-time link. A second
       run is a no-op.
-      ⚠️ **Not yet proven on staging.** The half that needs a real world is
-      "the created admin can sign in and create an org", and that needs an empty
-      production project, which exists once. Run `verify-bootstrap.mjs` on
-      staging to confirm the refusals hold against a real database.
+      ✅ **Run against dev and staging, 20 Sept 2026 — and it found something.**
+      Three of the suite's own checks (`--confirm` missing, `--confirm`
+      mismatched, `--email` missing) were **unreachable on any world it is safe
+      to run on**: `bootstrap-production.mjs` checks the never-list FIRST and
+      dies there, so all three observed the never-list refusal instead of the
+      guard they named and reported FAIL for a script behaving perfectly. The
+      suite passed against stubs and could not have passed against a real
+      database. Fixed by exercising those three against a synthetic project ref
+      the never-list does not know — each dies at a flag guard, before the
+      first network call — and the suite now asserts that ref is not on the
+      never-list, so the checks cannot silently go hollow again. **17/17 pass
+      on dev and staging.**
+      ⚠️ **Still unproven, and unprovable until Stage 3:** "the created admin
+      can sign in and create an org". That needs an empty production project,
+      which exists once. The refusals are proven; the happy path is not.
 - [x] 2.5 **Backup posture decided and recorded, 20 Sept 2026** *(gap F)* —
       `BACKUP_AND_RESTORE.md`, `NDPA_COMPLIANCE_PACK.md` §8. **PITR considered
       and declined** on a recorded basis ($100/mo per project; a day of ledger
@@ -925,7 +936,8 @@ one-line reason rather than deleting it silently.
       **SMS is out for Phase 1**, recorded: WhatsApp, Telegram and email reach
       every role, and a fourth channel at cutover adds a 14th processor needing
       its own DPA for a path nothing depends on.
-- [~] 2.9 6-year retention clock **built 2026-09-20** (`0299`) — the last open
+- [x] 2.9 6-year retention clock **built and PROVEN on dev and staging,
+      2026-09-20** (`0299`) — the last open
       row in `NDPA_COMPLIANCE_PACK.md` §5. It works by setting `purge_after`,
       so `purge_expired_applications()` (0062) remains the only code in the
       system that deletes applicant PII. Proven against PostgreSQL 16 across
@@ -933,8 +945,9 @@ one-line reason rather than deleting it silently.
       renewal does not carry `application_id` forward, so the obvious query
       would have stamped a purge clock on a tenant still living there under a
       later renewal. Held by `verify-retention-clock`.
-      ⚠️ **Not yet run against a real world.** Apply `0299` and run the suite
-      on `dev` and `staging`.
+      ✅ **Applied to dev and staging 20 Sept 2026; `verify-retention-clock`
+      passes 19/19 on both.** The renewal trap holds against real data, not
+      only the local PostgreSQL 16 harness it was developed against.
       ✅ The subject-access half is answered: `DATA_SUBJECT_RIGHTS_PROCEDURE.md`
       records that `records.export` (`0239`) is an operator-gated internal bulk
       export and **not** the route for a subject-access request, and writes the
