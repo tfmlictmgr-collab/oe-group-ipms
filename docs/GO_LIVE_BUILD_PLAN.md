@@ -476,6 +476,17 @@ not recoverable**; that is the deliberate trade for keeping it out of the
 database. Escrow it the way the bank mandate is escrowed, not the way an API
 key is.
 
+**⚠️ The custody paperwork is `docs/KEY_CUSTODY_RECORD.md`** (added 20 Sept
+2026) — a printable form covering **both** unrecoverable secrets:
+`GATEWAY_CREDENTIAL_KEY` and the backup passphrase added with `--encrypt`. It
+carries the sealing procedure, the two-holder custody record, a quarterly
+verification log that rides the §7.6 restore drill, the two-person recovery
+procedure, and the rotation rules — including that **K1 cannot be rotated
+quietly**: changing it makes every stored credential unreadable, exactly as
+losing it would, so rotation is an operation with notice given, not
+maintenance. 2.2 is not done when the key is in the safe; it is done when that
+form is signed and filed.
+
 **2.3 Prove the key works before production depends on it.** On staging: store a
 gateway credential, restart the deployment, read it back. A key that is present
 but wrong fails at the first payment, not at deploy.
