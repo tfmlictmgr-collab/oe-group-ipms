@@ -243,8 +243,30 @@ Evidenced in `DAY12_SECURITY_PASS.md`:
 - ✅ Append-only audit trail.
 - ✅ Private storage for identity documents and property imagery.
 - ✅ Secrets in environment variables; none in the repository.
-- ✅ Rate limiting on intake and on remittance.
+- ✅ Rate limiting on intake and on remittance — and **fail-closed on the money
+  path**: if the limiter was meant to be running and is not, the payment webhook
+  answers 503 and every remittance route refuses rather than proceeding
+  unlimited. General intake stays fail-open deliberately, because a tenant who
+  cannot raise a ticket during a Redis outage is an inconvenience where an
+  unlimited remittance endpoint is an incident.
+- ✅ **Backup and recoverability** — Supabase Pro **daily backups**, 7-day
+  retention, **stated RPO ~24 hours**, plus `npm run backup` for a verified
+  copy taken at a moment of the operator's choosing. Point-in-Time Recovery was
+  **considered and declined** on a recorded basis: a day of ledger entries is
+  reconstructible from gateway records and the bank statement, and PITR covers
+  Postgres only — it would protect no identity document or payment proof. Full
+  reasoning, the restore procedure and the quarterly drill:
+  `BACKUP_AND_RESTORE.md`. ⚠️ The stated RPO is only honest while a day's
+  transactions remain re-keyable by one person; that is written down as a
+  review trigger, not an assumption.
 - ⛔ No external penetration test yet.
+- ⛔ **Storage backup is unconfirmed.** Every line above about backups concerns
+  **Postgres**. Whether Supabase's daily backup includes Storage objects — the
+  identity documents, work-order photographs, vendor KYC, payment proofs and
+  payout evidence — is **not documented and has not been confirmed**. It must be
+  answered with Supabase before cutover. If the answer is no, the most sensitive
+  material this system holds has no backup, which is a larger gap than the one
+  PITR would have closed. Raised 20 Sept 2026.
 
 ---
 

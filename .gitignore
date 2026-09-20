@@ -54,3 +54,9 @@ public/*.csv
 # a concurrent session's scratch work) — this stops it from ever landing in a
 # commit by habit rather than by someone deciding to publish a schema snapshot.
 dump.sql
+
+# Database backups — these contain every personal record in the system.
+# Never committed, under any circumstances. See docs/BACKUP_AND_RESTORE.md.
+backups/
+*.dump
+*.manifest.json

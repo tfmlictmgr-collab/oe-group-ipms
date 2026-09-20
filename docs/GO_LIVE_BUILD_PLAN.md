@@ -75,7 +75,7 @@ Six are other people's timelines, three are ours.
 | C | **`NEXT_PUBLIC_SITE_URL` is absent from the env-var table**, and `lib/portal-origin.ts` (11 Sept) exists precisely because it is the wrong answer to "whose portal is this link for". It is now step 3 of 3, behind the request host and `orgs.custom_domain`. | If an org has no bound domain in production, every invitation, receipt link, renewal notice and gateway return URL falls through to the deployment address. B1 says a user on one portal must never see the other brand's existence, and an address is the most visible thing in a message. **Binding `custom_domain` per org on production is a cutover step that appears in no current document.** | 2.2, 5.8 |
 | D | **No production bootstrap path for the first operator admin.** `0088` creates the operator org `oe-group` by migration, so that part is handled. Every script that creates a *user* (`seed-demo-user`, `seed-org-logins`, `seed.mjs`, …) is a demo seeder, and `0208` records that the seed **truncates orgs the migrations created**. | There is currently no safe way to create the one account production needs without reaching for a script that must never touch it. This is the single highest-risk moment of the whole cutover and it has no tooling. | 2.4 |
 | E | **No CI.** `.github/workflows/` does not exist. The only check on PR #1 is `Vercel Preview Comments`. | Nothing automatically runs types, lint, build or the suites before a merge to `main`. For the branch that becomes the production build of a system that moves client money, the gate should not be "someone remembered". | 0.6 |
-| F | **No backup or restore policy, and no restore drill.** `DEPLOYMENT.md`, `GO_LIVE_CHECKLIST.md`, `NDPA_COMPLIANCE_PACK.md` and `DAY12_SECURITY_PASS.md` contain no mention of backups, PITR or restore. The one place it appears — `INCIDENT_2026-08-06` — says of the demo project that *"the only lever is a daily-backup restore, which is blunter still"*, i.e. PITR is not enabled. | NDPA s.39 is not only confidentiality; availability and recoverability are part of it. A ledger with no tested restore is a ledger with one copy. | 2.5, 7.6 |
+| F | ✅ **CLOSED 20 Sept 2026** — `BACKUP_AND_RESTORE.md` (posture, procedure, quarterly drill), with PITR considered and declined on a recorded basis. ⛔ One thing it opened: Storage backup is unconfirmed — see 2.5. *Original finding:* **No backup or restore policy, and no restore drill.** `DEPLOYMENT.md`, `GO_LIVE_CHECKLIST.md`, `NDPA_COMPLIANCE_PACK.md` and `DAY12_SECURITY_PASS.md` contain no mention of backups, PITR or restore. The one place it appears — `INCIDENT_2026-08-06` — says of the demo project that *"the only lever is a daily-backup restore, which is blunter still"*, i.e. PITR is not enabled. | NDPA s.39 is not only confidentiality; availability and recoverability are part of it. A ledger with no tested restore is a ledger with one copy. | 2.5, 7.6 |
 | G | **The rollback story covers the application and not the database.** Reverting the Vercel deployment is real and instant. There is no rehearsed answer to "the schema is fine but the data is wrong". | Fix-forward is the right default given additive migrations — but it should be a decision with a rehearsed alternative, not the absence of one. | 4.5 |
 
 Two more are decisions rather than gaps, and both are cheap now and expensive
@@ -878,10 +878,53 @@ one-line reason rather than deleting it silently.
       "the created admin can sign in and create an org", and that needs an empty
       production project, which exists once. Run `verify-bootstrap.mjs` on
       staging to confirm the refusals hold against a real database.
-- [ ] 2.5 PITR enabled and retention window recorded in the compliance pack *(gap F)*
-- [ ] 2.6 Rate-limit posture decided for payment webhooks and remittance
-- [ ] 2.7 Gemini — billing enabled, or best-effort accepted in writing
-- [ ] 2.8 Turnstile and SMS — explicit in or out
+- [x] 2.5 **Backup posture decided and recorded, 20 Sept 2026** *(gap F)* —
+      `BACKUP_AND_RESTORE.md`, `NDPA_COMPLIANCE_PACK.md` §8. **PITR considered
+      and declined** on a recorded basis ($100/mo per project; a day of ledger
+      is reconstructible from gateway and bank records; and it covers Postgres
+      only, so it would protect no identity document or payment proof).
+      Baseline is Supabase Pro **daily backups, stated RPO ~24h**, plus
+      `npm run backup` — a `pg_dump` that **reads the archive back with
+      `pg_restore --list` before reporting success and deletes it if it
+      cannot**, writes a manifest of row counts to check a future restore
+      against, and records `operator.backup_taken` in the trail. Proven end to
+      end against PostgreSQL 16: a real dump, a real restore, counts matching
+      the manifest, and a deliberately truncated archive correctly refused and
+      deleted.
+      ⛔ **One thing this opened, and it is bigger than PITR:** every backup
+      line concerns **Postgres**. Whether Supabase's daily backup covers
+      **Storage** — identity documents, payment proofs, payout evidence — is
+      undocumented and unconfirmed. **Confirm with Supabase before cutover.**
+- [x] 2.6 **Rate-limit posture decided, 20 Sept 2026** — and the fail-closed
+      half was **already implemented**, which checking first is the only reason
+      this did not get built twice. The payment webhook answers 503 on
+      `degraded` and all four remittance routes refuse;
+      `RateResult.degraded` exists precisely to separate "never configured"
+      (fail open) from "meant to be running and is not" (fail closed on money).
+      The checklist had carried it as an open question long after the code
+      answered it; the posture is now recorded in `lib/rate-limit.ts`'s header.
+      **The real decision was the ceiling: `REMITTANCE_LIMIT` 30 → 20 per 5
+      minutes.** Not the 10 first proposed — measurement showed the four call
+      sites share one namespace keyed by user id with **no bulk-payout path**,
+      so twenty landlords is twenty actions, and 10/5min would have invented an
+      outage on the first real payout day. Env-overridable without a deploy.
+- [x] 2.7 **Gemini best-effort accepted in writing, 20 Sept 2026.** Billing
+      not enabled for Phase 1: an Anthropic outage degrades triage to "needs
+      human review", which is correct and safe rather than broken, and cutover
+      is the wrong moment to add a paid dependency to improve a path that
+      already fails safely. **Accepted with a condition** — 7.5's
+      `tickets.classified_by` monitoring query must exist, so "are we quietly
+      running on the fallback?" is a fact and not a hunch.
+- [~] 2.8 **Decided 20 Sept 2026. Turnstile IN, SMS OUT.**
+      **Turnstile is in and needs no code** — the layer is wired end to end
+      already (widget, form, server-side verification) and has only ever been
+      missing its keys. ⚠️ **Yours:** get a free Cloudflare site+secret pair
+      and set `TURNSTILE_SECRET_KEY` / `NEXT_PUBLIC_TURNSTILE_SITE_KEY`. Until
+      then the layer is silently off. That is why this row is `[~]` and not
+      `[x]`.
+      **SMS is out for Phase 1**, recorded: WhatsApp, Telegram and email reach
+      every role, and a fourth channel at cutover adds a 14th processor needing
+      its own DPA for a path nothing depends on.
 - [~] 2.9 6-year retention clock **built 2026-09-20** (`0299`) — the last open
       row in `NDPA_COMPLIANCE_PACK.md` §5. It works by setting `purge_after`,
       so `purge_expired_applications()` (0062) remains the only code in the
@@ -918,7 +961,10 @@ one-line reason rather than deleting it silently.
       migration `0299`, the `/api/jobs/stamp-retention` route and its cron entry,
       a corrected `due` count in `/api/jobs/purge-applications`, `use-env.mjs`,
       `verify-bootstrap.mjs`, `lib/target-env.mjs`, and one new suite
-      (`verify-retention-clock`, taking the set to 122).
+      (`verify-retention-clock`, taking the set to 122). **Added 20 Sept 2026:**
+      migration `0300` (the `application-documents` limits), `lib/rate-limit.ts`
+      (ceiling 30 → 20, plus the fail-closed posture recorded), and
+      `scripts/backup-database.mjs` with `npm run backup`.
 
 ### Stage 3 — Provision production, empty
 - [ ] 3.1 Production Supabase project created in the confirmed region; ref recorded
