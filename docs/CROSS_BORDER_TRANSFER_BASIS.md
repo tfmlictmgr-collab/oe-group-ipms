@@ -2,7 +2,10 @@
 
 **Status:** working document. Approved by Joseph Emmanuel (ICT) 2026-09-20 to
 serve as the working basis pending review by the DPO (**Ebube Ikechwu**) and
-Legal. It is not legal advice; it is the record NDPA s.41 requires a controller
+Legal. **Board confirmed 2026-09-20: production stays on Supabase**, with Legal
+pursuing the NDPC approvals in parallel. Legal has confirmed the transfer
+clauses can be approved and filed, so that work proceeds alongside the build
+rather than gating it. It is not legal advice; it is the record NDPA s.41 requires a controller
 to keep, written so that review has something concrete to correct.
 
 **Closes:** `NDPA_COMPLIANCE_PACK.md` §10 and §11 row 5 (hosting region and
@@ -116,6 +119,56 @@ obligation rather than add one. Cheaper to answer than to assume.
   not a framework. Contractual clauses cover all of them uniformly.
 - **Adequacy (s.42).** Unavailable today. **Revisit when the NDPC issues its
   first decisions** — if Ireland is covered, several rows above get simpler.
+
+---
+
+## 5b. Hosting alternatives considered, and why we stayed
+
+Asked 2026-09-20: could the database move to a Nigerian provider — `pxxl.app`,
+`hostafrica.ng` — and remove the transfer altogether?
+
+⚠️ **First, a framing error worth naming.** Supabase is not storage. Measured
+in this repository:
+
+| | |
+|---|---|
+| RLS policies | **157** |
+| `auth.uid()` references in migrations | **639** |
+| Migrations touching storage | 15 |
+| PostgREST embeds the application issues | 38 |
+| Suites covering all of it | 120 |
+
+`auth.uid()` is Supabase Auth. Those 157 policies **are** the security model —
+the thing that decides whether one tenant sees another's rent, not a layer on
+top of it. On a plain Postgres host `auth.uid()` resolves to nothing and every
+policy has to be rewritten. That is a rebuild of authorisation on a money
+system, not a migration.
+
+**And Supabase has no African region.** `af-south-1` existed during alpha and is
+not offered for new projects. Managed Supabase hosted in Nigeria is not
+available at any price.
+
+| Option | Migration cost | Transfer position | Ongoing burden |
+|---|---|---|---|
+| **A. Supabase `eu-west-1`** ✅ chosen | none | contractual clauses (the 13 DPAs) | none |
+| B. Self-host Supabase in Nigeria | moderate — open source, Docker, `pg_dump` + GoTrue users | removes the database transfer | **high** — we own backups, PITR, patching, HA, and the service-role key |
+| C. pxxl.app / hostafrica.ng Postgres | rebuild 157 policies | **unknown** — neither provider's hosting location was confirmed | high |
+
+On the two providers specifically: **pxxl.app** is a young Nigerian PaaS
+(launched publicly late 2025, free tier) — genuinely promising, and without a
+track record under a money path. Critically, **if it runs on infrastructure in
+Europe then it is still a cross-border transfer** and buys nothing legally.
+**hostafrica.ng** is managed cPanel/DirectAdmin VPS hosting — good at what it
+does, and not a managed Postgres or Supabase equivalent.
+
+📌 **Decision (board, 2026-09-20): stay on Supabase.** Option B trades a
+paperwork problem already being solved for a 24-hour operational one on the
+money path, carried by a single ICT manager. Revisit only if the contractual
+route becomes unavailable.
+
+**Vercel is not required** — Next.js self-hosts via `next start` or Docker —
+but dropping it buys almost nothing here. Vercel holds data in transit and in
+logs, not at rest.
 
 ---
 
