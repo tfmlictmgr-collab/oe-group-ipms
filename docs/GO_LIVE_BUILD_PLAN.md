@@ -53,7 +53,7 @@ in a clean worktree.
   merged" → it is on `phase-1`.
 
 **What was NOT verified today, and cannot be from here:** anything needing
-database credentials. `npm run verify` (123 suites), the migration run, and
+database credentials. `npm run verify` (124 suites), the migration run, and
 every RLS assertion are green *as of the last recorded run*, not as of today.
 Re-running them against the release tag is step 0.3 below, and it is not a
 formality — it is the only thing that proves the 89 commits since the last
@@ -199,7 +199,7 @@ it again on the tag because the merge commit is a different commit.
 npm ci && npx tsc --noEmit && npx next lint && npm run build
 ```
 
-**0.3 Run every verification suite against `dev`, and record it.** 123 suites.
+**0.3 Run every verification suite against `dev`, and record it.** 124 suites.
 Do **not** run it against staging or production.
 
 ```
@@ -806,7 +806,7 @@ routine; this one is not.
 | 7.4 | **Next 14 → 16 and `@sentry/nextjs` major upgrade**, with its own regression cycle | Two majors across routing, caching and Server Actions. First post-go-live work item, never a cutover edit |
 | 7.5 | **Monitoring that someone actually reads** — Sentry (root-cause the `NEXT_PUBLIC_SENTRY_DSN` rejection seen on staging first), cron-job failure alerts, and a standing query on `tickets.classified_by` so "are we quietly running on the fallback?" is a fact rather than a hunch | |
 | 7.6 | **Restore drill on production**, quarterly, from the PITR window enabled at 2.5 | A backup nobody has restored is a belief, not a backup |
-| 7.7 | **Re-run `npm run verify` after every production deploy** | 123 suites are the regression net; CI proves the build, this proves the database |
+| 7.7 | **Re-run `npm run verify` after every production deploy** | 124 suites are the regression net; CI proves the build, this proves the database |
 
 ---
 
@@ -969,14 +969,20 @@ one-line reason rather than deleting it silently.
       **Turnstile keys set on Vercel, 20 Sept 2026.** The layer was already
       wired end to end (widget, form, server-side verification) and had only
       ever been missing its keys.
-      ⚠️ **One test still outstanding, and it is not optional.** Submit a real
-      vendor application at `/apply/<org-uuid>` in a private window. The
-      failure mode is specific: with the secret set but the widget not
-      rendering — wrong hostname on the Cloudflare widget, or
-      `NEXT_PUBLIC_TURNSTILE_SITE_KEY` not rebuilt — **every application
-      submission fails**, and no verify suite catches it because the suites
-      call the RPCs directly rather than the form. The link is in the
-      dashboard at People → Applications.
+      ⚠️ **The test was run on 20 Sept and it FAILED — but not on Turnstile.**
+      A real application was refused with "We couldn't accept this submission".
+      A Turnstile failure says "Bot check failed"; this was the **honeypot**,
+      which **Chrome's autofill had filled**. The field was named
+      `company_website_alt`, Chrome's address autofill matches on tokens in the
+      field name, and Chrome ignores `autocomplete="off"` on a form it reads as
+      a contact form — which this is. The applicant had nothing to clear (the
+      field is off-screen) and a message that by design cannot name the control.
+      **Fixed:** renamed to a token no browser targets, opted out of the
+      password managers, and — the deeper fix — the honeypot and timing checks
+      **no longer veto a request Turnstile has vouched for**. Held by
+      `verify-vendor-application-guards`, which lists every autofill token and
+      was tested by putting the old name back.
+      ⚠️ **Re-run the submission once deployed.** That is what closes this row.
       **SMS is out for Phase 1**, recorded: WhatsApp, Telegram and email reach
       every role, and a fourth channel at cutover adds a 14th processor needing
       its own DPA for a path nothing depends on.
