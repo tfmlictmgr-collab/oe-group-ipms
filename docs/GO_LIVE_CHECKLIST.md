@@ -20,6 +20,18 @@ rewrite the doc from scratch. If a step turns out to be wrong or unnecessary whe
 we actually get there, strike it through with a one-line reason rather than
 deleting it silently.
 
+> **Refreshed against the code on 20 Sept 2026** (build plan §2.1, gaps A/B/C).
+> The document had fallen three weeks and 89 commits behind the system it
+> describes. What changed: the storage-bucket check went from **three buckets to
+> seven**, each value now read out of the migration that creates it rather than
+> from an older copy of this list; the environment table gained **eight
+> variables it had never carried** — `GATEWAY_CREDENTIAL_KEY` first — and
+> **struck three it carried that the code no longer reads**; and a new §2a
+> records the configuration that is a row in the database rather than a
+> variable or a bucket, all of it built after this document was last revised.
+> Everything asserted here was measured against `supabase/migrations/`, `lib/`
+> and `app/` on that date; nothing was carried forward on trust.
+
 ---
 
 > **Looking for "what do I do first?" — see `GO_LIVE_RUNWAY.md`.** This
@@ -166,16 +178,47 @@ Everything mechanical once the accounts above exist.
 
 - [ ] Point a fresh checkout at the new production Supabase project; run
       `npm run migrate` only.
-- [ ] Confirm the three **storage buckets** the migrations create actually
-      exist on the new project, and that the two private ones really are
-      private: `org-logos` (public by design — it paints the sign-in page),
-      `application-documents` (private, identity documents, `0062`) and
-      `work-order-media` (private, 25 MB cap, image/video only, `0106`).
+- [ ] Confirm the **seven storage buckets** the migrations create actually
+      exist on the new project, and that the six private ones really are
+      private. **This list said “three” until 20 Sept 2026** — four buckets
+      built since (vendor KYC, invoice attachments, payment proof, payout
+      evidence) were never added, so the check would have verified three and
+      waved four through. Every value below is read out of the migration that
+      creates the bucket, not copied from an earlier version of this document:
+
+      | Bucket | `public` | Size limit | MIME allowlist | Created by | Holds |
+      |---|---|---|---|---|---|
+      | `org-logos` | **`true` — by design** | none set | none set | `0015` | brand marks painted on the sign-in page before anyone authenticates |
+      | `application-documents` | `false` | **none set** | **none set** | `0062` | identity documents from tenancy applicants |
+      | `work-order-media` | `false` | 26 214 400 (25 MiB) | `image/jpeg`, `image/png`, `image/webp`, `image/heic`, `video/mp4`, `video/quicktime`, `video/webm` | `0106` | photographs and video taken **inside** client homes |
+      | `vendor-documents` | `false` | 2 097 152 (2 MiB) | `application/pdf`, `image/jpeg`, `image/png`, `image/webp` | `0164`, **narrowed by `0213`** | vendor KYC — CAC certificates, tax clearance, insurance |
+      | `invoice-attachments` | `false` | 2 097 152 (2 MiB) | `application/pdf`, `image/jpeg`, `image/png`, `image/webp`, `image/heic` | `0140` | completion photographs and signed vendor invoices |
+      | `payment-proofs` | `false` | 5 242 880 (5 MiB) | `application/pdf`, `image/jpeg`, `image/png`, `image/webp`, `image/heic`, `image/heif` | `0281` | teller slips and transfer receipts for off-platform payments |
+      | `payout-evidence` | `false` | 5 242 880 (5 MiB) | `application/pdf`, `image/jpeg`, `image/png`, `image/webp`, `image/heic`, `image/heif` | `0289` | a payee's own bank evidence, and the officer's proof of transfer |
+
       They are created by migration rather than by hand, so this is a
       verification step, not a setup one — but a bucket silently missing means
       evidence uploads fail at the moment a technician is standing in front of
       the work, and a bucket silently *public* means photographs of the inside
-      of client homes are reachable by URL.
+      of client homes, vendor KYC and bank evidence are reachable by URL.
+
+      ⚠️ **`vendor-documents` is 2 MiB, not 15.** `0164` created it at
+      15 728 640; `0213` lowered it to 2 097 152 and dropped the allowlist to
+      four types, to end the three-way disagreement it found between the
+      bucket, the client and the board's stated limit. Read the *current*
+      value off the dashboard and expect 2 MiB — a project restored from an
+      older snapshot, or a hand-created bucket, will read 15 MiB and accept
+      uploads the client refuses.
+
+      ⚠️ **Two buckets carry no size limit and no MIME allowlist**, and one
+      of them — `application-documents` — is the system's only
+      **anonymous-writable** surface (`0062`: `for insert to anon,
+      authenticated`, gated on `org_accepts_tenant_applications`). With the
+      bucket's own limits null, the only ceiling is the Supabase
+      **project-level** upload limit, so set that deliberately on the
+      production project rather than inheriting the default. Recorded as an
+      open decision in §5 rather than changed here: this refresh describes the
+      code as it is, and tightening a bucket is a migration.
 - [ ] Set every required environment variable on the production Vercel project
       (list in §2 below) — live keys, not the dev/test ones currently in
       `.env.local`.
@@ -186,12 +229,21 @@ Everything mechanical once the accounts above exist.
 - [ ] Re-register the Telegram webhook to the production host via
       `scripts/register-telegram-bot.mjs` (now hardened against the
       `delivery_brand`-ambiguity bug — audit 0804 D3).
-- [ ] Seed the **operator org only** (`oe-group`, `is_platform_operator = true`)
-      and the first real operator admin account — the minimum needed for a human
-      to then provision TFML, OEA, and any client orgs through the real UI.
-      Nothing else. **⚠️ Blocked: that UI doesn't exist yet** — found
-      2026-08-19 while seeding staging, see the staging entry above. Needs
-      building before this step is possible for real.
+- [ ] Create the first real **operator admin account** — the minimum needed for
+      a human to then provision TFML, OEA and any client orgs through the real
+      UI. Nothing else. **The tool for this is `scripts/bootstrap-production.mjs`**
+      (built 2026-09-20, build plan §2.4): it refuses every non-production
+      target by hard-coded project ref, refuses any project whose `orgs` is not
+      exactly what the migrations created or whose `users` is not empty, creates
+      exactly one admin with a random password it never prints, writes an
+      `audit_log` row naming the act, and issues a one-time recovery link. It is
+      idempotent — a second run is a no-op, not a second admin — and imports
+      nothing from `seed.mjs`, which `0208` records as truncating the very orgs
+      the migrations create.
+      ⚠️ The operator org `oe-group` itself is **created by migration `0088`**,
+      not seeded. There is nothing to seed here.
+      ⚠️ Set `NEXT_PUBLIC_SITE_URL` (§2) **before** running it, or the recovery
+      link it issues may point at the Supabase default rather than the portal.
 - [ ] **Move** `tfmlportal.com`, `oeaportal.com` and `portal.tfmlconsultant.com`
       to the production Vercel project — Settings → Domains → Add Domain →
       take the "move" option. DNS needs no client action (it already targets
@@ -283,20 +335,39 @@ rather than doing something unsafe with no key; "fails open" would be a bug.
 the Collections screen, 2026-08-04) — not assumed from `.env.local`, which is
 missing several of these locally even though they're set on Vercel.
 
+**Re-measured against the source on 20 Sept 2026** by sweeping every
+`process.env.*` read in `lib/`, `app/`, `middleware.ts` and `next.config.mjs`.
+That found eight variables the table had never carried and three it carried
+that the code no longer reads — both directions are marked below. A variable
+this table invents costs someone an hour at cutover; one it omits costs a
+feature that fails closed with no obvious cause.
+
 | Variable | Required for | Currently on `oe-group-ipms-dev` (Vercel) | At cutover |
 |---|---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | everything | ✅ set (Production) | new values, pointing at the **new** production Supabase project |
+| **`GATEWAY_CREDENTIAL_KEY`** | **the AES key for every org's stored gateway credentials** (`lib/gateway/credentials.ts`). Added 20 Sept 2026 — gap B; it had never been in this table | ❌ not set on any environment | **generate it at the destination** (`openssl rand -base64 32`) and put it in the secret manager FIRST (§2.2 of the build plan). `credentials.ts` refuses anything that does not decode to 32 bytes — the good kind of failure. **Missing at cutover: no org can connect a payment gateway. Lost after cutover: every stored credential is unrecoverable, by design** — it is held in the environment precisely so it is not in the database. Escrow it like the bank mandate, not like an API key |
+| **`NEXT_PUBLIC_SITE_URL`** | the fallback origin for invitation, receipt, renewal and gateway-return links (`lib/portal-origin.ts:93`, `app/pay/[reference]/actions.ts:71`). Added 20 Sept 2026 — gap C | ❌ not set | **set it, but understand what it is.** It is step 3 of 3, behind the request host and `orgs.custom_domain`. It is reached only when an org has **no bound domain**, and then every message that org sends carries the deployment address — which on a two-brand system means a TFML recipient can be shown OEA's existence, the one thing B1 exists to prevent. Binding `custom_domain` per org (§2a, step 1) is what stops this being load-bearing |
 | `ANTHROPIC_API_KEY` | triage classification, document-check findings | ✅ set (Production) | reuse or rotate |
+| `ANTHROPIC_MODEL` | pins the classifier to one model. Added 20 Sept 2026 | ❌ not set — the resolver picks from `claude-opus-5` → `claude-sonnet-5` → `claude-haiku-4-5`, then Models-API discovery, caching the winner | **leave unset unless there is a reason.** A pinned model is tried **alone** — naming one is read as an instruction, not a preference — so a pin that goes stale takes the primary provider down instead of falling through the chain |
+| `ANTHROPIC_EFFORT` | reasoning effort on classifier calls. Added 20 Sept 2026 | ❌ not set — defaults to `low` | **leave unset.** `low` is deliberate: these calls emit one small JSON object from a short message, and a classifier that deliberates is a webhook that times out |
 | `CRON_SECRET` | rent demand + lease notice jobs | ✅ set (Preview + Production) | reuse or rotate |
-| `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_APP_SECRET`, `WHATSAPP_VERIFY_TOKEN` | WhatsApp — now the FALLBACK path only; live routing is per-org via `channel_routes` (360dialog migration) | ✅ set (Production) | re-register both org webhooks to the new host (§1) |
+| `WHATSAPP_VERIFY_TOKEN` | the Meta webhook **GET handshake** (`app/api/webhooks/whatsapp/route.ts:18`) | ✅ set (Production) | reuse or rotate; must match what is given to Meta/360dialog at re-registration |
+| `WHATSAPP_APP_SECRET` | HMAC verification of **native Meta** inbound webhooks (`lib/webhook-security.ts:86`) | ✅ set (Production) | reuse; unused for 360dialog-delivered traffic, which carries no signature on our tier |
+| ~~`WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`~~ | **no longer read at runtime** — struck 20 Sept 2026 | ✅ still set (Production), now inert | **do not set on production Vercel.** Outbound WhatsApp resolves its credential from `channel_routes.outbound_token` only; `lib/notify.ts` deliberately removed the shared-token fallback on 11 Sept 2026, because on 360dialog the key alone decides which business a message leaves as, so a route without its own key would have sent as the other brand. Both are still needed **locally** by `scripts/register-whatsapp-number.mjs` at cutover — local shell, not Vercel. |
 | `WHATSAPP_360D_SIGNING_SECRET` | the dormant signature-verification path | not set | only matters if 360dialog Partner tier is obtained |
-| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET` | Telegram — same fallback/per-org split | ✅ set (Production) | re-register to the new host |
-| `PAYSTACK_SECRET_KEY`, `NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY` | Naira collections + vendor/landlord transfers | ✅ set, **test mode confirmed live on screen** ("Paystack test mode... no card is charged") | swap for the live key pair |
+| `TELEGRAM_BOT_TOKEN` | **narrow fallback only**: downloading inbound Telegram media when the route carries no `outbound_token` (`lib/inbound-media.ts:102`) | ✅ set (Production) | reuse. Not the auth path and not the send path — both are per-bot via `channel_routes` |
+| ~~`TELEGRAM_WEBHOOK_SECRET`~~ | **not read at runtime** — struck 20 Sept 2026 | ✅ still set (Production), now inert | **not needed on Vercel.** Webhook auth is the `x-telegram-bot-api-secret-token` header matched against a `channel_routes` row, which is both the auth and the org lookup. Needed **locally** by `scripts/register-telegram-bot.mjs` at cutover |
+| `PAYSTACK_SECRET_KEY` | the **platform-level** Naira merchant account — collections and transfers for the one org holding `uses_platform_gateway` (`0288`). Every other org connects its own credential, encrypted with `GATEWAY_CREDENTIAL_KEY` | ✅ set, **test mode confirmed live on screen** ("Paystack test mode... no card is charged") | swap for the live key, and decide which org owns it (§2a, step 2) |
+| ~~`NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY`~~ | **read nowhere in the codebase** — struck 20 Sept 2026 | listed here since Day 12, never used | **do not set.** Checkout is Paystack's own hosted page, initialised server-side with the secret key; no publishable key is ever handed to the browser. Setting it is harmless but it is not "the live key pair" — there is one key |
 | `FLUTTERWAVE_SECRET_KEY`, `FLUTTERWAVE_WEBHOOK_HASH` | FX collections | ❌ not set — but the code path IS built and verified now (`verify-fx-collections`, §1); this is purely a missing credential | decide in/out of scope for go-live (§1) |
 | `RESEND_API_KEY`, `RESEND_FROM`, `RESEND_WEBHOOK_SECRET` | email notifications | ✅ set (Preview + Production) | reuse or rotate; confirm the sending domain is verified for both brands (`notify.tfmlconsultant.com`, `notify.oraegbunike.com`) |
 | `AFRICASTALKING_API_KEY` | SMS fallback | ❌ not set — cascade logs `skipped`, other channels unaffected | decide in/out of scope |
 | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | rate limiting | ✅ set (Production) | reuse; confirm fail-open posture is still intended (§5) |
+| `INTAKE_IP_LIMIT`, `INTAKE_IP_WINDOW` | per-IP intake rate limit (`lib/rate-limit.ts:97`). Added 20 Sept 2026 | ❌ not set — silent defaults of **100 per 10 s** | set them explicitly if the default is not the intended posture. A tunable with a silent default is a setting nobody knows they have |
+| `INTAKE_SENDER_LIMIT`, `INTAKE_SENDER_WINDOW` | per-sender intake rate limit (`lib/rate-limit.ts:101`). Added 20 Sept 2026 | ❌ not set — silent defaults of **5 per 10 s** | as above |
+| `REMITTANCE_LIMIT`, `REMITTANCE_WINDOW` | ceiling on **remittance execution** per user (`lib/rate-limit.ts:110`, enforced in `lib/payout-actions.ts:353` and `app/dashboard/requisitions/send-actions.ts:32`). Added 20 Sept 2026 | ❌ not set — silent defaults of **30 per 5 min** | **decide this one deliberately** — it is the only rate limit on the money-out path, and §5's open question about fail-open posture is specifically about this route |
 | `NEXT_PUBLIC_SENTRY_DSN` | error tracking | ✅ set (Production) | reuse or point at a production Sentry project |
+| `SENTRY_ORG`, `SENTRY_PROJECT` | **build-time only** — source-map upload (`next.config.mjs:188`). Added 20 Sept 2026 | ❌ not set | set on the production Vercel project if stack traces should be readable. Without them the build succeeds and Sentry receives minified frames, which is a debugging cost discovered during an incident rather than before one |
 | `TURNSTILE_SECRET_KEY`, `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | bot resistance on the **public vendor-application form** | ❌ not set on any environment — added to this table 2026-08-09, having been missing from it entirely | **decide in/out of scope.** `lib/turnstile.ts` no-ops cleanly when unconfigured, so the layer is silently off today. Three defences remain in front of it (per-IP rate limit → honeypot → submission timing) on one of the few anonymous write surfaces in the system, so out is a defensible answer — but it should be a decision, not a discovery. Free Cloudflare product; ~5 minutes if in. |
 | `GEMINI_API_KEY`, `GEMINI_MODEL` | LLM failover when Anthropic is unavailable | ✅ key set — but the free tier's **daily** quota was exhausted immediately | enable billing on the Google Cloud project, or accept the failover is best-effort. See `GO_LIVE_RUNWAY.md` Stage 1. |
 | `SIMULATED_GATEWAY_SECRET` | the simulated payment gateway | n/a | **never set in production.** Simulation is refused wherever a real gateway key exists or `NODE_ENV=production`, which is the control that stops an endpoint marking invoices paid without money arriving. |
@@ -306,15 +377,122 @@ missing several of these locally even though they're set on Vercel.
 `oe-group-ipms-dev` is the live, working Phase-1 deployment, not a stub — the
 work at cutover is mostly *swapping* (test→live keys, dev DB→production DB,
 dev host→production host in the two webhook registrations), not *inventing from
-nothing*. The two genuine gaps are Flutterwave (never configured) and Africa's
-Talking (never configured) — both are guarded/optional today, so neither blocks
-anything currently working; both need an explicit in/out-of-scope decision
-before go-live rather than being discovered missing on the day.
+nothing*.
+
+**What is genuinely absent, in the order it hurts** (revised 20 Sept 2026 — this
+paragraph previously named only two, and neither was the serious one):
+
+1. **`GATEWAY_CREDENTIAL_KEY`** — never configured anywhere, and unlike the
+   others it is not optional and has no fallback. It is generated once at the
+   destination and escrowed. Everything else on this list can be added the week
+   after go-live; this one cannot be added after the credentials it protects
+   have been entered.
+2. **`NEXT_PUBLIC_SITE_URL`** — never configured. Optional in the sense that
+   nothing crashes without it, load-bearing in the sense that its absence sends
+   the wrong brand's address to a real recipient.
+3. **Flutterwave** (never configured) and **Africa's Talking** (never
+   configured) — both guarded and optional today, so neither blocks anything
+   currently working; both need an explicit in/out-of-scope decision before
+   go-live rather than being discovered missing on the day.
+4. **The six silent-default tunables** — intake and remittance rate limits.
+   Not missing so much as unexamined; a default nobody chose is still a
+   decision, and one of them governs the money-out path.
 
 `gatewayMode()` in `lib/gateway/index.ts` reads the key's own prefix (`sk_test_`
 / `sk_live_`, `FLWSECK_TEST-` / `FLWSECK-`) and surfaces it on screen exactly as
 seen above — check that label right after cutover as confirmation a live key was
 actually pasted, not a test one left over from rehearsal.
+
+---
+
+## 2a. Configuration that is neither a bucket nor an env var
+
+**Added 20 Sept 2026.** Everything below is a *row in the production database*
+that nothing creates for you — the migrations build the mechanism and leave the
+setting at a safe default, which is correct, and means a human sets it after
+cutover. None of it appeared in this document before, because all of it was
+built after the document was last revised (`0239`–`0296`, 11 Aug – 14 Sept 2026).
+
+Order matters: 1 before 2, because a gateway return URL is a link like any
+other.
+
+**1. Bind `custom_domain` on every org** — operator console `/orgs`, the domain
+field on each org's card. Do this immediately after the domains are **moved**
+to the production Vercel project (§1), and before a single invitation, receipt
+or renewal notice is sent. `lib/portal-origin.ts` answers "whose portal is this
+link for" in three steps — the request host, then `orgs.custom_domain`, then
+`NEXT_PUBLIC_SITE_URL` — and for a message **we** initiate there is no request
+host, so an org with no bound domain falls straight to the deployment address.
+Verify by sending one real invitation per org and reading the link, not by
+reading the settings page back.
+
+⚠️ An org created outside the real onboarding flow gets `slug = null` and
+silently cannot use a custom domain at all (found on staging 2026-08-19, §1).
+On a correctly bootstrapped production this should not arise — but check the
+slug before blaming the domain.
+
+**2. Designate the one org that owns the platform gateway** — `0288` added
+`orgs.uses_platform_gateway`, defaulted **false for every org**, with a unique
+index enforcing **at most one** owner across the whole platform. That org's
+collections and transfers run on `PAYSTACK_SECRET_KEY` /
+`FLUTTERWAVE_SECRET_KEY`; every other org must connect its **own** merchant
+account, whose credentials are encrypted with `GATEWAY_CREDENTIAL_KEY`, or take
+no online payments at all. This is a deliberate refusal, not a gap: the state it
+replaced paid OEA's landlords out of TFML's balance. Decide the owner before
+cutover and expect that **every other org cannot take an online payment until
+it connects its own account.**
+
+**3. Publish each org's collection account number** — `bank_accounts.published_account_number`
+(`0286`), constrained to `client_funds` accounts only. This is the number
+printed on the "make a direct bank transfer" screen, telling a payer where to
+send money. Without it the offline-payment path can record a payment that has
+already happened but cannot tell anyone where to pay. A payout or operating
+account cannot carry one, so decision 17 is not weakened by setting it.
+
+**4. Staff the four desks the money paths need.** The off-platform inflow chain
+(`0282`, revised by `0293`) is `payment_audit_approver` → `executive` →
+`payment_approver`, with the Payment Approver posting to the ledger; outward
+disbursement is released by `finance_approver` alone (decision 16). A chain
+whose desk has nobody in it stalls silently at that stage. Confirm a real,
+signed-in person holds each role in each org **before** the first real payment,
+not after one is stuck.
+
+**5. Confirm each org's approval-chain shape and amount bands** — operator
+console `/orgs`, the approval-chain field (the screen `0268` added, after `0248`
+and `0261` shipped the levers with none). Both ship at their safe default:
+`approval_tiers_enabled` is **false** for every org, and the chain shape is
+**null**, meaning "derive from the brand". If the board intends anything other
+than the brand default for a given org, set it here — it is operator-only by
+design and deliberately absent from the org's own settings form (decision 7).
+
+**6. Decide `records.export` per client org** — `0239` added it **off for every
+role, admin included**. The platform operator reaches bulk export and document
+download through a hardcoded operator check in the route, so the operator never
+needs the capability. The capability exists for exactly one purpose: turning
+bulk export on for a *specific client org's own* admin, through Settings →
+Permissions. It is the shape of capability a data-protection review asks about
+by name, so leave it off unless a named org has asked and the answer is
+recorded.
+
+**7. Rehearse the tenancy offer → acceptance → lease sequence once** — `0263`
+replaced "approval issues a portal invitation" with **offer, then acceptance,
+then lease**: the approval records an offer carrying the unit, term, rent,
+service charge, deposit and what is payable on acceptance, and issues an
+acceptance link to a person with **no account**; accepting is what creates the
+invitation. The link is one-time (only its SHA-256 is stored) and expires. This
+is the first thing a real applicant touches, it runs entirely outside an
+authenticated session, and its failure mode is a link that silently does not
+open — so it belongs in production UAT (§1, "Sequenced together") explicitly,
+by name.
+
+**8. Know that payout bank details are evidence, not a stored field** — `0289`.
+The full account number is **never stored**: the payee uploads a document
+showing it, the payment officer reads the number off that document, and the
+system keeps only the bank, the account name and the last four digits. `0296`
+keeps the bank's own confirmation of the name against the link. Nothing here is
+a setting to configure — it is here because the first payment officer to use it
+will ask where the account number field is, and the answer is that its absence
+is the control.
 
 ---
 
@@ -385,4 +563,22 @@ screens that won't change again before go-live.
 - Whether Upstash rate-limiting's fail-open posture is acceptable for production
   as-is, or needs to fail closed for specific high-risk routes (payment
   webhooks, remittance execution) even if general request rate-limiting stays
-  fail-open for availability.
+  fail-open for availability. — **Note added 20 Sept 2026:** the limits
+  themselves are the six silent defaults now listed in §2. The money-out one is
+  `REMITTANCE_LIMIT` / `REMITTANCE_WINDOW`, defaulting to 30 per 5 minutes per
+  user; deciding the posture and deciding the number are the same decision.
+- **Whether `application-documents` should carry a size limit and a MIME
+  allowlist** — raised 20 Sept 2026 by the bucket re-measurement in §1. It is
+  the system's only anonymous-writable surface (`0062` grants `insert` to
+  `anon`, gated on the org accepting applications) and its bucket carries
+  neither, so the only ceiling is the Supabase project-level upload limit. Every
+  bucket built since — `0106`, `0140`, `0164`/`0213`, `0281`, `0289` — sets
+  both. `org-logos` is in the same state but is authenticated-write and
+  public-by-design, so it is the lesser case.
+  **Two answers, both defensible:** set the **project-level** limit
+  deliberately on the production project and leave the buckets alone (no
+  migration, decided at cutover), or write a migration narrowing the bucket the
+  way `0213` narrowed `vendor-documents` (safer, but it is a code change, so it
+  re-opens build plan §2.11 — cut `rc3` and re-run Stage 0). Not decided here:
+  §2.1 is a documentation refresh, and this is the one thing it found that a
+  document cannot fix.
