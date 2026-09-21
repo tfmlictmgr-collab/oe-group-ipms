@@ -1033,8 +1033,17 @@ one-line reason rather than deleting it silently.
       locally.
 
 ### Stage 3 — Provision production, empty
-- [ ] 3.1 Production Supabase project created in the confirmed region; ref recorded
+- [x] 3.1 Production Supabase project created in the confirmed region; ref recorded
+      — `TENTai-production`, eu-west-1, ref `civwriqvghvyqtfrzftu`, recorded in
+      `scripts/use-env.mjs` so the switch guard can refuse a mismatched backing
+      file rather than trust its label. The frozen POC demo project was deleted
+      after its ref was matched against the never-list. Empty: no schema yet.
 - [ ] 3.2 Production Vercel project created and linked; `.vercel.prod.bak` saved
+      — project `tent-ai-production` created and connected to the repo; first
+      deployment built from the merge of #36. **Not done until the link file is
+      backed up**, which happens on the operator's machine, not in the
+      dashboard: `vercel link` writes `.vercel/project.json`, and that is what
+      gets copied to `.vercel.prod.bak`.
 - [ ] 3.3 Target confirmed out loud, then `npm run migrate` — **schema only**
 - [ ] 3.4 All 7 buckets verified: existence, public flag, size and MIME caps *(gap A)*
 - [ ] 3.5 Every environment variable set; gateway-mode label reads **live**
