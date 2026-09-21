@@ -875,14 +875,14 @@ one-line reason rather than deleting it silently.
 
 ### Stage 2 — Close the technical gaps
 - [x] 2.1 Cutover docs refreshed: 7 buckets, full env table, new flows *(gaps A, B, C)* — **done 20 Sept 2026**
-- [~] 2.2 `GATEWAY_CREDENTIAL_KEY` **generated and set on staging Vercel,
-      20 Sept 2026** *(gap B)* — and proven to work by 2.3.
-      ⚠️ **Not done until the custody record is signed.** The control is the
-      paperwork, not the safe: `docs/KEY_CUSTODY_RECORD.md` §3, two sealed
-      envelopes with two named holders in different buildings, and the same
-      again for the backup passphrase (K2) once `--encrypt` is first used. A
-      key that only one person can reach is a key the organisation does not
-      have.
+- [x] 2.2 **Done 21 Sept 2026** *(gap B)*. `GATEWAY_CREDENTIAL_KEY` generated
+      at the destination, set on staging Vercel as a **Config**-typed variable,
+      proven working by 2.3, and **escrowed with the custody record signed** —
+      `KEY_CUSTODY_RECORD.md` §3: two sealed envelopes, signed across the seal,
+      two named holders in different buildings.
+      ⚠️ **K2, the backup passphrase, is escrowed the same way the first time
+      `npm run backup -- --encrypt` is used** — different envelopes, and never
+      stored with the media holding the backups.
 - [x] 2.3 **Gateway credential proven end to end on staging, 20 Sept 2026** —
       and by a stronger route than the one planned. Raising a payment request
       from Collections calls `resolveOrgGateway` → `getOrgCredential` →
@@ -1017,17 +1017,20 @@ one-line reason rather than deleting it silently.
       ref in `HOSTS.prod` (3.1) and create `.env.prod.local` from the
       production dashboard — never by copying another world's file, which the
       new guard now refuses outright.
-- [!] 2.11 **Triggered.** 2.9 and 2.10 changed code, so rule 7 applies:
-      `v1.0.0-rc2` no longer describes what would be deployed. Cut **`rc3`** and
-      re-run Stage 0 against it once the remaining Stage 2 items land — not
-      per-item, or the tag is cut three more times. What changed since `rc2`:
-      migration `0299`, the `/api/jobs/stamp-retention` route and its cron entry,
-      a corrected `due` count in `/api/jobs/purge-applications`, `use-env.mjs`,
-      `verify-bootstrap.mjs`, `lib/target-env.mjs`, and one new suite
-      (`verify-retention-clock`, taking the set to 122). **Added 20 Sept 2026:**
-      migration `0300` (the `application-documents` limits), backup encryption, the navigation search, `lib/rate-limit.ts`
-      (ceiling 30 → 20, plus the fail-closed posture recorded), and
-      `scripts/backup-database.mjs` with `npm run backup`.
+- [~] 2.11 **`v1.0.0-rc3` cut 21 Sept 2026 at `c628e90`** — rule 7, because
+      `0299` and everything after it killed `rc2`. 28 commits and 44 files
+      since: schema `0296` → `0300`, suites 121 → 124.
+      ✅ **Stage 0's local gates are green on this exact tree** (0.2): `npm ci`
+      from the lockfile, `tsc --noEmit` clean, `next lint` **0 errors** (2
+      pre-existing `alt-text` warnings), `next build` **81 pages**.
+      ⚠️ **Three still to run, and they need credentials or tooling this
+      session does not have** — `npm run verify` against `dev` (0.3),
+      `gitleaks` (0.4), `npm audit` snapshot (0.5). Until those are recorded,
+      Stage 0 is not re-met and **Stage 3's entry gate is not open**.
+      ⚠️ The tag itself had to be pushed by a person: a tag push from this
+      session is refused with **HTTP 403** (branch refs are permitted, tag refs
+      are not), so the annotation was composed here and the tag created
+      locally.
 
 ### Stage 3 — Provision production, empty
 - [ ] 3.1 Production Supabase project created in the confirmed region; ref recorded
