@@ -101,10 +101,24 @@ if (pooled && !userRef) {
   ok("pooler host paired with a tenant-qualified username");
 }
 
+// ⚠️ Corrected 21 Sept 2026. This first read "6543 is transaction mode —
+// migrate.mjs issues explicit BEGIN/COMMIT and needs SESSION mode", which is
+// wrong twice over: Supavisor's transaction mode DOES support explicit
+// transactions (it pins the server connection for their duration), and what it
+// actually withholds is session state held BETWEEN transactions, which this
+// runner holds none of. The claim mattered because the very case this script
+// exists to find — 5432 refused, 6543 accepted — ends with an operator setting
+// 6543 on purpose, and being told that is broken when it is not.
+//
+// It is still worth flagging rather than passing silently, because the port
+// affects more than the migrator: `pg_dump` in backup-database.mjs does want
+// session mode.
 if (pooled && configuredPort === 6543) {
-  bad("port 6543 is TRANSACTION mode — migrate.mjs issues explicit BEGIN/COMMIT and needs SESSION mode (5432)");
+  note("port 6543 is TRANSACTION mode. Fine for migrate.mjs — each migration commits with its");
+  note("  own ledger row, so an interruption leaves a clean prefix and re-running resumes — but");
+  note("  set it back to 5432 afterwards, because pg_dump in backup-database.mjs wants session mode.");
 } else if (pooled && configuredPort === 5432) {
-  ok("port 5432 — session mode, which is what the migration runner needs");
+  ok("port 5432 — session mode, which is what pg_dump needs and the migrator is happy with");
 }
 
 // ── Does the server accept it ───────────────────────────────────────────────
@@ -159,8 +173,17 @@ if (primary.ok) {
   console.log("  The configured credential works. If a migration still fails, the");
   console.log("  cause is downstream of connecting — read that error on its own terms.");
 } else if (anyOk && authFailures.length > 0) {
-  console.log("  The PASSWORD IS CORRECT — one port accepted it. The configured port");
-  console.log("  is the problem, not the credential. Do not reset the password.");
+  console.log("  The PASSWORD IS CORRECT — one port accepted it, and a wrong password");
+  console.log("  cannot authenticate anywhere. Do NOT reset it again.");
+  console.log("");
+  console.log("  Supavisor runs session mode (5432) and transaction mode (6543) as");
+  console.log("  separate services, each caching tenant credentials. The usual reason one");
+  console.log("  accepts a credential the other refuses is that a recent password reset");
+  console.log("  has reached one and not yet the other. Wait ten minutes and re-run this");
+  console.log("  script before changing anything.");
+  console.log("");
+  console.log("  If it persists, run the migration on the port that works and set the");
+  console.log("  port back to 5432 afterwards — see the note in section A.");
 } else if (authFailures.length === results.length) {
   console.log("  Every attempt was refused with 28P01, which is the server saying the");
   console.log("  password is wrong — not the file being malformed, since the value was");

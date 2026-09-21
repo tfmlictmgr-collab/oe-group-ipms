@@ -1096,6 +1096,28 @@ one-line reason rather than deleting it silently.
       `scripts/verify-world-switch.mjs`, which spawns the real script against
       fixture files in a temp directory — 17 checks, and 9 of them fail against
       the pre-fix script.
+      ⚠️ **Then a second failure, worth reading before anyone hits it again:**
+      `28P01 password authentication failed for user "postgres"` on a backing
+      file that checked out perfectly — 16 characters in, 16 out, no `#`, no
+      percent-encoding, no stray whitespace. It survived two password resets.
+      `scripts/check-db-connection.mjs` was written rather than re-running the
+      migrator on a guess, and located it: the SAME credential was refused on
+      port 5432 and accepted on 6543. A wrong password cannot authenticate
+      anywhere, so the credential was never the problem.
+      **Cause, confirmed by it clearing itself ~15 minutes later with nothing
+      changed:** Supavisor runs session mode (5432) and transaction mode (6543)
+      as separate services, each caching tenant credentials, and a password
+      reset reaches them at different times. Two resets in quick succession
+      widened the window.
+      📌 The benign of the two possible causes. Had session mode been
+      genuinely unavailable rather than stale, it would not have surfaced here
+      — the migrator would have been run on 6543 and moved on — but at the
+      first `npm run backup` against production, because `pg_dump` wants
+      session mode. Worth knowing that 5432 is confirmed live on this project.
+      **The lesson is the instrument, not the incident:** a migration runner
+      that cannot connect can only say so, and re-running it to find out more
+      means aiming the real migrator at production on a hunch. Diagnose with
+      something that writes nothing.
 - [ ] 3.4 All 7 buckets verified: existence, public flag, size and MIME caps *(gap A)*
 - [ ] 3.5 Every environment variable set; gateway-mode label reads **live**
 - [ ] 3.6 Emptiness proven by committed query and output
