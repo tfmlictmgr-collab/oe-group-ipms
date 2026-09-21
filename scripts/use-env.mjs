@@ -115,6 +115,47 @@ if (!fs.existsSync(file)) {
   process.exit(1);
 }
 
+// ⚠️ An UNREADABLE backing file is refused before any other check runs.
+//
+// Every guard below is written `if (ref && …)`. That is correct for what each
+// one proves — you cannot compare a ref you do not have — but the aggregate
+// behaviour was wrong: a backing file with no parseable Supabase URL made
+// `ref` null, so the clash guard and the recorded-ref guard both evaluated to
+// false and the file was copied to `.env.local` anyway. The world with the
+// least evidence behind it sailed through the most checks.
+//
+// On 21 Sept 2026 that is exactly what happened at Stage 3.3: `.env.prod.local`
+// existed but held nothing this script could parse, so `use-env.mjs prod`
+// printed the full red PRODUCTION banner over `project : (unreadable)` and
+// wrote an empty `.env.local`. The banner is the most confident output this
+// tool produces and it was sitting on top of no evidence at all.
+//
+// 📌 This is the same failure the header above describes three incident notes
+// about — not a wrong answer, a SILENT ABSENCE of one — arriving through the
+// one path left open: the guards' own precondition. A file that cannot be
+// parsed is not "nothing to check against", it is "this cannot be verified",
+// and the two must not produce the same outcome.
+//
+// Refused for every world, not just prod. An unparseable backing file produces
+// an unusable `.env.local` wherever it is copied, and `active()` would report
+// it UNREADABLE straight afterwards — there is no world in which proceeding is
+// the helpful answer.
+const ref = refIn(file);
+if (!ref) {
+  console.error(
+    `Refusing to switch: ${file} names no Supabase project this script can read.\n\n` +
+    `  Expected a line like:\n` +
+    `    NEXT_PUBLIC_SUPABASE_URL=https://<20-char-ref>.supabase.co\n\n` +
+    `  The file exists, so this is not "create it" — it is empty, truncated, or\n` +
+    `  missing that line. A half-written file is the dangerous case: copying it\n` +
+    `  would leave .env.local pointing at NOTHING while every banner and prompt\n` +
+    `  claimed you were on "${target}".\n\n` +
+    `  Rebuild it from the ${target} project's own dashboard — never by copying\n` +
+    `  another world's file. There is no override.`
+  );
+  process.exit(1);
+}
+
 // ⚠️ Rule 8, enforced rather than written down: "secrets are generated at the
 // destination, never copied between worlds."
 //
@@ -128,10 +169,14 @@ if (!fs.existsSync(file)) {
 // its never-list.
 //
 // Checked here because this is the one place that reads these files knowing
-// which world each is SUPPOSED to be.
-const ref = refIn(file);
+// which world each is SUPPOSED to be. `ref` is read above and is non-null by
+// the time control reaches here.
+// `ref` being non-null also matters HERE, beyond the guard above: `refIn`
+// returns null for an unreadable file, so with a null `ref` this `find` would
+// match any OTHER unreadable backing file and report two empty files as "the
+// same project".
 const clash = WORLDS.filter((w) => w !== target).find((w) => refIn(BACKING(w)) === ref);
-if (ref && clash) {
+if (clash) {
   console.error(
     `Refusing to switch: ${file} names the SAME Supabase project as ${BACKING(clash)}.\n\n` +
     `  ${file} → ${ref}\n` +
@@ -146,7 +191,7 @@ if (ref && clash) {
 // A recorded ref that disagrees with the backing file means one of the two is
 // stale. Refusing is right: the whole value of this tool is that what it says
 // and what it does are the same thing.
-if (ref && HOSTS[target] && HOSTS[target] !== ref) {
+if (HOSTS[target] && HOSTS[target] !== ref) {
   console.error(
     `Refusing to switch: ${file} does not name the project recorded for "${target}".\n\n` +
     `  recorded in HOSTS : ${HOSTS[target]}\n` +
