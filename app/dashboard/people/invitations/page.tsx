@@ -13,13 +13,18 @@ export default async function InvitationsPage() {
   const brand = session.org?.delivery_brand ?? null;
 
   const supabase = await createClient();
-  const [invitesRes, vendorsRes, unitsRes, props, deliveriesRes, nodesRes] = await Promise.all([
+  const [invitesRes, vendorsRes, applicantsRes, unitsRes, props, deliveriesRes, nodesRes] = await Promise.all([
     supabase
       .from("invitations")
       .select("id, email, role, expires_at, node_id")
       .eq("status", "pending")
       .order("created_at", { ascending: false }),
-    supabase.from("vendors").select("id, name").order("name"),
+    supabase.from("vendors").select("id, name, contact_email").order("name"),
+    supabase
+      .from("vendor_applications")
+      .select("vendor_id, contact_name")
+      .not("vendor_id", "is", null)
+      .order("decided_at", { ascending: false }),
     supabase.from("units").select("id, label, property_id, properties!units_property_id_fkey(name)").order("label"),
     writableProperties(),
     // What actually became of each invitation email. `accepted` means the
@@ -70,6 +75,26 @@ export default async function InvitationsPage() {
     return chain.length > 0 ? chain.join(" / ") : null;
   }
 
+  // What each vendor record already knows about its contact, so the invitation
+  // form does not ask for it a second time.
+  //
+  // The email was copied onto `vendors` when the application was approved
+  // (0021). The contact PERSON's name was not — it stays on the application
+  // row, which survives approval and points back through `vendor_id`. So the
+  // name is read from there rather than being unavailable.
+  const contactNames = new Map<string, string>();
+  for (const a of (applicantsRes.data ?? []) as { vendor_id: string | null; contact_name: string | null }[]) {
+    if (a.vendor_id && a.contact_name && !contactNames.has(a.vendor_id)) {
+      contactNames.set(a.vendor_id, a.contact_name);
+    }
+  }
+  const vendorOptions = (vendorsRes.data ?? []).map((v) => ({
+    id: v.id,
+    label: v.name,
+    email: v.contact_email,
+    contactName: contactNames.get(v.id) ?? null,
+  }));
+
   return (
     <div className="space-y-4">
       <InviteDialog
@@ -77,7 +102,7 @@ export default async function InvitationsPage() {
         myRole={profile.role ?? null}
         properties={props.map((p) => ({ id: p.id, label: p.name }))}
         units={units}
-        vendors={(vendorsRes.data ?? []).map((v) => ({ id: v.id, label: v.name }))}
+        vendors={vendorOptions}
         nodes={nodesRes.data ?? []}
       />
 

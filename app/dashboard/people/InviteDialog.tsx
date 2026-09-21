@@ -15,6 +15,18 @@ import { runAction, describeError } from "@/lib/run-action";
 
 type Option = { id: string; label: string; propertyId?: string };
 
+/**
+ * A vendor option, carrying what the record already knows about its contact.
+ *
+ * The company applied through `/apply` and stated a contact person and an
+ * email; approval copied the email onto `vendors` and left the application row
+ * in place, still holding the person's name. Both were then being retyped here
+ * from memory — which is how an invitation goes to the wrong address, and how
+ * the Full name box ends up holding the COMPANY name rather than the person's,
+ * as it did on staging on 20 Sept 2026.
+ */
+type VendorOption = Option & { email?: string | null; contactName?: string | null };
+
 export default function InviteDialog({
   brand,
   myRole,
@@ -28,7 +40,7 @@ export default function InviteDialog({
   myRole: string | null;
   properties: Option[];
   units: Option[];
-  vendors: Option[];
+  vendors: VendorOption[];
   nodes: OrgNode[];
 }) {
   const router = useRouter();
@@ -53,6 +65,33 @@ export default function InviteDialog({
   const needsNode = role === "regional_manager";
   const needsUnit = role === "tenant";
   const needsVendor = role === "vendor";
+
+  /**
+   * Choosing a vendor fills in what that record already knows.
+   *
+   * ⚠️ It never overwrites something a person typed. A field is filled only
+   * when it is empty, or when it still holds the value the PREVIOUS vendor put
+   * there — so switching selection corrects the prefill, and a deliberate edit
+   * survives being second-guessed. Silently replacing a typed email with one
+   * from a record is worse than not prefilling at all: the invitation goes
+   * somewhere the sender did not choose and nothing on screen says so.
+   */
+  const pickVendor = (next: string) => {
+    const was = vendors.find((v) => v.id === vendorId);
+    const now = vendors.find((v) => v.id === next);
+    setVendorId(next);
+    if (!now) return;
+
+    // Fill only what the person has not made their own: an empty box, or one
+    // still showing the value the previous selection put there. `previous` is
+    // null when that vendor had nothing to offer, and null never equals a
+    // string, so a typed value is safe in that case too.
+    const fill = (current: string, previous: string | null | undefined, incoming: string | null | undefined) =>
+      current === "" || (previous != null && current === previous) ? incoming ?? current : current;
+
+    setEmail((cur) => fill(cur, was?.email, now.email));
+    setFullName((cur) => fill(cur, was?.contactName, now.contactName));
+  };
   // A payment approver's scope is an AMOUNT, not a place — the one role whose
   // authority cannot be expressed by attaching them to something. Without a
   // tier the invitation violates its own constraint (0153) and fails only when
@@ -156,7 +195,10 @@ export default function InviteDialog({
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="inv-name">
-                Full name <span className="font-normal text-muted-foreground">(optional)</span>
+                Full name{" "}
+                <span className="font-normal text-muted-foreground">
+                  (optional — the person, not the company)
+                </span>
               </Label>
               <Input
                 id="inv-name" value={fullName}
@@ -220,7 +262,7 @@ export default function InviteDialog({
             {needsVendor && (
               <div className="space-y-1.5">
                 <Label htmlFor="inv-vendor">Vendor record</Label>
-                <Select id="inv-vendor" value={vendorId} onChange={(e) => setVendorId(e.target.value)}>
+                <Select id="inv-vendor" value={vendorId} onChange={(e) => pickVendor(e.target.value)}>
                   <option value="">— link later —</option>
                   {vendors.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
                 </Select>
