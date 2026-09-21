@@ -1072,6 +1072,22 @@ one-line reason rather than deleting it silently.
       `.vercel.prod.bak` are shown to be identical and to carry the project id
       the dashboard gives for `tent-ai-production`.
 - [ ] 3.3 Target confirmed out loud, then `npm run migrate` — **schema only**
+      ⚠️ **First attempt 21 Sept 2026 did not migrate anything, and the reason
+      matters more than the outcome.** `.env.prod.local` existed but held
+      nothing `use-env.mjs` could parse, so the switch printed the full red
+      PRODUCTION banner over `project : (unreadable)` and wrote an EMPTY
+      `.env.local`. Every guard in that script was written `if (ref && …)`, so
+      a null ref made each one false and the copy went ahead: the world with
+      the least evidence behind it passed the most checks.
+      Production was untouched — but by luck, not by design. `migrate.mjs`
+      derives its refs from the same empty file, so both its guards also said
+      nothing and it failed at `client.connect()` for want of a hostname. What
+      stopped it was the absence of a target, not the presence of a check.
+      Closed by the guard added in `use-env.mjs` (an unparseable backing file
+      is now refused for every world, before the banner) and by
+      `scripts/verify-world-switch.mjs`, which spawns the real script against
+      fixture files in a temp directory — 17 checks, and 9 of them fail against
+      the pre-fix script.
 - [ ] 3.4 All 7 buckets verified: existence, public flag, size and MIME caps *(gap A)*
 - [ ] 3.5 Every environment variable set; gateway-mode label reads **live**
 - [ ] 3.6 Emptiness proven by committed query and output

@@ -54,15 +54,39 @@ the most sensitive material in this system is not in Postgres.
 | **`auth` schema** | sign-in identities. `npm run backup` dumps `public` only |
 | **Project configuration** | environment variables, edge functions, custom domains, and — critically — **`GATEWAY_CREDENTIAL_KEY`**, whose loss is unrecoverable by design (build plan §2.2) |
 
-⛔ **OPEN, and it should not stay open past cutover: confirm directly with
-Supabase whether the Pro daily backup includes Storage objects.** The database
-is documented; Storage is not, and the honest position today is that *we do not
-know*. If it does not, then the identity documents this system exists to
-protect have **no backup at all**, which is a larger finding than anything PITR
-would have addressed.
+### ⛔ ANSWERED, 21 Sept 2026 — and the answer is the bad one
 
-Until that is answered, do not describe this system as "backed up" without the
-qualifier "the database is".
+Confirmed with Supabase: **the daily backup covers the database only. Storage
+objects are not in it.**
+
+So the conditional written here before cutover is no longer a conditional. As
+of today the identity documents, the photographs taken inside client homes, the
+vendor KYC packs, the proofs of payment and the payee bank evidence have **no
+backup of any kind** — not daily, not PITR, not the `npm run backup` dump,
+which excludes them by design and says so in its own output.
+
+📌 This is worth stating without softening, because it inverts the shape of the
+risk everyone had in mind. The PITR conversation was about losing *a day* of
+ledger rows — recoverable from gateway and bank records, which is exactly why
+declining it was sound. This is about losing **everything, permanently**, in
+the one category that cannot be reconstructed from anyone else's records. A
+tenancy application's identity document exists in two places: the applicant's
+own files, and here. Ask 400 tenants to re-upload proof of identity after an
+incident and you have neither a functioning system nor a defensible NDPA
+position.
+
+It also makes a database restore actively misleading rather than merely
+partial: the rows survive, every one of them carrying a storage path, and every
+one of those paths resolves to nothing. The system would come back up looking
+healthy.
+
+**Consequence for the wording elsewhere:** nothing in this repository may
+describe the system as "backed up" without the qualifier *"the database is"*,
+and §1's stated RPO of ~24h is a **database** RPO. There is no storage RPO
+because there is no storage backup.
+
+**This is now the largest open item in the recoverability story**, ahead of
+everything PITR would have addressed. See §3b.
 
 ---
 
@@ -171,6 +195,75 @@ refused** (GCM authenticates, so an altered file fails rather than decrypting
 into quiet nonsense); and the correct passphrase decrypting to a file whose
 SHA-256 matches the manifest, restored into a fresh database with matching row
 counts.
+
+---
+
+## 3b. Backing up the STORAGE buckets too — the gap §2 now names
+
+**Asked 21 Sept 2026, twice: can data *and* storage objects both be copied to
+Google Workspace at no cost?** Yes. The transport is free and the hard part is
+not the transport.
+
+### Why this needs new code, and `npm run backup` cannot just be re-pointed
+
+`pg_dump` dumps a database. Storage objects are not in the database — Postgres
+holds only `storage.objects`, a table of metadata and paths, and the bytes live
+in object storage behind the Storage API. That is why `scripts/backup-database.mjs`
+prints a warning naming every bucket it does **not** contain rather than
+quietly implying otherwise. Making one file cover both means a second
+collection step: list every object in each of the seven buckets, download each,
+and write them into one archive whose manifest can be checked on the way back.
+
+### The shape it should take
+
+Alongside the existing script, matching its discipline rather than inventing a
+new one:
+
+1. **Collect.** For each bucket, page the Storage API and download every
+   object, preserving `bucket/path` so a restore can put each back where it
+   came from.
+2. **Verify before claiming success.** The database script's rule is that a
+   backup is not a backup until it has been read back — `pg_restore --list`
+   there, and here a manifest of every object's SHA-256 and byte count, with
+   the archive re-opened and checked against it. Count the objects listed in
+   `storage.objects` and refuse to report success if the archive holds fewer:
+   a partial storage backup that reports success is worse than none, because
+   it stops anyone looking.
+3. **Encrypt with the same AES-256-GCM path** already proven on 20 Sept —
+   wrong passphrase refused, single flipped byte refused.
+4. **Only then** let it leave the machine.
+
+### Getting it to Google Workspace — no API work, no cost
+
+Do **not** build a Drive API integration for this. Install **Google Drive for
+desktop** on the operator machine and have the backup script write into a
+synced folder. Drive uploads it. That is the whole mechanism: no OAuth client,
+no service account, no credential to rotate, no code that can silently stop
+working, and it uses Workspace storage already being paid for.
+
+Versioning comes free with it — Drive keeps prior versions, so a corrupted
+backup that syncs does not overwrite the last good one. Set the folder to
+**mirror**, not stream, so the files exist locally as well; a "backup" that
+only exists in the cloud is one outage away from being no backup.
+
+### ⚠️ The condition that is not optional
+
+**Only encrypted archives leave this machine.** Unencrypted identity documents
+and payment evidence synced to Drive would be a transfer of personal data to a
+third party and a new processing location — the same `1.7` question §3a
+declines to reopen, and a far worse instance of it than a database dump,
+because this material *is* the sensitive category. Ciphertext with a key Google
+never holds is not that transfer.
+
+Which makes **K2 escrow load-bearing here, not administrative**: the passphrase
+must not live only in Drive, only on the machine that writes the backups, or
+only in one person's head. Records of processing should note Google as holding
+encrypted copies even so.
+
+### What this still will not cover
+
+`GATEWAY_CREDENTIAL_KEY` and the `auth` schema — see §2. Neither is in a
+bucket, and neither becomes covered by any of the above.
 
 ---
 
