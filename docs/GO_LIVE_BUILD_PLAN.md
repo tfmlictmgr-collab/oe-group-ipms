@@ -1173,9 +1173,35 @@ one-line reason rather than deleting it silently.
       EXECUTE means nothing. It is now the **fourth query** in
       `docs/sql/stage3-production-proof.sql`, against the live database, and
       it is the one query there that deliberately computes no verdict.
-- [ ] 3.4 All 7 buckets verified: existence, public flag, size and MIME caps *(gap A)*
+- [x] 3.4 All 7 buckets verified: existence, public flag, size and MIME caps *(gap A)*
+      ✅ 21 Sept 2026 — seven buckets, every verdict `OK`. `org-logos` is the
+      one public bucket and is meant to be; every bucket holding a person's
+      documents is private, capped and MIME-limited, carrying `0300`'s 10 MiB
+      on `application-documents` and `0213`'s lowered 2 MiB on
+      `vendor-documents` rather than `0164`'s original 15.
+      Output: `docs/verify-runs/stage3-20260921-production-proof.md`.
 - [ ] 3.5 Every environment variable set; gateway-mode label reads **live**
-- [ ] 3.6 Emptiness proven by committed query and output
+- [x] 3.6 Emptiness proven by committed query and output
+      ✅ 21 Sept 2026 — every table holding a person, a sum of money or a piece
+      of work reads zero: `users`, `tenant_applications`, `leases`, `tickets`,
+      `payments`, `vendors`, `invitations`, `ledger_entries`,
+      `payment_intents`, `properties`, `units`, `bank_accounts`,
+      `channel_consents`. **No personal data has reached production**, which
+      is the claim the 13 DPAs at 1.1 depend on. Ledger: 321 applied, highest
+      `0300` — exactly the file count, so every file ran rather than merely
+      the run finishing.
+      ⚠️ **Correction to this row's own wording above**, which says the only
+      permitted non-zero results are "the operator org (`0088`), the
+      permission baseline, and the chart of accounts". That makes `orgs = 2`
+      read as a leftover fixture on every future run. It is not. `0208`'s
+      header is explicit that TWO orgs must exist in any world: `oe-group`,
+      the platform operator, and `sc-client`, "the organisation the entire
+      brief is about" and the only org carrying `org_brand_associations` to
+      both brands. `0208` exists precisely because a seed once truncated them
+      and nine checks in `verify-sc-client` stopped at "the service-charge
+      client org exists". **Two orgs with zero users is the correct shape of
+      an empty production database.**
+      Output: `docs/verify-runs/stage3-20260921-production-proof.md`.
 
 ### Stage 4 — Dress rehearsal on staging
 - [ ] 4.1 Staging on the exact RC tag and schema
