@@ -129,6 +129,55 @@ select count(*) as migrations_applied, max(name) as highest
 -- Joined on `specific_name` rather than the bare name so overloads stay
 -- distinct: `remember_conversation_state` exists with both 7 and 8 arguments,
 -- and only one of them was ever the problem.
+--
+-- ── The baseline, read against production 21 Sept 2026 at schema 0300 ──────
+--
+-- Recorded so the next reader inherits a classified list rather than ~200
+-- unclassified rows. Differences from this shape are what to look at.
+--
+-- **15 rows reading `PUBLIC, anon, authenticated`, every one zero-argument.**
+--   • 10 are TRIGGER functions — assign_org_gateway_tag,
+--     enforce_payment_gate_config_authority, log_audit,
+--     log_vendor_introduction, orgs_seed_modules,
+--     remittance_names_its_account, sync_requisition_total and the three
+--     vendor_users_*. PostgreSQL REFUSES a direct call to a trigger function
+--     ("trigger functions can only be called as triggers"), so PUBLIC EXECUTE
+--     on them grants nothing. Verified against the migrations, not assumed.
+--   • 4 are the RLS helpers — current_user_org_id, current_user_role,
+--     current_user_property_ids, current_user_scoped_vendor_ids. They MUST be
+--     callable by `authenticated`, because every policy calls them, and they
+--     are safe structurally rather than hopefully: they take NO arguments and
+--     derive everything from auth.uid(), so there is nothing a caller can
+--     supply to steer them. An anon caller gets null and an empty result.
+--   • 1 is `rls_auto_enable`, which appears NOWHERE in this repository — no
+--     migration and no script creates it. Presumed Supabase platform
+--     furniture; recorded as unexplained rather than waved through. See the
+--     note below.
+--
+-- **17 rows reading `anon, authenticated` WITH arguments** — the public
+-- application surface, and deliberate. The token-keyed ones
+-- (application_document_status, resume_application, save_application_draft,
+-- submit_tenant_application, record_application_attachment,
+-- confirm_vendor_application_email, invitation_preview) are guarded by an
+-- unguessable p_token_hash; the rest read branding and acceptance state that
+-- `/apply/<orgId>` and the sign-in doors need before anyone has logged in.
+-- `tickets_require_review_before_dispatch` is another trigger function.
+--   ⚠️ `start_tenant_application(p_org_id, p_property_id, …)` is the one with
+--   the 0210 SHAPE: anon-callable, SECURITY DEFINER, org id as an argument.
+--   It is correct — that is how an application starts — but it is correct
+--   because of what defends it, not because of the function. 0300's bucket
+--   caps, the Turnstile check, the honeypot and the rate limiter are that
+--   defence, and verify-tenant-applications and
+--   verify-vendor-application-guards are what hold it. Treat any CHANGE to
+--   that row as a security change.
+--
+-- **~170 rows reading `authenticated` only** — correct by design.
+-- `authenticated` means signed in, not authorised; RLS and has_permission()
+-- decide the rest.
+--
+-- 📌 To tell platform furniture from something of ours, run this same query
+-- against dev or staging. A function present in all three that no migration
+-- creates came from Supabase, not from us.
 select p.proname                                            as function,
        pg_get_function_identity_arguments(p.oid)            as arguments,
        string_agg(distinct g.grantee, ', ' order by g.grantee) as executable_by
