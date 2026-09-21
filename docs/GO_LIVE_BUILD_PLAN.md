@@ -1079,7 +1079,22 @@ one-line reason rather than deleting it silently.
       `INCIDENT_2026-08-05_PROD_ALIAS`. Closes when `.vercel/project.json` and
       `.vercel.prod.bak` are shown to be identical and to carry the project id
       the dashboard gives for `tent-ai-production`.
-- [ ] 3.3 Target confirmed out loud, then `npm run migrate` — **schema only**
+- [x] 3.3 Target confirmed out loud, then `npm run migrate` — **schema only**
+      ✅ **Complete 21 Sept 2026. Production is at `0300`, schema only, no seed.**
+      `0213a` applied, `0214`'s guard then passed, and every migration through
+      `0300` followed without a failure.
+      📌 **The second result is as useful as the first: every guard in the 86
+      migrations after `0214` passed on a fresh build.** The divergence between
+      the files and the already-built worlds was ONE case, not a pattern — so
+      dev and staging having been reached by a path rather than by the files
+      cost exactly one defect, and it is closed. That is the answer to the
+      question 3.3 was really asking.
+      It took four attempts to get here, and each failure is written up below
+      because each was a different kind and only the last was the product's
+      own. In order: an unreadable backing file that every guard waved through;
+      a `28P01` that was never a wrong password; a migration file that was
+      merged after the merge that was meant to carry it; and then the one real
+      finding.
       ⚠️ **First attempt 21 Sept 2026 did not migrate anything, and the reason
       matters more than the outcome.** `.env.prod.local` existed but held
       nothing `use-env.mjs` could parse, so the switch printed the full red
@@ -1142,6 +1157,15 @@ one-line reason rather than deleting it silently.
       byte-identical error, `0213a` clears it, `0214`'s guard then passes, and
       a second run of `0213a` is a no-op — which is what dev and staging will
       do when they apply it out of order after `0300`.
+      ⚠️ **Then a third run failed identically, and the cause was process, not
+      code.** The pull request carrying `0213a` was merged at a commit pushed
+      BEFORE the migration file was added to the same branch, so the merge took
+      the two earlier commits and left the file behind. The log said so plainly
+      for anyone reading it: between `Skipping 0213_…` and `Applying 0214_…`
+      there was no `0213a` line at all — neither applied nor skipped — and
+      `migrate.mjs` enumerates the directory, so a file that existed would have
+      had to appear one way or the other. **Read the log for the line that is
+      missing, not only the line that failed.**
       ⚠️ **The open question it raises** — "are there others?" — cannot be
       answered by reading the migration files: a static read cannot tell a
       genuine leak from one a later blanket revoke already closed, nor a
