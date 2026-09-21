@@ -29,15 +29,14 @@ const HOSTS = {
   dev: "uszwigxdvjlwcwkjsjmc",
   staging: "tjboghjzbalxwhhatogl",
 
-  // ⚠️ Fill this in at Stage 3.1 — the moment the production Supabase project
-  // exists, before anything is pointed at it. It is `null` rather than a
-  // commented-out line so that the slot is visibly EMPTY rather than absent:
-  // a missing key reads as "prod is not a thing here", which is how a world
-  // ends up unlabelled in the one tool whose job is to say which world you are
-  // on. `active()` below still names prod correctly while this is null, by
-  // reading `.env.prod.local` itself — but only the ref recorded here proves
-  // the project you are pointed at is the project that was signed off.
-  prod: null,
+  // ⚠️ This is the recorded answer to "is the project I am pointed at the one
+  // that was signed off". `active()` could name prod from `.env.prod.local`
+  // alone, and did while this was null — but a backing file naming a DIFFERENT
+  // project would have been named just as confidently. With the ref here, the
+  // switch guard below refuses that case outright.
+  // Recorded 21 Sept 2026 at Stage 3.1 — `TENTai-production`, eu-west-1, the
+  // region 1.7 fixed and the cross-border basis is filed against.
+  prod: "civwriqvghvyqtfrzftu",
 };
 
 // Where each world's secrets live. Read rather than assumed, so `active()` can

@@ -1023,18 +1023,54 @@ one-line reason rather than deleting it silently.
       ✅ **Stage 0's local gates are green on this exact tree** (0.2): `npm ci`
       from the lockfile, `tsc --noEmit` clean, `next lint` **0 errors** (2
       pre-existing `alt-text` warnings), `next build` **81 pages**.
-      ⚠️ **Three still to run, and they need credentials or tooling this
-      session does not have** — `npm run verify` against `dev` (0.3),
-      `gitleaks` (0.4), `npm audit` snapshot (0.5). Until those are recorded,
-      Stage 0 is not re-met and **Stage 3's entry gate is not open**.
+      ✅ **0.3 re-met on `rc3`, 21 Sept 2026 — `124 of 124 suite(s) passed`.**
+      A clean sweep, and the first one: `rc2`'s run of record was 119 of 120
+      with one timeout. Run from the operator's machine against `dev`, which
+      is where the credentials are.
+      ✅ **0.4 re-met on `rc3`, 21 Sept 2026** — 432 commits, ~11.07 MB
+      scanned in 14s, **`no leaks found`**, exit 0. Two halves to this check
+      and both pass: the scan is clean, AND `.gitleaksignore` still names
+      **only the same four** Day-12 false positives (two fingerprints, two
+      line-hits each). A clean exit means little on its own — it is trivially
+      obtained by widening the ignore file — so the count is the control, and
+      it has not moved. Scanned over full history rather than `--log-opts` on
+      the tag, which is the stronger of the two.
+      ⚠️ **0.5 still to run** — the `npm audit` snapshot. Until it is
+      recorded, Stage 0 is not fully re-met.
+      ⚠️ **`rc3` dies the moment PR #37 merges** — rule 7. Unlike the
+      `rc1`→`rc2` case, where all later work was `scripts/`-only and therefore
+      outside `next build`, #37 edits `app/layout.tsx`. That is compiled into
+      the bundle, so deploying `rc3` would ship a build whose tab still reads
+      "OE Group". **`rc4` is required**, cut at that merge. The delta re-runs
+      0.2 (it covers the changed bytes) but not 0.3: it touches no SQL, no
+      `lib/`, no RLS policy, and no verify suite reads `app/layout.tsx` — the
+      one suite that reads `use-env.mjs`, `verify-bootstrap`, was run against
+      the change and passed section A in full.
       ⚠️ The tag itself had to be pushed by a person: a tag push from this
       session is refused with **HTTP 403** (branch refs are permitted, tag refs
       are not), so the annotation was composed here and the tag created
       locally.
 
 ### Stage 3 — Provision production, empty
-- [ ] 3.1 Production Supabase project created in the confirmed region; ref recorded
-- [ ] 3.2 Production Vercel project created and linked; `.vercel.prod.bak` saved
+- [x] 3.1 Production Supabase project created in the confirmed region; ref recorded
+      — `TENTai-production`, eu-west-1, ref `civwriqvghvyqtfrzftu`, recorded in
+      `scripts/use-env.mjs` so the switch guard can refuse a mismatched backing
+      file rather than trust its label. The frozen POC demo project was deleted
+      after its ref was matched against the never-list. Empty: no schema yet.
+- [~] 3.2 Production Vercel project created and linked; `.vercel.prod.bak` saved
+      — project `tent-ai-production` created and connected to the repo; first
+      deployment built from the merge of #36. `vercel link` run on the
+      operator's machine and the link copied to `.vercel.prod.bak`, joining
+      the demo/dev/staging trio.
+      ⚠️ **Held open pending a read-back of the two files.** The link and the
+      copy were issued as one pasted block into an interactive prompt, so the
+      order in which the shell and the picker consumed those lines is not
+      established from the transcript. The row asks for a backup of the RIGHT
+      link; a backup of the wrong one is worse than none, because it makes a
+      wrong target look deliberate — which is exactly the shape of
+      `INCIDENT_2026-08-05_PROD_ALIAS`. Closes when `.vercel/project.json` and
+      `.vercel.prod.bak` are shown to be identical and to carry the project id
+      the dashboard gives for `tent-ai-production`.
 - [ ] 3.3 Target confirmed out loud, then `npm run migrate` — **schema only**
 - [ ] 3.4 All 7 buckets verified: existence, public flag, size and MIME caps *(gap A)*
 - [ ] 3.5 Every environment variable set; gateway-mode label reads **live**

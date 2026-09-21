@@ -49,8 +49,21 @@ const geistMono = localFont({
 // **existence**, and a link preview is exactly that, at scale.
 //
 // Per-org pages override this in their own `generateMetadata`.
+//
+// 📌 The title names the SOFTWARE, not an organisation. That is the whole
+// point of it being the root: this string is what every surface that does not
+// override it inherits, and those surfaces are not org-neutral — `/apply/<org>`
+// is a named client's tenancy door, and it sets no metadata of its own. Naming
+// the operator company here meant a TFML applicant's tab, and their link
+// previews, said "OE Group". A product name says nothing about who delivers
+// the work, which is exactly what B1 wants a shared surface to say.
+//
+// Board-approved 21 Sept 2026. It renames the software only. Organisations
+// keep their own names everywhere they already appear — the dashboard tab,
+// the branded doors, email From lines — because those are set by the
+// generateMetadata blocks named above, none of which read this value.
 export const metadata: Metadata = {
-  title: "OE Group — Integrated FM & Property Management",
+  title: "TENTai — Integrated FM & Property Management",
   description:
     "Facilities and property management in one auditable workspace — requests, service charges, vendor payments and reporting.",
 };
