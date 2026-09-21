@@ -657,7 +657,15 @@ themselves create — the operator org (`0088`), the permission baseline, the
 chart of accounts. Commit the query and its output. This is the Day 12 exit
 gate and it is the last moment it is cheap to check.
 
-**Exit gate:** schema at `0296`, seven buckets correct, every variable set, the
+**The queries for 3.4 and 3.6 are written and committed** as
+`docs/sql/stage3-production-proof.sql` — paste it into the production SQL
+editor after 3.3. Both compute a verdict rather than printing numbers to be
+compared by eye: the bucket check FULL JOINs against the values pinned from
+the six migrations that set them, so an unexpected bucket is as visible as a
+missing one, and the emptiness check enumerates tables from the catalogue
+rather than from a list that goes stale on the next migration.
+
+**Exit gate:** schema at `0300`, seven buckets correct, every variable set, the
 emptiness query committed with its output.
 
 ---
