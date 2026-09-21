@@ -1118,6 +1118,37 @@ one-line reason rather than deleting it silently.
       that cannot connect can only say so, and re-running it to find out more
       means aiming the real migrator at production on a hunch. Diagnose with
       something that writes nothing.
+      ✅ **Then the migration ran, and `0214` refused it — correctly.** 213
+      migrations applied, then `0214`'s guard raised *"conversational-intake
+      functions still executable: conversation_state → PUBLIC,
+      remember_conversation_state → PUBLIC, resolve_ticket_by_ref → PUBLIC,
+      sender_open_requests → PUBLIC"*.
+      📌 **This is what Stage 3 is for, and it found something no earlier
+      stage could.** `0214`'s header claims `0210` "has been amended in place
+      to the correct form as well, so a world created from a fresh run of the
+      migration set never has the window at all". That claim was false. The
+      amendment replaced `revoke all ... from public` with
+      `revoke execute ... from anon, authenticated`, fixing the leak `0214`
+      was written about and dropping the revoke of the privilege PostgreSQL
+      grants on its own — a newly created function is EXECUTE-able by PUBLIC
+      by default. Dev and staging are clean only because they applied the
+      ORIGINAL `0210`, a version of the file that no longer exists in this
+      repository. Production is the first world built from the files alone,
+      and it is the first world where the defect could appear.
+      Closed by `0213a_the_revoke_that_never_ran_at_all.sql` — numbered to run
+      BEFORE the guard, because a `0301` would never be reached. Reproduced on
+      a local PostgreSQL 16 and fixed there before being proposed: the amended
+      `0210` shape leaves PUBLIC on all four, `0214`'s guard raises the
+      byte-identical error, `0213a` clears it, `0214`'s guard then passes, and
+      a second run of `0213a` is a no-op — which is what dev and staging will
+      do when they apply it out of order after `0300`.
+      ⚠️ **The open question it raises** — "are there others?" — cannot be
+      answered by reading the migration files: a static read cannot tell a
+      genuine leak from one a later blanket revoke already closed, nor a
+      client-callable function from a trigger function for which PUBLIC
+      EXECUTE means nothing. It is now the **fourth query** in
+      `docs/sql/stage3-production-proof.sql`, against the live database, and
+      it is the one query there that deliberately computes no verdict.
 - [ ] 3.4 All 7 buckets verified: existence, public flag, size and MIME caps *(gap A)*
 - [ ] 3.5 Every environment variable set; gateway-mode label reads **live**
 - [ ] 3.6 Emptiness proven by committed query and output
