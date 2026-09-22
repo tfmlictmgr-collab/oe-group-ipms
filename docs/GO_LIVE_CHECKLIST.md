@@ -431,7 +431,7 @@ silently cannot use a custom domain at all (found on staging 2026-08-19, §1).
 On a correctly bootstrapped production this should not arise — but check the
 slug before blaming the domain.
 
-**1b. Set `email_from_address` on EVERY org — no email sends until you do.**
+**1b. Set `email_from_address` on every org AS IT IS CREATED — not before.**
 Settings → Organisation, per org. ⚠️ **Found 22 Sept 2026 while answering
 "what happens if `RESEND_FROM` is blank", and it is not what that question
 assumed.** `0024` adds the column and **no migration populates it**, so on the
@@ -463,6 +463,34 @@ Use an address on a domain verified in Resend for that brand
 `email_from_name` to the client-facing BRAND, never the holding entity.
 Verify by sending one real invitation per org and reading the received
 message's From line — not by reading the settings page back.
+
+⚠️ **Corrected the same day, before anybody acted on it.** This step was first
+written as "no email sends until you do", which is true of an org that sends
+email and false of the two orgs production currently holds. Both were created
+by MIGRATION, and neither is a client-facing brand:
+
+* `oe-group` (`0088`) — the platform operator. The control plane.
+* `sc-client` (`0094`) — the service-charge client, with no portal of its own yet.
+
+The orgs that actually send to clients — `tfml` and `oea` — do **not exist in
+production** and are not supposed to. They are created at cutover through the
+operator console, which is why staging carries five orgs (it was seeded) and
+production carries two (it never is, rule 1). So a null sender on those two
+rows today is the correct state, not a defect, and nothing is currently
+failing to send.
+
+📌 **What this means in practice is a SEQUENCE, and it has a trap in it.**
+`provisionOrg` (`app/orgs/actions.ts`) creates the org and then emails its
+first admin **as the new org** — which by definition has no sender address one
+line after being created. That first invitation therefore declines. It is
+designed to: the function is deliberately best-effort and *always returns the
+link on screen*, so onboarding is never blocked on mail. But it must be
+**known** rather than discovered, because the screen shows a link and no
+error, and the natural reading is "the email is on its way".
+
+So at cutover, per org: **provision → set `email_from_address` and
+`email_from_name` → then invite everyone else.** Hand the first admin their
+link from the screen.
 
 **2. Designate the one org that owns the platform gateway** — `0288` added
 `orgs.uses_platform_gateway`, defaulted **false for every org**, with a unique
