@@ -1070,7 +1070,31 @@ one-line reason rather than deleting it silently.
       deployment built from the merge of #36. `vercel link` run on the
       operator's machine and the link copied to `.vercel.prod.bak`, joining
       the demo/dev/staging trio.
-      ⚠️ **Held open pending a read-back of the two files.** The link and the
+      ✅ **Closed 22 Sept 2026** — but only after three failed attempts, and
+      the third failure is worth the next person's time.
+      ⚠️ **Vercel CLI 59.25 does not write `.vercel/project.json`.** It writes
+      `.vercel/repo.json`, a repo-level link, alongside a `README.txt`. Every
+      instruction in this plan and in `GO_LIVE_CHECKLIST.md` named
+      `project.json`, so `cat .vercel/project.json` returned "No such file or
+      directory" immediately after the CLI printed `✓ Linked`, and the obvious
+      reading — that the link had failed again — was wrong.
+      `repo.json` pins one project (`tent-ai-production`, directory `.`), so
+      it carries the same guarantee the old file did; it is the shape, not the
+      substance, that changed. **`.vercel.prod.bak` is a copy of `repo.json`**
+      while the demo/dev/staging `.bak` files still hold `project.json`, so
+      restoring one means knowing which name it goes back to. They converge as
+      each world is next re-linked.
+      📌 Before that, two silent failures. The first `vercel link` never
+      completed — the command was pasted as part of a block, and the
+      interactive picker consumed the following lines as keystrokes. The
+      second consequence is the one that matters: with NO link present,
+      `npx vercel env ls production` did not fail. It resolved the project
+      from the git remote and answered confidently **about
+      `oe-group-ipms-staging`**, which is a different world with different
+      secrets. An audit that names the wrong world and says so only in a
+      header is worse than no audit. **Read the header line of any `vercel`
+      command before believing its body.**
+      ⚠️ ~~Held open pending a read-back of the two files.~~ The link and the
       copy were issued as one pasted block into an interactive prompt, so the
       order in which the shell and the picker consumed those lines is not
       established from the transcript. The row asks for a backup of the RIGHT
