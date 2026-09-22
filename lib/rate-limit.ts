@@ -47,6 +47,32 @@ function getRedis(): Redis | null {
   return redis;
 }
 
+// ── Which WORLD's counters these are ────────────────────────────────────────
+//
+// Upstash's free tier allows exactly one database, so dev, staging and
+// production share one Redis whether or not anyone intended them to. Without a
+// world in the key they also share their COUNTERS: `rl:intake-ip:<ip>` is the
+// same key on every world, so a developer exercising the intake path from the
+// office spends production's budget for that IP, and a load test on staging
+// could lock a real tenant out of production.
+//
+// Derived from the Supabase project ref rather than a new environment
+// variable, and deliberately so: the ref is already per-world, already present
+// wherever this code runs, and already the thing `use-env.mjs` and
+// `migrate.mjs` treat as a world's identity. A separate `RATE_LIMIT_NAMESPACE`
+// would be one more value to set correctly on four worlds, and the failure it
+// invites — two worlds sharing a namespace because somebody copied an env file
+// — is the one this exists to prevent.
+//
+// Unconfigured falls back to "unknown", which is a namespace like any other.
+// This never gates a request: if the ref cannot be read the limiter still
+// runs, it just counts under a shared name, which is exactly the old
+// behaviour rather than a new failure.
+function worldTag(): string {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+  return url.match(/^https:\/\/([a-z0-9]{20})\.supabase\.co/i)?.[1] ?? "unknown";
+}
+
 // One Ratelimit instance per (namespace, limit, window) — reused across requests.
 const limiters = new Map<string, Ratelimit>();
 
@@ -59,7 +85,10 @@ function getLimiter(name: string, limit: number, window: Duration): Ratelimit | 
     l = new Ratelimit({
       redis: r,
       limiter: Ratelimit.slidingWindow(limit, window),
-      prefix: `rl:${name}`,
+      // The world comes FIRST so a `SCAN rl:<ref>:*` in the Upstash console
+      // shows one world at a time, which is what anyone debugging a limit
+      // actually wants to look at.
+      prefix: `rl:${worldTag()}:${name}`,
       analytics: false, // saves Redis commands; we don't need the dashboard
     });
     limiters.set(key, l);
