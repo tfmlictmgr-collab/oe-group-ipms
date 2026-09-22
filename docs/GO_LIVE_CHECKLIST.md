@@ -360,7 +360,7 @@ feature that fails closed with no obvious cause.
 | `PAYSTACK_SECRET_KEY` | the **platform-level** Naira merchant account — collections and transfers for the one org holding `uses_platform_gateway` (`0288`). Every other org connects its own credential, encrypted with `GATEWAY_CREDENTIAL_KEY` | ✅ set, **test mode confirmed live on screen** ("Paystack test mode... no card is charged") | swap for the live key, and decide which org owns it (§2a, step 2) |
 | ~~`NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY`~~ | **read nowhere in the codebase** — struck 20 Sept 2026 | listed here since Day 12, never used | **do not set.** Checkout is Paystack's own hosted page, initialised server-side with the secret key; no publishable key is ever handed to the browser. Setting it is harmless but it is not "the live key pair" — there is one key |
 | `FLUTTERWAVE_SECRET_KEY`, `FLUTTERWAVE_WEBHOOK_HASH` | FX collections | ❌ not set — but the code path IS built and verified now (`verify-fx-collections`, §1); this is purely a missing credential | decide in/out of scope for go-live (§1) |
-| `RESEND_API_KEY`, `RESEND_FROM`, `RESEND_WEBHOOK_SECRET` | email notifications | ✅ set (Preview + Production) | reuse or rotate; confirm the sending domain is verified for both brands (`notify.tfmlconsultant.com`, `notify.oraegbunike.com`) |
+| `RESEND_API_KEY`, `RESEND_FROM`, `RESEND_WEBHOOK_SECRET` | email notifications | ✅ set (Preview + Production) | reuse or rotate; confirm the sending domain is verified for both brands (`notify.tfmlconsultant.com`, `notify.oraegbunike.com`). ⚠️ **`RESEND_FROM` is far less load-bearing than this row once implied** — corrected 22 Sept 2026 after tracing all 17 `sendEmail` call sites, every one of which passes an `orgId`. It is reached ONLY when no org row can be loaded at all (a profile with a null `org_id`, or a lookup failure), never when an org exists but has no sender of its own — that case declines instead, deliberately. **What actually governs the From line is `orgs.email_from_address`, which no migration populates: see §2a step 1b.** Set `RESEND_FROM` to a brand-NEUTRAL verified address or leave it unset; setting it to either portal brand means a system mail with no owner goes out wearing one client's identity |
 | `AFRICASTALKING_API_KEY` | SMS fallback | ❌ not set — cascade logs `skipped`, other channels unaffected | ✅ **DECIDED OUT for Phase 1, 20 Sept 2026.** WhatsApp, Telegram and email already reach every role, and adding a fourth channel at cutover would add a 14th processor needing its own DPA (1.1) for a path nothing depends on. Revisit post-go-live. Do not set |
 | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | rate limiting | ✅ set (Production) | reuse; confirm fail-open posture is still intended (§5) |
 | `INTAKE_IP_LIMIT`, `INTAKE_IP_WINDOW` | per-IP intake rate limit (`lib/rate-limit.ts:97`). Added 20 Sept 2026 | ❌ not set — silent defaults of **100 per 10 s** | set them explicitly if the default is not the intended posture. A tunable with a silent default is a setting nobody knows they have |
@@ -430,6 +430,39 @@ reading the settings page back.
 silently cannot use a custom domain at all (found on staging 2026-08-19, §1).
 On a correctly bootstrapped production this should not arise — but check the
 slug before blaming the domain.
+
+**1b. Set `email_from_address` on EVERY org — no email sends until you do.**
+Settings → Organisation, per org. ⚠️ **Found 22 Sept 2026 while answering
+"what happens if `RESEND_FROM` is blank", and it is not what that question
+assumed.** `0024` adds the column and **no migration populates it**, so on the
+fresh production database both orgs carry `null` — and `lib/email.ts:123`
+reads:
+
+```ts
+const from = identity ? senderFor(identity) : envFrom;
+if (!from) return { sent: false, reason: "this organisation has no sender address configured" };
+```
+
+`identity` is the org ROW. It is non-null the moment the org exists, so the
+`envFrom` branch is never reached for an org that exists but has no address —
+`senderFor()` returns null and the send **declines**. `RESEND_FROM` does not
+rescue it and was never meant to: borrowing another organisation's identity is
+the B1 breach the incident in that file's comment describes, so declining is
+deliberate.
+
+The blast radius is every email the system sends: invitations, password
+resets, receipts, rent demands, lease notices, payment requests, remittance
+advices. All of them return `sent: false` with that reason and nothing
+reaches anyone. Nothing crashes and no screen shows an error — the links are
+still returned on screen, because `inviteMember` and `provisionOrg` are
+deliberately best-effort — so **the failure is invisible from the dashboard
+and visible only in the logs.**
+
+Use an address on a domain verified in Resend for that brand
+(`notify.tfmlconsultant.com`, `notify.oraegbunike.com`), and set
+`email_from_name` to the client-facing BRAND, never the holding entity.
+Verify by sending one real invitation per org and reading the received
+message's From line — not by reading the settings page back.
 
 **2. Designate the one org that owns the platform gateway** — `0288` added
 `orgs.uses_platform_gateway`, defaulted **false for every org**, with a unique
