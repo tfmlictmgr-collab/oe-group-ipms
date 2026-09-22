@@ -242,8 +242,18 @@ Everything mechanical once the accounts above exist.
       the migrations create.
       ⚠️ The operator org `oe-group` itself is **created by migration `0088`**,
       not seeded. There is nothing to seed here.
-      ⚠️ Set `NEXT_PUBLIC_SITE_URL` (§2) **before** running it, or the recovery
-      link it issues may point at the Supabase default rather than the portal.
+      ⚠️ Set `NEXT_PUBLIC_SITE_URL` **in `.env.prod.local`** before running it,
+      not only on Vercel — corrected 22 Sept 2026, having cost exactly the
+      confusion it warned about. This script runs on the OPERATOR'S MACHINE and
+      reads `.env.local` (`bootstrap-production.mjs:30`); Vercel's copy of the
+      variable is invisible to it. The row previously said "(§2)", which points
+      at the Vercel table, so the warning was followed and fired anyway.
+      ⚠️ **And that alone is not enough — see step 0 of §2a.** The link is a
+      Supabase `generateLink`, whose `redirect_to` is validated against the
+      project's Redirect URLs allow-list and SILENTLY replaced by the project's
+      Site URL when it is not on it. A fresh project's Site URL is
+      `http://localhost:3000`, and the verify step consumes the token either
+      way — so a link that bounces to localhost is a link that is now spent.
 - [ ] **Move** `tfmlportal.com`, `oeaportal.com` and `portal.tfmlconsultant.com`
       to the production Vercel project — Settings → Domains → Add Domain →
       take the "move" option. DNS needs no client action (it already targets
@@ -415,6 +425,30 @@ built after the document was last revised (`0239`–`0296`, 11 Aug – 14 Sept 2
 
 Order matters: 1 before 2, because a gateway return URL is a link like any
 other.
+
+**0. Configure Supabase Auth's URL settings — Authentication → URL
+Configuration.** ⚠️ **Added 22 Sept 2026: this appeared nowhere in either
+cutover document**, and it is the first thing that bites, because the very
+first act on a new production project is the bootstrap script issuing a
+sign-in link.
+
+* **Site URL** → `https://tent-ai-production.vercel.app`. A new Supabase
+  project ships with `http://localhost:3000`.
+* **Redirect URLs** → add every production host that may terminate an auth
+  link: `https://tent-ai-production.vercel.app/**`,
+  `https://portal.tfmlconsultant.com/**`, `https://www.tfmlportal.com/**`,
+  `https://www.oeaportal.com/**`.
+
+The failure this prevents is a quiet one. `generateLink` embeds
+`redirect_to`, Supabase checks it against the allow-list, and **silently
+substitutes the Site URL when it does not match** — no error, no warning, a
+link that looks completely normal. The verify step consumes the token
+regardless, so the bounce does not merely land you in the wrong place: it
+**spends the link**. Re-issue with `--reissue-link` and fix this first.
+
+📌 Brand-neutral on purpose, for the same reason as `NEXT_PUBLIC_SITE_URL`
+itself: Site URL is the fallback a link lands on when nothing better applies,
+and a fallback that names one brand shows it to the other's people.
 
 **1. Bind `custom_domain` on every org** — operator console `/orgs`, the domain
 field on each org's card. Do this immediately after the domains are **moved**
