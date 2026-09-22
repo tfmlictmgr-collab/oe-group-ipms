@@ -526,6 +526,25 @@ So at cutover, per org: **provision → set `email_from_address` and
 `email_from_name` → then invite everyone else.** Hand the first admin their
 link from the screen.
 
+⚠️ **`oe-group` is the exception to "null is correct", and it becomes one the
+moment 2.4 runs.** Observed live on 22 Sept: with the operator admin created
+and no sender on `oe-group`, "Forgot password" at the portal shows *"a reset
+link is on its way"* and **sends nothing**. `app/reset-password/actions.ts`
+passes `profile.org_id`, which for that account is `oe-group`, so the send
+declines — and the page's deliberate silence about whether an account exists
+(an enumeration defence) hides the failure completely.
+
+Null was the correct state for `oe-group` while the org had nobody in it.
+Once it has an admin, that admin has no self-service recovery. So **set
+`oe-group`'s sender immediately after 2.4**, brand-neutrally: its people are
+OE Group staff, not a client's, so this is not the B1 question the client
+orgs face.
+
+📌 Nobody is ever locked out regardless: `--reissue-link` issues a fresh
+one-time link through the service-role key and never touches email. But that
+requires the repository and `.env.prod.local`, which is a fact worth knowing
+when deciding where `.env.prod.local` lives and who else can reach it.
+
 **2. Designate the one org that owns the platform gateway** — `0288` added
 `orgs.uses_platform_gateway`, defaulted **false for every org**, with a unique
 index enforcing **at most one** owner across the whole platform. That org's
