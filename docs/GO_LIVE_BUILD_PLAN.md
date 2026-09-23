@@ -1146,6 +1146,23 @@ one-line reason rather than deleting it silently.
       declines to guess rather than calling an unreadable route live or safe.
       `verify-gateway-isolation` **§G** calls both resolvers for both orgs in
       both currencies and requires the same answer, so the two cannot drift.
+      ⚠️ **§G's first form was decoration, and the first run on `dev` showed it.**
+      All four comparisons came back *"checkout is simulated, and the screen says
+      so"*, and both mode checks skipped: `dev` holds no gateway key at all, so
+      both sides answer "simulated" — the one configuration in which they
+      **cannot** disagree. Four green lines that never touched the defect. A
+      check that only bites on a world that happens to be configured
+      adversarially is not a check.
+      ✅ **§G now constructs the disagreement itself**, from the environment
+      alone — no database write, no network call, neither function contacts a
+      gateway. It sets a throwaway platform key, then asserts the thing that
+      was actually wrong: with a platform key present, OEA's checkout is refused
+      by `0288` and the screen must read **"no account connected"**, where it
+      used to read *"test mode"*. TFML, which owns the platform key, must still
+      read connected/platform/test, so the fix cannot have simply made
+      everything say "not connected". The key is restored in a `finally`, and if
+      the injection fails to take, the section **fails** rather than passing
+      quietly — the false-pass control the first form lacked.
       ⚠️ **Owed 2 — a keyless world still SIMULATES a payout.** In
       `resolveOrgGateway` the simulated fallback is gated on
       `!anyPlatformKeyFor(currency)`, which asks the **collect** preference

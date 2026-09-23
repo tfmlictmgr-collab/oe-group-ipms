@@ -417,6 +417,72 @@ section("G. The screen's answer is the checkout's answer");
     await compare(label, o.id, "USD");
   }
 
+  // ── The disagreement itself, constructed ────────────────────────────────
+  // Everything above compares whatever this world happens to be configured as.
+  // On a world with no gateway key at all BOTH sides answer "simulated", which
+  // is the one configuration in which they cannot disagree — so those passes
+  // prove agreement without ever exercising the defect.
+  //
+  // The defect needs a PLATFORM key present. That half can be constructed from
+  // the environment alone: no database write, no network call (neither function
+  // contacts a gateway; one reads a column, the other builds an adapter).
+  //
+  // With a platform key set and an org that does not own it, the OLD banner
+  // said "test mode" — over a checkout that 0288 refuses every single time.
+  {
+    const saved = {
+      p: process.env.PAYSTACK_SECRET_KEY,
+      f: process.env.FLUTTERWAVE_SECRET_KEY,
+    };
+    // Never sent anywhere. Shaped only so `keyIsTest` reads it as a test key.
+    process.env.PAYSTACK_SECRET_KEY = "sk_test_verifyonlyneversent000000000000";
+    delete process.env.FLUTTERWAVE_SECRET_KEY;
+    try {
+      // The old answer, still computed the old way, as the thing being improved on.
+      const oldBanner = gw.gatewayMode("NGN");
+
+      const oeaRoute = await gw.collectionRouteForOrg(oea.id, "NGN");
+      let oeaRefused = false;
+      try { await gw.resolveOrgGateway(oea.id, "NGN", "collect"); } catch (e) {
+        oeaRefused = e.name === "GatewayNotConnectedError";
+      }
+
+      if (!oeaRefused) {
+        skip("OEA has a gateway of its own here, so the refusal case cannot be constructed");
+      } else if (oldBanner !== "test") {
+        bad(`the constructed platform key did not take (gatewayMode said "${oldBanner}")`);
+      } else {
+        // This is the bug, reproduced.
+        oeaRoute.state === "not_connected"
+          ? ok('with a platform key set, OEA\'s checkout is refused and the screen says "no account connected" — where it used to say "test mode"')
+          : bad(`OEA's checkout is refused but the screen says "${oeaRoute.state}"`);
+      }
+
+      // The other side of the same coin: the org that DOES own the platform key
+      // is still told the truth, so the fix has not simply made everything read
+      // "not connected".
+      const tfmlOwn = await one(
+        "select count(*)::int n from org_gateway_credentials where org_id = $1 and active",
+        [tfml.id]
+      );
+      if (tfmlOwn.n > 0) {
+        skip("TFML has a credential of its own here, so the platform-account case cannot be constructed");
+      } else {
+        const tfmlRoute = await gw.collectionRouteForOrg(tfml.id, "NGN");
+        tfmlRoute.state === "connected" && tfmlRoute.merchant === "platform" && tfmlRoute.gateway === "paystack"
+          ? ok("…while TFML, which owns the platform key, is correctly shown as collecting on it")
+          : bad(`TFML resolved to "${tfmlRoute.state}"/"${tfmlRoute.merchant ?? "-"}" with a platform key present`);
+        tfmlRoute.state === "connected" && tfmlRoute.mode === "test"
+          ? ok("…in test mode, read from the platform key's own prefix")
+          : bad("TFML's mode did not follow the platform key's prefix");
+      }
+    } finally {
+      // Restore, whatever happened — later sections and any re-run read these.
+      saved.p === undefined ? delete process.env.PAYSTACK_SECRET_KEY : (process.env.PAYSTACK_SECRET_KEY = saved.p);
+      saved.f === undefined ? delete process.env.FLUTTERWAVE_SECRET_KEY : (process.env.FLUTTERWAVE_SECRET_KEY = saved.f);
+    }
+  }
+
   // The mode is the half that cannot be got from the adapter, because an
   // adapter does not expose its key — and it is the half that says whether a
   // real card is charged. Held to `key_mode`, recorded at save time, which is
