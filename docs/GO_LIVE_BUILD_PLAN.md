@@ -1195,6 +1195,22 @@ one-line reason rather than deleting it silently.
       ✅ **0.5 met at last** — `docs/verify-runs/rc4-audit.json` is the
       `npm audit` snapshot that `rc2` and `rc3` both owed. Stage 0 is now
       fully re-met for the first time since `rc1`.
+      📌 **Both halves of 0.5, not just the file.** The step is a snapshot AND a
+      confirmation that the Next-14 deferral (1c) still holds; it was first
+      marked met here on the strength of the file alone. Checked properly
+      23 Sept 2026 by comparing the two snapshots' advisory sets: **38 in
+      `rc2`, 38 in `rc4`, none new, none gone.** The deferral is untouched and
+      1c needs no amendment. The two criticals are the same two 1c assessed and
+      they remain non-applicable, re-confirmed by inspection rather than by
+      title: `GHSA-2xp9-vwfh-vxw4` needs the app's own Image Optimization API
+      with AVIF, and this app has **no `next/image` usage at all**, no `images`
+      block in `next.config.mjs` and no `sharp`; `GHSA-p293-qw3h-jr36` is
+      windows-hosted only and production is Vercel on Linux. ⚠️ That second one
+      *does* reach a `next dev` server on a Windows workstation, which is where
+      this build is driven from — not exposed, so not urgent, but it is a
+      reason not to run the dev server on an untrusted network.
+      📌 The `rc4` snapshot is a fresh run, not a renamed `rc2`: the two files
+      differ in 21 entries as npm's `fixAvailable` targets moved.
       ⚠️ The tag was pushed by a person again: a tag push from the build
       session is still refused with **HTTP 403**.
       ⚠️ **`rc4` died the same day, 23 Sept 2026 — rule 7.** PR #55 was docs
