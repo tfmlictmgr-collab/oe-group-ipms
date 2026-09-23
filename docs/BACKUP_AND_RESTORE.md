@@ -255,6 +255,44 @@ that would mean extracting the whole archive a second time. The per-object
 SHA-256 is in the manifest, and that is what a restore checks each file
 against.
 
+### ✅ Proven against production, 23 September 2026
+
+The first real run, on `civwriqvghvyqtfrzftu`. Recorded because a backup
+nobody has taken is a plan, and this document's whole position is that a
+backup nobody has read back is a belief.
+
+```
+✓ 7 bucket(s): application-documents, invoice-attachments, org-logos,
+              payment-proofs, payout-evidence, vendor-documents, work-order-media
+✓ 1 object(s) recorded in storage.objects
+✓ downloaded 1 object(s)
+✓ archive read back: 5 entr(y/ies), every manifest object present
+✓ encrypted, decrypted back, and byte-identical
+```
+
+1 object, 0.03 MiB, plaintext tar SHA-256
+`5301357442a8b84b8c61836776b3c0300f6970cefc8c0f9246fb3607240b0ad1`. The
+passphrase was escrowed as **K2** in the same sitting, before the terminal was
+closed. The unencrypted archive from the preceding dry run was deleted.
+
+📌 Small numbers, complete chain. Every step that could lie was checked: the
+count came from `storage.objects` rather than from the thing being counted,
+the archive was re-opened and every manifest entry found by name, and the
+ciphertext was decrypted back and compared byte for byte before the plaintext
+was removed. What scales from here is the byte count, not the number of
+assumptions.
+
+⚠️ **It took two attempts, and the first failure is worth keeping.** The run
+died at the archive step with `tar: Cannot connect to C: resolve failed` —
+GNU tar, which Git for Windows ships, reads any operand containing a colon as
+`host:path`, so an absolute Windows path is a request to connect to a host
+called `C`. Nothing in the message says "path". It could not have been found
+in development, where every test path began with `/tmp`; and the suite could
+not have caught it either, because it was building its test archive with
+absolute paths — **a call shape the script does not use**. Both are fixed.
+The lesson is the second one: a test that exercises a convenient call instead
+of the real one proves nothing about the real one.
+
 **Shared format.** `scripts/lib/backup-crypto.mjs` holds the one
 implementation, imported by both backup scripts. Two copies of a file format
 diverge silently, and you find out when a backup taken by one cannot be read
