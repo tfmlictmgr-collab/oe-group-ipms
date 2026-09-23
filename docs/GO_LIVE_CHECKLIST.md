@@ -367,9 +367,9 @@ feature that fails closed with no obvious cause.
 | `WHATSAPP_360D_SIGNING_SECRET` | the dormant signature-verification path | not set | only matters if 360dialog Partner tier is obtained |
 | `TELEGRAM_BOT_TOKEN` | **narrow fallback only**: downloading inbound Telegram media when the route carries no `outbound_token` (`lib/inbound-media.ts:102`) | ✅ set (Production) | reuse. Not the auth path and not the send path — both are per-bot via `channel_routes` |
 | ~~`TELEGRAM_WEBHOOK_SECRET`~~ | **not read at runtime** — struck 20 Sept 2026 | ✅ still set (Production), now inert | **not needed on Vercel.** Webhook auth is the `x-telegram-bot-api-secret-token` header matched against a `channel_routes` row, which is both the auth and the org lookup. Needed **locally** by `scripts/register-telegram-bot.mjs` at cutover |
-| `PAYSTACK_SECRET_KEY` | the **platform-level** Naira merchant account — collections and transfers for the one org holding `uses_platform_gateway` (`0288`). Every other org connects its own credential, encrypted with `GATEWAY_CREDENTIAL_KEY` | ✅ set, **test mode confirmed live on screen** ("Paystack test mode... no card is charged") | swap for the live key, and decide which org owns it (§2a, step 2) |
+| `PAYSTACK_SECRET_KEY` | **Optional since 23 Sept 2026** (build plan 2.12). The platform-level Paystack account for the one org holding `uses_platform_gateway` (`0288`). It carries **automated payouts**, and Naira collections only when no Flutterwave key is set | ✅ set on dev/staging, test mode | **leave unset in production unless a verified Paystack account exists.** Without it, payouts go by recorded bank transfer (0289) |
 | ~~`NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY`~~ | **read nowhere in the codebase** — struck 20 Sept 2026 | listed here since Day 12, never used | **do not set.** Checkout is Paystack's own hosted page, initialised server-side with the secret key; no publishable key is ever handed to the browser. Setting it is harmless but it is not "the live key pair" — there is one key |
-| `FLUTTERWAVE_SECRET_KEY`, `FLUTTERWAVE_WEBHOOK_HASH` | FX collections | ❌ not set — but the code path IS built and verified now (`verify-fx-collections`, §1); this is purely a missing credential | decide in/out of scope for go-live (§1) |
+| `FLUTTERWAVE_SECRET_KEY`, `FLUTTERWAVE_WEBHOOK_HASH` | **Naira and FX collections — the collections gateway since 23 Sept 2026** (build plan 2.12) | ❌ not set on any world yet | **required for go-live**: the live secret key and the secret hash. The same hash goes in the Flutterwave dashboard's webhook settings, pointing at `/api/webhooks/payments/flutterwave`. Each other org connects its own under Settings → Banking |
 | `RESEND_API_KEY`, `RESEND_FROM`, `RESEND_WEBHOOK_SECRET` | email notifications | ✅ set (Preview + Production) | reuse or rotate; confirm the sending domain is verified for both brands (`notify.tfmlconsultant.com`, `notify.oraegbunike.com`). ⚠️ **`RESEND_FROM` is far less load-bearing than this row once implied** — corrected 22 Sept 2026 after tracing all 17 `sendEmail` call sites, every one of which passes an `orgId`. It is reached ONLY when no org row can be loaded at all (a profile with a null `org_id`, or a lookup failure), never when an org exists but has no sender of its own — that case declines instead, deliberately. **What actually governs the From line is `orgs.email_from_address`, which no migration populates: see §2a step 1b.** Set `RESEND_FROM` to a brand-NEUTRAL verified address or leave it unset; setting it to either portal brand means a system mail with no owner goes out wearing one client's identity |
 | `AFRICASTALKING_API_KEY` | SMS fallback | ❌ not set — cascade logs `skipped`, other channels unaffected | ✅ **DECIDED OUT for Phase 1, 20 Sept 2026.** WhatsApp, Telegram and email already reach every role, and adding a fourth channel at cutover would add a 14th processor needing its own DPA (1.1) for a path nothing depends on. Revisit post-go-live. Do not set |
 | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | rate limiting | ✅ set (Production) | reuse; confirm fail-open posture is still intended (§5) |
@@ -464,6 +464,41 @@ reading the settings page back.
 silently cannot use a custom domain at all (found on staging 2026-08-19, §1).
 On a correctly bootstrapped production this should not arise — but check the
 slug before blaming the domain.
+
+**1a. Fix the slugs before a single invitation goes out.** `operator_provision_org`
+derives the slug from the org's NAME (`0176`), so a production org provisioned
+as "Total Facilities Management Limited" gets
+`/o/total-facilities-management-limited` — not the short `/o/tfml` that staging
+carries, because staging's orgs were seeded with slugs rather than named into
+them. Verified on production 23 Sept 2026: all four differed from staging.
+
+That matters beyond tidiness. `/login` redirects by host to `/o/<slug>`, so the
+slug is on the public path of every branded sign-in, and **`0085` deliberately
+does not update it on rename** — "a slug that silently changed when someone
+renamed their org would break every link already issued." It is also absent
+from the `orgs` UPDATE column allowlist (`0083c`), so no screen can change it;
+only direct SQL can.
+
+So there is exactly one cheap moment, and it is **after provisioning, before
+inviting anybody**:
+
+```sql
+update orgs set slug = 'tfml' where delivery_brand = 'TFML' and deleted_at is null
+  returning slug, name;
+```
+
+Use `returning` rather than a bare update: matching on the old slug string is
+easy to get wrong, an `UPDATE 0` is silent, and the `select` you run afterwards
+looks perfectly healthy either way. That is how the OEA row was missed on the
+first pass — TFML took, OEA did not, and the failure only surfaced as a 404 on
+`/o/oea` minutes later.
+
+⚠️ **A 404 on `/o/<slug>` that still shows the org's BRANDING is this fault,
+not a routing fault.** The brand on that page comes from the host
+(`orgs.custom_domain`); the page itself comes from the slug
+(`org_public_branding`, whose only filters are the slug and `deleted_at`). Two
+lookups, one working and one not, which reads as "the domain is broken" and
+is not.
 
 **1b. Set `email_from_address` on every org AS IT IS CREATED — not before.**
 Settings → Organisation, per org. ⚠️ **Found 22 Sept 2026 while answering

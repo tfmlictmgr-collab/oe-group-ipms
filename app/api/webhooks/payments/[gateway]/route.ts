@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { checkRateLimit, clientIp } from "@/lib/rate-limit";
 import {
-  adapterForIntent, getAdapterByName, getGatewayForOrg, type GatewayName, type PaymentGatewayAdapter,
+  adapterForIntent, adapterFromCredential, getAdapterByName, type GatewayName, type PaymentGatewayAdapter,
 } from "@/lib/gateway";
 import { settleIntentByReference } from "@/lib/gateway/settle";
 
@@ -18,7 +18,13 @@ async function getAdapterForOrgWebhook(name: GatewayName, orgId: string) {
   if (!cred) return getAdapterByName(name);
   // Paystack signs with the SECRET key; Flutterwave with a separate hash. The
   // adapter takes whichever that gateway uses to verify.
-  return getGatewayForOrg(orgId, name === "paystack" ? "NGN" : "USD");
+  //
+  // ⚠️ Built from THIS gateway's credential, never by asking which gateway the
+  // org would collect through. Since Flutterwave became the preferred Naira
+  // collector (23 Sept 2026) that answer can differ from the sender: a Paystack
+  // transfer event for an org with both connected would have been checked
+  // against the Flutterwave hash and refused.
+  return adapterFromCredential(cred);
 }
 
 // Inbound payment webhooks. The order of operations here is the security

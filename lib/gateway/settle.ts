@@ -74,6 +74,23 @@ export async function settleIntentByReference(
     return { state: "pending", detail: verified.error ?? verified.status ?? "not confirmed yet" };
   }
 
+  // ⚠️ The currency must be the demand's own. One Flutterwave account now takes
+  // both Naira and foreign currency (23 Sept 2026), so "the gateway says it was
+  // paid" no longer implies "paid in what we asked for" — and record_collection
+  // posts the verified AMOUNT against the intent's currency. $500 credited as
+  // ₦500, or ₦500,000 as $500,000, is the 0103 mistake made by the gateway
+  // rather than by us. Reported as `unknown` so nothing retires or re-opens the
+  // payment: a person reconciles it against the gateway's own record.
+  if (verified.currency && verified.currency.toUpperCase() !== String(intent.currency).toUpperCase()) {
+    console.error(
+      `payment ${reference} verified in ${verified.currency} against a ${intent.currency} demand — not posted`
+    );
+    return {
+      state: "unknown",
+      detail: `the gateway reports ${verified.currency}, but this demand is in ${intent.currency} — not posted; reconcile by hand`,
+    };
+  }
+
   // The amount comes from the gateway's own lookup — never a payload.
   const amount = verified.amount ?? Number(intent.amount_expected);
   const { data: entryId, error } = await supabaseAdmin.rpc("record_collection", {

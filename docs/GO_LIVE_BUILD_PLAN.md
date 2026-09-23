@@ -378,9 +378,9 @@ stage needs anything from engineering first.
 | 1.5 | Confirm NDPC registration threshold; register the DPO; publish contact details | Legal | 1–3 weeks | 1.2 |
 | 1.6 | Board decision: is special-category data (religion, marital status) necessary at all? The cleanest NDPA position is not to collect it | Board | days | Application form scope |
 | 1.7 | Confirm cross-border transfer basis **and the production hosting region** | DPO | days | **3.1 — cannot provision until the region is decided** |
-| 1.8 | Complete Paystack business verification; obtain live key pair | Finance | 1–3 weeks | **Real money. Hard gate on Stage 6.** |
+| 1.8 | ~~Complete Paystack business verification; obtain live key pair~~ — superseded 23 Sept 2026, Paystack's asks cannot be met in time. **Complete Flutterwave business verification; obtain the live secret key and set a webhook secret hash** | Finance | 1–3 weeks | **Real money. Hard gate on Stage 6.** |
 | 1.9 | Open/confirm the segregated client-funds bank account (locked decision 2) | Finance | 1–4 weeks | Daily reconciliation (7.1) |
-| 1.10 | **Decide: is Flutterwave/FX in scope for go-live?** An explicit *no* is a good answer; the code is built and verified and turns on later with a key and no code change | Board | now | 2.2 env table |
+| 1.10 | ~~**Decide: is Flutterwave/FX in scope for go-live?**~~ **Answered 23 Sept 2026: IN, as the single collections gateway for Naira and FX** (Option A, 2.12). Needs a board minute, because it amends CLAUDE.md locked decision 4 (Paystack + Flutterwave) | Board | now | 2.12 |
 | 1.11 | Commission the external penetration test, scheduled for the empty-production window between 5 and 6 | Board | 2–4 weeks to book | 6.2 |
 | 1.12 | Set the target go-live date and the board go/no-go slot | Board | now | Everything |
 
@@ -875,9 +875,9 @@ one-line reason rather than deleting it silently.
       whitelist and the NDPC has issued no adequacy decision, so **hosting in
       the EU supplies no basis on its own** and this rides on the 13 DPAs
       (1.1). A DPA without transfer clauses does not discharge s.41.
-- [ ] 1.8 Paystack live keys obtained *(hard gate on Stage 6)*
+- [ ] 1.8 ~~Paystack live keys obtained~~ **Flutterwave** live key + secret hash obtained *(hard gate on Stage 6)* — Paystack superseded 23 Sept 2026, see 2.12
 - [ ] 1.9 Segregated client-funds bank account confirmed
-- [ ] 1.10 Flutterwave / FX — explicit in or out
+- [~] 1.10 Flutterwave / FX — **in**, as the collections gateway (23 Sept 2026); board minute owed
 - [ ] 1.11 External pen test commissioned and booked for the empty-production window
 - [ ] 1.12 Target date and board go/no-go slot set
 
@@ -1058,6 +1058,51 @@ one-line reason rather than deleting it silently.
       session is refused with **HTTP 403** (branch refs are permitted, tag refs
       are not), so the annotation was composed here and the tag created
       locally.
+- [~] 2.12 **Flutterwave replaces Paystack for collections — Option A, built
+      23 Sept 2026.** Paystack's verification asks (SCUML certificate,
+      shareholder ID and address for 51% owners) cannot be met in time;
+      Flutterwave's can, and one account takes Naira and FX.
+      `gatewayPreference()` in `lib/gateway/index.ts` is now the one place the
+      choice is made: Naira collections go to Flutterwave first and to Paystack
+      only where Flutterwave is not connected. That is a preference, not a
+      replacement, so nothing changes for any org until a Flutterwave key
+      exists. **Payouts stay on Paystack.** The Flutterwave adapter collects
+      and refuses to transfer, so with no Paystack account a payout is refused
+      *before* the claim and the officer is sent to "Record a bank transfer"
+      (0289), which runs the same B4 gate. Automated Flutterwave payouts, and
+      the bank list and account-name check on Flutterwave, are the first
+      post-go-live item (Option B). Both degrade safely meanwhile: a built-in
+      bank list, and a typed name confirmed against the document. Also:
+      **settlement refuses a payment whose verified currency differs from its
+      demand** (one account now takes both currencies). **Settings → Banking**
+      has a Flutterwave card that requires the secret hash, which is
+      Flutterwave's only webhook proof, and refuses a key saved under the
+      wrong gateway. The **webhook** builds its verifier from the sender's own
+      credential, not from collection preference. Otherwise a Paystack
+      transfer event for an org with both keys would be checked against the
+      Flutterwave hash and refused.
+      ✅ `verify-flutterwave-collections` (28 checks) green on staging, plus the
+      gateway, collections, remittance and payout suites re-run.
+      ⚠️ **Rule 7: this kills `rc3`.** `rc4` must carry it.
+      ✅ **Stage 0 re-met for `rc4` on `fe319be`, 23 Sept 2026** (the PR #53
+      head, merged with `main` at `4af81db`). tsc, lint and build are clean.
+      `npm run verify` against dev: 125 PASS, 2 DEMO, and the two suites that
+      need a dev server both pass standalone against one (**128 of 128**).
+      gitleaks is clean with the same 4 ignores. npm audit is unchanged at 32.
+      Log: `docs/verify-runs/rc4-20260923.log`. Tag message:
+      `rc4-tag-message.md`. The tag is cut at the #53 merge commit, by a
+      person (HTTP 403 from the session). **#53 merged as `374c2a4`, and that is
+      the `rc4` commit:** nothing outside `docs/` differs from `fe319be`.
+      📌 The first attempt at this run was void. Another session switched the
+      shared checkout from this branch to `main` partway through, so the suites
+      read a mixture of two trees. It was re-run in its own git worktree.
+      **A run of record must own its working tree.**
+      ⚠️ **Cutover consequences.** 3.5/5.3: set `FLUTTERWAVE_SECRET_KEY` +
+      `FLUTTERWAVE_WEBHOOK_HASH` (live), and `PAYSTACK_SECRET_KEY` only if a
+      verified Paystack account exists. 5.5: register the production webhook
+      URL `/api/webhooks/payments/flutterwave` and the same secret hash in
+      each Flutterwave dashboard. 4.4: rehearse the money path on Flutterwave
+      test keys; payouts rehearse by bank transfer.
 
 ### Stage 3 — Provision production, empty
 - [x] 3.1 Production Supabase project created in the confirmed region; ref recorded
@@ -1070,7 +1115,31 @@ one-line reason rather than deleting it silently.
       deployment built from the merge of #36. `vercel link` run on the
       operator's machine and the link copied to `.vercel.prod.bak`, joining
       the demo/dev/staging trio.
-      ⚠️ **Held open pending a read-back of the two files.** The link and the
+      ✅ **Closed 22 Sept 2026** — but only after three failed attempts, and
+      the third failure is worth the next person's time.
+      ⚠️ **Vercel CLI 59.25 does not write `.vercel/project.json`.** It writes
+      `.vercel/repo.json`, a repo-level link, alongside a `README.txt`. Every
+      instruction in this plan and in `GO_LIVE_CHECKLIST.md` named
+      `project.json`, so `cat .vercel/project.json` returned "No such file or
+      directory" immediately after the CLI printed `✓ Linked`, and the obvious
+      reading — that the link had failed again — was wrong.
+      `repo.json` pins one project (`tent-ai-production`, directory `.`), so
+      it carries the same guarantee the old file did; it is the shape, not the
+      substance, that changed. **`.vercel.prod.bak` is a copy of `repo.json`**
+      while the demo/dev/staging `.bak` files still hold `project.json`, so
+      restoring one means knowing which name it goes back to. They converge as
+      each world is next re-linked.
+      📌 Before that, two silent failures. The first `vercel link` never
+      completed — the command was pasted as part of a block, and the
+      interactive picker consumed the following lines as keystrokes. The
+      second consequence is the one that matters: with NO link present,
+      `npx vercel env ls production` did not fail. It resolved the project
+      from the git remote and answered confidently **about
+      `oe-group-ipms-staging`**, which is a different world with different
+      secrets. An audit that names the wrong world and says so only in a
+      header is worse than no audit. **Read the header line of any `vercel`
+      command before believing its body.**
+      ⚠️ ~~Held open pending a read-back of the two files.~~ The link and the
       copy were issued as one pasted block into an interactive prompt, so the
       order in which the shell and the picker consumed those lines is not
       established from the transcript. The row asks for a backup of the RIGHT

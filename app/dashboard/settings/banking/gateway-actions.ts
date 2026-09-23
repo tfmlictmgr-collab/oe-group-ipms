@@ -41,18 +41,48 @@ export async function saveOrgGatewayCredential(input: {
     return fail("That does not look like a secret key.", "Paste the full key from your gateway dashboard.");
   }
 
+  // ⚠️ A public key pasted into the secret field is the likeliest mistake, and
+  // it would half-work: checkout would fail confusingly rather than obviously.
+  if (/^pk_/.test(secret) || /^FLWPUBK/.test(secret)) {
+    return fail(
+      "That is a PUBLIC key, not a secret key.",
+      input.gateway === "flutterwave" ? "The secret key starts with FLWSECK." : "The secret key starts with sk_."
+    );
+  }
+
+  // The key must belong to the gateway it is being saved as. `keyMode` accepts
+  // either family, so without this a Paystack key saved under Flutterwave would
+  // be stored, reported as connected, and fail at the first checkout.
+  const isFlutterwaveKey = /^FLWSECK/.test(secret);
+  if ((input.gateway === "flutterwave") !== isFlutterwaveKey) {
+    return fail(
+      `That is not a ${input.gateway === "flutterwave" ? "Flutterwave" : "Paystack"} secret key.`,
+      input.gateway === "flutterwave"
+        ? "A Flutterwave secret key starts with FLWSECK_TEST- or FLWSECK-."
+        : "A Paystack secret key starts with sk_test_ or sk_live_."
+    );
+  }
+
+  // ⚠️ Flutterwave proves a webhook with this hash and NOTHING else (Paystack
+  // signs with the secret key itself, so its field is optional). And a blank
+  // here is not "keep the current one": `set_org_gateway_credential` writes a
+  // new row, so the old hash is retired with the old key. Saved without it,
+  // every Flutterwave notification for this org would be refused as forged.
+  if (input.gateway === "flutterwave" && !webhookSecret) {
+    return fail(
+      "Flutterwave needs its secret hash as well.",
+      "Set a secret hash under Settings → Webhooks in the Flutterwave dashboard and paste the same value here. It must be entered again whenever the key is replaced."
+    );
+  }
+
   const mode = keyMode(secret);
   if (!mode) {
     return fail(
       "That key's prefix was not recognised.",
-      "A Paystack secret key starts with sk_test_ or sk_live_. Check you have pasted the SECRET key and not the public one."
+      input.gateway === "flutterwave"
+        ? "A Flutterwave secret key starts with FLWSECK_TEST- or FLWSECK-. Check you have pasted the SECRET key."
+        : "A Paystack secret key starts with sk_test_ or sk_live_. Check you have pasted the SECRET key and not the public one."
     );
-  }
-
-  // ⚠️ A public key pasted into the secret field is the likeliest mistake, and
-  // it would half-work: checkout would fail confusingly rather than obviously.
-  if (/^pk_/.test(secret)) {
-    return fail("That is a PUBLIC key, not a secret key.", "The secret key starts with sk_.");
   }
 
   const supabase = await createClient();

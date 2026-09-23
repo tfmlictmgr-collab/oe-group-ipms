@@ -25,6 +25,14 @@ const ok = (m) => console.log(`  \x1b[32mPASS\x1b[0m ${m}`);
 const bad = (m) => { failures++; console.log(`  \x1b[31mFAIL\x1b[0m ${m}`); };
 const note = (m) => console.log(`  \x1b[33mNOTE\x1b[0m ${m}`);
 
+/** Source with whole-line comments and block comments removed. */
+const codeOnly = (text) =>
+  text
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .split(/\r?\n/)
+    .filter((l) => !/^\s*\/\//.test(l))
+    .join("\n");
+
 const SCRIPT = path.join(rootDir, "scripts", "bootstrap-production.mjs");
 const src = fs.readFileSync(SCRIPT, "utf8");
 const URL_ = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
@@ -206,7 +214,13 @@ console.log("\nD. The account it would create");
   /app_metadata:\s*\{[^}]*org_id/.test(src) && /role:\s*"admin"/.test(src)
     ? ok("org, brand and role are stamped into app_metadata — B1's second isolation layer")
     : bad("app_metadata is not stamped, so the signed JWT would carry no org or role");
-  /generateLink/.test(src) && !/console\.log\([^)]*randomPassword/.test(src)
+  // ⚠️ This read `/generateLink/.test(src)` until 22 Sept 2026, and when
+  // `generateLink` was removed the check kept PASSING — because the word
+  // survived in a comment explaining why it had gone. A regex over source
+  // cannot tell code from prose, so an assertion worded as "this API is
+  // called" is really "this string appears somewhere", which is a different
+  // and much weaker claim. Asserted on the behaviour instead.
+  /printLink\(/.test(src) && !new RegExp("console\\.log\\([^)]*randomPassword").test(src)
     ? ok("a one-time link is issued and the password is never printed")
     : bad("a password is printed, stored or transmitted somewhere");
   /operator\.bootstrapped/.test(src)
@@ -215,6 +229,75 @@ console.log("\nD. The account it would create");
   /deleteUser/.test(src)
     ? ok("a half-created account is rolled back rather than left able to sign in")
     : bad("a failed profile insert would leave an auth account resolving to no org");
+}
+
+// ── E. The link it issues is one the app can actually consume ──────────────
+//
+// ⚠️ Added 22 Sept 2026, after the first real run of the happy path this suite
+// says it cannot cover. The script issued a SUPABASE AUTH recovery link, whose
+// session arrives in the URL FRAGMENT; `0139` built password reset on this
+// app's OWN token instead, and the confirm page reads a QUERY parameter. Two
+// mechanisms for one page, and the script used the one the page does not
+// implement — so every link it ever printed landed on "Missing reset link".
+//
+// Nothing compared the two ends, so nothing could have caught it. This does.
+console.log("\nE. The link it issues is one the confirm page can read");
+{
+  const formPath = path.join(rootDir, "app", "reset-password", "confirm", "ConfirmResetForm.tsx");
+  const actionsPath = path.join(rootDir, "app", "reset-password", "actions.ts");
+  const form = fs.existsSync(formPath) ? fs.readFileSync(formPath, "utf8") : "";
+  const actions = fs.existsSync(actionsPath) ? fs.readFileSync(actionsPath, "utf8") : "";
+
+  // Prove the premise before trusting the comparison.
+  form && actions
+    ? ok("read the confirm page and the reset actions to compare against")
+    : bad("could not read the confirm page or reset actions — every check below is vacuous");
+
+  const readsQueryToken = /params\.get\(\s*"token"\s*\)/.test(form);
+  readsQueryToken
+    ? ok('the confirm page reads a QUERY parameter named "token"')
+    : bad("the confirm page no longer reads ?token= — this suite's premise has changed");
+
+  /\/reset-password\/confirm\?token=/.test(src)
+    ? ok("the script builds a link with ?token= — the shape the page reads")
+    : bad("the script does not build a ?token= link, so the page will say \"Missing reset link\"");
+
+  // The regression itself, named so it cannot come back quietly.
+  //
+  // ⚠️ Tested against CODE, not the file. The check above this one was
+  // rewritten today for exactly this reason, and writing this one naively
+  // reproduced the fault within the hour: `bootstrap-production.mjs` now
+  // carries a comment EXPLAINING that it no longer calls the recovery API,
+  // and a regex over the whole file matched that sentence and failed. A
+  // suite that cannot tell an explanation from an instruction will eventually
+  // assert the opposite of what it means.
+  //
+  // Whole-line comments only: `https://` appears inside real strings here, so
+  // stripping every `//` would mangle the code this is trying to read.
+  !/auth\.admin\.generateLink/.test(codeOnly(src))
+    ? ok("it does not use Supabase Auth's recovery link, whose session arrives in the fragment")
+    : bad("auth.admin.generateLink is back: its session arrives in the URL fragment, which the confirm page cannot read");
+
+  // The token must be storable and checkable by the SAME rule the app uses.
+  // If the app changed its hashing, the bootstrap link would silently stop
+  // working while both halves still looked correct on their own.
+  const appHash = /createHash\("([a-z0-9]+)"\)/.exec(actions)?.[1];
+  const scriptHash = /createHash\("([a-z0-9]+)"\)/.exec(src)?.[1];
+  appHash && scriptHash && appHash === scriptHash
+    ? ok(`both hash the token with ${appHash} — a link from the script is checkable by the app`)
+    : bad(`hash mismatch: the app uses ${appHash ?? "(none found)"}, the script uses ${scriptHash ?? "(none found)"}`);
+
+  /password_resets/.test(src)
+    ? ok("the token is recorded in password_resets, which confirmPasswordReset reads")
+    : bad("nothing is written to password_resets, so the token could never be redeemed");
+
+  new RegExp("token_hash:").test(src) && !new RegExp("token:\\s*token").test(src)
+    ? ok("only the HASH is stored — a database read alone cannot be replayed as a reset")
+    : bad("the raw token appears to be stored, which makes a database read a working reset link");
+
+  /\.is\("used_at", null\)/.test(src)
+    ? ok("re-issuing invalidates the previous link rather than leaving two live")
+    : bad("a re-issued link leaves the earlier one working, so an old terminal scrollback still grants a password change");
 }
 
 console.log(

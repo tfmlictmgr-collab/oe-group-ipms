@@ -75,7 +75,7 @@ export async function saveVendorPayoutRecipient(
   const { getGatewayForOrg } = await import("@/lib/gateway");
   let gateway;
   try {
-    gateway = await getGatewayForOrg(vendor.org_id, "NGN");
+    gateway = await getGatewayForOrg(vendor.org_id, "NGN", "payout");
   } catch (e) {
     // Refuses rather than falling back — verifying against the wrong merchant
     // account would store a recipient code the payout account cannot use.

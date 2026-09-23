@@ -195,7 +195,7 @@ export function namesAgree(accountName: string, payeeName: string): boolean {
 export async function orgGatewayUsable(orgId: string): Promise<boolean> {
   const { resolveOrgGateway } = await import("@/lib/gateway");
   try {
-    await resolveOrgGateway(orgId, "NGN");
+    await resolveOrgGateway(orgId, "NGN", "payout");
     return true;
   } catch {
     return false;

@@ -37,13 +37,19 @@
 // processing record under NDPA like any other copy.
 import fs from "node:fs";
 import path from "node:path";
-import crypto from "node:crypto";
 import { spawnSync, execFileSync } from "node:child_process";
-import { pipeline } from "node:stream/promises";
-import readline from "node:readline";
 import { fileURLToPath } from "node:url";
 import { config } from "dotenv";
 import pg from "pg";
+// The file format lives in one place, shared with backup-storage.mjs. Two
+// implementations of one format diverge silently, and you find out when a
+// backup taken by one script cannot be read by the other.
+import {
+  passphrase as readPassphrase,
+  encryptFile,
+  decryptFile,
+  sha256File,
+} from "./lib/backup-crypto.mjs";
 
 const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const env = {};
@@ -78,79 +84,35 @@ const ok = (m) => console.log(`  \x1b[32m✓\x1b[0m ${m}`);
 // The tag trails because GCM only knows it once the last byte is encrypted,
 // and the file is streamed rather than held in memory — a database backup
 // outgrows a buffer long before it outgrows a disk.
-const MAGIC = Buffer.from("OEIPMSB1", "ascii");
-// N=2^15 costs 128*N*r = 32 MiB per derivation, which is deliberate — it is
-// what makes guessing the passphrase expensive. `maxmem` must be raised to
-// allow it: node defaults to exactly 32 MiB and refuses its own parameters.
-const SCRYPT = { N: 1 << 15, r: 8, p: 1, keylen: 32, maxmem: 64 * 1024 * 1024 };
-
-async function passphrase(confirm) {
-  const fromEnv = process.env.BACKUP_PASSPHRASE;
-  if (fromEnv) {
-    console.log("  using BACKUP_PASSPHRASE from the environment");
-    return fromEnv;
+// `passphrase`, `encryptFile` and `decryptFile` now come from
+// ./lib/backup-crypto.mjs — see the import above. They throw rather than
+// exiting, so the wrapper below keeps this script's `die()` reporting.
+const passphrase = async (confirm) => {
+  try {
+    return await readPassphrase(confirm);
+  } catch (e) {
+    die(e.message);
   }
-  if (!process.stdin.isTTY) {
-    die("No passphrase. Run this in a terminal, or set BACKUP_PASSPHRASE for an unattended run.");
-  }
-  const ask = (prompt) => new Promise((resolve) => {
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
-    // Echo nothing: a passphrase on screen is a passphrase in a screenshot.
-    const onData = () => rl.output.write("\x1b[2K\r" + prompt);
-    rl.output.write(prompt);
-    process.stdin.on("data", onData);
-    rl.question("", (answer) => {
-      process.stdin.removeListener("data", onData);
-      rl.close();
-      process.stdout.write("\n");
-      resolve(answer);
-    });
-  });
-  const a = await ask("  passphrase: ");
-  if (a.length < 12) die("Use at least 12 characters. This is the only thing standing between the file and whoever finds it.");
-  if (!confirm) return a;
-  const b = await ask("  again     : ");
-  if (a !== b) die("The two passphrases do not match. Nothing has been written.");
-  return a;
-}
-
-async function encryptFile(src, dest, pass) {
-  const salt = crypto.randomBytes(16);
-  const iv = crypto.randomBytes(12);
-  const key = crypto.scryptSync(pass, salt, SCRYPT.keylen, { N: SCRYPT.N, r: SCRYPT.r, p: SCRYPT.p, maxmem: SCRYPT.maxmem });
-  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
-  const out = fs.createWriteStream(dest);
-  out.write(Buffer.concat([MAGIC, Buffer.from([1]), salt, iv]));
-  await pipeline(fs.createReadStream(src), cipher, out, { end: false });
-  await new Promise((res, rej) => out.end(cipher.getAuthTag(), (e) => (e ? rej(e) : res())));
-}
-
-async function decryptFile(src, dest, pass) {
-  const total = fs.statSync(src).size;
-  const head = Buffer.alloc(37);
-  const fd = fs.openSync(src, "r");
-  fs.readSync(fd, head, 0, 37, 0);
-  const tag = Buffer.alloc(16);
-  fs.readSync(fd, tag, 0, 16, total - 16);
-  fs.closeSync(fd);
-  if (!head.subarray(0, 8).equals(MAGIC)) die(`${src} is not a backup this script wrote.`);
-  const salt = head.subarray(9, 25);
-  const iv = head.subarray(25, 37);
-  const key = crypto.scryptSync(pass, salt, SCRYPT.keylen, { N: SCRYPT.N, r: SCRYPT.r, p: SCRYPT.p, maxmem: SCRYPT.maxmem });
-  const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
-  decipher.setAuthTag(tag);
-  await pipeline(
-    fs.createReadStream(src, { start: 37, end: total - 17 }),
-    decipher,
-    fs.createWriteStream(dest)
-  );
-}
+};
 
 // ── `--decrypt <file>` is its own mode and needs no database ───────────
 if (flag("decrypt")) {
   const src = path.resolve(flag("decrypt"));
   if (!fs.existsSync(src)) die(`No such file: ${src}`);
   const dest = src.replace(/\.enc$/, "") + (src.endsWith(".enc") ? "" : ".decrypted");
+  // ⚠️ Refuse to write over something already there. The cleanup below deletes
+  // `dest` when a decrypt fails, and that is right for a half-written file —
+  // but it does not know the difference between a partial file it just made
+  // and a COMPLETE one an earlier successful run left at the same path. Found
+  // on 23 Sept 2026 by decrypting correctly, then re-running with a typo: the
+  // good output was deleted by the failure of the bad attempt.
+  if (fs.existsSync(dest) && !has("force")) {
+    die(
+      `${dest} already exists.\n\n` +
+      `  Not overwriting it — a failed decrypt deletes its destination, so an earlier\n` +
+      `  good file would go with it. Move it aside, or pass --force.`
+    );
+  }
   console.log(`\nDecrypting ${path.basename(src)}\n`);
   const pass = await passphrase(false);
   try {
@@ -165,7 +127,7 @@ if (flag("decrypt")) {
     );
   }
   ok(`decrypted to ${dest}`);
-  console.log(`\n  sha256 ${crypto.createHash("sha256").update(fs.readFileSync(dest)).digest("hex")}`);
+  console.log(`\n  sha256 ${sha256File(dest)}`);
   console.log("  Compare that against the manifest's `sha256` to prove it is byte-identical.\n");
   process.exit(0);
 }
@@ -338,7 +300,7 @@ if (tableData === 0) {
 }
 ok(`${(bytes / 1048576).toFixed(1)} MB, readable by pg_restore, ${tableData} tables of data`);
 
-const sha256 = crypto.createHash("sha256").update(fs.readFileSync(dumpFile)).digest("hex");
+const sha256 = sha256File(dumpFile);
 
 // ── Encrypt, and prove the encryption round-trips before keeping it ─────
 //
@@ -366,7 +328,7 @@ if (has("encrypt")) {
     fs.rmSync(check, { force: true });
     die(`The encrypted file would not decrypt: ${err.message}\n\n  Nothing encrypted has been kept; the plaintext dump is still at ${dumpFile}.`);
   }
-  const back = crypto.createHash("sha256").update(fs.readFileSync(check)).digest("hex");
+  const back = sha256File(check);
   fs.rmSync(check, { force: true });
   if (back !== sha256) {
     fs.rmSync(encFile, { force: true });

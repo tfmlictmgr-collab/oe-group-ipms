@@ -17,17 +17,15 @@
 // Paystack amount check replaces `fetch` for one call so no network is used
 // and no money moves.
 import { config } from "dotenv";
+import { requireNonProductionTarget } from "./lib/target-env.mjs";
 import pg from "pg";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 
 config({ path: ".env.local", quiet: true });
+requireNonProductionTarget(process.cwd(), "Runs DB checks as real users in a rolled-back transaction against the real org register.");
 if (!process.env.SUPABASE_DB_HOST) {
   console.error("Missing SUPABASE_DB_* in .env.local");
-  process.exit(2);
-}
-if (/prod/i.test(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "")) {
-  console.error("Refusing to run: target looks like production.");
   process.exit(2);
 }
 
@@ -121,19 +119,19 @@ const gw = await import("../lib/gateway/index.ts");
   if (!hasKey) {
     skip("no platform Paystack key in this environment — the refusal path cannot be exercised");
   } else {
-    const t = await gw.resolveOrgGateway(tfml.id, "NGN");
+    const t = await gw.resolveOrgGateway(tfml.id, "NGN", "collect");
     t.merchant === "platform" && t.adapter.name === "paystack"
       ? ok("TFML, which owns the platform key, checks out on it")
       : bad(`TFML resolved to ${t.merchant}/${t.adapter.name}`);
 
     const credOea = await one("select count(*)::int n from org_gateway_credentials where org_id = $1 and active", [oea.id]);
     if (credOea.n > 0) {
-      const o = await gw.resolveOrgGateway(oea.id, "NGN");
+      const o = await gw.resolveOrgGateway(oea.id, "NGN", "collect");
       o.merchant === "org" ? ok("OEA checks out on its OWN connected account") : bad("OEA did not use its own account");
     } else {
       let refused = null;
       try {
-        await gw.resolveOrgGateway(oea.id, "NGN");
+        await gw.resolveOrgGateway(oea.id, "NGN", "collect");
       } catch (e) {
         refused = e;
       }
@@ -152,7 +150,7 @@ const gw = await import("../lib/gateway/index.ts");
     // paid out of TFML's balance.
     let payoutRefused = false;
     if (credOea.n === 0) {
-      try { await gw.getGatewayForOrg(oea.id, "NGN"); } catch { payoutRefused = true; }
+      try { await gw.getGatewayForOrg(oea.id, "NGN", "payout"); } catch { payoutRefused = true; }
       payoutRefused
         ? ok("payouts for OEA are refused too — no remittance leaves another org's balance")
         : bad("getGatewayForOrg still hands OEA the platform key");

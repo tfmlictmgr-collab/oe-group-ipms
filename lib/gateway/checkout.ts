@@ -87,7 +87,7 @@ export async function openCheckout(opts: {
   // ── This organisation's own merchant account, or nothing ─────────────────
   let resolved;
   try {
-    resolved = await resolveOrgGateway(opts.orgId, opts.currency);
+    resolved = await resolveOrgGateway(opts.orgId, opts.currency, "collect");
   } catch (e) {
     if (e instanceof GatewayNotConnectedError) {
       return fail(

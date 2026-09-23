@@ -21,6 +21,7 @@
 //
 // It is idempotent. A second run against a bootstrapped project creates
 // nothing; pass --reissue-link if the first sign-in link expired.
+import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "dotenv";
@@ -151,7 +152,7 @@ if ((userCount ?? 0) > 0 || authUsers.length > 0) {
 
   console.log(`\n  Already bootstrapped — ${email} exists. Creating nothing.\n`);
   if (has("reissue-link")) {
-    const link = await issueLink(email);
+    const link = await issueLink(existingAdmin.id);
     printLink(link, email, "Re-issued");
   } else {
     console.log(`  Pass --reissue-link if the first sign-in link expired.\n`);
@@ -212,22 +213,68 @@ await svc.from("audit_log").insert({
 });
 ok("recorded in the audit trail as operator.bootstrapped");
 
-const link = await issueLink(email);
+const link = await issueLink(uid);
 printLink(link, email, "Created");
 
-async function issueLink(addr) {
-  const site = process.env.NEXT_PUBLIC_SITE_URL;
-  const { data, error } = await svc.auth.admin.generateLink({
-    type: "recovery",
-    email: addr,
-    ...(site ? { options: { redirectTo: `${site.replace(/\/$/, "")}/reset-password/confirm` } } : {}),
-  });
-  if (error) {
-    console.error(`\n  ⚠️  The account exists but a sign-in link could not be generated: ${error.message}`);
-    console.error(`     Use "Forgot password" at the portal with ${addr}, or re-run with --reissue-link.\n`);
+// ⚠️ Rewritten 22 Sept 2026, on the first real run of this script's happy
+// path — which is also the last time it can be run, since a bootstrapped
+// project is no longer empty. `verify-bootstrap.mjs` says in its own header
+// that it proves the GUARDS and not this, for exactly that reason. This is
+// what it could not cover.
+//
+// It previously called `svc.auth.admin.generateLink({ type: "recovery" })`.
+// That issues a SUPABASE AUTH recovery link, which after verification
+// redirects carrying its session in the URL **fragment**
+// (`#access_token=...`). But `0139` deliberately built password reset on this
+// application's OWN token path rather than Supabase Auth's, and
+// `ConfirmResetForm.tsx:14` reads `params.get("token")` — a QUERY parameter,
+// checked against `password_resets`. A fragment is not a query parameter and
+// never reaches that code, so the link landed on "Missing reset link" every
+// time.
+//
+// Two mechanisms for the same page, and the script used the one the page does
+// not implement. So this now mints the app's own token: the identical shape
+// `requestPasswordReset` produces, consumed by the identical
+// `confirmPasswordReset` — 32 random bytes shown once, only its SHA-256 hash
+// stored, so a database read alone can never be replayed as a working reset.
+const RESET_TOKEN_BYTES = 32;
+const RESET_EXPIRY_HOURS = 1;
+
+async function issueLink(userId) {
+  const site = process.env.NEXT_PUBLIC_SITE_URL?.trim();
+  if (!site) {
+    console.error(
+      `\n  ⚠️  NEXT_PUBLIC_SITE_URL is not set, so there is nowhere to send you.\n\n` +
+      `     Add it to .env.prod.local — NOT only to Vercel, which this script cannot\n` +
+      `     read — then re-run with --reissue-link. The account is unaffected.\n`
+    );
     process.exit(2);
   }
-  return data?.properties?.action_link;
+
+  // Re-issuing means the previous link stops working. Without this, every run
+  // of --reissue-link would leave another live token granting a password
+  // change on the operator account, and a link printed to a terminal an hour
+  // ago is exactly the kind of thing that gets scrolled back to.
+  await svc
+    .from("password_resets")
+    .update({ used_at: new Date().toISOString() })
+    .eq("user_id", userId)
+    .is("used_at", null);
+
+  const token = crypto.randomBytes(RESET_TOKEN_BYTES).toString("base64url");
+  const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+
+  const { error } = await svc.from("password_resets").insert({
+    user_id: userId,
+    token_hash: tokenHash,
+    expires_at: new Date(Date.now() + RESET_EXPIRY_HOURS * 3600_000).toISOString(),
+  });
+  if (error) {
+    console.error(`\n  ⚠️  The account exists but a sign-in link could not be created: ${error.message}\n`);
+    process.exit(2);
+  }
+
+  return `${site.replace(/\/$/, "")}/reset-password/confirm?token=${token}`;
 }
 
 function printLink(url, addr, verb) {
@@ -235,8 +282,8 @@ function printLink(url, addr, verb) {
     `\n${verb} the first operator admin.\n\n` +
     `  ${addr}\n\n` +
     `ONE-TIME SIGN-IN LINK — shown once, stored nowhere:\n\n  ${url}\n\n` +
-    `Open it now and set a password. It expires.\n` +
+    `Open it within ${RESET_EXPIRY_HOURS} hour and set a password.\n` +
     `The account's current password is random and is known to nobody, including this script.\n` +
-    (process.env.NEXT_PUBLIC_SITE_URL ? "" : "\n  ⚠️  NEXT_PUBLIC_SITE_URL is not set, so the link may point at the Supabase\n      default rather than your portal. Set it before cutover (gap C).\n")
+    `Re-running with --reissue-link invalidates this one and prints a fresh link.\n`
   );
 }
