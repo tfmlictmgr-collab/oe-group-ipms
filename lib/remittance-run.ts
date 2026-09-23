@@ -97,12 +97,12 @@ export async function sendCreatedRemittance(opts: {
 
   let gateway: Awaited<ReturnType<typeof getGatewayForOrg>>;
   try {
-    gateway = await getGatewayForOrg(pre.org_id, pre.currency);
+    gateway = await getGatewayForOrg(pre.org_id, pre.currency, "payout");
   } catch (e) {
     const { GatewayNotConnectedError } = await import("@/lib/gateway");
     return e instanceof GatewayNotConnectedError
       ? fail(
-          "This organisation has not connected its own Paystack account, so this cannot go through Paystack.",
+          "Automated payouts are not available for this organisation: it has no Paystack account connected, and Flutterwave is used for collections only.",
           "Use Record a bank transfer instead: make the transfer from the organisation's bank, then attach the bank's confirmation. Nothing has been sent."
         )
       : fail(e instanceof Error ? e.message : "The payment gateway could not be used.", "Nothing has been sent.");

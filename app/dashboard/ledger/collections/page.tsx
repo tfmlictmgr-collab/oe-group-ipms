@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
-import { gatewayMode } from "@/lib/gateway";
+import { collectionGatewayName, gatewayMode } from "@/lib/gateway";
 import CollectionsClient, { type IntentRow, type BillableRow } from "./CollectionsClient";
 
 export default async function CollectionsPage({
@@ -66,6 +66,7 @@ export default async function CollectionsPage({
       returnedRef={ref ?? null}
       returnedIntentId={requested?.id ?? null}
       mode={gatewayMode("NGN")}
+      ngnGateway={collectionGatewayName("NGN")}
       fxMode={gatewayMode("USD")}
       fxCurrencies={fxCurrencies}
     />

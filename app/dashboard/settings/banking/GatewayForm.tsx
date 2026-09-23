@@ -16,27 +16,72 @@ type Status = {
   updated_at: string;
 };
 
+type Gateway = "paystack" | "flutterwave";
+
+// What differs between the two gateways, stated once. Everything else about
+// connecting an account — write-only secret, mode and last four shown back —
+// is the same act.
+const COPY: Record<Gateway, {
+  name: string;
+  publicPlaceholder: string;
+  secretPlaceholder: string;
+  webhookLabel: string;
+  webhookPlaceholder: string;
+  webhookHint: string;
+  webhookRequired: boolean;
+  connected: string;
+  none: string;
+}> = {
+  flutterwave: {
+    name: "Flutterwave",
+    publicPlaceholder: "FLWPUBK_TEST-… or FLWPUBK-…",
+    secretPlaceholder: "FLWSECK_TEST-… or FLWSECK-…",
+    webhookLabel: "Secret hash",
+    webhookPlaceholder: "The secret hash set under Settings → Webhooks in Flutterwave",
+    webhookHint:
+      "Required. Flutterwave proves a payment notification with this value alone, so it must be entered again whenever the key is replaced.",
+    webhookRequired: true,
+    connected: "Naira and foreign-currency collections for this organisation now use it.",
+    none:
+      "This organisation has no Flutterwave account of its own. Connect one to take Naira and foreign-currency payments online into its own merchant account.",
+  },
+  paystack: {
+    name: "Paystack",
+    publicPlaceholder: "pk_test_… or pk_live_…",
+    secretPlaceholder: "sk_test_… or sk_live_…",
+    webhookLabel: "Webhook secret",
+    webhookPlaceholder: "Optional",
+    webhookHint: "Optional — Paystack signs its notifications with the secret key itself.",
+    webhookRequired: false,
+    connected: "Automated payouts for this organisation now use it, and Naira collections too if Flutterwave is not connected.",
+    none:
+      "This organisation has no Paystack account of its own, so payouts are made by recorded bank transfer. Flutterwave is the collections gateway; Paystack is only needed for automated payouts.",
+  },
+};
+
 /**
- * Connect this organisation's own Paystack account.
+ * Connect this organisation's own merchant account on one gateway.
  *
  * The secret field is write-only by construction — there is no value to
  * populate it with, because nothing can read a stored key back. What is shown
  * instead is the mode and the last four characters, which is what every payment
  * dashboard shows and is enough to answer "is this the key I pasted?".
  */
-export default function GatewayForm({ status }: { status: Status | null }) {
+export default function GatewayForm({ gateway, status }: { gateway: Gateway; status: Status | null }) {
+  const c = COPY[gateway];
   const [secret, setSecret] = React.useState("");
   const [publicKey, setPublicKey] = React.useState(status?.public_key ?? "");
   const [webhook, setWebhook] = React.useState("");
   const [busy, setBusy] = React.useState(false);
 
   const live = status?.key_mode === "live";
+  const id = (s: string) => `${gateway}-${s}`;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     const res = await saveOrgGatewayCredential({
-      gateway: "paystack",
+      gateway,
       secretKey: secret,
       publicKey,
       webhookSecret: webhook,
@@ -46,12 +91,12 @@ export default function GatewayForm({ status }: { status: Status | null }) {
       toast.error(res.message, { description: res.hint ?? undefined });
       return;
     }
-    toast.success("Paystack account connected.", {
-      description: "Collections and payouts for this organisation now use it.",
-    });
+    toast.success(`${c.name} account connected.`, { description: c.connected });
     setSecret("");
     setWebhook("");
   }
+
+  const ready = secret.trim().length >= 20 && (!c.webhookRequired || webhook.trim().length > 0);
 
   return (
     <div className="space-y-4">
@@ -83,30 +128,26 @@ export default function GatewayForm({ status }: { status: Status | null }) {
           </p>
         </div>
       ) : (
-        <p className="text-sm text-muted-foreground">
-          This organisation has no Paystack account of its own, so collections
-          fall back to the platform account. Connect one to keep this
-          organisation&rsquo;s money in its own merchant account.
-        </p>
+        <p className="text-sm text-muted-foreground">{c.none}</p>
       )}
 
       <form onSubmit={submit} className="space-y-4">
         <div className="space-y-1.5">
-          <Label htmlFor="pk">Public key</Label>
+          <Label htmlFor={id("pk")}>Public key</Label>
           <Input
-            id="pk" value={publicKey} onChange={(e) => setPublicKey(e.target.value)}
-            placeholder="pk_test_… or pk_live_…" autoComplete="off"
+            id={id("pk")} value={publicKey} onChange={(e) => setPublicKey(e.target.value)}
+            placeholder={c.publicPlaceholder} autoComplete="off"
           />
           <p className="text-xs text-muted-foreground">
-            Not a secret — Paystack publishes it, and the browser uses it to open checkout.
+            Not a secret — {c.name} publishes it, and the browser uses it to open checkout.
           </p>
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="sk">Secret key</Label>
+          <Label htmlFor={id("sk")}>Secret key</Label>
           <Input
-            id="sk" type="password" value={secret} onChange={(e) => setSecret(e.target.value)}
-            placeholder={status ? "Paste a new key to replace the current one" : "sk_test_… or sk_live_…"}
+            id={id("sk")} type="password" value={secret} onChange={(e) => setSecret(e.target.value)}
+            placeholder={status ? "Paste a new key to replace the current one" : c.secretPlaceholder}
             autoComplete="off"
           />
           <p className="text-xs text-muted-foreground">
@@ -116,18 +157,16 @@ export default function GatewayForm({ status }: { status: Status | null }) {
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="wh">Webhook secret</Label>
+          <Label htmlFor={id("wh")}>{c.webhookLabel}</Label>
           <Input
-            id="wh" type="password" value={webhook} onChange={(e) => setWebhook(e.target.value)}
-            placeholder="Optional — leave blank to keep the current one" autoComplete="off"
+            id={id("wh")} type="password" value={webhook} onChange={(e) => setWebhook(e.target.value)}
+            placeholder={c.webhookPlaceholder} autoComplete="off"
           />
-          <p className="text-xs text-muted-foreground">
-            Proves a notification really came from Paystack for this organisation.
-          </p>
+          <p className="text-xs text-muted-foreground">{c.webhookHint}</p>
         </div>
 
-        <Button type="submit" disabled={busy || secret.trim().length < 20}>
-          {busy ? "Connecting…" : status ? "Replace the key" : "Connect Paystack"}
+        <Button type="submit" disabled={busy || !ready}>
+          {busy ? "Connecting…" : status ? "Replace the key" : `Connect ${c.name}`}
         </Button>
       </form>
     </div>

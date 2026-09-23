@@ -107,7 +107,7 @@ export async function saveRequisitionLinePayee(input: {
   const { getGatewayForOrg } = await import("@/lib/gateway");
   let gateway;
   try {
-    gateway = await getGatewayForOrg(line.org_id, "NGN");
+    gateway = await getGatewayForOrg(line.org_id, "NGN", "payout");
   } catch (e) {
     return fail(
       e instanceof Error ? e.message : "This organisation's payment gateway is not usable.",

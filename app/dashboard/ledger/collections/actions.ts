@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { GatewayNotConnectedError, gatewayConfigured, newPaymentReference, resolveOrgGateway } from "@/lib/gateway";
 import { settleIntentByReference } from "@/lib/gateway/settle";
+import { gatewayLabel } from "@/lib/gateway-label";
 import { portalOrigin } from "@/lib/portal-origin";
 import { unusableForCheckout } from "@/lib/email-address";
 import { SUPPORTED_CURRENCIES } from "@/lib/currency";
@@ -177,7 +178,7 @@ export async function raisePaymentRequest(input: RaiseInput): Promise<RaiseResul
   // that had not connected one: which was every org.
   let resolved;
   try {
-    resolved = await resolveOrgGateway(me.org_id, currency);
+    resolved = await resolveOrgGateway(me.org_id, currency, "collect");
   } catch (e) {
     if (e instanceof GatewayNotConnectedError) {
       return fail(
@@ -199,7 +200,7 @@ export async function raisePaymentRequest(input: RaiseInput): Promise<RaiseResul
 
   if (!init.ok) {
     return fail(
-      `${gateway.name === "paystack" ? "Paystack" : gateway.name} rejected the request: ${init.error}`
+      `${gatewayLabel(gateway.name)} rejected the request: ${init.error}`
     );
   }
 

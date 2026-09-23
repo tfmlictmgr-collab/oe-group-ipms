@@ -1,5 +1,6 @@
 import * as React from "react";
 import { Document, Page, Text, View, Image, StyleSheet } from "@react-pdf/renderer";
+import { gatewayLabel } from "@/lib/gateway-label";
 
 // A receipt is evidence, not decoration. It carries the org's own brand (B1 —
 // OE Group is not client-facing), our payment reference, and the ledger entry
@@ -116,7 +117,7 @@ export function ReceiptDocument({ d }: { d: ReceiptData }) {
         <Field k="Amount invoiced" v={naira(d.amountExpected, d.currency)} />
         <Field k="Amount received" v={naira(d.amountPaid, d.currency)} />
         <Field k="Paid on" v={fmt(d.paidAt)} />
-        <Field k="Payment method" v={d.gateway === "paystack" ? "Card / bank transfer (Paystack)" : d.gateway} />
+        <Field k="Payment method" v={d.gateway === "paystack" || d.gateway === "flutterwave" ? `Card / bank transfer (${gatewayLabel(d.gateway)})` : gatewayLabel(d.gateway)} />
         <Field k="Payment reference" v={d.reference} mono />
         {d.ledgerEntryId ? <Field k="Ledger entry" v={d.ledgerEntryId} mono /> : null}
 
