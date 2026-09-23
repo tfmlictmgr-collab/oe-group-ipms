@@ -1163,6 +1163,21 @@ one-line reason rather than deleting it silently.
       everything say "not connected". The key is restored in a `finally`, and if
       the injection fails to take, the section **fails** rather than passing
       quietly — the false-pass control the first form lacked.
+      ✅ **Run of record, `dev`, 23 Sept 2026 — all three constructed checks
+      pass.** With a platform key present, OEA's checkout is refused and the
+      screen reads "no account connected"; TFML reads connected/platform/test.
+      That is the face of the bug that covers **most of production**: every org
+      but the platform owner is refused by `0288`, and each was previously shown
+      whatever the platform key happened to be.
+      ⚠️ **The other face is still unproven, and the two SKIPs name it.** An org
+      collecting on its OWN key must be shown ITS gateway and ITS mode, not the
+      platform's — the case where an org on its own Paystack *test* key reads
+      "Live keys — real money" under a live platform Flutterwave key. No org in
+      `dev` holds a credential, so nothing exercises it. Deliberately NOT closed
+      by having the suite write a credential: a label check is not worth a row
+      that could survive a crashed run and quietly change how `dev` collects.
+      **Close it by running this suite against `staging`**, where OEA's Paystack
+      test key is connected (decision 55) — owed before 4.3.
       ⚠️ **Owed 2 — a keyless world still SIMULATES a payout.** In
       `resolveOrgGateway` the simulated fallback is gated on
       `!anyPlatformKeyFor(currency)`, which asks the **collect** preference
