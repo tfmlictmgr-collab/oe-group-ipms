@@ -17,17 +17,15 @@
 // Paystack amount check replaces `fetch` for one call so no network is used
 // and no money moves.
 import { config } from "dotenv";
+import { requireNonProductionTarget } from "./lib/target-env.mjs";
 import pg from "pg";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 
 config({ path: ".env.local", quiet: true });
+requireNonProductionTarget(process.cwd(), "Runs DB checks as real users in a rolled-back transaction against the real org register.");
 if (!process.env.SUPABASE_DB_HOST) {
   console.error("Missing SUPABASE_DB_* in .env.local");
-  process.exit(2);
-}
-if (/prod/i.test(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "")) {
-  console.error("Refusing to run: target looks like production.");
   process.exit(2);
 }
 

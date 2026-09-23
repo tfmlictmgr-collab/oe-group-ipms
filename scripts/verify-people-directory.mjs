@@ -15,9 +15,11 @@
 // accounts from other suites (decision 38), so "the tenants list has 9 rows"
 // would be a check about another suite's litter, not about this feature.
 import { config } from "dotenv";
+import { requireNonProductionTarget } from "./lib/target-env.mjs";
 import pg from "pg";
 
 config({ path: ".env.local", quiet: true });
+requireNonProductionTarget(process.cwd(), "Writes as real users in a rolled-back transaction and signs in as real demo accounts.");
 
 const SITE = process.env.RENDER_BASE || "http://localhost:3000";
 const URL_ = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -26,10 +28,6 @@ const PASSWORD = "OEGroupDemo2026!";
 
 if (!process.env.SUPABASE_DB_HOST) {
   console.error("Missing SUPABASE_DB_* in .env.local");
-  process.exit(2);
-}
-if (/prod/i.test(URL_ ?? "")) {
-  console.error("Refusing to run: target looks like production.");
   process.exit(2);
 }
 

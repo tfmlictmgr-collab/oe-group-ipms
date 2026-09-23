@@ -20,9 +20,22 @@ import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
+import { requireNonProductionTarget } from "./lib/target-env.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const filter = process.argv[2] ?? "";
+
+// ⚠️ Refuse production before anything else, including the org snapshot below.
+// Each suite carries its own guard too, and every child inherits this process's
+// env — this one is additive: it stops a whole run up front rather than letting
+// the snapshot read production and then N suites each refuse in turn. Added
+// 23 Sept 2026, after eleven suites were found guarding with `/prod/i` against
+// a production URL that does not contain "prod".
+config({ path: path.join(here, "..", ".env.local"), quiet: true });
+requireNonProductionTarget(
+  path.join(here, ".."),
+  "Runs every verification suite; many write fixture rows, and some do so outside a transaction."
+);
 
 // Suites that talk to the pooled Postgres connection are slow (minutes, not
 // seconds) because they impersonate every role against every table. Named so
@@ -103,7 +116,7 @@ console.log(`Running ${suites.length} suite(s) with tsx\n`);
 // `orgs` has no volatile column (no updated_at, no counters), so any
 // difference at all is a real change. Probe organisations — named PROBE* by
 // every suite that provisions one — are excluded; they exist to be changed.
-config({ path: path.join(here, "..", ".env.local"), quiet: true });
+// (`.env.local` was loaded, and the target vetted, at the top of the file.)
 const svc =
   process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY
     ? createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
