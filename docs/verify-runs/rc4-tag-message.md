@@ -6,6 +6,11 @@ merge commit carries exactly the tree that was verified, provided nothing else
 lands on `main` first. If something does, rule 7 applies: re-run the gates on
 the new tree before tagging.
 
+📌 PR #54 (`docs/BACKUP_AND_RESTORE.md` only) was merged into the branch after
+the run. `git diff fe319be <tag> -- . ':!docs'` is empty, so no byte outside `docs/`
+differs from the verified tree. Check that the same command is still empty
+against the actual merge commit before tagging.
+
 A tag push from the build session is refused (HTTP 403), so a person creates it:
 
 ```
