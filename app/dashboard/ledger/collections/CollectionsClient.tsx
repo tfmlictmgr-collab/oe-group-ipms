@@ -92,13 +92,15 @@ function deliveryLine(d?: {
 }
 
 export default function CollectionsClient({
-  intents, billable, returnedRef, returnedIntentId, mode, fxMode, fxCurrencies,
+  intents, billable, returnedRef, returnedIntentId, mode, ngnGateway, fxMode, fxCurrencies,
 }: {
   intents: IntentRow[];
   billable: BillableRow[];
   returnedRef: string | null;
   returnedIntentId: string | null;
   mode: "live" | "test" | "simulated";
+  /** Which gateway takes Naira here — Flutterwave once its key is set (23 Sept 2026). */
+  ngnGateway: "paystack" | "flutterwave" | "simulated";
   /** Flutterwave's mode — one for every non-NGN currency, B3's single FX adapter. */
   fxMode: "live" | "test" | "simulated";
   /** Currencies this org actually has a client-funds account for (0103). */
@@ -349,7 +351,7 @@ export default function CollectionsClient({
           <FlaskConical className="mt-0.5 size-4 flex-shrink-0 text-warning" />
           <p className="text-muted-foreground">
             <span className="font-medium text-foreground">Simulated gateway.</span>{" "}
-            No Paystack key is configured for this environment, so checkout runs
+            No payment gateway key is configured for this environment, so checkout runs
             in-app. The intent, webhook, verification and ledger posting are all
             real — only the card is not.
           </p>
@@ -359,11 +361,21 @@ export default function CollectionsClient({
         <div className="flex items-start gap-2 rounded-lg border border-info/40 bg-info/8 px-4 py-3 text-sm">
           <FlaskConical className="mt-0.5 size-4 flex-shrink-0 text-info" />
           <p className="text-muted-foreground">
-            <span className="font-medium text-foreground">Paystack test mode.</span>{" "}
-            Checkout is the real Paystack page, but no card is charged. Use test
-            card <span className="font-mono">4084 0840 8408 4081</span>, any future
-            expiry, CVV <span className="font-mono">408</span>, OTP{" "}
-            <span className="font-mono">123456</span>.
+            {ngnGateway === "flutterwave" ? (
+              <>
+                <span className="font-medium text-foreground">Flutterwave test mode.</span>{" "}
+                Checkout is the real Flutterwave page, but no card is charged. Use one
+                of the test cards in Flutterwave&rsquo;s own testing documentation.
+              </>
+            ) : (
+              <>
+                <span className="font-medium text-foreground">Paystack test mode.</span>{" "}
+                Checkout is the real Paystack page, but no card is charged. Use test
+                card <span className="font-mono">4084 0840 8408 4081</span>, any future
+                expiry, CVV <span className="font-mono">408</span>, OTP{" "}
+                <span className="font-mono">123456</span>.
+              </>
+            )}
           </p>
         </div>
       )}
@@ -374,8 +386,12 @@ export default function CollectionsClient({
             <span className="font-semibold text-destructive">Live keys — real money.</span>{" "}
             Any payment raised here charges a real card and settles to the
             client-funds account. If this is a demonstration environment, replace{" "}
-            <span className="font-mono">PAYSTACK_SECRET_KEY</span> with the{" "}
-            <span className="font-mono">sk_test_…</span> key before continuing.
+            <span className="font-mono">
+              {ngnGateway === "flutterwave" ? "FLUTTERWAVE_SECRET_KEY" : "PAYSTACK_SECRET_KEY"}
+            </span>{" "}
+            with the{" "}
+            <span className="font-mono">{ngnGateway === "flutterwave" ? "FLWSECK_TEST-…" : "sk_test_…"}</span>{" "}
+            key before continuing.
           </p>
         </div>
       )}

@@ -34,8 +34,9 @@ export default async function BankingSettingsPage() {
   // What this org may know about its own gateway connection. Never the key —
   // `org_gateway_status` cannot return one, because it does not select one.
   const { data: gatewayRows } = await supabase.rpc("org_gateway_status", { p_org_id: null });
-  const paystack = ((gatewayRows ?? []) as Array<{ gateway: string }>)
-    .find((g) => g.gateway === "paystack") ?? null;
+  const rows = (gatewayRows ?? []) as Array<{ gateway: string }>;
+  const paystack = rows.find((g) => g.gateway === "paystack") ?? null;
+  const flutterwave = rows.find((g) => g.gateway === "flutterwave") ?? null;
 
   return (
     <>
@@ -70,17 +71,34 @@ export default async function BankingSettingsPage() {
       </CardContent>
     </Card>
 
+    {/* Flutterwave first: it is the collections gateway since 23 Sept 2026,
+        for Naira as well as foreign currency. Paystack stays, for automated
+        payouts and for any org that has only a Paystack account. */}
     <Card className="mt-4">
       <CardHeader>
-        <CardTitle>Paystack (Naira collections &amp; payouts)</CardTitle>
+        <CardTitle>Flutterwave (Naira &amp; foreign-currency collections)</CardTitle>
         <CardDescription>
-          This organisation&rsquo;s own merchant account. Collections land in it and
-          payouts draw on it, so its money never moves through another
-          organisation&rsquo;s balance.
+          This organisation&rsquo;s own merchant account. Online payments from
+          tenants and clients land in it, so its money never moves through
+          another organisation&rsquo;s balance.
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <GatewayForm status={paystack as never} />
+        <GatewayForm gateway="flutterwave" status={flutterwave as never} />
+      </CardContent>
+    </Card>
+
+    <Card className="mt-4">
+      <CardHeader>
+        <CardTitle>Paystack (automated payouts)</CardTitle>
+        <CardDescription>
+          Optional. Used for automated payouts to vendors and landlords, and for
+          Naira collections only if Flutterwave is not connected. Without it,
+          payouts are made by recorded bank transfer under Ledger → Payouts.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <GatewayForm gateway="paystack" status={paystack as never} />
       </CardContent>
     </Card>
     </>
