@@ -465,6 +465,41 @@ silently cannot use a custom domain at all (found on staging 2026-08-19, §1).
 On a correctly bootstrapped production this should not arise — but check the
 slug before blaming the domain.
 
+**1a. Fix the slugs before a single invitation goes out.** `operator_provision_org`
+derives the slug from the org's NAME (`0176`), so a production org provisioned
+as "Total Facilities Management Limited" gets
+`/o/total-facilities-management-limited` — not the short `/o/tfml` that staging
+carries, because staging's orgs were seeded with slugs rather than named into
+them. Verified on production 23 Sept 2026: all four differed from staging.
+
+That matters beyond tidiness. `/login` redirects by host to `/o/<slug>`, so the
+slug is on the public path of every branded sign-in, and **`0085` deliberately
+does not update it on rename** — "a slug that silently changed when someone
+renamed their org would break every link already issued." It is also absent
+from the `orgs` UPDATE column allowlist (`0083c`), so no screen can change it;
+only direct SQL can.
+
+So there is exactly one cheap moment, and it is **after provisioning, before
+inviting anybody**:
+
+```sql
+update orgs set slug = 'tfml' where delivery_brand = 'TFML' and deleted_at is null
+  returning slug, name;
+```
+
+Use `returning` rather than a bare update: matching on the old slug string is
+easy to get wrong, an `UPDATE 0` is silent, and the `select` you run afterwards
+looks perfectly healthy either way. That is how the OEA row was missed on the
+first pass — TFML took, OEA did not, and the failure only surfaced as a 404 on
+`/o/oea` minutes later.
+
+⚠️ **A 404 on `/o/<slug>` that still shows the org's BRANDING is this fault,
+not a routing fault.** The brand on that page comes from the host
+(`orgs.custom_domain`); the page itself comes from the slug
+(`org_public_branding`, whose only filters are the slug and `deleted_at`). Two
+lookups, one working and one not, which reads as "the domain is broken" and
+is not.
+
 **1b. Set `email_from_address` on every org AS IT IS CREATED — not before.**
 Settings → Organisation, per org. ⚠️ **Found 22 Sept 2026 while answering
 "what happens if `RESEND_FROM` is blank", and it is not what that question
