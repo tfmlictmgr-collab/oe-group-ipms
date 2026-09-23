@@ -20,10 +20,12 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "dotenv";
+import { requireNonProductionTarget } from "./lib/target-env.mjs";
 import { createClient } from "@supabase/supabase-js";
 
 const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 config({ path: path.join(rootDir, ".env.local") });
+requireNonProductionTarget(rootDir, "Writes fixture requisitions, payees and payments that are not rolled back.");
 
 const URL_ = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -31,10 +33,6 @@ const PW = "OEGroupDemo2026!";
 
 if (!URL_ || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
   console.error("Missing NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY");
-  process.exit(2);
-}
-if (/prod/i.test(URL_)) {
-  console.error("Refusing to run: target looks like production. This writes fixture rows.");
   process.exit(2);
 }
 
