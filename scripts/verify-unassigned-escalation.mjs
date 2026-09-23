@@ -22,16 +22,14 @@
 //
 // Usage: node scripts/verify-unassigned-escalation.mjs
 import { config } from "dotenv";
+import { requireNonProductionTarget } from "./lib/target-env.mjs";
 import pg from "pg";
 
 config({ path: ".env.local", quiet: true });
+requireNonProductionTarget(process.cwd(), "Writes fixture tickets and escalations as real users.");
 
 if (!process.env.SUPABASE_DB_HOST) {
   console.error("Missing SUPABASE_DB_* in .env.local");
-  process.exit(2);
-}
-if (/prod/i.test(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "")) {
-  console.error("Refusing to run: target looks like production. This writes fixture rows.");
   process.exit(2);
 }
 
