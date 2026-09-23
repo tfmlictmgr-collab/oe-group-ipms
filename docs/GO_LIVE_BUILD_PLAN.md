@@ -1084,6 +1084,18 @@ one-line reason rather than deleting it silently.
       ✅ `verify-flutterwave-collections` (28 checks) green on staging, plus the
       gateway, collections, remittance and payout suites re-run.
       ⚠️ **Rule 7: this kills `rc3`.** `rc4` must carry it.
+      ✅ **Stage 0 re-met for `rc4` on `fe319be`, 23 Sept 2026** (the PR #53
+      head, merged with `main` at `4af81db`). tsc, lint and build are clean.
+      `npm run verify` against dev: 125 PASS, 2 DEMO, and the two suites that
+      need a dev server both pass standalone against one (**128 of 128**).
+      gitleaks is clean with the same 4 ignores. npm audit is unchanged at 32.
+      Log: `docs/verify-runs/rc4-20260923.log`. Tag message:
+      `rc4-tag-message.md`. The tag is cut at the #53 merge commit, by a
+      person (HTTP 403 from the session).
+      📌 The first attempt at this run was void. Another session switched the
+      shared checkout from this branch to `main` partway through, so the suites
+      read a mixture of two trees. It was re-run in its own git worktree.
+      **A run of record must own its working tree.**
       ⚠️ **Cutover consequences.** 3.5/5.3: set `FLUTTERWAVE_SECRET_KEY` +
       `FLUTTERWAVE_WEBHOOK_HASH` (live), and `PAYSTACK_SECRET_KEY` only if a
       verified Paystack account exists. 5.5: register the production webhook
