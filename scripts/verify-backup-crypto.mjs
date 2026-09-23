@@ -146,14 +146,42 @@ console.log("\nD. The archive format is one any machine can open");
     ? ok("--decrypt refuses to overwrite an existing destination")
     : bad("a failed decrypt could delete a good file left by an earlier run");
 
+  // ⚠️ No absolute path may reach tar as an operand. GNU tar — what Git for
+  // Windows ships — reads any operand containing a colon as `host:path`, so
+  // `C:\\projects\\…` is a request to connect to a host called C. That is
+  // exactly how the first real run on Windows failed, with `Cannot connect to
+  // C: resolve failed`, which says nothing about paths. Every tar call that
+  // takes file operands therefore runs with `cwd` and relative names.
+  {
+    const calls = [...src.matchAll(/spawnSync\("tar",\s*\[([^\]]*)\][^)]*\)/g)];
+    calls.length >= 2
+      ? ok(`found ${calls.length} tar invocation(s) to check`)
+      : bad("could not find the tar invocations — this check is vacuous");
+    const withOperands = calls.filter((m) => !/--version/.test(m[1]));
+    const missingCwd = withOperands.filter((m) => !/cwd:/.test(m[0]));
+    missingCwd.length === 0
+      ? ok("every tar call with file operands runs with an explicit cwd")
+      : bad(`${missingCwd.length} tar call(s) pass paths without a cwd — a Windows drive letter would read as a hostname`);
+    const absolute = withOperands.filter((m) => /\b(tarFile|staging|work|outDir)\b/.test(m[1]));
+    absolute.length === 0
+      ? ok("no absolute-path variable is passed to tar as an operand")
+      : bad(`an absolute path reaches tar as an operand: ${absolute[0][1]}`);
+  }
+
   if (spawnSync("tar", ["--version"], { encoding: "utf8" }).status === 0) {
-    const stage = path.join(dir, "stage", "objects", "b");
+    // Driven exactly as backup-storage.mjs drives it: from `work`, with
+    // relative operands, so this exercises the real call shape rather than a
+    // convenient one.
+    const work = path.join(dir, "work");
+    const stage = path.join(work, "stage", "objects", "b");
     fs.mkdirSync(stage, { recursive: true });
     fs.writeFileSync(path.join(stage, "f.bin"), "contents");
-    fs.writeFileSync(path.join(dir, "stage", "manifest.json"), "{}");
-    const tarFile = path.join(dir, "s.tar");
-    spawnSync("tar", ["-cf", tarFile, "-C", path.join(dir, "stage"), "."]);
-    const listed = spawnSync("tar", ["-tf", tarFile], { encoding: "utf8" }).stdout
+    fs.writeFileSync(path.join(work, "stage", "manifest.json"), "{}");
+    const made = spawnSync("tar", ["-cf", "archive.tar", "-C", "stage", "."], { cwd: work, encoding: "utf8" });
+    made.status === 0
+      ? ok("tar builds the archive from relative operands")
+      : bad(`tar failed on the script's own call shape: ${made.stderr}`);
+    const listed = spawnSync("tar", ["-tf", "archive.tar"], { cwd: work, encoding: "utf8" }).stdout
       .split(/\r?\n/).map((l) => l.replace(/^\.\//, "").trim()).filter(Boolean);
     listed.includes("manifest.json") && listed.includes("objects/b/f.bin")
       ? ok("a tar built the same way lists the paths the manifest would name")

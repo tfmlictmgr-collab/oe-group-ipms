@@ -202,7 +202,24 @@ const stamp = new Date().toISOString().replace(/[:.]/g, "-").replace("T", "_").s
 const outDir = path.resolve(flag("out") ?? path.join(rootDir, "backups"));
 fs.mkdirSync(outDir, { recursive: true });
 
-const staging = fs.mkdtempSync(path.join(os.tmpdir(), "oeipms-storage-"));
+// ⚠️ `staging` is a SUBDIRECTORY of `work`, and every tar operand below is
+// relative to `work`, because of a Windows bug this hit on its first real run.
+//
+// GNU tar — which is what Git for Windows ships, and what MINGW64 puts on
+// PATH — treats any operand containing a colon as `host:path`, the syntax for
+// an archive on another machine. So `tar -cf C:\projects\…\x.tar -C
+// C:\Users\…\stage .` is read as "connect to the host called C", and fails
+// with `Cannot connect to C: resolve failed`. Nothing about the message
+// suggests a path problem.
+//
+// `--force-local` fixes it for GNU tar and is rejected as an unknown option by
+// the bsdtar that ships with Windows 10 and macOS, so it trades one platform's
+// failure for another's. Running tar from `work` with relative operands has no
+// colon in any argument on any platform, which is why it is done that way
+// rather than flagged away.
+const work = fs.mkdtempSync(path.join(os.tmpdir(), "oeipms-storage-"));
+const staging = path.join(work, "stage");
+fs.mkdirSync(staging);
 const manifest = {
   kind: "storage",
   projectRef: ref,
@@ -241,7 +258,7 @@ if (downloaded >= 25) process.stdout.write("\r");
 // that could not be fetched fails the whole run, and the staging directory is
 // removed so there is nothing half-made to mistake for a backup later.
 if (failures.length > 0) {
-  fs.rmSync(staging, { recursive: true, force: true });
+  fs.rmSync(work, { recursive: true, force: true });
   die(
     `Refusing to write a partial backup: ${failures.length} of ${objects.length} object(s) could not be downloaded.\n\n` +
       failures.slice(0, 10).map((f) => `  ${f.bucket}/${f.name} — ${f.reason}`).join("\n") +
@@ -257,13 +274,27 @@ fs.writeFileSync(path.join(staging, "manifest.json"), JSON.stringify(manifest, n
 
 const base = `storage-${ref}-${stamp}.tar`;
 const tarFile = path.join(outDir, base);
-const tarRes = spawnSync("tar", ["-cf", tarFile, "-C", staging, "."], { encoding: "utf8" });
+// Relative operands, run from `work` — see the note on `staging` above.
+// `-C stage` keeps the archive's own paths rooted at the manifest rather than
+// at a temporary directory name nobody will recognise on the way back.
+const tarRes = spawnSync("tar", ["-cf", "archive.tar", "-C", "stage", "."], {
+  cwd: work,
+  encoding: "utf8",
+});
 if (tarRes.status !== 0) {
-  fs.rmSync(staging, { recursive: true, force: true });
-  fs.rmSync(tarFile, { force: true });
+  fs.rmSync(work, { recursive: true, force: true });
   die(`tar failed: ${tarRes.stderr || tarRes.stdout || `exit ${tarRes.status}`}`);
 }
-fs.rmSync(staging, { recursive: true, force: true });
+// Copy rather than rename: the temp directory and the backups directory are
+// routinely on different volumes (C: and an external disk, say), and rename
+// cannot cross one.
+try {
+  fs.copyFileSync(path.join(work, "archive.tar"), tarFile);
+} catch (e) {
+  fs.rmSync(work, { recursive: true, force: true });
+  die(`The archive was built but could not be written to ${outDir}: ${e.message}`);
+}
+fs.rmSync(work, { recursive: true, force: true });
 
 // ── Read it back before saying it worked ──────────────────────────────────
 //
@@ -276,7 +307,7 @@ fs.rmSync(staging, { recursive: true, force: true });
 // archive again, and the per-object SHA-256 in the manifest is what a restore
 // checks each file against. Stated rather than implied, because "verified" is
 // a word that should mean exactly what it did.
-const list = spawnSync("tar", ["-tf", tarFile], { encoding: "utf8" });
+const list = spawnSync("tar", ["-tf", base], { cwd: outDir, encoding: "utf8" });
 if (list.status !== 0) {
   fs.rmSync(tarFile, { force: true });
   die(`The archive could not be read back: ${list.stderr || `exit ${list.status}`}\n\n  It has been deleted rather than left looking like a backup.`);
