@@ -1025,7 +1025,7 @@ one-line reason rather than deleting it silently.
       ref in `HOSTS.prod` (3.1) and create `.env.prod.local` from the
       production dashboard — never by copying another world's file, which the
       new guard now refuses outright.
-- [~] 2.11 **`v1.0.0-rc3` cut 21 Sept 2026 at `c628e90`** — rule 7, because
+- [x] 2.11 **`v1.0.0-rc3` cut 21 Sept 2026 at `c628e90`** — rule 7, because
       `0299` and everything after it killed `rc2`. 28 commits and 44 files
       since: schema `0296` → `0300`, suites 121 → 124.
       ✅ **Stage 0's local gates are green on this exact tree** (0.2): `npm ci`
@@ -1058,6 +1058,9 @@ one-line reason rather than deleting it silently.
       session is refused with **HTTP 403** (branch refs are permitted, tag refs
       are not), so the annotation was composed here and the tag created
       locally.
+      ✅ **Closed 23 Sept 2026: `rc3` is dead as predicted and `rc4` replaced
+      it** — see 2.13. It died twice over, once on PR #37 (`app/layout.tsx`)
+      and again on PR #53 (the gateway).
 - [~] 2.12 **Flutterwave replaces Paystack for collections — Option A, built
       23 Sept 2026.** Paystack's verification asks (SCUML certificate,
       shareholder ID and address for 51% owners) cannot be met in time;
@@ -1103,6 +1106,76 @@ one-line reason rather than deleting it silently.
       URL `/api/webhooks/payments/flutterwave` and the same secret hash in
       each Flutterwave dashboard. 4.4: rehearse the money path on Flutterwave
       test keys; payouts rehearse by bank transfer.
+      ---
+      **Read back against the gateway decisions, 23 Sept 2026** (47/`0288`
+      segregation, 54/`0289` bank transfer, 55 the test-mode lookup limit, B3's
+      FX split). The change holds where it matters, and three things are owed.
+      ✅ **Sound.** All **9** `resolveOrgGateway`/`getGatewayForOrg` call sites
+      state their purpose — none was missed. The webhook fix is a genuine
+      security fix and is done the right way: the verifier is built from the
+      sending gateway's own credential (`adapterFromCredential(cred)`), never
+      from collection preference. The settlement currency guard returns
+      `unknown`, which by decision 47 nothing acts on — so a mismatched payment
+      neither retires nor re-opens. `listBanks` and `lookUpAccountName` were
+      both read: with no Paystack key anywhere they fall back to the built-in
+      list and to `unavailable: true` ("type the account name yourself"), so
+      the PR's "degrades safely" claim holds, and decision 55's 429 path is
+      untouched. `tsc --noEmit` is clean on the merge commit.
+      ⚠️ **Owed 1 — the Collections banner names the PLATFORM's gateway, not
+      the org's.** `app/dashboard/ledger/collections/page.tsx` passes
+      `gatewayMode("NGN")` and `collectionGatewayName("NGN")`, both of which
+      read `process.env` alone, while the checkout beside them runs on
+      `resolveOrgGateway(me.org_id, …, "collect")` — the org's own credential
+      since `0288`. Before this change both were Paystack, so the banner was
+      accidentally right about the *name* and could only be wrong about the
+      *mode*. Now they can disagree by name too: with the platform holding a
+      live Flutterwave key and an org collecting on its own Paystack test key,
+      the screen reads **"Live keys — real money"** over a checkout that charges
+      nothing. The function's own comment says it is "a label, not a control" —
+      but it is the only thing on screen that answers "is this real?", and
+      Stage 4 would train ten roles to read it. **Fix before 4.3.**
+      ⚠️ **Owed 2 — a keyless world still SIMULATES a payout.** In
+      `resolveOrgGateway` the simulated fallback is gated on
+      `!anyPlatformKeyFor(currency)`, which asks the **collect** preference
+      whatever the purpose. For a non-NGN payout the preference is `[]`, so no
+      org credential is consulted at all and `SimulatedAdapter.transfer()` —
+      which reports `success` and posts to the ledger — is returned. Checked
+      against `22ecc3b`: **this is not a regression**, the old code did the same.
+      It matters now for a different reason. Production will hold **no Paystack
+      key at all**, so every payout there is refused with
+      `GatewayNotConnectedError` and goes by bank transfer (`0289`) — and
+      staging, which does hold Paystack test keys, will not reproduce that.
+      **4.4 must rehearse the production key set, not staging's.**
+      ⚠️ **Owed 3 — the code now contradicts locked decision 4.** `claude.md:8`
+      still reads *"Payments: Paystack (Collections + Transfers/remittance) +
+      Flutterwave (FX / international collections)"*, and lines 472 and 490–491
+      still name the Paystack Transfers API as the outbound path. Leaving them
+      for the board was the right call — a locked decision is not amended by a
+      PR — but until the minute lands and the document is corrected, the repo's
+      constitution says the opposite of its code, and every future session
+      reads the constitution first. **1.10's board minute is the gate.**
+- [x] 2.13 **`v1.0.0-rc4` cut 23 Sept 2026 at `374c2a4`**, the merge commit of
+      PR #53 — rule 7, because `rc3` died on `app/layout.tsx` (PR #37) and
+      again on the gateway change (2.12).
+      ✅ **Rule 7 discharged by measurement, not by assertion.** Stage 0's
+      gates were run on `fe319be`; the tag sits on `374c2a4`.
+      `git diff fe319be v1.0.0-rc4 -- . ':!docs'` is **empty** — the tagged
+      tree is byte-identical, outside `docs/`, to the tree that was verified.
+      The only difference in the whole range is
+      `docs/BACKUP_AND_RESTORE.md` (+38 lines), which `next build` does not read.
+      ✅ **0.3 re-met — 128 suites** (124 → 128: the gateway pair, plus
+      `verify-world-switch` and `verify-backup-crypto`). The batch run recorded
+      `1 of 128 FAILED` (`verify-people-directory`, 11 checks) and one that
+      could not start (`verify-checkout-e2e`, needs a dev server). **Both were
+      re-run standalone on the same tree against a dev server on :3100 and both
+      passed in full** — a harness limitation, not a defect. The run of record
+      is `docs/verify-runs/rc4-20260923.log`.
+      ✅ **0.5 met at last** — `docs/verify-runs/rc4-audit.json` is the
+      `npm audit` snapshot that `rc2` and `rc3` both owed. Stage 0 is now
+      fully re-met for the first time since `rc1`.
+      ⚠️ The tag was pushed by a person again: a tag push from the build
+      session is still refused with **HTTP 403**.
+
 
 ### Stage 3 — Provision production, empty
 - [x] 3.1 Production Supabase project created in the confirmed region; ref recorded
@@ -1276,16 +1349,26 @@ one-line reason rather than deleting it silently.
 - [ ] 4.1 Staging on the exact RC tag and schema
 - [ ] 4.2 Full Stage 5 rehearsed on staging, timed, runbook written from it
 - [ ] 4.3 Multi-role UAT, all ten roles
-- [ ] 4.4 Money path end to end — gateway payout, bank-transfer payout, off-platform payment
+- [ ] 4.4 Money path end to end — Flutterwave **collection** on test keys,
+      bank-transfer payout, off-platform payment. ⚠️ **Rehearse the PRODUCTION
+      key set** (Flutterwave only, no Paystack): staging's Paystack test keys
+      make a payout resolve where production refuses it — 2.12, owed 2. A
+      *gateway* payout is out of scope until Option B
 - [ ] 4.5 Rollback rehearsed: deployment revert **and** PITR restore *(gap G)*
 - [ ] 4.6 Findings fixed; if anything changed, `rc2` cut and 4.1–4.5 repeated
 
 ### Stage 5 — Cutover
 - [ ] 5.1 Target confirmed
 - [ ] 5.2 RC tag deployed to production
-- [ ] 5.3 Variables set; gateway-mode label reads live
+- [ ] 5.3 Variables set; gateway-mode label reads live. **`FLUTTERWAVE_SECRET_KEY`
+      + `FLUTTERWAVE_WEBHOOK_HASH` are now the required pair;
+      `PAYSTACK_SECRET_KEY` stays unset unless a verified Paystack account
+      exists** (2.12)
 - [ ] 5.4 Operator admin bootstrapped; password changed; **MFA enabled**
 - [ ] 5.5 Both 360dialog webhooks re-registered
+- [ ] 5.5a **Flutterwave webhook registered** in each dashboard at
+      `/api/webhooks/payments/flutterwave`, carrying the same secret hash
+      that is set in the environment (2.12)
 - [ ] 5.6 Both Telegram webhooks re-registered with the correct usernames
 - [ ] 5.7 Three domains **moved** (never aliased)
 - [ ] 5.8 `custom_domain` bound per org *(gap C)*
