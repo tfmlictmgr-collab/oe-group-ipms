@@ -85,8 +85,11 @@ describe the system as "backed up" without the qualifier *"the database is"*,
 and §1's stated RPO of ~24h is a **database** RPO. There is no storage RPO
 because there is no storage backup.
 
-**This is now the largest open item in the recoverability story**, ahead of
-everything PITR would have addressed. See §3b.
+**Closed 23 Sept 2026 by `npm run backup:storage`** — see §3b. The gap was
+real for as long as it stood, and the fix is a script somebody has to RUN, so
+it is only closed while the schedule in §3b is kept. Supabase's daily backup
+still does not cover Storage and never will; what changed is that something
+else does.
 
 ---
 
@@ -204,34 +207,61 @@ counts.
 Google Workspace at no cost?** Yes. The transport is free and the hard part is
 not the transport.
 
-### Why this needs new code, and `npm run backup` cannot just be re-pointed
+### ✅ Built 23 Sept 2026 — `npm run backup:storage`
 
-`pg_dump` dumps a database. Storage objects are not in the database — Postgres
-holds only `storage.objects`, a table of metadata and paths, and the bytes live
-in object storage behind the Storage API. That is why `scripts/backup-database.mjs`
-prints a warning naming every bucket it does **not** contain rather than
-quietly implying otherwise. Making one file cover both means a second
-collection step: list every object in each of the seven buckets, download each,
-and write them into one archive whose manifest can be checked on the way back.
+```
+npm run backup:storage                      # into ./backups
+npm run backup:storage -- --encrypt         # AES-256-GCM before it leaves
+npm run backup:storage -- --decrypt <file>  # read one back
+```
 
-### The shape it should take
+**Why it had to be new code.** `pg_dump` dumps a database, and the bytes are
+not in the database. Postgres holds `storage.objects` — metadata and paths —
+while the objects live behind the Storage API. `npm run backup` says so in its
+own output rather than implying otherwise.
 
-Alongside the existing script, matching its discipline rather than inventing a
-new one:
+**What it produces.** An ordinary `tar`: `manifest.json` plus
+`objects/<bucket>/<path>`, optionally wrapped in the same AES-256-GCM
+envelope the database backup uses. Deliberately a tar rather than a private
+container — a backup can outlive the script that wrote it, and `tar -xf` needs
+no part of this repository.
 
-1. **Collect.** For each bucket, page the Storage API and download every
-   object, preserving `bucket/path` so a restore can put each back where it
-   came from.
-2. **Verify before claiming success.** The database script's rule is that a
-   backup is not a backup until it has been read back — `pg_restore --list`
-   there, and here a manifest of every object's SHA-256 and byte count, with
-   the archive re-opened and checked against it. Count the objects listed in
-   `storage.objects` and refuse to report success if the archive holds fewer:
-   a partial storage backup that reports success is worse than none, because
-   it stops anyone looking.
-3. **Encrypt with the same AES-256-GCM path** already proven on 20 Sept —
-   wrong passphrase refused, single flipped byte refused.
-4. **Only then** let it leave the machine.
+**How it refuses to lie to you**, which is the whole point:
+
+* It enumerates from **`storage.objects`**, not from the Storage API's
+  `list()`. A listing paginates per folder and must be walked recursively, so
+  completeness would depend on getting that traversal right — and the failure
+  mode of getting it wrong is a smaller archive that reports success. It also
+  gives the reconciliation something independent to check against; a listing
+  cannot disagree with itself.
+* **One object it cannot fetch fails the whole run**, and the staging
+  directory is deleted. A partial archive is worse than none, because it stops
+  anyone looking for one.
+* It **reads the tar back** with `tar -tf` and checks every manifest entry is
+  present before reporting success — the sibling script's `pg_restore --list`
+  rule in a different format.
+* With `--encrypt` it **decrypts straight back and compares** before deleting
+  the plaintext. An encrypted backup nobody has decrypted is precisely the
+  belief this document refuses, and a mistyped passphrase is otherwise silent
+  until the day the file is needed.
+* It refuses to run when the two halves of `.env.local` name different
+  projects — the same relational check `migrate.mjs` makes, for the same
+  6 Aug 2026 reason. Listing one world's files while downloading another's
+  would produce an archive that is neither.
+
+**What it does NOT do, said plainly:** the read-back proves the archive is
+structurally intact and complete by name. It does not re-hash every object —
+that would mean extracting the whole archive a second time. The per-object
+SHA-256 is in the manifest, and that is what a restore checks each file
+against.
+
+**Shared format.** `scripts/lib/backup-crypto.mjs` holds the one
+implementation, imported by both backup scripts. Two copies of a file format
+diverge silently, and you find out when a backup taken by one cannot be read
+by the other — at the moment you are trying to read it.
+`verify-backup-crypto.mjs` proves the round trip on 3 MiB of real bytes and
+that a wrong passphrase, a single flipped byte, a truncated file and a foreign
+file are each refused.
 
 ### Getting it to Google Workspace — no API work, no cost
 
