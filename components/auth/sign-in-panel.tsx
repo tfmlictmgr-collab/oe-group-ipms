@@ -488,6 +488,17 @@ export default function SignInPanel({
               </button>
             </>
           )}
+
+          {/* Public legal pages — required by the payment gateways, and readable
+              before anyone has an account. */}
+          <nav className="mt-10 flex justify-center gap-4 text-xs text-muted-foreground">
+            <a href="/legal/terms" className="underline-offset-4 hover:underline">
+              Terms of Service
+            </a>
+            <a href="/legal/refunds" className="underline-offset-4 hover:underline">
+              Refund Policy
+            </a>
+          </nav>
         </div>
       </section>
     </main>
