@@ -346,6 +346,97 @@ const { portalOrigin } = await import("../lib/portal-origin.ts");
     : bad("TFML and OEA links resolve to the same host");
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+section("G. The screen's answer is the checkout's answer");
+
+// `collectionRouteForOrg` labels a screen; `resolveOrgGateway` takes the money.
+// They are two functions answering one question, so they can drift — and a
+// banner that disagrees with the checkout below it is worse than no banner,
+// because it is believed. Before this section existed the banner read
+// `process.env` alone: an org collecting on its own Paystack TEST key was shown
+// "Live keys — real money" as soon as the platform held a live Flutterwave key,
+// and, the dangerous way round, an org on its own LIVE key under a platform
+// test key was told no card would be charged.
+//
+// So: call both, for real, and require the same answer.
+{
+  const compare = async (label, orgId, currency) => {
+    const route = await gw.collectionRouteForOrg(orgId, currency);
+
+    let resolved = null;
+    let refusal = null;
+    try {
+      resolved = await gw.resolveOrgGateway(orgId, currency, "collect");
+    } catch (e) {
+      refusal = e;
+    }
+
+    // The banner declines to guess; nothing to hold it to.
+    if (route.state === "unknown") {
+      skip(`${label} ${currency}: the route could not be read, and the banner says so`);
+      return;
+    }
+
+    if (refusal) {
+      if (refusal.name !== "GatewayNotConnectedError") {
+        bad(`${label} ${currency}: the checkout failed in a way neither function models — ${refusal.message}`);
+        return;
+      }
+      route.state === "not_connected"
+        ? ok(`${label} ${currency}: checkout is refused, and the screen says so`)
+        : bad(`${label} ${currency}: checkout is REFUSED but the screen says "${route.state}"`);
+      return;
+    }
+
+    if (route.state === "not_connected") {
+      bad(`${label} ${currency}: the screen says no account is connected, but checkout resolved to ${resolved.merchant}`);
+      return;
+    }
+
+    if (resolved.merchant === "simulated") {
+      route.state === "simulated"
+        ? ok(`${label} ${currency}: checkout is simulated, and the screen says so`)
+        : bad(`${label} ${currency}: checkout is SIMULATED but the screen says "${route.state}"`);
+      return;
+    }
+
+    if (route.state !== "connected") {
+      bad(`${label} ${currency}: checkout resolved to ${resolved.merchant}/${resolved.adapter.name} but the screen says "${route.state}"`);
+      return;
+    }
+    route.gateway === resolved.adapter.name
+      ? ok(`${label} ${currency}: both name ${route.gateway}`)
+      : bad(`${label} ${currency}: the screen names ${route.gateway}, the checkout uses ${resolved.adapter.name}`);
+    route.merchant === resolved.merchant
+      ? ok(`${label} ${currency}: both say the ${route.merchant} account`)
+      : bad(`${label} ${currency}: the screen says the ${route.merchant} account, the checkout uses the ${resolved.merchant} one`);
+  };
+
+  for (const [label, o] of [["TFML", tfml], ["OEA", oea]]) {
+    await compare(label, o.id, "NGN");
+    await compare(label, o.id, "USD");
+  }
+
+  // The mode is the half that cannot be got from the adapter, because an
+  // adapter does not expose its key — and it is the half that says whether a
+  // real card is charged. Held to `key_mode`, recorded at save time, which is
+  // the same column Settings → Banking shows.
+  for (const [label, o] of [["TFML", tfml], ["OEA", oea]]) {
+    const route = await gw.collectionRouteForOrg(o.id, "NGN");
+    if (route.state !== "connected" || route.merchant !== "org") {
+      skip(`${label}: not collecting Naira on its own key here, so there is no stored mode to check against`);
+      continue;
+    }
+    const stored = await one(
+      "select key_mode from org_gateway_credentials where org_id = $1 and gateway = $2 and active",
+      [o.id, route.gateway]
+    );
+    stored && stored.key_mode === route.mode
+      ? ok(`${label}: the banner's "${route.mode} mode" is the mode the stored key was saved as`)
+      : bad(`${label}: the banner says ${route.mode}, the stored key is ${stored?.key_mode ?? "absent"}`);
+  }
+}
+
 await client.end();
 console.log(
   failures

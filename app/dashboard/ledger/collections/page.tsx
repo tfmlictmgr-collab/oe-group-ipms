@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
-import { collectionGatewayName, gatewayMode } from "@/lib/gateway";
+import { collectionRouteForOrg } from "@/lib/gateway";
 import CollectionsClient, { type IntentRow, type BillableRow } from "./CollectionsClient";
 
 export default async function CollectionsPage({
@@ -43,6 +43,19 @@ export default async function CollectionsPage({
       .neq("currency", "NGN"),
   ]);
 
+  // ⚠️ How THIS org collects, not how the platform would. `gatewayMode()` and
+  // `collectionGatewayName()` read `process.env` alone, while the checkout on
+  // this very page runs on the org's own credential (0288) — so the banner
+  // could name the wrong gateway, the wrong mode, or promise a checkout that
+  // 0288 refuses outright. Resolved the way the checkout resolves it.
+  const orgId = session.profile?.org_id ?? null;
+  const [ngn, fx] = orgId
+    ? await Promise.all([
+        collectionRouteForOrg(orgId, "NGN"),
+        collectionRouteForOrg(orgId, "USD"),
+      ])
+    : ([{ state: "unknown" }, { state: "unknown" }] as const);
+
   const rows = (intents ?? []) as unknown as IntentRow[];
   const requested = ref ? rows.find((r) => r.gateway_reference === ref) ?? null : null;
 
@@ -65,9 +78,8 @@ export default async function CollectionsPage({
       billable={billable}
       returnedRef={ref ?? null}
       returnedIntentId={requested?.id ?? null}
-      mode={gatewayMode("NGN")}
-      ngnGateway={collectionGatewayName("NGN")}
-      fxMode={gatewayMode("USD")}
+      ngn={ngn}
+      fx={fx}
       fxCurrencies={fxCurrencies}
     />
   );

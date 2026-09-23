@@ -1133,7 +1133,19 @@ one-line reason rather than deleting it silently.
       the screen reads **"Live keys — real money"** over a checkout that charges
       nothing. The function's own comment says it is "a label, not a control" —
       but it is the only thing on screen that answers "is this real?", and
-      Stage 4 would train ten roles to read it. **Fix before 4.3.**
+      Stage 4 would train ten roles to read it.
+      ✅ **Fixed 23 Sept 2026.** `collectionRouteForOrg` in `lib/gateway/index.ts`
+      answers the banner's question the way `resolveOrgGateway` answers the
+      checkout's — the org's own credential first, the platform key only for the
+      org that owns it, simulation on the same terms, and otherwise refused. It
+      reads `key_mode`, recorded at save time, so a label never decrypts a live
+      key. The screen gained the two states it had never had: **"No payment
+      account connected"**, for an org `0288` refuses a checkout (which in
+      production is every org but one, and which previously displayed whatever
+      the platform key happened to be), and **"could not be read"**, which
+      declines to guess rather than calling an unreadable route live or safe.
+      `verify-gateway-isolation` **§G** calls both resolvers for both orgs in
+      both currencies and requires the same answer, so the two cannot drift.
       ⚠️ **Owed 2 — a keyless world still SIMULATES a payout.** In
       `resolveOrgGateway` the simulated fallback is gated on
       `!anyPlatformKeyFor(currency)`, which asks the **collect** preference
@@ -1154,6 +1166,16 @@ one-line reason rather than deleting it silently.
       PR — but until the minute lands and the document is corrected, the repo's
       constitution says the opposite of its code, and every future session
       reads the constitution first. **1.10's board minute is the gate.**
+      ✅ **Minute drafted for adoption, 23 Sept 2026** —
+      `docs/BOARD_MINUTE_GATEWAY_OPTION_A.md`, carrying the exact replacement
+      wording for decision 4, the three things the board is being asked to
+      accept (manual payouts at go-live, the Flutterwave key as a hard gate,
+      the legal-pages dependency), the risks recorded, and an **empty sign-off
+      block**. `claude.md` decision 4 now carries a note marking itself
+      **CONTESTED** and pointing at the minute, so no session reads the stale
+      line as authoritative. ⚠️ **Nothing here is board approval.** The minute
+      records a decision the board took; it becomes the record when a director
+      signs it.
 - [x] 2.13 **`v1.0.0-rc4` cut 23 Sept 2026 at `374c2a4`**, the merge commit of
       PR #53 — rule 7, because `rc3` died on `app/layout.tsx` (PR #37) and
       again on the gateway change (2.12).
@@ -1175,6 +1197,14 @@ one-line reason rather than deleting it silently.
       fully re-met for the first time since `rc1`.
       ⚠️ The tag was pushed by a person again: a tag push from the build
       session is still refused with **HTTP 403**.
+      ⚠️ **`rc4` died the same day, 23 Sept 2026 — rule 7.** PR #55 was docs
+      only and harmless, but **PR #56** (`claude/legal-terms-refunds`) adds
+      `app/legal/terms`, `app/legal/refunds` and a link in the sign-in panel:
+      all inside `next build`, so deploying `rc4` would ship a site without the
+      pages Flutterwave requires before it will reactivate the account. **`rc5`
+      is required**, and should also carry the banner fix (2.12, owed 1).
+      0.2 must be re-run on it, and 0.3 as well — unlike the `rc3`→`rc4` delta,
+      `lib/gateway/index.ts` is changed and a suite reads it.
 
 
 ### Stage 3 — Provision production, empty
