@@ -1176,8 +1176,29 @@ one-line reason rather than deleting it silently.
       `dev` holds a credential, so nothing exercises it. Deliberately NOT closed
       by having the suite write a credential: a label check is not worth a row
       that could survive a crashed run and quietly change how `dev` collects.
-      **Close it by running this suite against `staging`**, where OEA's Paystack
-      test key is connected (decision 55) — owed before 4.3.
+      ✅ **Re-run on `staging`, 23 Sept 2026 — the connected path is now proven
+      too.** With a real platform key present, §G compares rather than skips:
+      *TFML NGN — both name paystack; both say the platform account*, plus three
+      refusals that agree (TFML USD, OEA NGN, OEA USD). So `merchant:
+      "platform"` and `not_connected` are both held against a real world, not a
+      constructed one.
+      ⚠️ **`merchant: "org"` is exercised NOWHERE, and the gap is narrower than
+      first recorded here.** This entry predicted OEA's Paystack test key would
+      still be connected on staging (decision 55); it is not — §B reports *"OEA,
+      with no account of its own, is REFUSED"*. **No org in `dev` or `staging`
+      holds a credential at all**, so the org-account branch of both resolvers
+      has never run. That is the face of the bug where an org on its own
+      Paystack *test* key reads "Live keys — real money" under a live platform
+      Flutterwave key.
+      📌 **It closes when an org connects a key, which is owed anyway.** Doing it
+      on staging closes a second gap in the same sitting: 2.12 records that the
+      signed-in **Settings → Banking** page was never viewed, and PR #53 rewrote
+      that form (the Flutterwave card, the mandatory secret hash, the refusal of
+      a key saved under the wrong gateway). Sign in as OEA's administrator,
+      connect a Paystack test key, re-run this suite for the `merchant: "org"`
+      comparison and the stored-`key_mode` check, then remove it. A Flutterwave
+      test key would be better — it also exercises the secret-hash requirement —
+      once one exists. **Owed before 4.3.**
       ⚠️ **Owed 2 — a keyless world still SIMULATES a payout.** In
       `resolveOrgGateway` the simulated fallback is gated on
       `!anyPlatformKeyFor(currency)`, which asks the **collect** preference
