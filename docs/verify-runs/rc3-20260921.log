@@ -1,0 +1,132 @@
+
+> oe-group-ipms@0.1.0 verify
+> tsx scripts/verify-all.mjs
+
+Running 124 suite(s) with tsx
+
+[32mPASS[0m verify-access-matrix                 71s  ALL CHECKS PASSED
+[32mPASS[0m verify-account-recovery               8s  ALL CHECKS PASSED — a reset token is a hash, single-use, genuinely signs in, and the account is 
+[32mPASS[0m verify-action-errors                 29s  ALL CHECKS PASSED — a user-facing failure reaches the user.
+[32mPASS[0m verify-analytics-console             19s  ALL CHECKS PASSED — the console filters, buckets and scopes, and never invents a duration.
+[32mPASS[0m verify-analytics-drilldown           21s  ALL CHECKS PASSED — the queue and the drill-down agree with the database, in both tier modes.
+[32mPASS[0m verify-application-lga                5s  ALL CHECKS PASSED — an applicant's LGA and statement are recorded as given.
+[32mPASS[0m verify-application-review            60s  ALL CHECKS PASSED — a PM recommends, an approver decides independently, and nothing decides itse
+[32mPASS[0m verify-application-submission        13s  ALL CHECKS PASSED — an applicant can submit, only with their documents, and the gate is inside t
+[32mPASS[0m verify-apportionment                 14s  ALL CHECKS PASSED — a budget states its method, and a hand-entered split must reconcile.
+[32mPASS[0m verify-approval-chain                83s  ALL CHECKS PASSED — every payment out climbs the same ladder, banded or not.
+[32mPASS[0m verify-asset-access                  14s  ALL CHECKS PASSED — the asset register is role- and property-scoped.
+[32mPASS[0m verify-asset-classification          19s  ALL CHECKS PASSED — assemblies hold together, cannot loop, and a maintenance strategy means some
+[32mPASS[0m verify-asset-import-e2e               6s  ALL CHECKS PASSED — import writes only what validation approved.
+[32mPASS[0m verify-asset-import                   0s  ALL CHECKS PASSED — the importer catches every seeded defect.
+[32mPASS[0m verify-audit-0729b                   23s  ALL CHECKS PASSED — the regional manager is regional, and a draft outlives the window it was sta
+[32mPASS[0m verify-audit-followups                9s  ALL CHECKS PASSED — the last BI figure is counted in the database, and the emailed link is real.
+[32mPASS[0m verify-bank-transfer-payouts         40s  ALL CHECKS PASSED — a bank transfer is paid against the payee's own evidence, through the whole 
+[36mDEMO[0m verify-bi-scoping                    73s  demonstration only — asserts nothing
+[32mPASS[0m verify-bootstrap                      2s  ALL CHECKS PASSED — the bootstrap refuses every world it should, and cannot reach a seeder.
+[36mDEMO[0m verify-cascade                        5s  demonstration only — asserts nothing
+[32mPASS[0m verify-channel-consent                6s  ALL CHECKS PASSED — consent is recorded, it gates the send, and it never crosses an org.
+[32mPASS[0m verify-channel-routing               45s  ALL CHECKS PASSED — inbound routes to the right org; outbound answers from its own number.
+[32mPASS[0m verify-chat-payment-report           16s  ALL CHECKS PASSED — a tenant can report a payment on chat with its receipt, the payer is resolve
+[32mPASS[0m verify-chat-request-visibility       16s  ALL CHECKS PASSED — chat requests reach the people who handle them, and no further.
+[32mPASS[0m verify-checkout-e2e                  75s  ALL CHECKS PASSED — checkout → signed webhook → verification → ledger → receipt.
+[32mPASS[0m verify-classifier-failover           10s  ALL CHECKS PASSED — an outage fails over instead of degrading, and a reply is read in context.
+[32mPASS[0m verify-collections                   12s  ALL CHECKS PASSED — collections post exactly once, for the verified amount.
+[32mPASS[0m verify-completion-evidence            9s  ALL CHECKS PASSED — completion evidence is readable by whoever can see the payment, and the olde
+[32mPASS[0m verify-conversational-intelligence  235s  ALL CHECKS PASSED — a question is answered, an answer continues the thread, a reference finds it
+[32mPASS[0m verify-conversational-triage         14s  ALL CHECKS PASSED — a reply continues the conversation, and only the person who started it can s
+[32mPASS[0m verify-cross-org-dispatch             7s  ALL CHECKS PASSED — a dispatch cannot cross an organisation, and an ordinary one still works.
+[32mPASS[0m verify-custom-domains                15s  ALL CHECKS PASSED — a hostname paints a front door and decides nothing about access.
+[32mPASS[0m verify-deactivation                  17s  ALL CHECKS PASSED — deactivated means deactivated, everywhere it can be reached from, and reacti
+[32mPASS[0m verify-deployment-safety              3s  ALL CHECKS PASSED — safe to point traffic at this environment.
+[32mPASS[0m verify-document-checks               16s  ALL CHECKS PASSED — the checks report observations against evidence, and cannot become a decisio
+[32mPASS[0m verify-email-release                 13s  ALL CHECKS PASSED — the address comes back; the history does not move.
+[32mPASS[0m verify-email-routing                  1s  ALL CHECKS PASSED — replies route to a real, monitored inbox.
+[32mPASS[0m verify-embeds                        15s  ALL CHECKS PASSED — every embed resolves to exactly one relationship.
+[32mPASS[0m verify-finance-journey              154s  ALL CHECKS PASSED — finance reconciles, pays owners and reports but never approves; the ladder h
+[32mPASS[0m verify-fm-journey                    56s  ALL CHECKS PASSED — an FM/PM can run their properties, raise their own work, and still cannot pa
+[32mPASS[0m verify-function-grants                3s  ALL CHECKS PASSED — a function is reachable by exactly the roles its migration granted, no more.
+[32mPASS[0m verify-fund-override                 27s  ALL CHECKS PASSED — a funded property pays, a short one refuses, and only the payment officer ca
+[32mPASS[0m verify-fx-collections                13s  ALL CHECKS PASSED — a foreign currency is a genuinely separate, segregated balance, never summed
+[32mPASS[0m verify-gateway-isolation             16s  ALL CHECKS PASSED — money, messages and links carry their own organisation's identity, or are re
+[32mPASS[0m verify-hierarchy-ui                  18s  ALL CHECKS PASSED — retirement refuses to orphan, and both read surfaces the hierarchy screen ne
+[32mPASS[0m verify-hierarchy                     16s  ALL CHECKS PASSED — the tree holds its shape, and a regional assignment reaches exactly its own 
+[32mPASS[0m verify-intake-intelligence           94s  ALL CHECKS PASSED — silence is not a request, a greeting is not a ticket, and one org's bot cann
+[32mPASS[0m verify-invitations                   13s  ALL CHECKS PASSED — enrolment grants exactly what was invited, and nothing more.
+[32mPASS[0m verify-invite-acceptance             15s  ALL CHECKS PASSED — an invitee gets in first time, and an invitation cannot take over an account
+[32mPASS[0m verify-invoice-appeal               109s  ALL CHECKS PASSED — a refusal says why, reaches the vendor, and can be undone by the right perso
+[32mPASS[0m verify-jwt-claims                     4s  ALL CHECKS PASSED — org/brand/role ride in the signed JWT; headers are un-spoofable.
+[32mPASS[0m verify-lease-notices                 11s  ALL CHECKS PASSED — a tenant is told once per threshold, whatever the scheduler does.
+[32mPASS[0m verify-leases-and-rent               16s  ALL CHECKS PASSED — a unit is let once, and a rate change never rewrites a past statement.
+[32mPASS[0m verify-ledger                        14s  ALL CHECKS PASSED — the ledger cannot be unbalanced, edited, or overdrawn.
+[32mPASS[0m verify-lettings-grants                7s  ALL CHECKS PASSED — the settings screens write what they show, and nothing more.
+[32mPASS[0m verify-logo-storage                   6s  ALL CHECKS PASSED — logo writes are admin-only and org-scoped.
+[32mPASS[0m verify-money-function-grants         14s  ALL CHECKS PASSED — every money function is callable by exactly the roles its migration granted.
+[32mPASS[0m verify-nav-search                     1s  All navigation-search checks passed.
+[32mPASS[0m verify-notification-links            97s  ALL CHECKS PASSED — no notification points at nothing, for anyone, in any org.
+[32mPASS[0m verify-notifications                 12s  ALL CHECKS PASSED — notifications are strictly per-recipient and unforgeable.
+[32mPASS[0m verify-oea-payment-chain             33s  ALL CHECKS PASSED — audit, then the Managing Partner, then the payment approver: in that order a
+[32mPASS[0m verify-offline-payments              61s  ALL CHECKS PASSED — an off-platform payment is recorded with compulsory proof, moves no money un
+[32mPASS[0m verify-operator-governance           35s  ALL CHECKS PASSED — the operator can take access away and open a door; it can never grant a priv
+[32mPASS[0m verify-operator-separation           11s  ALL CHECKS PASSED — administering a tenant no longer implies governing the platform.
+[32mPASS[0m verify-ops-requisitions              50s  ALL CHECKS PASSED — an FM/PM asks for money, the chain decides, and the record cannot be edited.
+[32mPASS[0m verify-org-creation                  14s  ALL CHECKS PASSED — every org provisioned through the product gets a working address, and only a
+[32mPASS[0m verify-org-directory                  7s  ALL CHECKS PASSED — every org has its own address, and only an operator can list them.
+[32mPASS[0m verify-org-modules                    7s  ALL CHECKS PASSED — every org states its modules, and the brand decides lettings.
+[32mPASS[0m verify-org-theming                    6s  ALL CHECKS PASSED — theming is admin-only and org-scoped.
+[32mPASS[0m verify-oversight-roles               72s  ALL CHECKS PASSED — an executive authorises and oversees; finance disburses.
+[32mPASS[0m verify-payment-approver-reach        13s  ALL CHECKS PASSED — an approver sees the payments at their own stage, and no more.
+[32mPASS[0m verify-payment-gate-authority        16s  ALL CHECKS PASSED — the gate is the operator's to open, and it records who opened it.
+[32mPASS[0m verify-payment-gate                   5s  ALL CHECKS PASSED — the gate holds against direct API calls.
+[32mPASS[0m verify-people-directory             171s  ALL CHECKS PASSED — every row opens a profile, and every profile shows its reader only what thei
+[32mPASS[0m verify-per-org-gateways              11s  ALL CHECKS PASSED — each org's gateway credentials are its own, and only its administrator conne
+[32mPASS[0m verify-permissions                   20s  ALL CHECKS PASSED — the toggles move the database, the locks hold, and only the operator turns t
+[32mPASS[0m verify-portfolio-and-controls        22s  ALL CHECKS PASSED — the tenancy schedule renders from the ledger, and export stays behind the ca
+[32mPASS[0m verify-properties                    13s  ALL CHECKS PASSED — the register is writable, bounded, and the attaché assignment is real access
+[32mPASS[0m verify-property-attachments          13s  ALL CHECKS PASSED — a property filed without its people can be given them later.
+[32mPASS[0m verify-property-statement            12s  ALL CHECKS PASSED — a building accounts for itself, to its manager and to its landlord alike.
+[32mPASS[0m verify-property-types                 8s  ALL CHECKS PASSED — a property carries its type through creation and edit.
+[32mPASS[0m verify-property-windows              21s  ALL CHECKS PASSED — intake follows occupancy, a person can overrule it, and an application knows
+[32mPASS[0m verify-rate-limit                     4s  ALL CHECKS PASSED — limiter enforces per-sender and fails open when off.
+[32mPASS[0m verify-reconciliation                12s  ALL CHECKS PASSED — a clean statement reconciles to zero, and a discrepancy is caught.
+[32mPASS[0m verify-regional-authority            13s  ALL CHECKS PASSED — a regional manager administers the money on the buildings they hold, and no 
+[32mPASS[0m verify-remittance-account            15s  ALL CHECKS PASSED — every payout says which account it left, and posts there.
+[32mPASS[0m verify-remittance-race               16s  ALL CHECKS PASSED — a landlord is paid once, however many people click.
+[32mPASS[0m verify-remittance                    56s  ALL CHECKS PASSED — nothing leaves without the gate, and nothing leaves twice.
+[32mPASS[0m verify-rent-demands                  24s  ALL CHECKS PASSED — rent is demanded once, on time, and never past the term.
+[32mPASS[0m verify-rent-money                    16s  ALL CHECKS PASSED — the fee is taken once, from the snapshot, and the landlord is a creditor for
+[32mPASS[0m verify-request-visibility            45s  ALL CHECKS PASSED — a request reaches the desk it belongs to, and no other.
+[32mPASS[0m verify-retention-clock               22s  All retention-clock checks passed.
+[32mPASS[0m verify-rls-rest                       9s  ALL CHECKS PASSED
+[32mPASS[0m verify-role-guides                    5s  ALL CHECKS PASSED — every role has a guide, and it carries its own organisation's name.
+[32mPASS[0m verify-role-hierarchy                43s  ALL CHECKS PASSED — you may only create someone below you, and only inside a region you hold.
+[32mPASS[0m verify-role-surface                 155s  ALL CHECKS PASSED — ten roles, each reaching what B7 grants it and nothing more.
+[32mPASS[0m verify-role-workflows                28s  ALL CHECKS PASSED — a dispatched job has a holder, they are told, and they see only their own.
+[32mPASS[0m verify-sc-budget-uniqueness           9s  ALL CHECKS PASSED — one budget per property per period, enforced by the database; concurrent sub
+[32mPASS[0m verify-sc-client                     10s  ALL 37 CHECKS PASSED — the client is independent, both brands are recorded, and neither can see 
+[36mDEMO[0m verify-schema                         4s  demonstration only — asserts nothing
+[32mPASS[0m verify-security-posture              11s  ALL CHECKS PASSED — RLS on everywhere, anon reaches only the public surfaces, the trail cannot b
+[32mPASS[0m verify-tenancy-import                22s  ALL CHECKS PASSED — a rent roll imports whole, scoped to the caller's own buildings, or not at a
+[32mPASS[0m verify-tenancy-statement             18s  ALL CHECKS PASSED — a tenant, a landlord and an auditor each get a clean account of their own mo
+[32mPASS[0m verify-tenant-applications           13s  ALL CHECKS PASSED — intake is gated, unreadable to applicants, and special-category data stays a
+[32mPASS[0m verify-tenant-journey               115s  ALL CHECKS PASSED — a tenant can report, be answered, pay, and see what they paid; and cannot to
+[32mPASS[0m verify-tenant-rent-payment           19s  ALL CHECKS PASSED — a tenant can see and pay their own rent, and only their own.
+[32mPASS[0m verify-ticket-reference-search       13s  ALL CHECKS PASSED — a quoted reference finds its request, and only for someone already entitled 
+[32mPASS[0m verify-training-guide                 3s  ALL CHECKS PASSED — every role, capability, route and module flag has a process.
+[32mPASS[0m verify-triage-conversation-e2e       56s  ALL CHECKS PASSED — a reply continues the request; a new problem starts its own.
+[32mPASS[0m verify-unassigned-escalation         18s  ALL CHECKS PASSED — a request nobody picked up reaches the administrator, and not before 24 hour
+[32mPASS[0m verify-unit-quantity                  4s  ALL CHECKS PASSED — a row of twelve stalls pays for twelve stalls.
+[32mPASS[0m verify-unit-vacancy                  32s  ALL CHECKS PASSED — a row is a unit, vacancy is one rule, and it counts both ways.
+[32mPASS[0m verify-vendor-application-guards      0s  All vendor-application guard checks passed.
+[32mPASS[0m verify-vendor-applications           13s  ALL CHECKS PASSED — the public path cannot create a payable vendor.
+[32mPASS[0m verify-vendor-evaluation             21s  ALL CHECKS PASSED — a vendor's score comes from a checklist and a clock, never a free-typed numb
+[32mPASS[0m verify-vendor-journey                32s  ALL CHECKS PASSED — a vendor can accept, decline, complete and invoice, and cannot pay themselve
+[32mPASS[0m verify-vendor-list                    2s  ALL CHECKS PASSED — the vendor register lists what each role may see, and nothing beside it.
+[32mPASS[0m verify-vendor-onboarding             13s  ALL CHECKS PASSED — a vendor added by a person is listed, dispatchable, and sees their own work.
+[32mPASS[0m verify-vendor-roles                   5s  ALL CHECKS PASSED — a vendor company is many people, each with the capabilities they were given.
+[32mPASS[0m verify-vendor-score-consumers        12s  ALL CHECKS PASSED — the payment gate and BI read the paired composite, never the undercounted ra
+[32mPASS[0m verify-vendor-self-service           54s  ALL CHECKS PASSED — a vendor registers, evidences and corrects their own pack, and forges nothin
+[32mPASS[0m verify-vendor-two-tier               13s  ALL CHECKS PASSED — a vendor's own staff are admitted by capability, never by one shared login.
+[32mPASS[0m verify-viewer-access                 26s  ALL CHECKS PASSED — a viewer sees the programme, not the money, the people, or the trail.
+[32mPASS[0m verify-work-order-media              31s  ALL CHECKS PASSED — evidence is visible with its job, attributable, and fixed once the job is ju
+
+[32m124 of 124 suite(s) passed.[0m

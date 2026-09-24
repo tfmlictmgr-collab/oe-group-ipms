@@ -611,8 +611,19 @@ export function gatewayMode(currency = "NGN"): "live" | "test" | "simulated" {
   const name = collectionGatewayName(currency);
   const key = name === "simulated" ? null : platformKey(name);
   if (!key) return "simulated";
-  // Paystack: sk_test_… / sk_live_…   Flutterwave: FLWSECK_TEST-… / FLWSECK-…
-  return /(^sk_test_)|(_TEST-)|(^FLWSECK_TEST)/i.test(key) ? "test" : "live";
+  return keyIsTest(key) ? "test" : "live";
+}
+
+/**
+ * Test or live, from the key's own prefix.
+ * Paystack: sk_test_… / sk_live_…   Flutterwave: FLWSECK_TEST-… / FLWSECK-…
+ *
+ * The same question `credentials.ts:keyMode` answers at save time for a key an
+ * org pastes in. This one is for a PLATFORM key, which is never saved anywhere
+ * to be asked about later.
+ */
+function keyIsTest(key: string): boolean {
+  return /(^sk_test_)|(_TEST-)|(^FLWSECK_TEST)/i.test(key);
 }
 
 /** Whether the deployment holds any real key able to collect this currency. */
@@ -748,7 +759,18 @@ export async function resolveOrgGateway(
   // simulate one — a simulated transfer reports success and posts to the ledger.
   // `anyPlatformKeyFor` asks the COLLECTION preference, which for Naira names
   // both gateways, so a Flutterwave key alone is enough to rule simulation out.
-  if (!anyPlatformKeyFor(currency) && !isProduction()) {
+  //
+  // ⚠️ And never for a purpose NO gateway serves. `gatewayPreference` returns an
+  // empty list for a foreign-currency payout — nothing pays out in USD, which is
+  // why production refuses one before the remittance is claimed. Without this
+  // guard a keyless dev or staging world took the branch below instead and
+  // handed back the SIMULATED adapter, whose `transfer` reports success and
+  // posts to the ledger. Not a regression (the same thing happened before the
+  // 23 Sept 2026 purpose split), but it is the shape that makes a rehearsal
+  // worthless: Stage 4.4 would watch an FX payout "succeed" on staging and
+  // prove a path that refuses in production. An empty preference means no,
+  // everywhere.
+  if (preference.length > 0 && !anyPlatformKeyFor(currency) && !isProduction()) {
     return {
       merchant: "simulated",
       adapter: new SimulatedAdapter(process.env.SIMULATED_GATEWAY_SECRET ?? "dev-simulated-secret"),
@@ -756,6 +778,105 @@ export async function resolveOrgGateway(
   }
 
   throw new GatewayNotConnectedError(org?.name ?? null);
+}
+
+/**
+ * What a SCREEN should say about how this org collects — the same question
+ * `resolveOrgGateway` answers with an adapter, answered with a label instead.
+ *
+ * ⚠️ Why this exists. `gatewayMode()` and `collectionGatewayName()` read
+ * `process.env` and nothing else, so they describe the PLATFORM account. Since
+ * `0288` the checkout beside them runs on the ORG's own credential. While both
+ * were Paystack the two could only disagree about test-vs-live; once Flutterwave
+ * became the preferred Naira collector (23 Sept 2026) they can disagree about
+ * WHICH GATEWAY too — and, with a live platform Flutterwave key and an org on
+ * its own Paystack test key, the banner read "Live keys — real money" over a
+ * checkout that charges nothing. The reverse is the dangerous one: an org on its
+ * own LIVE key under a platform test key was told no card would be charged.
+ *
+ * A label is all this is — it cannot stop a live key being used, only stop it
+ * being used unknowingly — which is exactly why it has to be the truth.
+ *
+ * ⚠️ THIS MUST MIRROR `resolveOrgGateway` ABOVE, step for step. A banner that
+ * resolves differently from the checkout it sits above is the bug this replaces.
+ * `verify-gateway-isolation` §G holds the two to the same four answers.
+ *
+ * It reads `key_mode`, recorded at save time, and never decrypts a secret: a
+ * label is not a reason to pull live keys into memory on every page render.
+ */
+export type CollectionRoute =
+  /** A real key will take the money — whose, which gateway, and in which mode. */
+  | { state: "connected"; gateway: RealGateway; mode: "live" | "test"; merchant: MerchantAccount }
+  /** No real key anywhere outside production: checkout runs in-app, no card. */
+  | { state: "simulated" }
+  /** `0288` refuses this org a checkout; the payer is offered bank transfer. */
+  | { state: "not_connected" }
+  /** We could not tell. Says so, rather than guessing at the money question. */
+  | { state: "unknown" };
+
+export async function collectionRouteForOrg(
+  orgId: string,
+  currency = "NGN"
+): Promise<CollectionRoute> {
+  const preference = gatewayPreference(currency, "collect");
+  try {
+    const { supabaseAdmin } = await import("@/lib/supabase/admin");
+
+    // 1. The org's own account, in the preference order the resolver uses.
+    const { data: creds, error } = await supabaseAdmin
+      .from("org_gateway_credentials")
+      .select("gateway, key_mode")
+      .eq("org_id", orgId)
+      .eq("active", true);
+    // A read that failed is not "no credential" — `getOrgCredential` throws on
+    // exactly this, for exactly this reason.
+    if (error) return { state: "unknown" };
+
+    for (const g of preference) {
+      const own = (creds ?? []).find((c) => c.gateway === g);
+      if (!own) continue;
+      // The credential exists but nothing can decrypt it, so the checkout will
+      // throw where this would have promised a working gateway. Only the
+      // systemic case is caught here — a single unreadable row still reads as
+      // connected, because telling them apart means decrypting, and a label is
+      // not worth that.
+      const { credentialKeyConfigured } = await import("./credentials");
+      if (!credentialKeyConfigured()) return { state: "unknown" };
+      return {
+        state: "connected",
+        gateway: g,
+        mode: own.key_mode === "live" ? "live" : "test",
+        merchant: "org",
+      };
+    }
+
+    // 2. The platform key — only for the one org that owns it.
+    const { data: org, error: orgError } = await supabaseAdmin
+      .from("orgs").select("uses_platform_gateway").eq("id", orgId).maybeSingle();
+    if (orgError) return { state: "unknown" };
+
+    if (org?.uses_platform_gateway) {
+      const platform = preference.find((g) => platformKey(g) !== null);
+      if (platform) {
+        return {
+          state: "connected",
+          gateway: platform,
+          mode: keyIsTest(platformKey(platform) as string) ? "test" : "live",
+          merchant: "platform",
+        };
+      }
+    }
+
+    // 3. Simulation, on the same terms the resolver allows it.
+    if (!anyPlatformKeyFor(currency) && !isProduction()) return { state: "simulated" };
+
+    // 4. Refused. The screen has never had a way to say this, so an org that
+    //    cannot collect at all was shown whatever the platform key happened to
+    //    be — "Live keys — real money" over a checkout that refuses every time.
+    return { state: "not_connected" };
+  } catch {
+    return { state: "unknown" };
+  }
 }
 
 /**

@@ -158,6 +158,35 @@ const gw = await import("../lib/gateway/index.ts");
   }
 }
 
+// A payout in a currency NOTHING pays out in must be refused in every world,
+// not simulated in the keyless ones. `gatewayPreference` returns an empty list
+// for a foreign-currency payout; production therefore refuses one before the
+// remittance is claimed. A keyless dev or staging used to fall through to the
+// simulated adapter instead — whose `transfer` reports success and posts to the
+// ledger — so Stage 4.4 would have watched an FX payout "succeed" on staging
+// and proved a path that refuses in production. Runs in every world, because
+// the worlds that CAN get this wrong are the keyless ones.
+{
+  for (const [label, o] of [["TFML", tfml], ["OEA", oea]]) {
+    let outcome = "a gateway";
+    try {
+      const r = await gw.resolveOrgGateway(o.id, "USD", "payout");
+      outcome = r.merchant === "simulated" ? "the SIMULATED adapter" : `the ${r.merchant} account`;
+    } catch (e) {
+      outcome = e.name === "GatewayNotConnectedError" ? "refused" : `error: ${e.message}`;
+    }
+    outcome === "refused"
+      ? ok(`${label}: a foreign-currency payout is refused, as it is in production`)
+      : bad(`${label}: a foreign-currency payout resolved to ${outcome} — a simulated transfer posts to the ledger`);
+  }
+  // The Naira payout must still resolve, or dev could not rehearse a payout at all.
+  let ngnOk = false;
+  try { await gw.resolveOrgGateway(tfml.id, "NGN", "payout"); ngnOk = true; } catch { ngnOk = false; }
+  ngnOk || !gw.gatewayConfigured("NGN")
+    ? ok("…while a Naira payout still resolves, so the refusal is about the currency, not a blanket no")
+    : bad("a Naira payout is now refused too — the guard is too wide");
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 section("C. Verification uses the account that TOOK the payment");
 
@@ -344,6 +373,163 @@ const { portalOrigin } = await import("../lib/portal-origin.ts");
   t !== o || !oea.custom_domain
     ? ok("a TFML letter and an OEA letter never share an address")
     : bad("TFML and OEA links resolve to the same host");
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+section("G. The screen's answer is the checkout's answer");
+
+// `collectionRouteForOrg` labels a screen; `resolveOrgGateway` takes the money.
+// They are two functions answering one question, so they can drift — and a
+// banner that disagrees with the checkout below it is worse than no banner,
+// because it is believed. Before this section existed the banner read
+// `process.env` alone: an org collecting on its own Paystack TEST key was shown
+// "Live keys — real money" as soon as the platform held a live Flutterwave key,
+// and, the dangerous way round, an org on its own LIVE key under a platform
+// test key was told no card would be charged.
+//
+// So: call both, for real, and require the same answer.
+{
+  const compare = async (label, orgId, currency) => {
+    const route = await gw.collectionRouteForOrg(orgId, currency);
+
+    let resolved = null;
+    let refusal = null;
+    try {
+      resolved = await gw.resolveOrgGateway(orgId, currency, "collect");
+    } catch (e) {
+      refusal = e;
+    }
+
+    // The banner declines to guess; nothing to hold it to.
+    if (route.state === "unknown") {
+      skip(`${label} ${currency}: the route could not be read, and the banner says so`);
+      return;
+    }
+
+    if (refusal) {
+      if (refusal.name !== "GatewayNotConnectedError") {
+        bad(`${label} ${currency}: the checkout failed in a way neither function models — ${refusal.message}`);
+        return;
+      }
+      route.state === "not_connected"
+        ? ok(`${label} ${currency}: checkout is refused, and the screen says so`)
+        : bad(`${label} ${currency}: checkout is REFUSED but the screen says "${route.state}"`);
+      return;
+    }
+
+    if (route.state === "not_connected") {
+      bad(`${label} ${currency}: the screen says no account is connected, but checkout resolved to ${resolved.merchant}`);
+      return;
+    }
+
+    if (resolved.merchant === "simulated") {
+      route.state === "simulated"
+        ? ok(`${label} ${currency}: checkout is simulated, and the screen says so`)
+        : bad(`${label} ${currency}: checkout is SIMULATED but the screen says "${route.state}"`);
+      return;
+    }
+
+    if (route.state !== "connected") {
+      bad(`${label} ${currency}: checkout resolved to ${resolved.merchant}/${resolved.adapter.name} but the screen says "${route.state}"`);
+      return;
+    }
+    route.gateway === resolved.adapter.name
+      ? ok(`${label} ${currency}: both name ${route.gateway}`)
+      : bad(`${label} ${currency}: the screen names ${route.gateway}, the checkout uses ${resolved.adapter.name}`);
+    route.merchant === resolved.merchant
+      ? ok(`${label} ${currency}: both say the ${route.merchant} account`)
+      : bad(`${label} ${currency}: the screen says the ${route.merchant} account, the checkout uses the ${resolved.merchant} one`);
+  };
+
+  for (const [label, o] of [["TFML", tfml], ["OEA", oea]]) {
+    await compare(label, o.id, "NGN");
+    await compare(label, o.id, "USD");
+  }
+
+  // ── The disagreement itself, constructed ────────────────────────────────
+  // Everything above compares whatever this world happens to be configured as.
+  // On a world with no gateway key at all BOTH sides answer "simulated", which
+  // is the one configuration in which they cannot disagree — so those passes
+  // prove agreement without ever exercising the defect.
+  //
+  // The defect needs a PLATFORM key present. That half can be constructed from
+  // the environment alone: no database write, no network call (neither function
+  // contacts a gateway; one reads a column, the other builds an adapter).
+  //
+  // With a platform key set and an org that does not own it, the OLD banner
+  // said "test mode" — over a checkout that 0288 refuses every single time.
+  {
+    const saved = {
+      p: process.env.PAYSTACK_SECRET_KEY,
+      f: process.env.FLUTTERWAVE_SECRET_KEY,
+    };
+    // Never sent anywhere. Shaped only so `keyIsTest` reads it as a test key.
+    process.env.PAYSTACK_SECRET_KEY = "sk_test_verifyonlyneversent000000000000";
+    delete process.env.FLUTTERWAVE_SECRET_KEY;
+    try {
+      // The old answer, still computed the old way, as the thing being improved on.
+      const oldBanner = gw.gatewayMode("NGN");
+
+      const oeaRoute = await gw.collectionRouteForOrg(oea.id, "NGN");
+      let oeaRefused = false;
+      try { await gw.resolveOrgGateway(oea.id, "NGN", "collect"); } catch (e) {
+        oeaRefused = e.name === "GatewayNotConnectedError";
+      }
+
+      if (!oeaRefused) {
+        skip("OEA has a gateway of its own here, so the refusal case cannot be constructed");
+      } else if (oldBanner !== "test") {
+        bad(`the constructed platform key did not take (gatewayMode said "${oldBanner}")`);
+      } else {
+        // This is the bug, reproduced.
+        oeaRoute.state === "not_connected"
+          ? ok('with a platform key set, OEA\'s checkout is refused and the screen says "no account connected" — where it used to say "test mode"')
+          : bad(`OEA's checkout is refused but the screen says "${oeaRoute.state}"`);
+      }
+
+      // The other side of the same coin: the org that DOES own the platform key
+      // is still told the truth, so the fix has not simply made everything read
+      // "not connected".
+      const tfmlOwn = await one(
+        "select count(*)::int n from org_gateway_credentials where org_id = $1 and active",
+        [tfml.id]
+      );
+      if (tfmlOwn.n > 0) {
+        skip("TFML has a credential of its own here, so the platform-account case cannot be constructed");
+      } else {
+        const tfmlRoute = await gw.collectionRouteForOrg(tfml.id, "NGN");
+        tfmlRoute.state === "connected" && tfmlRoute.merchant === "platform" && tfmlRoute.gateway === "paystack"
+          ? ok("…while TFML, which owns the platform key, is correctly shown as collecting on it")
+          : bad(`TFML resolved to "${tfmlRoute.state}"/"${tfmlRoute.merchant ?? "-"}" with a platform key present`);
+        tfmlRoute.state === "connected" && tfmlRoute.mode === "test"
+          ? ok("…in test mode, read from the platform key's own prefix")
+          : bad("TFML's mode did not follow the platform key's prefix");
+      }
+    } finally {
+      // Restore, whatever happened — later sections and any re-run read these.
+      saved.p === undefined ? delete process.env.PAYSTACK_SECRET_KEY : (process.env.PAYSTACK_SECRET_KEY = saved.p);
+      saved.f === undefined ? delete process.env.FLUTTERWAVE_SECRET_KEY : (process.env.FLUTTERWAVE_SECRET_KEY = saved.f);
+    }
+  }
+
+  // The mode is the half that cannot be got from the adapter, because an
+  // adapter does not expose its key — and it is the half that says whether a
+  // real card is charged. Held to `key_mode`, recorded at save time, which is
+  // the same column Settings → Banking shows.
+  for (const [label, o] of [["TFML", tfml], ["OEA", oea]]) {
+    const route = await gw.collectionRouteForOrg(o.id, "NGN");
+    if (route.state !== "connected" || route.merchant !== "org") {
+      skip(`${label}: not collecting Naira on its own key here, so there is no stored mode to check against`);
+      continue;
+    }
+    const stored = await one(
+      "select key_mode from org_gateway_credentials where org_id = $1 and gateway = $2 and active",
+      [o.id, route.gateway]
+    );
+    stored && stored.key_mode === route.mode
+      ? ok(`${label}: the banner's "${route.mode} mode" is the mode the stored key was saved as`)
+      : bad(`${label}: the banner says ${route.mode}, the stored key is ${stored?.key_mode ?? "absent"}`);
+  }
 }
 
 await client.end();

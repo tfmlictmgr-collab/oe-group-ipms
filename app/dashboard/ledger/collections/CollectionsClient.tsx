@@ -8,6 +8,10 @@ import {
   CheckCircle2, Clock, Receipt, FlaskConical,
 } from "lucide-react";
 import { formatMoney } from "@/lib/currency";
+// Type-only: erased at compile time, so the server-side gateway module (and
+// `node:crypto` with it) never reaches the client bundle. One definition, so
+// the banner and the resolver cannot drift apart.
+import type { CollectionRoute } from "@/lib/gateway";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input, Select } from "@/components/ui/input";
@@ -92,17 +96,16 @@ function deliveryLine(d?: {
 }
 
 export default function CollectionsClient({
-  intents, billable, returnedRef, returnedIntentId, mode, ngnGateway, fxMode, fxCurrencies,
+  intents, billable, returnedRef, returnedIntentId, ngn, fx, fxCurrencies,
 }: {
   intents: IntentRow[];
   billable: BillableRow[];
   returnedRef: string | null;
   returnedIntentId: string | null;
-  mode: "live" | "test" | "simulated";
-  /** Which gateway takes Naira here — Flutterwave once its key is set (23 Sept 2026). */
-  ngnGateway: "paystack" | "flutterwave" | "simulated";
-  /** Flutterwave's mode — one for every non-NGN currency, B3's single FX adapter. */
-  fxMode: "live" | "test" | "simulated";
+  /** How THIS org collects Naira — resolved the way the checkout resolves it (0288). */
+  ngn: CollectionRoute;
+  /** The same for foreign currency — one Flutterwave account covers all of it (B3). */
+  fx: CollectionRoute;
   /** Currencies this org actually has a client-funds account for (0103). */
   fxCurrencies: string[];
 }) {
@@ -343,10 +346,11 @@ export default function CollectionsClient({
         );
       })}
 
-      {/* Which gateway mode is in force. Nothing else on screen distinguishes a
-          test key from a live one, and the difference is whether real cards are
-          charged. */}
-      {mode === "simulated" && (
+      {/* Which gateway mode is in force, FOR THIS ORGANISATION. Nothing else on
+          screen distinguishes a test key from a live one, and the difference is
+          whether real cards are charged — so this reads the org's own
+          credential, not the platform's environment. */}
+      {ngn.state === "simulated" && (
         <div className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/8 px-4 py-3 text-sm">
           <FlaskConical className="mt-0.5 size-4 flex-shrink-0 text-warning" />
           <p className="text-muted-foreground">
@@ -357,11 +361,40 @@ export default function CollectionsClient({
           </p>
         </div>
       )}
-      {mode === "test" && (
+      {ngn.state === "not_connected" && (
+        <div className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/8 px-4 py-3 text-sm">
+          <TriangleAlert className="mt-0.5 size-4 flex-shrink-0 text-warning" />
+          <p className="text-muted-foreground">
+            <span className="font-medium text-foreground">
+              No payment account connected.
+            </span>{" "}
+            This organisation has not connected a gateway of its own, so online
+            checkout is refused and nothing raised here can be paid by card.
+            Money is never taken through another organisation&rsquo;s merchant
+            account. Ask an administrator to connect one under{" "}
+            <span className="font-medium text-foreground">Settings → Banking</span>,
+            or take payment by bank transfer and record it.
+          </p>
+        </div>
+      )}
+      {ngn.state === "unknown" && (
+        <div className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/8 px-4 py-3 text-sm">
+          <TriangleAlert className="mt-0.5 size-4 flex-shrink-0 text-warning" />
+          <p className="text-muted-foreground">
+            <span className="font-medium text-foreground">
+              Payment account could not be read.
+            </span>{" "}
+            Whether a card raised here would be charged for real cannot be
+            confirmed right now, so nothing on this page should be treated as
+            either live or safe until it can. Tell an administrator.
+          </p>
+        </div>
+      )}
+      {ngn.state === "connected" && ngn.mode === "test" && (
         <div className="flex items-start gap-2 rounded-lg border border-info/40 bg-info/8 px-4 py-3 text-sm">
           <FlaskConical className="mt-0.5 size-4 flex-shrink-0 text-info" />
           <p className="text-muted-foreground">
-            {ngnGateway === "flutterwave" ? (
+            {ngn.gateway === "flutterwave" ? (
               <>
                 <span className="font-medium text-foreground">Flutterwave test mode.</span>{" "}
                 Checkout is the real Flutterwave page, but no card is charged. Use one
@@ -375,23 +408,41 @@ export default function CollectionsClient({
                 expiry, CVV <span className="font-mono">408</span>, OTP{" "}
                 <span className="font-mono">123456</span>.
               </>
-            )}
+            )}{" "}
+            {ngn.merchant === "org"
+              ? "On this organisation's own account."
+              : "On the platform account."}
           </p>
         </div>
       )}
-      {mode === "live" && (
+      {ngn.state === "connected" && ngn.mode === "live" && (
         <div className="flex items-start gap-2 rounded-lg border border-destructive/50 bg-destructive/8 px-4 py-3 text-sm">
           <TriangleAlert className="mt-0.5 size-4 flex-shrink-0 text-destructive" />
           <p className="text-muted-foreground">
             <span className="font-semibold text-destructive">Live keys — real money.</span>{" "}
             Any payment raised here charges a real card and settles to the
-            client-funds account. If this is a demonstration environment, replace{" "}
-            <span className="font-mono">
-              {ngnGateway === "flutterwave" ? "FLUTTERWAVE_SECRET_KEY" : "PAYSTACK_SECRET_KEY"}
-            </span>{" "}
-            with the{" "}
-            <span className="font-mono">{ngnGateway === "flutterwave" ? "FLWSECK_TEST-…" : "sk_test_…"}</span>{" "}
-            key before continuing.
+            client-funds account.{" "}
+            {ngn.merchant === "org" ? (
+              <>
+                This organisation&rsquo;s own live{" "}
+                {ngn.gateway === "flutterwave" ? "Flutterwave" : "Paystack"} key is
+                connected. If this is a demonstration, replace it with a test key
+                under{" "}
+                <span className="font-medium text-foreground">Settings → Banking</span>.
+              </>
+            ) : (
+              <>
+                If this is a demonstration environment, replace{" "}
+                <span className="font-mono">
+                  {ngn.gateway === "flutterwave" ? "FLUTTERWAVE_SECRET_KEY" : "PAYSTACK_SECRET_KEY"}
+                </span>{" "}
+                with the{" "}
+                <span className="font-mono">
+                  {ngn.gateway === "flutterwave" ? "FLWSECK_TEST-…" : "sk_test_…"}
+                </span>{" "}
+                key before continuing.
+              </>
+            )}
           </p>
         </div>
       )}
@@ -400,7 +451,7 @@ export default function CollectionsClient({
           a foreign currency (Settings → Banking). An org that never touches FX
           sees nothing extra here; the badge would otherwise be noise about a
           capability nobody asked for. */}
-      {fxCurrencies.length > 0 && fxMode === "simulated" && (
+      {fxCurrencies.length > 0 && fx.state === "simulated" && (
         <div className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/8 px-4 py-3 text-sm">
           <FlaskConical className="mt-0.5 size-4 flex-shrink-0 text-warning" />
           <p className="text-muted-foreground">
@@ -411,7 +462,20 @@ export default function CollectionsClient({
           </p>
         </div>
       )}
-      {fxCurrencies.length > 0 && fxMode === "test" && (
+      {fxCurrencies.length > 0 && (fx.state === "not_connected" || fx.state === "unknown") && (
+        <div className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/8 px-4 py-3 text-sm">
+          <TriangleAlert className="mt-0.5 size-4 flex-shrink-0 text-warning" />
+          <p className="text-muted-foreground">
+            <span className="font-medium text-foreground">
+              International checkout is not available.
+            </span>{" "}
+            {fx.state === "not_connected"
+              ? "This organisation has no Flutterwave account connected, so a foreign-currency request cannot be paid by card. Take it by bank transfer into the currency's own client-funds account and record it."
+              : "Whether a foreign-currency card would be charged for real cannot be confirmed right now. Tell an administrator."}
+          </p>
+        </div>
+      )}
+      {fxCurrencies.length > 0 && fx.state === "connected" && fx.mode === "test" && (
         <div className="flex items-start gap-2 rounded-lg border border-info/40 bg-info/8 px-4 py-3 text-sm">
           <FlaskConical className="mt-0.5 size-4 flex-shrink-0 text-info" />
           <p className="text-muted-foreground">
@@ -421,7 +485,7 @@ export default function CollectionsClient({
           </p>
         </div>
       )}
-      {fxCurrencies.length > 0 && fxMode === "live" && (
+      {fxCurrencies.length > 0 && fx.state === "connected" && fx.mode === "live" && (
         <div className="flex items-start gap-2 rounded-lg border border-destructive/50 bg-destructive/8 px-4 py-3 text-sm">
           <TriangleAlert className="mt-0.5 size-4 flex-shrink-0 text-destructive" />
           <p className="text-muted-foreground">

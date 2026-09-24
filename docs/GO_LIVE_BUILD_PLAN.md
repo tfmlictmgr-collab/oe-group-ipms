@@ -1025,7 +1025,7 @@ one-line reason rather than deleting it silently.
       ref in `HOSTS.prod` (3.1) and create `.env.prod.local` from the
       production dashboard — never by copying another world's file, which the
       new guard now refuses outright.
-- [~] 2.11 **`v1.0.0-rc3` cut 21 Sept 2026 at `c628e90`** — rule 7, because
+- [x] 2.11 **`v1.0.0-rc3` cut 21 Sept 2026 at `c628e90`** — rule 7, because
       `0299` and everything after it killed `rc2`. 28 commits and 44 files
       since: schema `0296` → `0300`, suites 121 → 124.
       ✅ **Stage 0's local gates are green on this exact tree** (0.2): `npm ci`
@@ -1045,6 +1045,20 @@ one-line reason rather than deleting it silently.
       the tag, which is the stronger of the two.
       ⚠️ **0.5 still to run** — the `npm audit` snapshot. Until it is
       recorded, Stage 0 is not fully re-met.
+      📌 **Amended 24 Sept 2026.** A snapshot for `rc3` does exist and is now
+      committed (`docs/verify-runs/rc3-audit.json`), so "still to run" was
+      either wrong or written before it was taken. It cannot be settled either
+      way: the file is **byte-identical to `rc2`'s**, `npm audit --json` writes
+      no timestamp, and a genuine re-run against an unmoved registry looks
+      exactly like a copy. Plausible — one day apart, no advisory published
+      between, while `rc2` and `rc4` three days apart do differ — but not
+      proven, and recorded as unproven. Moot for any gate: `rc3` is dead and
+      `rc4`'s snapshot was taken and checked properly.
+      📌 **`rc3`'s run of record is also now committed** — `124 of 124`, the
+      first clean sweep. It had sat untracked on the operator's workstation for
+      three days while this entry cited it. The run was sound; the evidence for
+      it simply was not in the repository. **A run of record belongs in the
+      same commit as the claim it backs.**
       ⚠️ **`rc3` dies the moment PR #37 merges** — rule 7. Unlike the
       `rc1`→`rc2` case, where all later work was `scripts/`-only and therefore
       outside `next build`, #37 edits `app/layout.tsx`. That is compiled into
@@ -1058,6 +1072,9 @@ one-line reason rather than deleting it silently.
       session is refused with **HTTP 403** (branch refs are permitted, tag refs
       are not), so the annotation was composed here and the tag created
       locally.
+      ✅ **Closed 23 Sept 2026: `rc3` is dead as predicted and `rc4` replaced
+      it** — see 2.13. It died twice over, once on PR #37 (`app/layout.tsx`)
+      and again on PR #53 (the gateway).
 - [~] 2.12 **Flutterwave replaces Paystack for collections — Option A, built
       23 Sept 2026.** Paystack's verification asks (SCUML certificate,
       shareholder ID and address for 51% owners) cannot be met in time;
@@ -1103,6 +1120,198 @@ one-line reason rather than deleting it silently.
       URL `/api/webhooks/payments/flutterwave` and the same secret hash in
       each Flutterwave dashboard. 4.4: rehearse the money path on Flutterwave
       test keys; payouts rehearse by bank transfer.
+      ---
+      **Read back against the gateway decisions, 23 Sept 2026** (47/`0288`
+      segregation, 54/`0289` bank transfer, 55 the test-mode lookup limit, B3's
+      FX split). The change holds where it matters, and three things are owed.
+      ✅ **Sound.** All **9** `resolveOrgGateway`/`getGatewayForOrg` call sites
+      state their purpose — none was missed. The webhook fix is a genuine
+      security fix and is done the right way: the verifier is built from the
+      sending gateway's own credential (`adapterFromCredential(cred)`), never
+      from collection preference. The settlement currency guard returns
+      `unknown`, which by decision 47 nothing acts on — so a mismatched payment
+      neither retires nor re-opens. `listBanks` and `lookUpAccountName` were
+      both read: with no Paystack key anywhere they fall back to the built-in
+      list and to `unavailable: true` ("type the account name yourself"), so
+      the PR's "degrades safely" claim holds, and decision 55's 429 path is
+      untouched. `tsc --noEmit` is clean on the merge commit.
+      ⚠️ **Owed 1 — the Collections banner names the PLATFORM's gateway, not
+      the org's.** `app/dashboard/ledger/collections/page.tsx` passes
+      `gatewayMode("NGN")` and `collectionGatewayName("NGN")`, both of which
+      read `process.env` alone, while the checkout beside them runs on
+      `resolveOrgGateway(me.org_id, …, "collect")` — the org's own credential
+      since `0288`. Before this change both were Paystack, so the banner was
+      accidentally right about the *name* and could only be wrong about the
+      *mode*. Now they can disagree by name too: with the platform holding a
+      live Flutterwave key and an org collecting on its own Paystack test key,
+      the screen reads **"Live keys — real money"** over a checkout that charges
+      nothing. The function's own comment says it is "a label, not a control" —
+      but it is the only thing on screen that answers "is this real?", and
+      Stage 4 would train ten roles to read it.
+      ✅ **Fixed 23 Sept 2026.** `collectionRouteForOrg` in `lib/gateway/index.ts`
+      answers the banner's question the way `resolveOrgGateway` answers the
+      checkout's — the org's own credential first, the platform key only for the
+      org that owns it, simulation on the same terms, and otherwise refused. It
+      reads `key_mode`, recorded at save time, so a label never decrypts a live
+      key. The screen gained the two states it had never had: **"No payment
+      account connected"**, for an org `0288` refuses a checkout (which in
+      production is every org but one, and which previously displayed whatever
+      the platform key happened to be), and **"could not be read"**, which
+      declines to guess rather than calling an unreadable route live or safe.
+      `verify-gateway-isolation` **§G** calls both resolvers for both orgs in
+      both currencies and requires the same answer, so the two cannot drift.
+      ⚠️ **§G's first form was decoration, and the first run on `dev` showed it.**
+      All four comparisons came back *"checkout is simulated, and the screen says
+      so"*, and both mode checks skipped: `dev` holds no gateway key at all, so
+      both sides answer "simulated" — the one configuration in which they
+      **cannot** disagree. Four green lines that never touched the defect. A
+      check that only bites on a world that happens to be configured
+      adversarially is not a check.
+      ✅ **§G now constructs the disagreement itself**, from the environment
+      alone — no database write, no network call, neither function contacts a
+      gateway. It sets a throwaway platform key, then asserts the thing that
+      was actually wrong: with a platform key present, OEA's checkout is refused
+      by `0288` and the screen must read **"no account connected"**, where it
+      used to read *"test mode"*. TFML, which owns the platform key, must still
+      read connected/platform/test, so the fix cannot have simply made
+      everything say "not connected". The key is restored in a `finally`, and if
+      the injection fails to take, the section **fails** rather than passing
+      quietly — the false-pass control the first form lacked.
+      ✅ **Run of record, `dev`, 23 Sept 2026 — all three constructed checks
+      pass.** With a platform key present, OEA's checkout is refused and the
+      screen reads "no account connected"; TFML reads connected/platform/test.
+      That is the face of the bug that covers **most of production**: every org
+      but the platform owner is refused by `0288`, and each was previously shown
+      whatever the platform key happened to be.
+      ⚠️ **The other face is still unproven, and the two SKIPs name it.** An org
+      collecting on its OWN key must be shown ITS gateway and ITS mode, not the
+      platform's — the case where an org on its own Paystack *test* key reads
+      "Live keys — real money" under a live platform Flutterwave key. No org in
+      `dev` holds a credential, so nothing exercises it. Deliberately NOT closed
+      by having the suite write a credential: a label check is not worth a row
+      that could survive a crashed run and quietly change how `dev` collects.
+      ✅ **Re-run on `staging`, 23 Sept 2026 — the connected path is now proven
+      too.** With a real platform key present, §G compares rather than skips:
+      *TFML NGN — both name paystack; both say the platform account*, plus three
+      refusals that agree (TFML USD, OEA NGN, OEA USD). So `merchant:
+      "platform"` and `not_connected` are both held against a real world, not a
+      constructed one.
+      ⚠️ **`merchant: "org"` is exercised NOWHERE, and the gap is narrower than
+      first recorded here.** This entry predicted OEA's Paystack test key would
+      still be connected on staging (decision 55); it is not — §B reports *"OEA,
+      with no account of its own, is REFUSED"*. **No org in `dev` or `staging`
+      holds a credential at all**, so the org-account branch of both resolvers
+      has never run. That is the face of the bug where an org on its own
+      Paystack *test* key reads "Live keys — real money" under a live platform
+      Flutterwave key.
+      📌 **It closes when an org connects a key, which is owed anyway.** Doing it
+      on staging closes a second gap in the same sitting: 2.12 records that the
+      signed-in **Settings → Banking** page was never viewed, and PR #53 rewrote
+      that form (the Flutterwave card, the mandatory secret hash, the refusal of
+      a key saved under the wrong gateway). Sign in as OEA's administrator,
+      connect a Paystack test key, re-run this suite for the `merchant: "org"`
+      comparison and the stored-`key_mode` check, then remove it. A Flutterwave
+      test key would be better — it also exercises the secret-hash requirement —
+      once one exists. **Owed before 4.3.**
+      ✅ **CLOSED 24 Sept 2026.** Paystack and Flutterwave test keys were
+      connected for **OEA** on staging, and §G now proves the branch that had
+      never run anywhere:
+      *OEA NGN — both name **flutterwave**; both say the **org** account*, the
+      same for USD, and *"the banner's test mode is the mode the stored key was
+      saved as"*. The Naira line is worth reading twice: it is Option A's
+      preference order taking effect on a real connected credential, where that
+      org collected on Paystack a day earlier — and the screen followed it.
+      **All three states are now held against a real world** — `org` and the
+      stored `key_mode` on staging, `platform` on both, `not_connected` on dev
+      via the constructed case. The two remaining SKIPs are correct and
+      complementary: the constructed refusal cannot be built where OEA *has* a
+      gateway, and TFML legitimately collects on the platform key. Between the
+      two worlds every branch of both resolvers is exercised.
+      ⚠️ **Owed 2 — a keyless world still SIMULATES a payout.** In
+      `resolveOrgGateway` the simulated fallback is gated on
+      `!anyPlatformKeyFor(currency)`, which asks the **collect** preference
+      whatever the purpose. For a non-NGN payout the preference is `[]`, so no
+      org credential is consulted at all and `SimulatedAdapter.transfer()` —
+      which reports `success` and posts to the ledger — is returned. Checked
+      against `22ecc3b`: **this is not a regression**, the old code did the same.
+      It matters now for a different reason. Production will hold **no Paystack
+      key at all**, so every payout there is refused with
+      `GatewayNotConnectedError` and goes by bank transfer (`0289`) — and
+      staging, which does hold Paystack test keys, will not reproduce that.
+      **4.4 must rehearse the production key set, not staging's.**
+      ✅ **Fixed 24 Sept 2026.** The simulation fallback in `resolveOrgGateway`
+      now also requires a non-empty preference: `preference.length > 0 &&
+      !anyPlatformKeyFor(currency) && !isProduction()`. An empty preference
+      means **no gateway serves this purpose at all**, which is a refusal in
+      every world rather than a simulation in the keyless ones. A Naira payout
+      still resolves in `dev`, so the refusal is about the currency and not a
+      blanket no — `verify-gateway-isolation` §B now asserts both halves, and
+      runs in every world, because the worlds that can get this wrong are
+      precisely the keyless ones.
+      ⚠️ **Owed 3 — the code now contradicts locked decision 4.** `claude.md:8`
+      still reads *"Payments: Paystack (Collections + Transfers/remittance) +
+      Flutterwave (FX / international collections)"*, and lines 472 and 490–491
+      still name the Paystack Transfers API as the outbound path. Leaving them
+      for the board was the right call — a locked decision is not amended by a
+      PR — but until the minute lands and the document is corrected, the repo's
+      constitution says the opposite of its code, and every future session
+      reads the constitution first. **1.10's board minute is the gate.**
+      ✅ **Minute drafted for adoption, 23 Sept 2026** —
+      `docs/BOARD_MINUTE_GATEWAY_OPTION_A.md`, carrying the exact replacement
+      wording for decision 4, the three things the board is being asked to
+      accept (manual payouts at go-live, the Flutterwave key as a hard gate,
+      the legal-pages dependency), the risks recorded, and an **empty sign-off
+      block**. `claude.md` decision 4 now carries a note marking itself
+      **CONTESTED** and pointing at the minute, so no session reads the stale
+      line as authoritative. ⚠️ **Nothing here is board approval.** The minute
+      records a decision the board took; it becomes the record when a director
+      signs it.
+- [x] 2.13 **`v1.0.0-rc4` cut 23 Sept 2026 at `374c2a4`**, the merge commit of
+      PR #53 — rule 7, because `rc3` died on `app/layout.tsx` (PR #37) and
+      again on the gateway change (2.12).
+      ✅ **Rule 7 discharged by measurement, not by assertion.** Stage 0's
+      gates were run on `fe319be`; the tag sits on `374c2a4`.
+      `git diff fe319be v1.0.0-rc4 -- . ':!docs'` is **empty** — the tagged
+      tree is byte-identical, outside `docs/`, to the tree that was verified.
+      The only difference in the whole range is
+      `docs/BACKUP_AND_RESTORE.md` (+38 lines), which `next build` does not read.
+      ✅ **0.3 re-met — 128 suites** (124 → 128: the gateway pair, plus
+      `verify-world-switch` and `verify-backup-crypto`). The batch run recorded
+      `1 of 128 FAILED` (`verify-people-directory`, 11 checks) and one that
+      could not start (`verify-checkout-e2e`, needs a dev server). **Both were
+      re-run standalone on the same tree against a dev server on :3100 and both
+      passed in full** — a harness limitation, not a defect. The run of record
+      is `docs/verify-runs/rc4-20260923.log`.
+      ✅ **0.5 met at last** — `docs/verify-runs/rc4-audit.json` is the
+      `npm audit` snapshot that `rc2` and `rc3` both owed. Stage 0 is now
+      fully re-met for the first time since `rc1`.
+      📌 **Both halves of 0.5, not just the file.** The step is a snapshot AND a
+      confirmation that the Next-14 deferral (1c) still holds; it was first
+      marked met here on the strength of the file alone. Checked properly
+      23 Sept 2026 by comparing the two snapshots' advisory sets: **38 in
+      `rc2`, 38 in `rc4`, none new, none gone.** The deferral is untouched and
+      1c needs no amendment. The two criticals are the same two 1c assessed and
+      they remain non-applicable, re-confirmed by inspection rather than by
+      title: `GHSA-2xp9-vwfh-vxw4` needs the app's own Image Optimization API
+      with AVIF, and this app has **no `next/image` usage at all**, no `images`
+      block in `next.config.mjs` and no `sharp`; `GHSA-p293-qw3h-jr36` is
+      windows-hosted only and production is Vercel on Linux. ⚠️ That second one
+      *does* reach a `next dev` server on a Windows workstation, which is where
+      this build is driven from — not exposed, so not urgent, but it is a
+      reason not to run the dev server on an untrusted network.
+      📌 The `rc4` snapshot is a fresh run, not a renamed `rc2`: the two files
+      differ in 21 entries as npm's `fixAvailable` targets moved.
+      ⚠️ The tag was pushed by a person again: a tag push from the build
+      session is still refused with **HTTP 403**.
+      ⚠️ **`rc4` died the same day, 23 Sept 2026 — rule 7.** PR #55 was docs
+      only and harmless, but **PR #56** (`claude/legal-terms-refunds`) adds
+      `app/legal/terms`, `app/legal/refunds` and a link in the sign-in panel:
+      all inside `next build`, so deploying `rc4` would ship a site without the
+      pages Flutterwave requires before it will reactivate the account. **`rc5`
+      is required**, and should also carry the banner fix (2.12, owed 1).
+      0.2 must be re-run on it, and 0.3 as well — unlike the `rc3`→`rc4` delta,
+      `lib/gateway/index.ts` is changed and a suite reads it.
+
 
 ### Stage 3 — Provision production, empty
 - [x] 3.1 Production Supabase project created in the confirmed region; ref recorded
@@ -1276,16 +1485,26 @@ one-line reason rather than deleting it silently.
 - [ ] 4.1 Staging on the exact RC tag and schema
 - [ ] 4.2 Full Stage 5 rehearsed on staging, timed, runbook written from it
 - [ ] 4.3 Multi-role UAT, all ten roles
-- [ ] 4.4 Money path end to end — gateway payout, bank-transfer payout, off-platform payment
+- [ ] 4.4 Money path end to end — Flutterwave **collection** on test keys,
+      bank-transfer payout, off-platform payment. ⚠️ **Rehearse the PRODUCTION
+      key set** (Flutterwave only, no Paystack): staging's Paystack test keys
+      make a payout resolve where production refuses it — 2.12, owed 2. A
+      *gateway* payout is out of scope until Option B
 - [ ] 4.5 Rollback rehearsed: deployment revert **and** PITR restore *(gap G)*
 - [ ] 4.6 Findings fixed; if anything changed, `rc2` cut and 4.1–4.5 repeated
 
 ### Stage 5 — Cutover
 - [ ] 5.1 Target confirmed
 - [ ] 5.2 RC tag deployed to production
-- [ ] 5.3 Variables set; gateway-mode label reads live
+- [ ] 5.3 Variables set; gateway-mode label reads live. **`FLUTTERWAVE_SECRET_KEY`
+      + `FLUTTERWAVE_WEBHOOK_HASH` are now the required pair;
+      `PAYSTACK_SECRET_KEY` stays unset unless a verified Paystack account
+      exists** (2.12)
 - [ ] 5.4 Operator admin bootstrapped; password changed; **MFA enabled**
 - [ ] 5.5 Both 360dialog webhooks re-registered
+- [ ] 5.5a **Flutterwave webhook registered** in each dashboard at
+      `/api/webhooks/payments/flutterwave`, carrying the same secret hash
+      that is set in the environment (2.12)
 - [ ] 5.6 Both Telegram webhooks re-registered with the correct usernames
 - [ ] 5.7 Three domains **moved** (never aliased)
 - [ ] 5.8 `custom_domain` bound per org *(gap C)*
