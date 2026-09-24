@@ -1,0 +1,43 @@
+Running 128 suite(s) with tsx
+
+[32mPASS[0m verify-access-matrix                 67s  ALL CHECKS PASSED
+[32mPASS[0m verify-account-recovery              12s  ALL CHECKS PASSED — a reset token is a hash, single-use, genuinely signs in, and the account is 
+[32mPASS[0m verify-action-errors                 27s  ALL CHECKS PASSED — a user-facing failure reaches the user.
+[32mPASS[0m verify-analytics-console             24s  ALL CHECKS PASSED — the console filters, buckets and scopes, and never invents a duration.
+[32mPASS[0m verify-analytics-drilldown           32s  ALL CHECKS PASSED — the queue and the drill-down agree with the database, in both tier modes.
+[32mPASS[0m verify-application-lga                3s  ALL CHECKS PASSED — an applicant's LGA and statement are recorded as given.
+[32mPASS[0m verify-application-review            84s  ALL CHECKS PASSED — a PM recommends, an approver decides independently, and nothing decides itse
+[32mPASS[0m verify-application-submission        19s  ALL CHECKS PASSED — an applicant can submit, only with their documents, and the gate is inside t
+[32mPASS[0m verify-apportionment                 18s  ALL CHECKS PASSED — a budget states its method, and a hand-entered split must reconcile.
+[32mPASS[0m verify-approval-chain               105s  ALL CHECKS PASSED — every payment out climbs the same ladder, banded or not.
+[32mPASS[0m verify-asset-access                  20s  ALL CHECKS PASSED — the asset register is role- and property-scoped.
+[32mPASS[0m verify-asset-classification          28s  ALL CHECKS PASSED — assemblies hold together, cannot loop, and a maintenance strategy means some
+[32mPASS[0m verify-asset-import-e2e              11s  ALL CHECKS PASSED — import writes only what validation approved.
+[32mPASS[0m verify-asset-import                   0s  ALL CHECKS PASSED — the importer catches every seeded defect.
+[32mPASS[0m verify-audit-0729b                   63s  ALL CHECKS PASSED — the regional manager is regional, and a draft outlives the window it was sta
+[32mPASS[0m verify-audit-followups               13s  ALL CHECKS PASSED — the last BI figure is counted in the database, and the emailed link is real.
+[32mPASS[0m verify-backup-crypto                  1s  ALL CHECKS PASSED — the format round-trips, refuses tampering, and opens without this repo.
+[32mPASS[0m verify-bank-transfer-payouts         40s  ALL CHECKS PASSED — a bank transfer is paid against the payee's own evidence, through the whole 
+[36mDEMO[0m verify-bi-scoping                   102s  demonstration only — asserts nothing
+[32mPASS[0m verify-bootstrap                      2s  ALL CHECKS PASSED — the bootstrap refuses every world it should, and cannot reach a seeder.
+[36mDEMO[0m verify-cascade                       45s  demonstration only — asserts nothing
+[32mPASS[0m verify-channel-consent               22s  ALL CHECKS PASSED — consent is recorded, it gates the send, and it never crosses an org.
+[32mPASS[0m verify-channel-routing               68s  ALL CHECKS PASSED — inbound routes to the right org; outbound answers from its own number.
+[32mPASS[0m verify-chat-payment-report           35s  ALL CHECKS PASSED — a tenant can report a payment on chat with its receipt, the payer is resolve
+[32mPASS[0m verify-chat-request-visibility       46s  ALL CHECKS PASSED — chat requests reach the people who handle them, and no further.
+[33mSKIP[0m verify-checkout-e2e                  33s  needs the dev server — run `npm run dev`, then retry
+[32mPASS[0m verify-classifier-failover           17s  ALL CHECKS PASSED — an outage fails over instead of degrading, and a reply is read in context.
+[32mPASS[0m verify-collections                   18s  ALL CHECKS PASSED — collections post exactly once, for the verified amount.
+[32mPASS[0m verify-completion-evidence           14s  ALL CHECKS PASSED — completion evidence is readable by whoever can see the payment, and the olde
+[32mPASS[0m verify-conversational-intelligence  278s  ALL CHECKS PASSED — a question is answered, an answer continues the thread, a reference finds it
+[32mPASS[0m verify-conversational-triage         21s  ALL CHECKS PASSED — a reply continues the conversation, and only the person who started it can s
+[32mPASS[0m verify-cross-org-dispatch             9s  ALL CHECKS PASSED — a dispatch cannot cross an organisation, and an ordinary one still works.
+[32mPASS[0m verify-custom-domains                21s  ALL CHECKS PASSED — a hostname paints a front door and decides nothing about access.
+[32mPASS[0m verify-deactivation                  24s  ALL CHECKS PASSED — deactivated means deactivated, everywhere it can be reached from, and reacti
+[32mPASS[0m verify-deployment-safety              3s  ALL CHECKS PASSED — safe to point traffic at this environment.
+[32mPASS[0m verify-document-checks               23s  ALL CHECKS PASSED — the checks report observations against evidence, and cannot become a decisio
+[32mPASS[0m verify-email-release                 19s  ALL CHECKS PASSED — the address comes back; the history does not move.
+[32mPASS[0m verify-email-routing                  2s  ALL CHECKS PASSED — replies route to a real, monitored inbox.
+[32mPASS[0m verify-embeds                        24s  ALL CHECKS PASSED — every embed resolves to exactly one relationship.
+[32mPASS[0m verify-finance-journey              141s  ALL CHECKS PASSED — finance reconciles, pays owners and reports but never approves; the ladder h
+[31mFAIL[0m verify-flutterwave-collections        0s  Error [ERR_MODULE_NOT_FOUND]: Cannot find module 'C:\projects\oe-group-ipms\scripts\verify-flutt
