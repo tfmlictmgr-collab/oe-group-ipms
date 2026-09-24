@@ -213,6 +213,14 @@ const COUNTED = [
 
 let schemaVersion = null;
 const counts = {};
+// ⚠️ Constraints, not just rows. Measured 24 Sept 2026: restoring this dump
+// into a plain PostgreSQL exactly as §4 of BACKUP_AND_RESTORE.md then said
+// lost the `leases_no_overlap` exclusion constraint (the double-let guard) and
+// the three foreign keys into `auth.users` — and EVERY row count still matched.
+// A drill that compares rows alone certifies that database as good. Counting
+// constraints by type is what tells the two apart.
+const constraints = {};
+const CONTYPE = { p: "primary", f: "foreign", u: "unique", c: "check", x: "exclusion", t: "trigger" };
 try {
   await client.connect();
   const mig = await client.query("select max(name) as latest from _migrations");
@@ -225,7 +233,14 @@ try {
       counts[t] = null; // table absent on this schema version — not an error
     }
   }
-  ok(`schema at ${schemaVersion ?? "(unknown)"}, ${Object.values(counts).filter((n) => n !== null).length} tables counted`);
+  const cons = await client.query(
+    `select c.contype::text as t, count(*)::int as n
+       from pg_constraint c join pg_namespace s on s.oid = c.connamespace
+      where s.nspname = 'public' group by 1`
+  );
+  for (const r of cons.rows) constraints[CONTYPE[r.t] ?? r.t] = r.n;
+  ok(`schema at ${schemaVersion ?? "(unknown)"}, ${Object.values(counts).filter((n) => n !== null).length} tables counted, ` +
+     `${Object.values(constraints).reduce((a, b) => a + b, 0)} constraints recorded`);
 } catch (err) {
   die(`Could not read the database before dumping: ${err.message}`);
 } finally {
@@ -357,9 +372,20 @@ const manifest = {
   sha256,
   tablesOfData: tableData,
   rowCounts: counts,
-  restoreWith: encrypted
-    ? `npm run backup -- --decrypt "${path.basename(finalFile)}"  →  pg_restore --clean --if-exists --no-owner --no-privileges -d "<target>" "${path.basename(dumpFile)}"`
-    : `pg_restore --clean --if-exists --no-owner --no-privileges -d "<target>" "${path.basename(dumpFile)}"`,
+  // Compare these after a restore with docs/sql/restore-drill-check.sql. A
+  // lower `exclusion` or `foreign` count is a FAILED restore even when every
+  // row count above matches — that is the whole reason this field exists.
+  constraints,
+  // No `--clean`: into a FRESH scratch database it tries to drop `public`, which
+  // now holds the extension objects the prep installs, and raises 3 errors
+  // instead of the one benign one — measured, 24 Sept 2026. A real restore goes
+  // into a new target too (§4, "Restoring for real"), never over a live one.
+  restoreWith:
+    "FIRST prepare the target: psql -d <target> -f docs/sql/restore-target-prep.sql  " +
+    "(without it the double-let guard and the auth foreign keys are silently lost).  THEN: " +
+    (encrypted
+      ? `npm run backup -- --decrypt "${path.basename(finalFile)}"  →  pg_restore --no-owner --no-privileges -d "<target>" "${path.basename(dumpFile)}"`
+      : `pg_restore --no-owner --no-privileges -d "<target>" "${path.basename(dumpFile)}"`),
   covers: "The `public` schema of Postgres only.",
   doesNotCover: [
     "Storage buckets — identity documents, work-order media, vendor KYC, payment proofs and payout evidence are NOT in this file.",

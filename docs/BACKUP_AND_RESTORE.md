@@ -344,29 +344,57 @@ prove the file is good and that you know the commands, not to change anything.
 
 ```
 createdb ipms_restore_drill
+psql -d ipms_restore_drill -f docs/sql/restore-target-prep.sql
 pg_restore --no-owner --no-privileges -d ipms_restore_drill <file>.dump
+psql -d ipms_restore_drill -f docs/sql/restore-drill-check.sql
 ```
 
-Then check the restored database against the manifest:
+Then compare **every** line of the check with the backup's `.manifest.json` —
+`rowCounts` **and** `constraints`. **A lower `exclusion` or `foreign` figure is
+a failed restore even when every row count matches.**
 
-```
-psql -d ipms_restore_drill -c "select count(*) from payments"
-```
+⚠️ **The prep step is not optional, and this section used to omit it** —
+corrected 24 Sept 2026, by measurement rather than by reading. The full
+321-migration schema was built locally, dumped exactly as `npm run backup`
+does, and restored into a plain PostgreSQL 16 the way this section then said:
 
-Compare with `rowCounts` in the `.manifest.json`. **A restore that completes
-but is missing half the payments is a failed backup**, and nothing except this
-comparison would tell you.
+| | errors | `leases_no_overlap` | foreign keys | every row count |
+|---|---|---|---|---|
+| as this section used to say | **88** | **lost** | **268 of 271** | ✅ matched |
+| with `restore-target-prep.sql` first | 1 (benign) | present | 271 of 271 | ✅ matched |
 
-📌 **One warning is expected and benign:**
+`npm run backup` dumps `--schema=public` only, and a schema-scoped dump never
+carries extensions. Without `btree_gist`, **the constraint that makes the
+database refuse a double-let is silently not created** — and the three foreign
+keys into `auth.users` go with it, because there is no `auth` schema to point
+at. The row counts cannot see either. **The drill this section described would
+have certified a database that permits two families to hold keys to one flat.**
+The manifest now records constraint counts by type for exactly this reason.
+
+📌 **One warning is expected and benign — with the prep step:**
 
 ```
 pg_restore: error: could not execute query: ERROR:  schema "public" already exists
 pg_restore: warning: errors ignored on restore: 1
 ```
 
-The dump recreates the `public` schema, which the new database already has.
-**Exactly one ignored error is normal. More than one is not** — read them. This
-is written down so nobody learns to wave the number away.
+**Exactly one ignored error is normal. More than one is not** — read them.
+Eighty-eight means the prep was skipped.
+
+📌 **Do not add `--clean`** for a drill. Into a fresh scratch database it tries
+to drop `public`, which now holds the extension objects, and raises three
+errors instead of one. Measured.
+
+📌 `restore-target-prep.sql` is **safe against a real Supabase project**: every
+stub is created only when its schema is absent, so run there it adds nothing
+but a missing extension. Tested: `auth.uid()` and `auth.users` survived it
+untouched. An unconditional `create or replace function auth.uid()` would have
+overwritten Supabase's own and broken every row-level policy.
+
+⚠️ **Version match.** `pg_dump` must be at least the server's major version
+(`npm run backup` checks and refuses), and the scratch server should be the
+same major version as the dump. Supabase's version is on the dashboard under
+**Database → Settings**; install that version's client tools locally.
 
 ### Restoring for real
 

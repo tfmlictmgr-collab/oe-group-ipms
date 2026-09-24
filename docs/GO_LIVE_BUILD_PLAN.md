@@ -902,6 +902,9 @@ one-line reason rather than deleting it silently.
       (1.1). A DPA without transfer clauses does not discharge s.41.
 - [ ] 1.8 ~~Paystack live keys obtained~~ **Flutterwave** live key + secret hash obtained *(hard gate on Stage 6)* — Paystack superseded 23 Sept 2026, see 2.12
 - [~] 1.9 Segregated client-funds bank account — **one live NGN
+      ✅ **Opening entries posted at ZERO, 24 Sept 2026** (reported; both
+      accounts new and empty). Confirmed by the 5.10 read-back
+      (`opening_posted`), not by the report alone.
       `client_funds` account per org, TFML and OEA, 24 Sept 2026**, each linked
       to its ledger account, each org's chart now 9 accounts (it was 2, because
       `ensure_default_ledger_accounts` runs when the bank account is added).
@@ -1534,6 +1537,18 @@ one-line reason rather than deleting it silently.
       make a payout resolve where production refuses it — 2.12, owed 2. A
       *gateway* payout is out of scope until Option B
 - [~] 4.5 Rollback rehearsed *(gap G)* — **deployment revert DONE, 24 Sept
+      ⚠️ **The database half's documented procedure was WRONG, and silently —
+      found 24 Sept 2026 by running it.** The full 321-migration schema was
+      built locally, dumped exactly as `npm run backup` does, and restored as
+      `BACKUP_AND_RESTORE.md` §4 said: **88 errors, `leases_no_overlap` NOT
+      created** (the double-let guard — `btree_gist` never travels in a
+      schema-scoped dump) and **3 foreign keys into `auth.users` lost** — while
+      **every row count matched**, so the drill as written would have certified
+      it. Fixed: `docs/sql/restore-target-prep.sql` (proven: 1 benign error,
+      constraints identical to source by type, and a no-op against a real
+      Supabase project), `docs/sql/restore-drill-check.sql`, constraint counts
+      in every backup manifest, §4 rewritten. **Still owed: the same drill on a
+      real production dump**, on the operator's machine.
       2026, under 10 seconds**, proven at content level: rolled back to
       `c745150` and `/legal/privacy` returned **404** because that build does
       not contain the route, then promoted forward to 200 with the right DPO
@@ -1552,6 +1567,13 @@ one-line reason rather than deleting it silently.
 - [ ] 4.6 Findings fixed; if anything changed, `rc2` cut and 4.1–4.5 repeated
 
 ### ⏱ Where the cutover actually stands — 24 September 2026
+
+> ⚠️ **Rule 7, again: rc5 is dead.** The privacy notice named both client
+> brands on every portal (B1). The fix is inside `next build`, so it needs
+> **`v1.0.0-rc6`**: 0.2 re-run on the new tree (green: tsc, 0 lint errors,
+> 85/85), and 0.3 carried from rc5's 128/128 because no other suite reads
+> `app/legal/` — plus `verify-legal-single-brand` (new, green) and
+> `verify-backup-crypto` (reads `backup-database.mjs`; re-run, green).
 
 Production is **deployed, empty, proven and reachable**. `v1.0.0-rc5` at
 `5f5512a`, Stage 0 fully met (0.2; 0.3 at **128 of 128 with zero NET**; 0.4;
@@ -1626,6 +1648,17 @@ email already reach every role.
       exists** (2.12)
 - [x] 5.4 Operator admin bootstrapped; password changed; **MFA enabled** — 24 Sept 2026
 - [ ] 5.5 Both 360dialog webhooks re-registered. ⚠️ **Two halves, and the
+      ⛔ **Blocked on a decision, 24 Sept 2026: production's numbers are the
+      same numbers staging and dev use.** A 360dialog channel has exactly
+      **one** webhook URL, so a number answers one environment. Pointing it at
+      production ends WhatsApp for staging and dev; leaving it ends WhatsApp for
+      production. And staging's `channel_routes.outbound_token` holds the same
+      live 360dialog API key — so until it is removed there, a staging run can
+      send from the real business number. **Recommendation: production takes
+      the real numbers; staging and dev lose WhatsApp, or get 360dialog sandbox
+      numbers.** Mint a NEW webhook token for production (`openssl rand -hex
+      24`, one per number, never reused across worlds — rule 8), register it,
+      paste the URL into the Hub, then delete staging's and dev's routes.
       script is only the first.** `register-whatsapp-number.mjs` mints the
       per-channel token and writes `channel_routes`; **a person must then paste
       `…/api/webhooks/whatsapp?token=<that value>` into the 360dialog Hub**,
@@ -1637,6 +1670,10 @@ email already reach every role.
       `/api/webhooks/payments/flutterwave`, carrying the same secret hash
       that is set in the environment (2.12)
 - [~] 5.6 Both Telegram webhooks re-registered. **TFML registered 24 Sept
+      ✅ **Both bots revoked and re-registered, 24 Sept 2026**, and
+      `TELEGRAM_BOT_TOKEN` removed from Vercel with a redeploy (reported).
+      Confirmed by the 5.10 `channel_routes` read-back: two Telegram rows, both
+      `can_send`.
       2026** (`@tfml_support_bot`, route stored, `setWebhook` set and read back
       — the script confirms with Telegram rather than trusting its `ok`).
       **OEA refused: `Unauthorized`** — Telegram rejecting the token at
@@ -1676,6 +1713,12 @@ email already reach every role.
       right on the day and then serves a stale build forever. Matching ids
       across hosts prove it is the project serving them, not a pin.
 - [ ] 5.10 ~~`npm run verify` against production~~ — **this step could never
+      ⚠️ **Step 4 fails on the rc5 build, and should.** The published privacy
+      notice named **both** client brands on every portal — §1 listed TFML and
+      OEA outright — breaking B1's "or existence" on the page every applicant is
+      sent to. Terms and Refunds never did. Fixed for rc6;
+      `verify-legal-single-brand` holds all three pages to it and was shown to
+      FAIL on the rc5 text before passing on the fix. **Run step 4 after rc6.**
       be performed as written, corrected 24 Sept 2026.** `verify-all.mjs` calls
       `requireNonProductionTarget` at line 35, so the runner refuses production
       outright; the instruction has been impossible since the guard was added.
@@ -1701,6 +1744,20 @@ email already reach every role.
 
 ### Stage 6 — Prove it, then open it
 - [ ] 6.1 Security pass against the production hostname — passive, **active**, load, rate limit
+      📌 **Order and tools: `security/README.md` §3** — ZAP baseline (passive)
+      → k6 weekday → k6 spike → k6 rate-limit → ZAP full (active). Targets:
+      `https://www.tfmlportal.com` and `https://oeaportal.com` — never a
+      `…-<hash>-….vercel.app` URL, which answers Vercel's SSO wall and reports a
+      clean scan of nothing. Needs Docker (ZAP) and k6.
+      ⚠️ **Recommendation: the ACTIVE scan goes against staging, not
+      production.** The README's step 8 allows an empty production and the
+      pre-flight would pass today — but an authenticated active scan replays
+      captured Server Actions and creates properties, tickets and applications,
+      and production's audit trail is append-only, so that residue is permanent
+      in the system real tenants arrive in this week. Staging is on the same RC
+      and schema, and the README itself names "a staging clone" as the answer
+      once production holds data. Passive and load tests are read-only and
+      belong on production.
 - [ ] 6.2 External penetration test completed in the empty window
 - [ ] 6.3 Production UAT with real staff, all ten roles
 - [ ] 6.4 Board go/no-go minuted *(requires 1.1–1.5)*
