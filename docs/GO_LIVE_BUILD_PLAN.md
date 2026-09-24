@@ -1520,7 +1520,19 @@ one-line reason rather than deleting it silently.
       knowing that on this setup **"deploy the tag" is not a step anyone
       schedules** — it happens the moment `main` moves. Any future change to
       `main` is in production within minutes, reviewed or not.
-- [x] 5.3 Variables set, 24 Sept 2026, including `DPO_CONTACT_EMAIL`.
+- [x] 5.3 Variables set, 24 Sept 2026, including `DPO_CONTACT_EMAIL`
+      (`ebubei@tfmlconsultant.com`, proven live by fetching the page).
+      ⚠️ **Setting a variable does not apply it, and the failure is silent.**
+      Vercel snapshots environment variables into a deployment when it is
+      built, so `DPO_CONTACT_EMAIL` added after `5f5512a` was invisible to it.
+      The privacy notice did not error — it fell through to the org's own
+      support address (`it@tfmlconsultant.com`), which is a working, monitored
+      inbox, so the page looked entirely correct. **A fallback that works is
+      how a missing variable hides.** Caught only by reading the rendered
+      address and finding it was the wrong one. Redeploying attached it.
+      📌 Two checks for any future env change, neither of which is "the toast
+      said success": confirm the variable is scoped to **Production**, and
+      then read the value back **off the live page**, not off the dashboard.
       ⚠️ **"gateway-mode label reads live" is the WRONG expectation for this
       cutover and this row's original wording should not be believed.** No
       gateway key is set, deliberately, so the collections screen reads **"No
