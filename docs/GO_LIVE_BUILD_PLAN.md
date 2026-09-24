@@ -901,21 +901,26 @@ one-line reason rather than deleting it silently.
       the EU supplies no basis on its own** and this rides on the 13 DPAs
       (1.1). A DPA without transfer clauses does not discharge s.41.
 - [ ] 1.8 ~~Paystack live keys obtained~~ **Flutterwave** live key + secret hash obtained *(hard gate on Stage 6)* — Paystack superseded 23 Sept 2026, see 2.12
-- [~] 1.9 Segregated client-funds bank account — **one live NGN
-      ✅ **Opening entries posted at ZERO, 24 Sept 2026** (reported; both
-      accounts new and empty). Confirmed by the 5.10 read-back
-      (`opening_posted`), not by the report alone.
+- [x] 1.9 Segregated client-funds bank account — **one live NGN
       `client_funds` account per org, TFML and OEA, 24 Sept 2026**, each linked
       to its ledger account, each org's chart now 9 accounts (it was 2, because
       `ensure_default_ledger_accounts` runs when the bank account is added).
-      ⚠️ **The opening entry is NOT posted** — `opening_date` null,
-      `opening_entry_id` null on both. `0028` states the consequence: *"Until
-      the opening entry is posted the ledger and the bank cannot agree."* The
-      first reconciliation will report a discrepancy equal to whatever is
-      actually in each account. Post it with `record_opening_balance` — and
-      **if the accounts are genuinely new and empty, post ZERO with today's
-      date**: an unposted opening is not the same as a zero opening, and only
-      one of them makes reconciliation meaningful from day one.
+      ✅ **Both accounts are new and empty (reported 24 Sept), so there is no
+      opening entry to post — and none can be.** `record_opening_balance`
+      refuses a zero total (*"an opening balance needs at least one positive
+      allocation"*), and the banking screen says so in words: *"Brand-new empty
+      account? Leave this — there's nothing to record."* A ledger that starts
+      at zero against a bank that holds zero reconciles from day one. The
+      settings badge reads **"Not recorded" and that is the finished state**.
+      > Corrected 24 Sept 2026. This entry previously said to "post ZERO",
+      > because "an unposted opening is not the same as a zero opening". That
+      > was written without reading the function, which makes a zero opening
+      > impossible; the unposted state *is* the zero opening.
+      📌 **The one condition that reopens this:** either account holding money
+      before its first ledger entry. **Evidence to file:** each account's bank
+      statement showing ₦0.00 on the day the first real payment is recorded.
+      If it is not ₦0.00, post the real figure and who it belongs to, before
+      that first payment.
 - [~] 1.10 Flutterwave / FX — **in**, as the collections gateway (23 Sept 2026); board minute owed
 - [ ] 1.11 External pen test commissioned and booked for the empty-production
       window. ⚠️ **Not commissioned, and this is the item with a closing
@@ -1590,14 +1595,15 @@ rehearsed in **under 10 seconds**, proven by a 404 rather than a status code
 |---|---|
 | Sign in, tenancies, requests, work orders, documents, statements | **works** |
 | Online card collection | **refuses** — no gateway key, by choice (2.12); waiting on Flutterwave reactivating the account |
-| Off-platform money — the whole money path for this cutover | **cannot be exercised**: the client-funds accounts exist, their **opening entry is unposted** (1.9) |
-| WhatsApp / Telegram | **nothing arrives or leaves** — `channel_routes` was empty; TFML's Telegram route is the only one written and its token is being revoked (5.5, 5.6) |
+| Off-platform money — the whole money path for this cutover | **ready**: one empty client-funds account per org, ledger at zero, nothing to open (1.9) |
+| WhatsApp / Telegram | **Telegram:** both bots revoked and re-registered (5.6, reported — confirm by the 5.10 read-back). **WhatsApp: nothing arrives or leaves** until 5.5 — its numbers are still wired to staging and dev |
 | Email | works — per-org senders set |
 
 **Ordered by who is blocking, not by step number:**
 
-1. **Nobody but you** — post the two opening balances (1.9); revoke and
-   re-register both Telegram bots and both WhatsApp numbers (5.5, 5.6); finish
+1. **Nobody but you** — ~~post the two opening balances (1.9)~~ nothing to
+   post, the accounts are empty; ~~revoke and re-register both Telegram bots
+   (5.6)~~ done; decide and register both WhatsApp numbers (5.5); finish
    5.10's org read-back and per-host content checks; run the database restore
    drill (4.5); run the security pass (6.1).
 2. **Booking, and the window is closing** — commission the external pen test
@@ -1647,7 +1653,14 @@ email already reach every role.
       `PAYSTACK_SECRET_KEY` stays unset unless a verified Paystack account
       exists** (2.12)
 - [x] 5.4 Operator admin bootstrapped; password changed; **MFA enabled** — 24 Sept 2026
-- [ ] 5.5 Both 360dialog webhooks re-registered. ⚠️ **Two halves, and the
+- [!] 5.5 Both 360dialog webhooks re-registered. ⚠️ **Two halves, and the
+      script is only the first.** `register-whatsapp-number.mjs` mints the
+      per-channel token and writes `channel_routes`; **a person must then paste
+      `…/api/webhooks/whatsapp?token=<that value>` into the 360dialog Hub**,
+      because at direct-client tier there is no API for it. That token is both
+      the routing key and the only proof a request is genuine — as direct
+      clients you receive no signature from 360dialog or from Meta, so without
+      it any unsigned POST claiming any number would route.
       ⛔ **Blocked on a decision, 24 Sept 2026: production's numbers are the
       same numbers staging and dev use.** A 360dialog channel has exactly
       **one** webhook URL, so a number answers one environment. Pointing it at
@@ -1659,21 +1672,16 @@ email already reach every role.
       numbers.** Mint a NEW webhook token for production (`openssl rand -hex
       24`, one per number, never reused across worlds — rule 8), register it,
       paste the URL into the Hub, then delete staging's and dev's routes.
-      script is only the first.** `register-whatsapp-number.mjs` mints the
-      per-channel token and writes `channel_routes`; **a person must then paste
-      `…/api/webhooks/whatsapp?token=<that value>` into the 360dialog Hub**,
-      because at direct-client tier there is no API for it. That token is both
-      the routing key and the only proof a request is genuine — as direct
-      clients you receive no signature from 360dialog or from Meta, so without
-      it any unsigned POST claiming any number would route.
 - [ ] 5.5a **Flutterwave webhook registered** in each dashboard at
       `/api/webhooks/payments/flutterwave`, carrying the same secret hash
       that is set in the environment (2.12)
-- [~] 5.6 Both Telegram webhooks re-registered. **TFML registered 24 Sept
+- [x] 5.6 Both Telegram webhooks re-registered.
       ✅ **Both bots revoked and re-registered, 24 Sept 2026**, and
       `TELEGRAM_BOT_TOKEN` removed from Vercel with a redeploy (reported).
-      Confirmed by the 5.10 `channel_routes` read-back: two Telegram rows, both
-      `can_send`.
+      **Close it by the read-back, not the report:** query 2 of
+      `docs/sql/stage5-readback.sql` must show two Telegram rows, one per org,
+      both `can_send`, both OK.
+      History — **TFML first registered 24 Sept
       2026** (`@tfml_support_bot`, route stored, `setWebhook` set and read back
       — the script confirms with Telegram rather than trusting its `ok`).
       **OEA refused: `Unauthorized`** — Telegram rejecting the token at
@@ -1712,13 +1720,7 @@ email already reach every role.
       hand-set alias pinning a hostname to an immutable deployment, which looks
       right on the day and then serves a stale build forever. Matching ids
       across hosts prove it is the project serving them, not a pin.
-- [ ] 5.10 ~~`npm run verify` against production~~ — **this step could never
-      ⚠️ **Step 4 fails on the rc5 build, and should.** The published privacy
-      notice named **both** client brands on every portal — §1 listed TFML and
-      OEA outright — breaking B1's "or existence" on the page every applicant is
-      sent to. Terms and Refunds never did. Fixed for rc6;
-      `verify-legal-single-brand` holds all three pages to it and was shown to
-      FAIL on the rc5 text before passing on the fix. **Run step 4 after rc6.**
+- [~] 5.10 ~~`npm run verify` against production~~ — **this step could never
       be performed as written, corrected 24 Sept 2026.** `verify-all.mjs` calls
       `requireNonProductionTarget` at line 35, so the runner refuses production
       outright; the instruction has been impossible since the guard was added.
@@ -1729,18 +1731,32 @@ email already reach every role.
       because suites get invoked directly (`npx tsx scripts/verify-<name>.mjs`)
       far more often than through the runner, and the runner's guard does not
       protect that path.
-      📌 **What 5.10 should be**, and what closing it now means:
-      1. Re-run the Stage 3.6 emptiness proof (`docs/sql/stage3-production-proof.sql`)
-         and commit the output — production must still be empty at cutover, and
-         it is the one claim that decays silently.
-      2. `node scripts/check-db-connection.mjs` — read-only shape checks.
-      3. Read back the four orgs: slug, `custom_domain`, `email_from_address`,
-         `uses_platform_gateway`. An update that silently matched 0 rows has
-         happened twice in this build.
+      📌 **What 5.10 is**, four steps, each with its evidence committed to
+      `docs/verify-runs/`:
+      1. ✅ Emptiness re-proved at cutover (`docs/sql/stage3-production-proof.sql`)
+         — `stage5-20260924-production-proof.md`. Re-run it immediately before
+         the first real org arrives; it is the one claim that decays silently.
+      2. `node scripts/check-db-connection.mjs` with `npm run use-env prod`
+         active — read-only shape checks.
+      3. **`docs/sql/stage5-readback.sql`** — three queries, each computing its
+         own verdict: the orgs (domain, senders, no address shared across
+         orgs — B1), the channel routes (each can send, secret ≥ 32 chars, no
+         outbound credential shared across orgs — decision 47) and the
+         client-funds accounts (one live per org, linked, ledger at zero). It
+         **never selects a credential** — `external_id` is itself the webhook
+         secret. Tested against planted faults: each one reads STOP, the clean
+         case reads OK on every row. This is what closes 1.9 and 5.6.
       4. Fetch `/legal/privacy`, `/legal/terms` and `/legal/refunds` on **each**
          bound hostname and confirm each renders **its own** organisation's
-         name — the host-resolution B1 depends on, proven by content rather
-         than by a 200.
+         name and **not the other's** — host resolution proven by content,
+         not by a 200.
+         ⚠️ **Fails on the rc5 build, and should.** The published privacy
+         notice named **both** client brands on every portal — §1 listed TFML
+         and OEA outright — breaking B1's "or existence" on the page every
+         applicant is sent to. Terms and Refunds never did. Fixed for rc6;
+         `verify-legal-single-brand` holds all three pages to it and was shown
+         to FAIL on the rc5 text before passing on the fix. **Run step 4 after
+         rc6 is live.**
 
 ### Stage 6 — Prove it, then open it
 - [ ] 6.1 Security pass against the production hostname — passive, **active**, load, rate limit
