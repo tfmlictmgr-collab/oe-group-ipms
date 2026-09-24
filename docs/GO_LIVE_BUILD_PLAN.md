@@ -850,7 +850,14 @@ one-line reason rather than deleting it silently.
       now blocks direct pushes to `main`, as intended
 
 ### Stage 1 — External (start today)
-- [ ] 1.1 13 processor DPAs signed *(hard gate on Stage 6)*
+- [~] 1.1 13 processor DPAs signed *(hard gate on Stage 6)* — **pack sent to
+      counsel 24 Sept 2026**, eleven documents plus `01_SIGN_OFF_SCHEDULE`.
+      **Zero signed.** Counsel approving the addendum only starts the clock;
+      thirteen counterparties then have to sign it, and three of them
+      (Telegram, 360dialog, Africa's Talking) have no DPA confirmed to exist
+      at all. ⚠️ **Telegram is now carrying live tenant conversations** — that
+      processor has no agreement and the Bot API has no known enterprise DPA
+      process.
 - [~] 1.2 Privacy notice legally reviewed and published — **published 24 Sept
       2026 at `/legal/privacy`; legal review still owed.** The two halves were
       being treated as one: Terms and Refunds went live for Flutterwave while
@@ -894,9 +901,35 @@ one-line reason rather than deleting it silently.
       the EU supplies no basis on its own** and this rides on the 13 DPAs
       (1.1). A DPA without transfer clauses does not discharge s.41.
 - [ ] 1.8 ~~Paystack live keys obtained~~ **Flutterwave** live key + secret hash obtained *(hard gate on Stage 6)* — Paystack superseded 23 Sept 2026, see 2.12
-- [ ] 1.9 Segregated client-funds bank account confirmed
+- [x] 1.9 Segregated client-funds bank account — **one live NGN
+      `client_funds` account per org, TFML and OEA, 24 Sept 2026**, each linked
+      to its ledger account, each org's chart now 9 accounts (it was 2, because
+      `ensure_default_ledger_accounts` runs when the bank account is added).
+      ✅ **Both accounts are new and empty (reported 24 Sept), so there is no
+      opening entry to post — and none can be.** `record_opening_balance`
+      refuses a zero total (*"an opening balance needs at least one positive
+      allocation"*), and the banking screen says so in words: *"Brand-new empty
+      account? Leave this — there's nothing to record."* A ledger that starts
+      at zero against a bank that holds zero reconciles from day one. The
+      settings badge reads **"Not recorded" and that is the finished state**.
+      > Corrected 24 Sept 2026. This entry previously said to "post ZERO",
+      > because "an unposted opening is not the same as a zero opening". That
+      > was written without reading the function, which makes a zero opening
+      > impossible; the unposted state *is* the zero opening.
+      📌 **The one condition that reopens this:** either account holding money
+      before its first ledger entry. **Evidence to file:** each account's bank
+      statement showing ₦0.00 on the day the first real payment is recorded.
+      If it is not ₦0.00, post the real figure and who it belongs to, before
+      that first payment.
 - [~] 1.10 Flutterwave / FX — **in**, as the collections gateway (23 Sept 2026); board minute owed
-- [ ] 1.11 External pen test commissioned and booked for the empty-production window
+- [ ] 1.11 External pen test commissioned and booked for the empty-production
+      window. ⚠️ **Not commissioned, and this is the item with a closing
+      window.** Booking takes 2–4 weeks; production is empty **today**. 6.2
+      requires the test to run against an empty production, so onboarding real
+      tenants first either forecloses it or runs it against real personal data.
+      **Commission it regardless of when it executes** — the booking clock runs
+      either way, and the decision of which comes first belongs to the board,
+      alongside the PITR trigger (`BACKUP_AND_RESTORE.md` §5, now met).
 - [ ] 1.12 Target date and board go/no-go slot set
 
 ### Stage 2 — Close the technical gaps
@@ -1508,29 +1541,239 @@ one-line reason rather than deleting it silently.
       key set** (Flutterwave only, no Paystack): staging's Paystack test keys
       make a payout resolve where production refuses it — 2.12, owed 2. A
       *gateway* payout is out of scope until Option B
-- [ ] 4.5 Rollback rehearsed: deployment revert **and** PITR restore *(gap G)*
+- [~] 4.5 Rollback rehearsed *(gap G)* — **deployment revert DONE, 24 Sept
+      ⚠️ **The database half's documented procedure was WRONG, and silently —
+      found 24 Sept 2026 by running it.** The full 321-migration schema was
+      built locally, dumped exactly as `npm run backup` does, and restored as
+      `BACKUP_AND_RESTORE.md` §4 said: **88 errors, `leases_no_overlap` NOT
+      created** (the double-let guard — `btree_gist` never travels in a
+      schema-scoped dump) and **3 foreign keys into `auth.users` lost** — while
+      **every row count matched**, so the drill as written would have certified
+      it. Fixed: `docs/sql/restore-target-prep.sql` (proven: 1 benign error,
+      constraints identical to source by type, and a no-op against a real
+      Supabase project), `docs/sql/restore-drill-check.sql`, constraint counts
+      in every backup manifest, §4 rewritten. **Still owed: the same drill on a
+      real production dump**, on the operator's machine.
+      2026, under 10 seconds**, proven at content level: rolled back to
+      `c745150` and `/legal/privacy` returned **404** because that build does
+      not contain the route, then promoted forward to 200 with the right DPO
+      address. A 404 cannot be faked by a stale edge; a 200 can, which is
+      exactly how the 20 Aug failure hid. Record:
+      `docs/verify-runs/rollback-drill-20260924.md`.
+      ⚠️ **"PITR restore" names a mechanism this project declined on a recorded
+      basis** ($2,520/year, Postgres only, protecting no Storage object). The
+      database half is a restore drill of the backup that exists — `npm run
+      backup`, decrypted, restored into local PostgreSQL 16, checked against
+      `stage5-20260924-production-proof.md`. **Still outstanding.**
+      ⚠️ **`BACKUP_AND_RESTORE.md` §5's own trigger to revisit PITR is met**:
+      "a second client organisation is onboarded, so a bad day affects people
+      who did not choose this trade". Four orgs are provisioned. For the board,
+      not for whoever remembers.
 - [ ] 4.6 Findings fixed; if anything changed, `rc2` cut and 4.1–4.5 repeated
+
+### ⏱ Where the cutover actually stands — 24 September 2026
+
+> ⚠️ **Rule 7, again: rc5 is dead.** The privacy notice named both client
+> brands on every portal (B1). The fix is inside `next build`, so it needs
+> **`v1.0.0-rc6`**: 0.2 re-run on the new tree (green: tsc, 0 lint errors,
+> 85/85), and 0.3 carried from rc5's 128/128 because no other suite reads
+> `app/legal/` — plus `verify-legal-single-brand` (new, green) and
+> `verify-backup-crypto` (reads `backup-database.mjs`; re-run, green).
+
+Production is **deployed, empty, proven and reachable**. `v1.0.0-rc5` at
+`5f5512a`, Stage 0 fully met (0.2; 0.3 at **128 of 128 with zero NET**; 0.4;
+0.5). Domains assigned to the project — not pinned to a deployment — and
+serving the same `dpl_` id. MFA on the operator account. `custom_domain` bound
+per org. Emptiness and the SECURITY DEFINER privilege audit re-proved at
+cutover (`docs/verify-runs/stage5-20260924-production-proof.md`). Rollback
+rehearsed in **under 10 seconds**, proven by a 404 rather than a status code
+(`docs/verify-runs/rollback-drill-20260924.md`).
+
+**What the system can and cannot do today:**
+
+| | State |
+|---|---|
+| Sign in, tenancies, requests, work orders, documents, statements | **works** |
+| Online card collection | **refuses** — no gateway key, by choice (2.12); waiting on Flutterwave reactivating the account |
+| Off-platform money — the whole money path for this cutover | **ready**: one empty client-funds account per org, ledger at zero, nothing to open (1.9) |
+| WhatsApp / Telegram | **Telegram:** both bots revoked and re-registered (5.6, reported — confirm by the 5.10 read-back). **WhatsApp: nothing arrives or leaves** until 5.5 — its numbers are still wired to staging and dev |
+| Email | works — per-org senders set |
+
+**Ordered by who is blocking, not by step number:**
+
+1. **Nobody but you** — ~~post the two opening balances (1.9)~~ nothing to
+   post, the accounts are empty; ~~revoke and re-register both Telegram bots
+   (5.6)~~ done; decide and register both WhatsApp numbers (5.5); finish
+   5.10's org read-back and per-host content checks; run the database restore
+   drill (4.5); run the security pass (6.1).
+2. **Booking, and the window is closing** — commission the external pen test
+   (1.11). Production is empty **today**, and 6.2 needs it to stay that way.
+3. **Counsel** — the pack went out 24 Sept. Their schedule closes 1.2, 1.4 and
+   1.5, and starts 1.1's thirteen signatures.
+4. **The board** — special-category data (1.6); the gateway minute (1.10);
+   PITR, whose own revisit trigger is now met; whether production is filled
+   before or after the pen test; and the go-live date itself (1.12).
+
+⚠️ **The one thing that will be live and unagreed:** Telegram is to carry
+tenant conversations and has **no data-processing agreement**, with no known
+enterprise DPA process for the Bot API. Leaving that channel off until it is
+resolved is the cheapest reduction in NDPA exposure available — WhatsApp and
+email already reach every role.
 
 ### Stage 5 — Cutover
 - [ ] 5.1 Target confirmed
-- [ ] 5.2 RC tag deployed to production
-- [ ] 5.3 Variables set; gateway-mode label reads live. **`FLUTTERWAVE_SECRET_KEY`
+- [x] 5.2 RC tag deployed to production — **`v1.0.0-rc5` at `5f5512a`,
+      24 Sept 2026.** ⚠️ It deployed itself: Vercel builds `main` to Production
+      automatically, so merging PR #59 shipped it rather than a deliberate
+      cutover act. Harmless here because production is still empty, but worth
+      knowing that on this setup **"deploy the tag" is not a step anyone
+      schedules** — it happens the moment `main` moves. Any future change to
+      `main` is in production within minutes, reviewed or not.
+- [x] 5.3 Variables set, 24 Sept 2026, including `DPO_CONTACT_EMAIL`
+      (`ebubei@tfmlconsultant.com`, proven live by fetching the page).
+      ⚠️ **Setting a variable does not apply it, and the failure is silent.**
+      Vercel snapshots environment variables into a deployment when it is
+      built, so `DPO_CONTACT_EMAIL` added after `5f5512a` was invisible to it.
+      The privacy notice did not error — it fell through to the org's own
+      support address (`it@tfmlconsultant.com`), which is a working, monitored
+      inbox, so the page looked entirely correct. **A fallback that works is
+      how a missing variable hides.** Caught only by reading the rendered
+      address and finding it was the wrong one. Redeploying attached it.
+      📌 Two checks for any future env change, neither of which is "the toast
+      said success": confirm the variable is scoped to **Production**, and
+      then read the value back **off the live page**, not off the dashboard.
+      ⚠️ **"gateway-mode label reads live" is the WRONG expectation for this
+      cutover and this row's original wording should not be believed.** No
+      gateway key is set, deliberately, so the collections screen reads **"No
+      payment account connected"** for every org that has not connected its
+      own — which after `0288` is all of them. That is the correct answer and
+      the state 2.12 chose, not a fault to chase. It becomes "live" when
+      Flutterwave reactivates. **`FLUTTERWAVE_SECRET_KEY`
       + `FLUTTERWAVE_WEBHOOK_HASH` are now the required pair;
       `PAYSTACK_SECRET_KEY` stays unset unless a verified Paystack account
       exists** (2.12)
-- [ ] 5.4 Operator admin bootstrapped; password changed; **MFA enabled**
-- [ ] 5.5 Both 360dialog webhooks re-registered
+- [x] 5.4 Operator admin bootstrapped; password changed; **MFA enabled** — 24 Sept 2026
+- [!] 5.5 Both 360dialog webhooks re-registered. ⚠️ **Two halves, and the
+      script is only the first.** `register-whatsapp-number.mjs` mints the
+      per-channel token and writes `channel_routes`; **a person must then paste
+      `…/api/webhooks/whatsapp?token=<that value>` into the 360dialog Hub**,
+      because at direct-client tier there is no API for it. That token is both
+      the routing key and the only proof a request is genuine — as direct
+      clients you receive no signature from 360dialog or from Meta, so without
+      it any unsigned POST claiming any number would route.
+      ⛔ **Blocked on a decision, 24 Sept 2026: production's numbers are the
+      same numbers staging and dev use.** A 360dialog channel has exactly
+      **one** webhook URL, so a number answers one environment. Pointing it at
+      production ends WhatsApp for staging and dev; leaving it ends WhatsApp for
+      production. And staging's `channel_routes.outbound_token` holds the same
+      live 360dialog API key — so until it is removed there, a staging run can
+      send from the real business number. **Recommendation: production takes
+      the real numbers; staging and dev lose WhatsApp, or get 360dialog sandbox
+      numbers.** Mint a NEW webhook token for production (`openssl rand -hex
+      24`, one per number, never reused across worlds — rule 8), register it,
+      paste the URL into the Hub, then delete staging's and dev's routes.
 - [ ] 5.5a **Flutterwave webhook registered** in each dashboard at
       `/api/webhooks/payments/flutterwave`, carrying the same secret hash
       that is set in the environment (2.12)
-- [ ] 5.6 Both Telegram webhooks re-registered with the correct usernames
-- [ ] 5.7 Three domains **moved** (never aliased)
-- [ ] 5.8 `custom_domain` bound per org *(gap C)*
-- [ ] 5.9 Propagation verified by matching `dpl_` id on all three hostnames
-- [ ] 5.10 `npm run verify` against production; emptiness re-confirmed
+- [x] 5.6 Both Telegram webhooks re-registered.
+      ✅ **Both bots revoked and re-registered, 24 Sept 2026**, and
+      `TELEGRAM_BOT_TOKEN` removed from Vercel with a redeploy (reported).
+      **Close it by the read-back, not the report:** query 2 of
+      `docs/sql/stage5-readback.sql` must show two Telegram rows, one per org,
+      both `can_send`, both OK.
+      History — **TFML first registered 24 Sept
+      2026** (`@tfml_support_bot`, route stored, `setWebhook` set and read back
+      — the script confirms with Telegram rather than trusting its `ok`).
+      **OEA refused: `Unauthorized`** — Telegram rejecting the token at
+      `getMe`, so nothing was written; the script checks before it stores.
+      ⚠️ **Both tokens were then exposed and must be revoked in BotFather and
+      re-registered.** Revoking keeps the bot, its @username and all its
+      settings — it swaps the credential and kills the webhook, so the same
+      command re-points everything.
+      📌 The webhook registered at `tent-ai-production.vercel.app`, and that is
+      **correct, not a defect**. It is machine-to-machine: Telegram POSTs there
+      and the org is resolved from the per-bot secret, never from the host. And
+      `NEXT_PUBLIC_SITE_URL` must **stay brand-neutral** — it is one value per
+      deployment and the last-resort fallback for *every* org, so pointing it
+      at one brand's domain would put that brand's address on the other's
+      links, which is the B1 breach decision 47 exists to prevent.
+      📌 After revocation, `TELEGRAM_BOT_TOKEN` in Vercel holds a dead
+      credential. It is read in exactly one place — `lib/inbound-media.ts:102`,
+      a fallback for downloading inbound media when a route has no
+      `outbound_token` — and once both orgs have their own it never fires.
+      **Remove it rather than refresh it**: `verify-gateway-isolation` already
+      asserts no org may be given the shared token.
+- [x] 5.7 Three domains **moved** (never aliased) — `vercel domains inspect`
+      reports `tfmlportal.com` and `www.tfmlportal.com` under
+      **`tent-ai-production`**, not the dev project. DNS is unchanged and
+      correct: third-party (Namecheap) nameservers with a CNAME, which is what
+      `CUSTOM_DOMAINS.md` prescribes — the ☓ Vercel shows against its own
+      nameservers is expected, not a fault.
+- [x] 5.8 `custom_domain` bound per org *(gap C)* — 24 Sept 2026. This is what
+      stops every invitation, receipt link, renewal notice and gateway return
+      URL falling through to the deployment address, which B1 forbids: an
+      address is the most visible thing in a message, and a `*.vercel.app` host
+      is nobody's portal.
+- [x] 5.9 Propagation verified by matching `dpl_` id — **the hostnames return
+      the same id**, 24 Sept 2026. This is the check that matters, and the one
+      the 20 Aug failure evaded: an assignment can still be shadowed by a
+      hand-set alias pinning a hostname to an immutable deployment, which looks
+      right on the day and then serves a stale build forever. Matching ids
+      across hosts prove it is the project serving them, not a pin.
+- [~] 5.10 ~~`npm run verify` against production~~ — **this step could never
+      be performed as written, corrected 24 Sept 2026.** `verify-all.mjs` calls
+      `requireNonProductionTarget` at line 35, so the runner refuses production
+      outright; the instruction has been impossible since the guard was added.
+      Worse, had it somehow run, **only 13 of 128 suites carry the guard
+      themselves**, and two unguarded ones — `verify-org-creation` and
+      `verify-org-modules` — create durable `PROBEORG` rows. That is where
+      dev's 79 probe orgs and 886 probe users came from. Both are now guarded,
+      because suites get invoked directly (`npx tsx scripts/verify-<name>.mjs`)
+      far more often than through the runner, and the runner's guard does not
+      protect that path.
+      📌 **What 5.10 is**, four steps, each with its evidence committed to
+      `docs/verify-runs/`:
+      1. ✅ Emptiness re-proved at cutover (`docs/sql/stage3-production-proof.sql`)
+         — `stage5-20260924-production-proof.md`. Re-run it immediately before
+         the first real org arrives; it is the one claim that decays silently.
+      2. `node scripts/check-db-connection.mjs` with `npm run use-env prod`
+         active — read-only shape checks.
+      3. **`docs/sql/stage5-readback.sql`** — three queries, each computing its
+         own verdict: the orgs (domain, senders, no address shared across
+         orgs — B1), the channel routes (each can send, secret ≥ 32 chars, no
+         outbound credential shared across orgs — decision 47) and the
+         client-funds accounts (one live per org, linked, ledger at zero). It
+         **never selects a credential** — `external_id` is itself the webhook
+         secret. Tested against planted faults: each one reads STOP, the clean
+         case reads OK on every row. This is what closes 1.9 and 5.6.
+      4. Fetch `/legal/privacy`, `/legal/terms` and `/legal/refunds` on **each**
+         bound hostname and confirm each renders **its own** organisation's
+         name and **not the other's** — host resolution proven by content,
+         not by a 200.
+         ⚠️ **Fails on the rc5 build, and should.** The published privacy
+         notice named **both** client brands on every portal — §1 listed TFML
+         and OEA outright — breaking B1's "or existence" on the page every
+         applicant is sent to. Terms and Refunds never did. Fixed for rc6;
+         `verify-legal-single-brand` holds all three pages to it and was shown
+         to FAIL on the rc5 text before passing on the fix. **Run step 4 after
+         rc6 is live.**
 
 ### Stage 6 — Prove it, then open it
 - [ ] 6.1 Security pass against the production hostname — passive, **active**, load, rate limit
+      📌 **Order and tools: `security/README.md` §3** — ZAP baseline (passive)
+      → k6 weekday → k6 spike → k6 rate-limit → ZAP full (active). Targets:
+      `https://www.tfmlportal.com` and `https://oeaportal.com` — never a
+      `…-<hash>-….vercel.app` URL, which answers Vercel's SSO wall and reports a
+      clean scan of nothing. Needs Docker (ZAP) and k6.
+      ⚠️ **Recommendation: the ACTIVE scan goes against staging, not
+      production.** The README's step 8 allows an empty production and the
+      pre-flight would pass today — but an authenticated active scan replays
+      captured Server Actions and creates properties, tickets and applications,
+      and production's audit trail is append-only, so that residue is permanent
+      in the system real tenants arrive in this week. Staging is on the same RC
+      and schema, and the README itself names "a staging clone" as the answer
+      once production holds data. Passive and load tests are read-only and
+      belong on production.
 - [ ] 6.2 External penetration test completed in the empty window
 - [ ] 6.3 Production UAT with real staff, all ten roles
 - [ ] 6.4 Board go/no-go minuted *(requires 1.1–1.5)*

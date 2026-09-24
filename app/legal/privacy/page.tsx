@@ -55,18 +55,24 @@ export default async function PrivacyNoticePage() {
       <h1>Privacy Notice</h1>
       <p className="text-muted-foreground">Last updated: {UPDATED}</p>
 
+      {/* ⚠️ B1: this page names the organisation that owns the domain being
+          visited, and NO OTHER — the rule Terms and Refunds were built to from
+          the start ("no other organisation is named"). Its first published
+          version listed both client brands by name on every portal, telling an
+          OEA tenant that TFML exists and vice versa: the "or existence" half of
+          B1, broken on the one page every applicant is sent to. Caught 24 Sept
+          2026 by reading the page, before any tenant had. `verify-legal-single-brand`
+          now holds all three legal pages to it. */}
       <h2>1. Who we are</h2>
       <p>
-        This notice covers the integrated facilities and property management platform operated by
-        OE Group through its two brands: <strong>TFML — Total Facilities Management Limited</strong>,
-        a facilities management company, and <strong>OEA — Ora Egbunike &amp; Associates</strong>, a
-        chartered property management and valuation firm. You are reading it on {org.name}&rsquo;s
-        portal.
+        This notice covers the {org.name} portal, part of an integrated facilities and property
+        management platform operated by OE Group. Each organisation on the platform has its own
+        clients, tenants, vendors and staff, and its data is kept fully separated from every other
+        organisation&rsquo;s.
       </p>
       <p>
-        Each brand&rsquo;s clients, tenants, vendors and staff use the same underlying platform,
-        kept fully separated by organisation. Using this platform — as a tenant, applicant, vendor,
-        landlord or staff member — means your personal data is processed as described below.
+        Using this portal — as a tenant, applicant, vendor, landlord or staff member — means your
+        personal data is processed as described below.
       </p>
       <p>
         <strong>Data controller:</strong> OE Group. Each client organisation&rsquo;s data is
