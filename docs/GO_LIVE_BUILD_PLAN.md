@@ -1045,6 +1045,20 @@ one-line reason rather than deleting it silently.
       the tag, which is the stronger of the two.
       ⚠️ **0.5 still to run** — the `npm audit` snapshot. Until it is
       recorded, Stage 0 is not fully re-met.
+      📌 **Amended 24 Sept 2026.** A snapshot for `rc3` does exist and is now
+      committed (`docs/verify-runs/rc3-audit.json`), so "still to run" was
+      either wrong or written before it was taken. It cannot be settled either
+      way: the file is **byte-identical to `rc2`'s**, `npm audit --json` writes
+      no timestamp, and a genuine re-run against an unmoved registry looks
+      exactly like a copy. Plausible — one day apart, no advisory published
+      between, while `rc2` and `rc4` three days apart do differ — but not
+      proven, and recorded as unproven. Moot for any gate: `rc3` is dead and
+      `rc4`'s snapshot was taken and checked properly.
+      📌 **`rc3`'s run of record is also now committed** — `124 of 124`, the
+      first clean sweep. It had sat untracked on the operator's workstation for
+      three days while this entry cited it. The run was sound; the evidence for
+      it simply was not in the repository. **A run of record belongs in the
+      same commit as the claim it backs.**
       ⚠️ **`rc3` dies the moment PR #37 merges** — rule 7. Unlike the
       `rc1`→`rc2` case, where all later work was `scripts/`-only and therefore
       outside `next build`, #37 edits `app/layout.tsx`. That is compiled into
