@@ -851,7 +851,25 @@ one-line reason rather than deleting it silently.
 
 ### Stage 1 — External (start today)
 - [ ] 1.1 13 processor DPAs signed *(hard gate on Stage 6)*
-- [ ] 1.2 Privacy notice legally reviewed and published
+- [~] 1.2 Privacy notice legally reviewed and published — **published 24 Sept
+      2026 at `/legal/privacy`; legal review still owed.** The two halves were
+      being treated as one: Terms and Refunds went live for Flutterwave while
+      the notice the **NDPA actually requires** sat drafted and unpublished
+      since 19 August, with no route in the application at all. Collecting real
+      tenant personal data without it is not defensible, so it is published now
+      on the accurate draft, and counsel's markup lands on a live page rather
+      than gating one. Reachable from the sign-in door, the legal nav, and —
+      the point that matters — **beside the consent step of the tenancy
+      application**, where ID, employment, next of kin and income are actually
+      handed over. `CONSENT_STATEMENT` was deliberately NOT touched: it is
+      stored verbatim on every application so the record says what the
+      applicant saw, so the link sits next to it instead. The draft's four
+      `[to be added before publishing]` contacts are gone — `DPO_CONTACT_EMAIL`
+      is one deployment value, falling back to the org's own support address
+      marked for the DPO. It never renders a blank or a placeholder: a notice
+      that tells somebody to contact a bracket is a right they cannot exercise.
+      §9 is written from `BREACH_PROCEDURE.md`, which did not exist when the
+      draft said to leave it blank.
 - [x] 1.3 72-hour breach procedure written — `BREACH_PROCEDURE.md`, drafted
       2026-09-20 against NDPA s.40(2). ⚠️ **Contact table must be completed
       before it is usable**: a procedure whose first step is "tell the DPO"

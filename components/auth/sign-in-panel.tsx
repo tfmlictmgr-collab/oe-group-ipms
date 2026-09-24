@@ -489,9 +489,15 @@ export default function SignInPanel({
             </>
           )}
 
-          {/* Public legal pages — required by the payment gateways, and readable
-              before anyone has an account. */}
-          <nav className="mt-10 flex justify-center gap-4 text-xs text-muted-foreground">
+          {/* Public legal pages — readable before anyone has an account. Terms
+              and Refunds are required by the payment gateways; the privacy
+              notice is required by the NDPA, which wants it reachable at the
+              point personal data is collected, and the sign-in door is that
+              point for everyone who is invited. */}
+          <nav className="mt-10 flex flex-wrap justify-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
+            <a href="/legal/privacy" className="underline-offset-4 hover:underline">
+              Privacy Notice
+            </a>
             <a href="/legal/terms" className="underline-offset-4 hover:underline">
               Terms of Service
             </a>

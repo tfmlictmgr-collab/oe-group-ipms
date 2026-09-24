@@ -29,6 +29,9 @@ export default async function LegalLayout({ children }: { children: React.ReactN
             <Link href="/legal/refunds" className="underline-offset-4 hover:underline">
               Refund Policy
             </Link>
+            <Link href="/legal/privacy" className="underline-offset-4 hover:underline">
+              Privacy Notice
+            </Link>
             <Link href="/" className="text-muted-foreground underline-offset-4 hover:underline">
               Back to sign in
             </Link>
