@@ -1199,6 +1199,20 @@ one-line reason rather than deleting it silently.
       comparison and the stored-`key_mode` check, then remove it. A Flutterwave
       test key would be better — it also exercises the secret-hash requirement —
       once one exists. **Owed before 4.3.**
+      ✅ **CLOSED 24 Sept 2026.** Paystack and Flutterwave test keys were
+      connected for **OEA** on staging, and §G now proves the branch that had
+      never run anywhere:
+      *OEA NGN — both name **flutterwave**; both say the **org** account*, the
+      same for USD, and *"the banner's test mode is the mode the stored key was
+      saved as"*. The Naira line is worth reading twice: it is Option A's
+      preference order taking effect on a real connected credential, where that
+      org collected on Paystack a day earlier — and the screen followed it.
+      **All three states are now held against a real world** — `org` and the
+      stored `key_mode` on staging, `platform` on both, `not_connected` on dev
+      via the constructed case. The two remaining SKIPs are correct and
+      complementary: the constructed refusal cannot be built where OEA *has* a
+      gateway, and TFML legitimately collects on the platform key. Between the
+      two worlds every branch of both resolvers is exercised.
       ⚠️ **Owed 2 — a keyless world still SIMULATES a payout.** In
       `resolveOrgGateway` the simulated fallback is gated on
       `!anyPlatformKeyFor(currency)`, which asks the **collect** preference
