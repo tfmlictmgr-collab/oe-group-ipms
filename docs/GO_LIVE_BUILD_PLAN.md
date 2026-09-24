@@ -1520,11 +1520,18 @@ one-line reason rather than deleting it silently.
       knowing that on this setup **"deploy the tag" is not a step anyone
       schedules** — it happens the moment `main` moves. Any future change to
       `main` is in production within minutes, reviewed or not.
-- [ ] 5.3 Variables set; gateway-mode label reads live. **`FLUTTERWAVE_SECRET_KEY`
+- [x] 5.3 Variables set, 24 Sept 2026, including `DPO_CONTACT_EMAIL`.
+      ⚠️ **"gateway-mode label reads live" is the WRONG expectation for this
+      cutover and this row's original wording should not be believed.** No
+      gateway key is set, deliberately, so the collections screen reads **"No
+      payment account connected"** for every org that has not connected its
+      own — which after `0288` is all of them. That is the correct answer and
+      the state 2.12 chose, not a fault to chase. It becomes "live" when
+      Flutterwave reactivates. **`FLUTTERWAVE_SECRET_KEY`
       + `FLUTTERWAVE_WEBHOOK_HASH` are now the required pair;
       `PAYSTACK_SECRET_KEY` stays unset unless a verified Paystack account
       exists** (2.12)
-- [ ] 5.4 Operator admin bootstrapped; password changed; **MFA enabled**
+- [x] 5.4 Operator admin bootstrapped; password changed; **MFA enabled** — 24 Sept 2026
 - [ ] 5.5 Both 360dialog webhooks re-registered
 - [ ] 5.5a **Flutterwave webhook registered** in each dashboard at
       `/api/webhooks/payments/flutterwave`, carrying the same secret hash
@@ -1536,14 +1543,40 @@ one-line reason rather than deleting it silently.
       correct: third-party (Namecheap) nameservers with a CNAME, which is what
       `CUSTOM_DOMAINS.md` prescribes — the ☓ Vercel shows against its own
       nameservers is expected, not a fault.
-- [ ] 5.8 `custom_domain` bound per org *(gap C)*
+- [x] 5.8 `custom_domain` bound per org *(gap C)* — 24 Sept 2026. This is what
+      stops every invitation, receipt link, renewal notice and gateway return
+      URL falling through to the deployment address, which B1 forbids: an
+      address is the most visible thing in a message, and a `*.vercel.app` host
+      is nobody's portal.
 - [x] 5.9 Propagation verified by matching `dpl_` id — **the hostnames return
       the same id**, 24 Sept 2026. This is the check that matters, and the one
       the 20 Aug failure evaded: an assignment can still be shadowed by a
       hand-set alias pinning a hostname to an immutable deployment, which looks
       right on the day and then serves a stale build forever. Matching ids
       across hosts prove it is the project serving them, not a pin.
-- [ ] 5.10 `npm run verify` against production; emptiness re-confirmed
+- [ ] 5.10 ~~`npm run verify` against production~~ — **this step could never
+      be performed as written, corrected 24 Sept 2026.** `verify-all.mjs` calls
+      `requireNonProductionTarget` at line 35, so the runner refuses production
+      outright; the instruction has been impossible since the guard was added.
+      Worse, had it somehow run, **only 13 of 128 suites carry the guard
+      themselves**, and two unguarded ones — `verify-org-creation` and
+      `verify-org-modules` — create durable `PROBEORG` rows. That is where
+      dev's 79 probe orgs and 886 probe users came from. Both are now guarded,
+      because suites get invoked directly (`npx tsx scripts/verify-<name>.mjs`)
+      far more often than through the runner, and the runner's guard does not
+      protect that path.
+      📌 **What 5.10 should be**, and what closing it now means:
+      1. Re-run the Stage 3.6 emptiness proof (`docs/sql/stage3-production-proof.sql`)
+         and commit the output — production must still be empty at cutover, and
+         it is the one claim that decays silently.
+      2. `node scripts/check-db-connection.mjs` — read-only shape checks.
+      3. Read back the four orgs: slug, `custom_domain`, `email_from_address`,
+         `uses_platform_gateway`. An update that silently matched 0 rows has
+         happened twice in this build.
+      4. Fetch `/legal/privacy`, `/legal/terms` and `/legal/refunds` on **each**
+         bound hostname and confirm each renders **its own** organisation's
+         name — the host-resolution B1 depends on, proven by content rather
+         than by a 200.
 
 ### Stage 6 — Prove it, then open it
 - [ ] 6.1 Security pass against the production hostname — passive, **active**, load, rate limit

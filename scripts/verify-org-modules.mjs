@@ -21,10 +21,15 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
+import { requireNonProductionTarget } from "./lib/target-env.mjs";
 
 const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 config({ path: path.join(rootDir, ".env.local") });
 
+requireNonProductionTarget(
+  rootDir,
+  "Creates PROBEORG organisations that survive the run — dev's 79 probe orgs came from suites like this one."
+);
 const URL_ = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SVCK = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
