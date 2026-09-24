@@ -1513,7 +1513,13 @@ one-line reason rather than deleting it silently.
 
 ### Stage 5 — Cutover
 - [ ] 5.1 Target confirmed
-- [ ] 5.2 RC tag deployed to production
+- [x] 5.2 RC tag deployed to production — **`v1.0.0-rc5` at `5f5512a`,
+      24 Sept 2026.** ⚠️ It deployed itself: Vercel builds `main` to Production
+      automatically, so merging PR #59 shipped it rather than a deliberate
+      cutover act. Harmless here because production is still empty, but worth
+      knowing that on this setup **"deploy the tag" is not a step anyone
+      schedules** — it happens the moment `main` moves. Any future change to
+      `main` is in production within minutes, reviewed or not.
 - [ ] 5.3 Variables set; gateway-mode label reads live. **`FLUTTERWAVE_SECRET_KEY`
       + `FLUTTERWAVE_WEBHOOK_HASH` are now the required pair;
       `PAYSTACK_SECRET_KEY` stays unset unless a verified Paystack account
@@ -1524,9 +1530,19 @@ one-line reason rather than deleting it silently.
       `/api/webhooks/payments/flutterwave`, carrying the same secret hash
       that is set in the environment (2.12)
 - [ ] 5.6 Both Telegram webhooks re-registered with the correct usernames
-- [ ] 5.7 Three domains **moved** (never aliased)
+- [x] 5.7 Three domains **moved** (never aliased) — `vercel domains inspect`
+      reports `tfmlportal.com` and `www.tfmlportal.com` under
+      **`tent-ai-production`**, not the dev project. DNS is unchanged and
+      correct: third-party (Namecheap) nameservers with a CNAME, which is what
+      `CUSTOM_DOMAINS.md` prescribes — the ☓ Vercel shows against its own
+      nameservers is expected, not a fault.
 - [ ] 5.8 `custom_domain` bound per org *(gap C)*
-- [ ] 5.9 Propagation verified by matching `dpl_` id on all three hostnames
+- [x] 5.9 Propagation verified by matching `dpl_` id — **the hostnames return
+      the same id**, 24 Sept 2026. This is the check that matters, and the one
+      the 20 Aug failure evaded: an assignment can still be shadowed by a
+      hand-set alias pinning a hostname to an immutable deployment, which looks
+      right on the day and then serves a stale build forever. Matching ids
+      across hosts prove it is the project serving them, not a pin.
 - [ ] 5.10 `npm run verify` against production; emptiness re-confirmed
 
 ### Stage 6 — Prove it, then open it
