@@ -205,6 +205,7 @@ if (require.main === module) {
   const BANNER = "OE GROUP — FOR LEGAL REVIEW · generated from the repository, 24 September 2026";
   const set = [
     ["legal/00_READ_FIRST_Legal_Review_Pack_Index", "00_READ_FIRST_Legal_Review_Pack_Index"],
+    ["legal/01_SIGN_OFF_SCHEDULE", "01_SIGN_OFF_SCHEDULE"],
     ["PRIVACY_NOTICE", "Privacy_Notice"],
     ["NDPA_COMPLIANCE_PACK", "NDPA_Compliance_Pack"],
     ["DATA_SUBJECT_RIGHTS_PROCEDURE", "Data_Subject_Rights_Procedure"],
@@ -216,7 +217,7 @@ if (require.main === module) {
   (async () => {
     for (const [src, name] of set) {
       const buf = await Packer.toBuffer(build(`${DOCS}/${src}.md`, BANNER));
-      const file = name.startsWith("00_") ? `${name}.docx` : `${name}_FOR_LEGAL_REVIEW.docx`;
+      const file = /^\d\d_/.test(name) ? `${name}.docx` : `${name}_FOR_LEGAL_REVIEW.docx`;
       fs.writeFileSync(`${OUT}/${file}`, buf);
       console.log(String(buf.length).padStart(7), file);
     }
