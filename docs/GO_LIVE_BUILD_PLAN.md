@@ -1551,6 +1551,47 @@ one-line reason rather than deleting it silently.
       not for whoever remembers.
 - [ ] 4.6 Findings fixed; if anything changed, `rc2` cut and 4.1–4.5 repeated
 
+### ⏱ Where the cutover actually stands — 24 September 2026
+
+Production is **deployed, empty, proven and reachable**. `v1.0.0-rc5` at
+`5f5512a`, Stage 0 fully met (0.2; 0.3 at **128 of 128 with zero NET**; 0.4;
+0.5). Domains assigned to the project — not pinned to a deployment — and
+serving the same `dpl_` id. MFA on the operator account. `custom_domain` bound
+per org. Emptiness and the SECURITY DEFINER privilege audit re-proved at
+cutover (`docs/verify-runs/stage5-20260924-production-proof.md`). Rollback
+rehearsed in **under 10 seconds**, proven by a 404 rather than a status code
+(`docs/verify-runs/rollback-drill-20260924.md`).
+
+**What the system can and cannot do today:**
+
+| | State |
+|---|---|
+| Sign in, tenancies, requests, work orders, documents, statements | **works** |
+| Online card collection | **refuses** — no gateway key, by choice (2.12); waiting on Flutterwave reactivating the account |
+| Off-platform money — the whole money path for this cutover | **cannot be exercised**: the client-funds accounts exist, their **opening entry is unposted** (1.9) |
+| WhatsApp / Telegram | **nothing arrives or leaves** — `channel_routes` was empty; TFML's Telegram route is the only one written and its token is being revoked (5.5, 5.6) |
+| Email | works — per-org senders set |
+
+**Ordered by who is blocking, not by step number:**
+
+1. **Nobody but you** — post the two opening balances (1.9); revoke and
+   re-register both Telegram bots and both WhatsApp numbers (5.5, 5.6); finish
+   5.10's org read-back and per-host content checks; run the database restore
+   drill (4.5); run the security pass (6.1).
+2. **Booking, and the window is closing** — commission the external pen test
+   (1.11). Production is empty **today**, and 6.2 needs it to stay that way.
+3. **Counsel** — the pack went out 24 Sept. Their schedule closes 1.2, 1.4 and
+   1.5, and starts 1.1's thirteen signatures.
+4. **The board** — special-category data (1.6); the gateway minute (1.10);
+   PITR, whose own revisit trigger is now met; whether production is filled
+   before or after the pen test; and the go-live date itself (1.12).
+
+⚠️ **The one thing that will be live and unagreed:** Telegram is to carry
+tenant conversations and has **no data-processing agreement**, with no known
+enterprise DPA process for the Bot API. Leaving that channel off until it is
+resolved is the cheapest reduction in NDPA exposure available — WhatsApp and
+email already reach every role.
+
 ### Stage 5 — Cutover
 - [ ] 5.1 Target confirmed
 - [x] 5.2 RC tag deployed to production — **`v1.0.0-rc5` at `5f5512a`,
