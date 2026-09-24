@@ -1508,7 +1508,22 @@ one-line reason rather than deleting it silently.
       key set** (Flutterwave only, no Paystack): staging's Paystack test keys
       make a payout resolve where production refuses it — 2.12, owed 2. A
       *gateway* payout is out of scope until Option B
-- [ ] 4.5 Rollback rehearsed: deployment revert **and** PITR restore *(gap G)*
+- [~] 4.5 Rollback rehearsed *(gap G)* — **deployment revert DONE, 24 Sept
+      2026, under 10 seconds**, proven at content level: rolled back to
+      `c745150` and `/legal/privacy` returned **404** because that build does
+      not contain the route, then promoted forward to 200 with the right DPO
+      address. A 404 cannot be faked by a stale edge; a 200 can, which is
+      exactly how the 20 Aug failure hid. Record:
+      `docs/verify-runs/rollback-drill-20260924.md`.
+      ⚠️ **"PITR restore" names a mechanism this project declined on a recorded
+      basis** ($2,520/year, Postgres only, protecting no Storage object). The
+      database half is a restore drill of the backup that exists — `npm run
+      backup`, decrypted, restored into local PostgreSQL 16, checked against
+      `stage5-20260924-production-proof.md`. **Still outstanding.**
+      ⚠️ **`BACKUP_AND_RESTORE.md` §5's own trigger to revisit PITR is met**:
+      "a second client organisation is onboarded, so a bad day affects people
+      who did not choose this trade". Four orgs are provisioned. For the board,
+      not for whoever remembers.
 - [ ] 4.6 Findings fixed; if anything changed, `rc2` cut and 4.1–4.5 repeated
 
 ### Stage 5 — Cutover
