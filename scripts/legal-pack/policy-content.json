@@ -1,0 +1,69 @@
+{
+  "terms": {
+    "title": "Terms of Service",
+    "updated": "22 September 2026",
+    "intro": [
+      "These terms govern your use of the {Organisation} portal (the “Portal”) and any payment you make through it. In these terms, “we”, “us” and “our” mean {Organisation}; “you” means the person or organisation using the Portal. By signing in, submitting an application or making a payment, you accept these terms."
+    ],
+    "sections": [
+      {"h": "1. What the Portal does", "p": ["{Organisation} provides facilities management and property management services. The Portal lets tenants, occupants, property owners, vendors and our staff raise and track service requests, view statements, apply for tenancies, and pay rent, service charges, deposits and other amounts due under an agreement with us or with a property owner we act for."]},
+      {"h": "2. Accounts and access", "ul": [
+        "Accounts are issued by invitation. You must give accurate information and keep it up to date.",
+        "You are responsible for keeping your password and any second-factor codes confidential, and for activity under your account. Tell us promptly if you suspect unauthorised use.",
+        "You may only access information you are entitled to see. Attempting to reach another person’s or organisation’s data, or to interfere with the Portal’s security, is prohibited.",
+        "We may suspend or withdraw access where these terms are breached or the underlying agreement ends."
+      ]},
+      {"h": "3. Payments", "ul": [
+        "The amount of any rent, service charge, deposit or fee is set by your tenancy, lease, service-charge budget or other agreement — not by these terms. The Portal shows what is due and records what is paid.",
+        "Card and online payments are processed by licensed third-party payment processors (Paystack and Flutterwave). We do not receive or store your full card details. The processor’s own terms also apply to the transaction.",
+        "Where a processing fee is passed to you, it is shown before you pay and is retained by the processor.",
+        "Where we collect money on behalf of a property owner or client, it is held in our designated client-funds bank account, recorded in a segregated ledger, and disbursed only through our approval process.",
+        "If you pay by direct bank transfer or bank deposit, the payment is credited to your account once it has been confirmed against our bank records. A payment recorded in the Portal but not yet confirmed is not a receipt.",
+        "Only pay into an account held in the name {Organisation}. We will never ask you by phone or message to pay into a personal account. If in doubt, contact us before paying.",
+        "Refunds are handled under our Refund Policy."
+      ]},
+      {"h": "4. Tenancy applications", "p": ["Applications are reviewed by people, not decided by an automated system. Automated checks may help verify documents you upload, but a member of staff makes and records every decision. Submitting an application does not guarantee a tenancy; a tenancy exists only when an offer has been issued and accepted and the tenancy is recorded."]},
+      {"h": "5. Your data", "p": ["We process personal data in accordance with the Nigeria Data Protection Act 2023 and, where it applies, the GDPR. We use your data to provide the services, meet our legal and accounting obligations, and keep the Portal secure. We share it only with processors who help us deliver the service (for example payment processors and messaging providers) under written agreements. You may ask to access, correct or delete your data, subject to our legal retention obligations, by contacting our Data Protection Officer at {SupportEmail}."]},
+      {"h": "6. Acceptable use", "p": ["You must not use the Portal to upload unlawful, false or misleading material, to submit forged documents or proofs of payment, to harass any person, or to introduce malicious code. Records of payments and approvals are kept in an audit trail that cannot be edited."]},
+      {"h": "7. Availability", "p": ["We aim to keep the Portal available at all times but cannot guarantee uninterrupted service. Maintenance, network or third-party outages may occasionally affect access. If you cannot pay through the Portal, contact us for another way to pay."]},
+      {"h": "8. Intellectual property", "p": ["The Portal, its software and content belong to us or our licensors. You may use them only to access the services described here. Documents you upload remain yours; you give us the right to use them for the purpose you provided them."]},
+      {"h": "9. Liability", "p": ["Nothing in these terms limits liability that cannot be limited by law. Otherwise, we are not liable for indirect or consequential loss, or for loss caused by events outside our reasonable control, including failures of banks, payment processors or telecommunications networks. Our obligations to you in respect of a property are those set out in the relevant tenancy, lease or service agreement."]},
+      {"h": "10. Changes to these terms", "p": ["We may update these terms from time to time. The date at the top shows when they last changed. Material changes will be notified through the Portal or by email."]},
+      {"h": "11. Governing law", "p": ["These terms are governed by the laws of the Federal Republic of Nigeria, and disputes are subject to the jurisdiction of the Nigerian courts."]},
+      {"h": "12. Contact", "p": ["Questions about these terms can be sent to {Organisation} at {SupportEmail}."]}
+    ]
+  },
+  "refunds": {
+    "title": "Refund Policy",
+    "updated": "22 September 2026",
+    "intro": [
+      "This policy explains when {Organisation} refunds a payment made through its portal, by card, online transfer, direct bank transfer or bank deposit. It forms part of our Terms of Service."
+    ],
+    "sections": [
+      {"h": "1. What we pay for you, and why refunds are limited", "p": ["Payments through the Portal are for rent, service charges, deposits and other amounts set by a tenancy, lease or service agreement. Much of this money is collected on behalf of property owners and held in a designated client-funds account. Because these payments settle an amount you owe, they are not refundable simply because you change your mind. A refund is made in the situations below."]},
+      {"h": "2. When you are entitled to a refund", "ul": [
+        "Duplicate payment — the same charge paid more than once.",
+        "Overpayment — you paid more than the amount due.",
+        "Payment in error — a charge that was raised or applied to you by mistake.",
+        "Failed transaction — your account was debited but the payment did not complete. These are usually reversed automatically by your bank or the payment processor within 24–72 hours; if not, we will refund once the processor confirms the funds reached us.",
+        "Refundable deposit — returned at the end of a tenancy in line with the tenancy agreement, less any deductions it permits (for example unpaid rent or damage beyond fair wear and tear), with an itemised statement.",
+        "Declined or withdrawn tenancy — any amount paid towards a tenancy offer that is withdrawn by us, or that we decline, is refunded in full."
+      ], "after": ["Where the tenancy or service agreement you signed provides different refund terms, those terms apply."]},
+      {"h": "3. How to request a refund", "p": ["Contact us at {FinanceEmail} within 30 days of the payment, giving the payment reference, the amount, the date and the reason. For a bank transfer or deposit, include the bank’s receipt or teller."]},
+      {"h": "4. How long it takes", "ul": [
+        "We acknowledge a refund request within 2 business days.",
+        "We decide on it within 10 business days and tell you the outcome and reasons in writing.",
+        "Approved refunds are initiated within 5 business days of approval. Card refunds can take a further 5–10 business days to appear, depending on your bank."
+      ]},
+      {"h": "5. How refunds are paid", "ul": [
+        "Card and online payments are refunded to the original payment method where the processor allows.",
+        "Bank transfers and deposits are refunded by bank transfer to an account in the name of the person who paid. We will ask for evidence of the account before paying.",
+        "Refunds are made in the currency of the original payment. We do not cover exchange-rate differences.",
+        "Processing fees charged by the payment processor are not refundable, except where the refund is due to our error."
+      ]},
+      {"h": "6. Money already paid to a property owner", "p": ["Where the payment has already been passed to the property owner, we will recover it from the owner’s next remittance or by agreement with them before refunding you. We will tell you if this affects the timeline."]},
+      {"h": "7. Chargebacks", "p": ["Please contact us before disputing a payment with your bank — most issues are resolved faster directly. If a chargeback is raised, we will provide the payment records to the processor, and any refund already made will not be paid twice."]},
+      {"h": "8. Complaints", "p": ["If you are unhappy with how a refund request was handled, reply to our decision and it will be reviewed by a senior member of staff who was not involved in the original decision."]}
+    ]
+  }
+}
