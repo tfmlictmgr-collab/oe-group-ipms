@@ -245,6 +245,28 @@ export default function ApplicationForm({
             {CONSENT_STATEMENT}
           </div>
 
+          {/* ⚠️ Deliberately BESIDE the statement, never inside it.
+              `CONSENT_STATEMENT` is stored verbatim on every application so the
+              record says what the applicant actually saw; appending to the
+              constant would make older records differ from it for no reason.
+              The NDPA wants the full notice reachable where the data is
+              collected, and this is that point — so the link lives here, in the
+              page, and the stored wording stays byte-identical. */}
+          <p className="text-xs text-muted-foreground">
+            Our{" "}
+            <a
+              href="/legal/privacy"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline underline-offset-4"
+            >
+              Privacy Notice
+            </a>{" "}
+            sets out in full what we collect, how long we keep it, who else sees
+            it and how to ask for it back. It opens in a new tab, so you will not
+            lose what you have filled in.
+          </p>
+
           <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border p-4">
             <input
               type="checkbox" className="mt-0.5 size-4"
