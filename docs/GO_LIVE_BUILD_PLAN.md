@@ -850,7 +850,14 @@ one-line reason rather than deleting it silently.
       now blocks direct pushes to `main`, as intended
 
 ### Stage 1 — External (start today)
-- [ ] 1.1 13 processor DPAs signed *(hard gate on Stage 6)*
+- [~] 1.1 13 processor DPAs signed *(hard gate on Stage 6)* — **pack sent to
+      counsel 24 Sept 2026**, eleven documents plus `01_SIGN_OFF_SCHEDULE`.
+      **Zero signed.** Counsel approving the addendum only starts the clock;
+      thirteen counterparties then have to sign it, and three of them
+      (Telegram, 360dialog, Africa's Talking) have no DPA confirmed to exist
+      at all. ⚠️ **Telegram is now carrying live tenant conversations** — that
+      processor has no agreement and the Bot API has no known enterprise DPA
+      process.
 - [~] 1.2 Privacy notice legally reviewed and published — **published 24 Sept
       2026 at `/legal/privacy`; legal review still owed.** The two halves were
       being treated as one: Terms and Refunds went live for Flutterwave while
@@ -894,9 +901,27 @@ one-line reason rather than deleting it silently.
       the EU supplies no basis on its own** and this rides on the 13 DPAs
       (1.1). A DPA without transfer clauses does not discharge s.41.
 - [ ] 1.8 ~~Paystack live keys obtained~~ **Flutterwave** live key + secret hash obtained *(hard gate on Stage 6)* — Paystack superseded 23 Sept 2026, see 2.12
-- [ ] 1.9 Segregated client-funds bank account confirmed
+- [~] 1.9 Segregated client-funds bank account — **one live NGN
+      `client_funds` account per org, TFML and OEA, 24 Sept 2026**, each linked
+      to its ledger account, each org's chart now 9 accounts (it was 2, because
+      `ensure_default_ledger_accounts` runs when the bank account is added).
+      ⚠️ **The opening entry is NOT posted** — `opening_date` null,
+      `opening_entry_id` null on both. `0028` states the consequence: *"Until
+      the opening entry is posted the ledger and the bank cannot agree."* The
+      first reconciliation will report a discrepancy equal to whatever is
+      actually in each account. Post it with `record_opening_balance` — and
+      **if the accounts are genuinely new and empty, post ZERO with today's
+      date**: an unposted opening is not the same as a zero opening, and only
+      one of them makes reconciliation meaningful from day one.
 - [~] 1.10 Flutterwave / FX — **in**, as the collections gateway (23 Sept 2026); board minute owed
-- [ ] 1.11 External pen test commissioned and booked for the empty-production window
+- [ ] 1.11 External pen test commissioned and booked for the empty-production
+      window. ⚠️ **Not commissioned, and this is the item with a closing
+      window.** Booking takes 2–4 weeks; production is empty **today**. 6.2
+      requires the test to run against an empty production, so onboarding real
+      tenants first either forecloses it or runs it against real personal data.
+      **Commission it regardless of when it executes** — the booking clock runs
+      either way, and the decision of which comes first belongs to the board,
+      alongside the PITR trigger (`BACKUP_AND_RESTORE.md` §5, now met).
 - [ ] 1.12 Target date and board go/no-go slot set
 
 ### Stage 2 — Close the technical gaps
@@ -1559,11 +1584,39 @@ one-line reason rather than deleting it silently.
       `PAYSTACK_SECRET_KEY` stays unset unless a verified Paystack account
       exists** (2.12)
 - [x] 5.4 Operator admin bootstrapped; password changed; **MFA enabled** — 24 Sept 2026
-- [ ] 5.5 Both 360dialog webhooks re-registered
+- [ ] 5.5 Both 360dialog webhooks re-registered. ⚠️ **Two halves, and the
+      script is only the first.** `register-whatsapp-number.mjs` mints the
+      per-channel token and writes `channel_routes`; **a person must then paste
+      `…/api/webhooks/whatsapp?token=<that value>` into the 360dialog Hub**,
+      because at direct-client tier there is no API for it. That token is both
+      the routing key and the only proof a request is genuine — as direct
+      clients you receive no signature from 360dialog or from Meta, so without
+      it any unsigned POST claiming any number would route.
 - [ ] 5.5a **Flutterwave webhook registered** in each dashboard at
       `/api/webhooks/payments/flutterwave`, carrying the same secret hash
       that is set in the environment (2.12)
-- [ ] 5.6 Both Telegram webhooks re-registered with the correct usernames
+- [~] 5.6 Both Telegram webhooks re-registered. **TFML registered 24 Sept
+      2026** (`@tfml_support_bot`, route stored, `setWebhook` set and read back
+      — the script confirms with Telegram rather than trusting its `ok`).
+      **OEA refused: `Unauthorized`** — Telegram rejecting the token at
+      `getMe`, so nothing was written; the script checks before it stores.
+      ⚠️ **Both tokens were then exposed and must be revoked in BotFather and
+      re-registered.** Revoking keeps the bot, its @username and all its
+      settings — it swaps the credential and kills the webhook, so the same
+      command re-points everything.
+      📌 The webhook registered at `tent-ai-production.vercel.app`, and that is
+      **correct, not a defect**. It is machine-to-machine: Telegram POSTs there
+      and the org is resolved from the per-bot secret, never from the host. And
+      `NEXT_PUBLIC_SITE_URL` must **stay brand-neutral** — it is one value per
+      deployment and the last-resort fallback for *every* org, so pointing it
+      at one brand's domain would put that brand's address on the other's
+      links, which is the B1 breach decision 47 exists to prevent.
+      📌 After revocation, `TELEGRAM_BOT_TOKEN` in Vercel holds a dead
+      credential. It is read in exactly one place — `lib/inbound-media.ts:102`,
+      a fallback for downloading inbound media when a route has no
+      `outbound_token` — and once both orgs have their own it never fires.
+      **Remove it rather than refresh it**: `verify-gateway-isolation` already
+      asserts no org may be given the shared token.
 - [x] 5.7 Three domains **moved** (never aliased) — `vercel domains inspect`
       reports `tfmlportal.com` and `www.tfmlportal.com` under
       **`tent-ai-production`**, not the dev project. DNS is unchanged and
