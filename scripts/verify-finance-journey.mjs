@@ -532,23 +532,36 @@ for (const o of tenantOrgs) {
           where property_id = '${owned.property_id}'` },
     ];
 
+    // ⚠️ What the FIXTURE adds, measured against the property as it stands —
+    // never an absolute figure. Changed 24 Sept 2026: staging's owned property
+    // carried ₦7,560,000 of real collected, unremitted rent, so the payable
+    // figure read ₦8,010,000 and this failed as "the fee is being paid away"
+    // while the fixture had added exactly ₦450,000 — the net, correctly. The
+    // same trap as the co-owner sum above: an absolute total asserts the
+    // database's history, not the rule. Both fixtures are rolled back
+    // (`steps`), so the baseline is read outside them.
+    const baseline = await asUser(fin.id,
+      `select coalesce(max(collected),0)::numeric total
+         from landlord_payout_candidates()
+        where property_id = '${owned.property_id}'`);
     const demanded = await steps(build(0));
     const collected = await steps(build(500000));
 
-    if (!demanded.ok || !collected.ok) {
-      bad(`could not build the payout fixture: ${demanded.err ?? collected.err}`);
+    if (!baseline.ok || !demanded.ok || !collected.ok) {
+      bad(`could not build the payout fixture: ${baseline.err ?? demanded.err ?? collected.err}`);
     } else {
-      const d = Number(demanded.steps[5][0].total);
-      const c = Number(collected.steps[5][0].total);
-      c > d
-        ? ok(`a COLLECTED demand becomes payable (₦${c.toLocaleString()}); a merely demanded one does not (₦${d.toLocaleString()})`)
-        : bad(`demanded ${d} vs collected ${c} — a landlord could be paid money no tenant handed over`);
+      const b = Number(baseline.rows[0].total);
+      const d = Number(demanded.steps[5][0].total) - b;
+      const c = Number(collected.steps[5][0].total) - b;
+      d === 0 && c > 0
+        ? ok(`a COLLECTED demand becomes payable (+₦${c.toLocaleString()}); a merely demanded one adds nothing`)
+        : bad(`demanded adds ${d}, collected adds ${c} — a landlord could be paid money no tenant handed over`);
       // And the figure must be the LANDLORD'S share, not the gross rent — the
       // fee was already taken at collection, and paying out the gross would
       // hand the landlord the org's own fee income.
       c === 450000
         ? ok("and it is the landlord's net share, not the gross rent")
-        : bad(`the payable figure is ${c}, expected the net 450000 — the fee is being paid away`);
+        : bad(`collecting ₦500,000 made ${c} payable, expected the net 450000 — the fee is being paid away`);
     }
   }
 
