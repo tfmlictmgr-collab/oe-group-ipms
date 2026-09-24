@@ -158,6 +158,35 @@ const gw = await import("../lib/gateway/index.ts");
   }
 }
 
+// A payout in a currency NOTHING pays out in must be refused in every world,
+// not simulated in the keyless ones. `gatewayPreference` returns an empty list
+// for a foreign-currency payout; production therefore refuses one before the
+// remittance is claimed. A keyless dev or staging used to fall through to the
+// simulated adapter instead — whose `transfer` reports success and posts to the
+// ledger — so Stage 4.4 would have watched an FX payout "succeed" on staging
+// and proved a path that refuses in production. Runs in every world, because
+// the worlds that CAN get this wrong are the keyless ones.
+{
+  for (const [label, o] of [["TFML", tfml], ["OEA", oea]]) {
+    let outcome = "a gateway";
+    try {
+      const r = await gw.resolveOrgGateway(o.id, "USD", "payout");
+      outcome = r.merchant === "simulated" ? "the SIMULATED adapter" : `the ${r.merchant} account`;
+    } catch (e) {
+      outcome = e.name === "GatewayNotConnectedError" ? "refused" : `error: ${e.message}`;
+    }
+    outcome === "refused"
+      ? ok(`${label}: a foreign-currency payout is refused, as it is in production`)
+      : bad(`${label}: a foreign-currency payout resolved to ${outcome} — a simulated transfer posts to the ledger`);
+  }
+  // The Naira payout must still resolve, or dev could not rehearse a payout at all.
+  let ngnOk = false;
+  try { await gw.resolveOrgGateway(tfml.id, "NGN", "payout"); ngnOk = true; } catch { ngnOk = false; }
+  ngnOk || !gw.gatewayConfigured("NGN")
+    ? ok("…while a Naira payout still resolves, so the refusal is about the currency, not a blanket no")
+    : bad("a Naira payout is now refused too — the guard is too wide");
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 section("C. Verification uses the account that TOOK the payment");
 

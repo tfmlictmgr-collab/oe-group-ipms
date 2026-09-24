@@ -759,7 +759,18 @@ export async function resolveOrgGateway(
   // simulate one — a simulated transfer reports success and posts to the ledger.
   // `anyPlatformKeyFor` asks the COLLECTION preference, which for Naira names
   // both gateways, so a Flutterwave key alone is enough to rule simulation out.
-  if (!anyPlatformKeyFor(currency) && !isProduction()) {
+  //
+  // ⚠️ And never for a purpose NO gateway serves. `gatewayPreference` returns an
+  // empty list for a foreign-currency payout — nothing pays out in USD, which is
+  // why production refuses one before the remittance is claimed. Without this
+  // guard a keyless dev or staging world took the branch below instead and
+  // handed back the SIMULATED adapter, whose `transfer` reports success and
+  // posts to the ledger. Not a regression (the same thing happened before the
+  // 23 Sept 2026 purpose split), but it is the shape that makes a rehearsal
+  // worthless: Stage 4.4 would watch an FX payout "succeed" on staging and
+  // prove a path that refuses in production. An empty preference means no,
+  // everywhere.
+  if (preference.length > 0 && !anyPlatformKeyFor(currency) && !isProduction()) {
     return {
       merchant: "simulated",
       adapter: new SimulatedAdapter(process.env.SIMULATED_GATEWAY_SECRET ?? "dev-simulated-secret"),

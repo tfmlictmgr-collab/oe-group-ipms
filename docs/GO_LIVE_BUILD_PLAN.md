@@ -1211,6 +1211,15 @@ one-line reason rather than deleting it silently.
       `GatewayNotConnectedError` and goes by bank transfer (`0289`) — and
       staging, which does hold Paystack test keys, will not reproduce that.
       **4.4 must rehearse the production key set, not staging's.**
+      ✅ **Fixed 24 Sept 2026.** The simulation fallback in `resolveOrgGateway`
+      now also requires a non-empty preference: `preference.length > 0 &&
+      !anyPlatformKeyFor(currency) && !isProduction()`. An empty preference
+      means **no gateway serves this purpose at all**, which is a refusal in
+      every world rather than a simulation in the keyless ones. A Naira payout
+      still resolves in `dev`, so the refusal is about the currency and not a
+      blanket no — `verify-gateway-isolation` §B now asserts both halves, and
+      runs in every world, because the worlds that can get this wrong are
+      precisely the keyless ones.
       ⚠️ **Owed 3 — the code now contradicts locked decision 4.** `claude.md:8`
       still reads *"Payments: Paystack (Collections + Transfers/remittance) +
       Flutterwave (FX / international collections)"*, and lines 472 and 490–491
