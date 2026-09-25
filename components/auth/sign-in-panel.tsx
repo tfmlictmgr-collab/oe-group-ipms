@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { verifyBackupCodeAndDisableMfa } from "@/lib/mfa";
@@ -9,6 +9,7 @@ import { Eye, EyeOff, ShieldCheck, ShieldQuestion, Building2, Banknote, AlertCir
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { TurnstileGate, TURNSTILE_SITE_KEY, type TurnstileGateHandle } from "@/components/auth/turnstile-gate";
 
 export type SignInBrand = {
   /** What the portal calls itself — "OEA Portal", "TFML Portal". */
@@ -61,6 +62,11 @@ function signInMessage(raw: string): string {
   }
   if (m.includes("rate limit") || m.includes("too many")) {
     return "Too many attempts. Wait a minute and try again.";
+  }
+  // Supabase's CAPTCHA refusal (Auth → Attack Protection). Says nothing about
+  // the account, so it cannot be used to probe which addresses exist.
+  if (m.includes("captcha")) {
+    return "The security check didn't go through. Wait for the tick beside \"Sign in\", then try again.";
   }
   if (m.includes("network") || m.includes("fetch")) {
     return "Couldn't reach the server. Check your connection and try again.";
@@ -138,6 +144,10 @@ export default function SignInPanel({
   // session first regardless — and nothing below (the org check, the
   // redirect) runs until the code step also succeeds.
   const [step, setStep] = useState<"password" | "mfa">("password");
+  // Cloudflare Turnstile — see components/auth/turnstile-gate for where the
+  // gate really is (Supabase's own CAPTCHA setting) and the order to enable it.
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const turnstile = useRef<TurnstileGateHandle>(null);
   const [mfaCode, setMfaCode] = useState("");
   const [useBackupCode, setUseBackupCode] = useState(false);
   const [backupNotice, setBackupNotice] = useState<string | null>(null);
@@ -189,8 +199,21 @@ export default function SignInPanel({
     setLoading(true);
     setError(null);
 
+    if (TURNSTILE_SITE_KEY && !captchaToken) {
+      setError("Wait for the security check to finish, then sign in.");
+      setLoading(false);
+      return;
+    }
+
     const supabase = createClient();
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+      options: captchaToken ? { captchaToken } : undefined,
+    });
+    // A Turnstile token is single-use, spent or not — mint a fresh one for any
+    // retry (a wrong password, or coming back to this step after MFA).
+    turnstile.current?.reset();
 
     if (error) {
       setError(signInMessage(error.message));
@@ -386,6 +409,8 @@ export default function SignInPanel({
                   </div>
                 </div>
 
+                <TurnstileGate ref={turnstile} onToken={setCaptchaToken} action="sign-in" />
+
                 {error && (
                   <p
                     role="alert"
@@ -396,7 +421,13 @@ export default function SignInPanel({
                   </p>
                 )}
 
-                <Button type="submit" variant="brand" size="lg" className="w-full" disabled={loading}>
+                <Button
+                  type="submit"
+                  variant="brand"
+                  size="lg"
+                  className="w-full"
+                  disabled={loading || (Boolean(TURNSTILE_SITE_KEY) && !captchaToken)}
+                >
                   {loading ? "Signing in…" : "Sign in"}
                 </Button>
               </form>

@@ -5,6 +5,7 @@ import { headers } from "next/headers";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/email";
 import { checkRateLimit, clientIp } from "@/lib/rate-limit";
+import { verifyTurnstile } from "@/lib/turnstile";
 import { ok, fail, type ActionResult } from "@/lib/action-result";
 
 // Password reset, built on this app's own mail path rather than Supabase
@@ -30,10 +31,23 @@ function hashResetToken(token: string): string {
  * REFUSED message and the invite-provisioning flow already follow. Whether
  * anything was actually sent is not observable from the response.
  */
-export async function requestPasswordReset(email: string, origin: string): Promise<ActionResult> {
+export async function requestPasswordReset(
+  email: string,
+  origin: string,
+  turnstileToken?: string | null
+): Promise<ActionResult> {
   const trimmed = email.trim().toLowerCase();
   if (!trimmed || !trimmed.includes("@")) {
     return fail("Enter a valid email address.");
+  }
+
+  // Cloudflare Turnstile, verified HERE rather than by Supabase: this reset is
+  // our own mail path (0139), so Supabase's CAPTCHA setting never sees it.
+  // Skips itself when the keys are absent (lib/turnstile). Saying the check
+  // failed reveals nothing about any account — it is independent of the address.
+  const bot = await verifyTurnstile(turnstileToken, clientIp(await headers()));
+  if (!bot.ok) {
+    return fail("The security check didn't go through. Wait for the tick, then try again.");
   }
 
   // Keyed on the email itself, not just IP: the abuse this guards against is

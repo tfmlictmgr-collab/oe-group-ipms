@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { Mail, ArrowLeft, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { requestPasswordReset } from "./actions";
+import { TurnstileGate, TURNSTILE_SITE_KEY, type TurnstileGateHandle } from "@/components/auth/turnstile-gate";
 
 export default function RequestResetForm() {
   const [email, setEmail] = useState("");
@@ -25,12 +26,15 @@ export default function RequestResetForm() {
   // email could ever be sent to. Nothing leaks by saying so: the input is
   // wrong on its face, independent of who has an account.
   const [error, setError] = useState<string | null>(null);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const turnstile = useRef<TurnstileGateHandle>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError(null);
-    const result = await requestPasswordReset(email, window.location.origin);
+    const result = await requestPasswordReset(email, window.location.origin, captchaToken);
+    turnstile.current?.reset(); // single-use
     setLoading(false);
     if (!result.ok) {
       setError(result.message);
@@ -89,13 +93,21 @@ export default function RequestResetForm() {
           </div>
         </div>
 
+        <TurnstileGate ref={turnstile} onToken={setCaptchaToken} action="password-reset" />
+
         {error && (
           <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
             {error}
           </p>
         )}
 
-        <Button type="submit" variant="brand" size="lg" className="w-full" disabled={loading}>
+        <Button
+          type="submit"
+          variant="brand"
+          size="lg"
+          className="w-full"
+          disabled={loading || (Boolean(TURNSTILE_SITE_KEY) && !captchaToken)}
+        >
           {loading ? "Sending…" : "Send reset link"}
         </Button>
       </form>
