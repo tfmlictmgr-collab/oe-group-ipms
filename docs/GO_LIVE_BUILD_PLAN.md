@@ -1661,7 +1661,12 @@ email already reach every role.
       `PAYSTACK_SECRET_KEY` stays unset unless a verified Paystack account
       exists** (2.12)
 - [x] 5.4 Operator admin bootstrapped; password changed; **MFA enabled** — 24 Sept 2026
-- [~] 5.5 ✅ **Decided 25 Sept 2026: production takes the real numbers.**
+- [x] 5.5 ✅ **Done 25 Sept 2026** — both numbers registered in production,
+      Hub webhooks set, staging and dev neutralised, and a live message to each
+      number routed to the right org and answered from its own number
+      (`docs/verify-runs/stage5-20260925-readback.md`). Telegram proven the same
+      way at the same time.
+      ✅ **Decided 25 Sept 2026: production takes the real numbers.**
       Staging and dev routes are **neutralised, not deleted** — new random
       `external_id`, `outbound_token` null — because `verify-channel-routing`
       and `verify-conversational-intelligence` need a WhatsApp route per brand
