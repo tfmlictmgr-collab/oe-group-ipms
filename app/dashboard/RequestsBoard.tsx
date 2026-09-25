@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { joinAsUser } from "@/lib/supabase/realtime";
 import { type Ticket } from "@/lib/ticket-format";
 import type { RequestScope } from "./request-scope";
 import RequestStats from "./RequestStats";
@@ -74,7 +75,8 @@ export default function RequestsBoard({
   useEffect(() => {
     const supabase = createClient();
 
-    const channel = supabase
+    // Joined as the signed-in user, never as `anon` — see lib/supabase/realtime.
+    return joinAsUser(supabase, () => supabase
       .channel("tickets-realtime")
       .on(
         "postgres_changes",
@@ -103,11 +105,8 @@ export default function RequestsBoard({
           });
         }
       )
-      .subscribe((status) => setLive(status === "SUBSCRIBED"));
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+      .subscribe((status) => setLive(status === "SUBSCRIBED")),
+      (joined) => setLive(joined));
   }, [belongsHere]);
 
   // Server-rendered rows are the truth on first paint; a later navigation to a

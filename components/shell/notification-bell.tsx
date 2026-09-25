@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
+import { joinAsUser } from "@/lib/supabase/realtime";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
@@ -61,9 +62,16 @@ export function NotificationBell({ initial }: { initial: UserNotification[] }) {
 
   // Live updates. RLS restricts the stream to this user's own rows, so there is
   // no filtering to get wrong on the client.
+  // The server's list is the truth after every render — including the
+  // AutoRefresh safety net — so adopt it when it changes.
+  React.useEffect(() => {
+    setItems(initial);
+  }, [initial]);
+
   React.useEffect(() => {
     const supabase = createClient();
-    const channel = supabase
+    // Joined as the signed-in user, never as `anon` — see lib/supabase/realtime.
+    return joinAsUser(supabase, () => supabase
       .channel("user-notifications")
       .on(
         "postgres_changes",
@@ -77,10 +85,7 @@ export function NotificationBell({ initial }: { initial: UserNotification[] }) {
           ].slice(0, 30));
         }
       )
-      .subscribe();
-    return () => {
-      supabase.removeChannel(channel);
-    };
+      .subscribe());
   }, []);
 
   async function markAllRead() {

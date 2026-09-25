@@ -1588,6 +1588,23 @@ one-line reason rather than deleting it silently.
 > `PAYSTACK_SECRET_KEY` (removed). ⚠️ Open: ₦7,560,000 of collected,
 > unremitted rent appeared on staging's POC property between rc5 and rc6.
 
+> ⚠️ **Rule 7 again: rc7 is owed — live updates never worked in production**
+> (found 25 Sept 2026). Three faults, stacked, each hiding the next:
+> 1. **`user_notifications` was never in the Realtime publication** — only
+>    `tickets` was (0002); dev and staging had it ticked by hand. **0301**.
+> 2. **Every browser subscription joined as `anon`** — the channel joined
+>    before the session token reached the connection. Fixed in code:
+>    `joinAsUser()` (`lib/supabase/realtime.ts`), plus an `AutoRefresh`
+>    safety net. **Inside `next build` → rc7.**
+> 3. **One `anon` subscriber stopped the stream for everyone** — the tables'
+>    policies call functions `anon` could not execute, Realtime's batched RLS
+>    check raised `permission denied for function active_uid`, and the whole
+>    batch failed on every poll. A service-role listener
+>    (`scripts/diagnose-realtime.mjs`) heard nothing while a row was inserted in
+>    front of it. **0302**, which proves itself: it evaluates both policies as
+>    `anon` and fails if a function is missed. Also closes a trivial denial of
+>    service: anyone holding the public key could freeze live updates.
+
 Production is **deployed, empty, proven and reachable**. `v1.0.0-rc5` at
 `5f5512a`, Stage 0 fully met (0.2; 0.3 at **128 of 128 with zero NET**; 0.4;
 0.5). Domains assigned to the project — not pinned to a deployment — and
