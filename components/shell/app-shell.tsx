@@ -9,6 +9,7 @@ import { SidebarNav } from "./sidebar-nav";
 import { ThemeToggle } from "./theme-toggle";
 import { UserMenu } from "./user-menu";
 import { NotificationBell, type UserNotification } from "./notification-bell";
+import AutoRefresh from "@/components/patterns/auto-refresh";
 import type { NavContext } from "./nav-config";
 import { readsServiceChargeRegister } from "@/lib/roles";
 
@@ -109,6 +110,9 @@ export function AppShell({
           <div className="hidden flex-1 lg:block" />
 
           <div className="flex items-center gap-1 sm:gap-2">
+            {/* Keeps every dashboard page current even if live updates drop —
+                see components/patterns/auto-refresh. Renders nothing. */}
+            <AutoRefresh />
             {/* ⚠️ Hidden below `sm`, not removed. On a 375px screen the bar was
                 a logo and three separate icon buttons competing for the same
                 edge; both of these fold into the profile menu there instead.

@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { joinAsUser } from "@/lib/supabase/realtime";
 
 /**
  * Re-runs the server component when a request this person can see changes.
@@ -38,15 +39,15 @@ export default function LiveRefresh({ table = "tickets" }: { table?: string }) {
       pending.current = setTimeout(() => router.refresh(), 400);
     };
 
-    const channel = supabase
+    // Joined as the signed-in user, never as `anon` — see lib/supabase/realtime.
+    const leave = joinAsUser(supabase, () => supabase
       .channel(`live-refresh-${table}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table }, nudge)
       .on("postgres_changes", { event: "UPDATE", schema: "public", table }, nudge)
-      .subscribe();
-
+      .subscribe());
     return () => {
       if (pending.current) clearTimeout(pending.current);
-      supabase.removeChannel(channel);
+      leave();
     };
   }, [router, table]);
 
