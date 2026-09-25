@@ -40,6 +40,14 @@ was being re-read and retried by sweeps that did not skip accounts already
 neutralised. Adding `.is("deactivated_at", null)` to the sweeps, and clearing
 the backlog with `scripts/sweep-probe-residue.mjs --apply`, is what moved these.
 
+### `rc6-20260925.md` — the run of record for `v1.0.0-rc6`
+
+`129 of 129`, in two parts: 125 in one full run, 4 alone after it — the file
+says which and why. The full terminal log was not kept; the record carries the
+summary lines as pasted, and says so. The tag annotation is
+`rc6-tag-message.txt`, which holds only the annotation this time — `rc5`'s
+carried its own tagging instructions into the tag.
+
 ### `rc3-20260921.log` — the run of record for `v1.0.0-rc3`
 
 `124 of 124 suite(s) passed.` The first clean sweep the build recorded.
