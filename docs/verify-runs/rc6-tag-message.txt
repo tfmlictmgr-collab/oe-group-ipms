@@ -1,0 +1,11 @@
+v1.0.0-rc6
+
+rc5 died to rule 7: the published privacy notice named both client brands on
+every portal (B1, "or existence"). The fix is inside next build.
+
+- 0.2: npm ci, next build 85/85, 0 lint errors, on this tree.
+- 0.3: 129 of 129 against staging - 125 in one full run on 69669e9, 4 alone
+  after it (docs/verify-runs/rc6-20260925.md says which and why).
+  69669e9..b38d166 changes only scripts/verify-finance-journey.mjs.
+- 0.5: npm audit 32 (21/10/1), identical to rc5; lockfile unchanged.
+- New: verify-legal-single-brand holds all three legal pages to B1.

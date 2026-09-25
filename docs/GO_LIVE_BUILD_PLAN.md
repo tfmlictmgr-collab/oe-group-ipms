@@ -1579,6 +1579,14 @@ one-line reason rather than deleting it silently.
 > 85/85), and 0.3 carried from rc5's 128/128 because no other suite reads
 > `app/legal/` — plus `verify-legal-single-brand` (new, green) and
 > `verify-backup-crypto` (reads `backup-database.mjs`; re-run, green).
+>
+> ✅ **rc6 is ready to tag at `b38d166`** (25 Sept 2026): **129 of 129**
+> against staging — 125 in one full run, 4 alone after it
+> (`docs/verify-runs/rc6-20260925.md`). On the way: a payout-suite check that
+> asserted a total rather than a change (fixed, PR #61), and staging's local
+> env carrying `VERCEL_ENV="production"` and a 12-character placeholder
+> `PAYSTACK_SECRET_KEY` (removed). ⚠️ Open: ₦7,560,000 of collected,
+> unremitted rent appeared on staging's POC property between rc5 and rc6.
 
 Production is **deployed, empty, proven and reachable**. `v1.0.0-rc5` at
 `5f5512a`, Stage 0 fully met (0.2; 0.3 at **128 of 128 with zero NET**; 0.4;
