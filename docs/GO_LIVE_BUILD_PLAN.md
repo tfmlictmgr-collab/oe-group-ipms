@@ -1728,7 +1728,12 @@ email already reach every role.
       hand-set alias pinning a hostname to an immutable deployment, which looks
       right on the day and then serves a stale build forever. Matching ids
       across hosts prove it is the project serving them, not a pin.
-- [~] 5.10 ~~`npm run verify` against production~~ — **this step could never
+- [x] 5.10 ✅ **Done 25 Sept 2026** — `docs/verify-runs/stage5-20260925-readback.md`.
+      Read-back OK for TFML and OEA (orgs, both Telegram routes, both
+      client-funds accounts at zero); each host's three legal pages name only
+      their own brand. `sc-client` dormant by decision; operator support
+      address outstanding (a CHECK, not a gate).
+      ~~`npm run verify` against production~~ — **this step could never
       be performed as written, corrected 24 Sept 2026.** `verify-all.mjs` calls
       `requireNonProductionTarget` at line 35, so the runner refuses production
       outright; the instruction has been impossible since the guard was added.
