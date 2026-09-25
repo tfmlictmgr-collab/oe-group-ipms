@@ -90,7 +90,7 @@ preventing one).
 None of these can be shortened by anything in this repository, and every one of
 them gates real data or real money. They are Stage 1 and they start today.
 
-1. **13 processor DPAs, all unsigned** (`NDPA_COMPLIANCE_PACK.md` §4). Drafts
+1. **14 processor DPAs (Cloudflare added 25 Sept), all unsigned** (`NDPA_COMPLIANCE_PACK.md` §4). Drafts
    exist in `DPA_TEMPLATE_AND_TRACKER.md`. This is the largest compliance gap
    and it gates *any* real personal data.
 2. **Privacy notice unpublished** — drafted, needs legal review and the DPO's
@@ -1024,7 +1024,21 @@ one-line reason rather than deleting it silently.
       already fails safely. **Accepted with a condition** — 7.5's
       `tickets.classified_by` monitoring query must exist, so "are we quietly
       running on the fallback?" is a fact and not a hunch.
-- [~] 2.8 **Decided 20 Sept 2026. Turnstile IN, SMS OUT.**
+- [x] 2.8 ✅ **Turnstile live, 25 Sept 2026 — on the vendor form AND every
+      sign-in door.** Vendor form: the widget renders on `oeaportal.com/apply/…`
+      and returns a green tick. Sign-in, invitation acceptance and password
+      reset now carry a token too (`components/auth/turnstile-gate.tsx`), and
+      **Supabase's own CAPTCHA (Auth → Attack Protection, Turnstile) is ON in
+      production** — the real gate, since sign-in goes browser → Supabase and a
+      page widget alone is bypassable. Password reset is our own mail path, so it
+      is verified server-side by `lib/turnstile.ts`. Proven: sign-in works on
+      `www.tfmlportal.com` and `oeaportal.com` with CAPTCHA on.
+      ⚠️ **CAPTCHA stays OFF on staging and dev** — 77 verify suites sign in
+      with a password there. Enabling it anywhere BEFORE this code is deployed
+      locks every account out.
+      📌 Cloudflare now sees every sign-in (IP, browser signals): add it to the
+      processor list with counsel (1.1).
+      **Decided 20 Sept 2026. Turnstile IN, SMS OUT.**
       **Turnstile keys set on Vercel, 20 Sept 2026.** The layer was already
       wired end to end (widget, form, server-side verification) and had only
       ever been missing its keys.
@@ -1685,9 +1699,11 @@ email already reach every role.
       way at the same time.
       ✅ **Decided 25 Sept 2026: production takes the real numbers.**
       Staging and dev routes are **neutralised, not deleted** — new random
-      `external_id`, `outbound_token` null — because `verify-channel-routing`
-      and `verify-conversational-intelligence` need a WhatsApp route per brand
-      to exist, and neither needs a key that can send. With no key, a staging
+      `external_id`, and a unique **placeholder** `outbound_token`
+      (`staging-placeholder-no-send-…`) that 360dialog rejects. Corrected 25
+      Sept: the first version set the key NULL on the belief no suite needed
+      one; `verify-gateway-isolation` requires TFML and OEA to hold distinct
+      non-null keys, and failed until the placeholders went in. With no key, a staging
       run can no longer message a real customer from the business number.
       Both 360dialog Hub API keys regenerated, so the old ones staging and dev
       held stop working as well. Close by read-back: query 2 of

@@ -38,7 +38,7 @@ export default async function LoginPage({
     <SignInPanel
       redirectTo="/orgs"
       brand={{
-        portalName: "OE Group",
+        portalName: "TENTai",
         logoText: "OE",
         logoUrl: null,
         primary: "#003366",
@@ -47,7 +47,7 @@ export default async function LoginPage({
         // "or existence" rule is exactly what a client list in a tagline breaks.
         tagline:
           "One auditable workspace for requests, service charges, vendor performance and payments.",
-        owner: "OE Group",
+        owner: "TENTai",
       }}
       // Mirrors /o/[slug]'s own wrong_org notice (dashboard's cross-org guard
       // sends the operator's own hostname here instead, 0112). Says only that a

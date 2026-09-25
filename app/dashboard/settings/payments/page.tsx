@@ -65,9 +65,9 @@ export default async function PaymentSettingsPage() {
                 <p className="text-muted-foreground">
                   <span className="font-medium text-foreground">Read-only.</span>{" "}
                   These two decide when a payment needs a second pair of hands, so
-                  they are governed centrally by OE Group rather than set here —
+                  they are governed centrally by TENTai rather than set here —
                   an administrator who could raise the approval limit could raise
-                  the limit they then approve against. Ask your OE Group contact
+                  the limit they then approve against. Ask your TENTai contact
                   for a change.
                 </p>
               </div>

@@ -50,7 +50,7 @@ export default async function ApplyPage({
           >
             {(theme.logoText ?? "OE").slice(0, 2)}
           </span>
-          <span className="font-semibold">{org?.org_name ?? "OE Group"}</span>
+          <span className="font-semibold">{org?.org_name ?? "TENTai"}</span>
         </div>
 
         {!org ? (

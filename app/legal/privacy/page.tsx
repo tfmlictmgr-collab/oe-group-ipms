@@ -66,7 +66,7 @@ export default async function PrivacyNoticePage() {
       <h2>1. Who we are</h2>
       <p>
         This notice covers the {org.name} portal, part of an integrated facilities and property
-        management platform operated by OE Group. Each organisation on the platform has its own
+        management platform operated by TENTai. Each organisation on the platform has its own
         clients, tenants, vendors and staff, and its data is kept fully separated from every other
         organisation&rsquo;s.
       </p>
@@ -75,8 +75,8 @@ export default async function PrivacyNoticePage() {
         personal data is processed as described below.
       </p>
       <p>
-        <strong>Data controller:</strong> OE Group. Each client organisation&rsquo;s data is
-        controlled by OE Group under its management agreement with that client.
+        <strong>Data controller:</strong> TENTai. Each client organisation&rsquo;s data is
+        controlled by TENTai under its management agreement with that client.
       </p>
       <p>
         <strong>Data Protection Officer:</strong> {DPO_NAME}. Contact{" "}
@@ -132,7 +132,7 @@ export default async function PrivacyNoticePage() {
         <li><strong>A tenancy application that is rejected or withdrawn</strong> — 90 days, then your personal details are permanently removed. A record that a decision was made is kept, without your personal details, so the process remains auditable.</li>
         <li><strong>An approved tenancy application</strong> — for the length of the tenancy, plus 6 years after it ends.</li>
         <li><strong>Financial records</strong> (payments, rent, remittances) — retained as a permanent financial record. This cannot be deleted on request, for the same reason a bank statement cannot be un-issued, but you can always ask what is held.</li>
-        <li><strong>The audit trail of actions taken on your account</strong> — retained permanently, and cannot be altered by anyone, including OE Group staff.</li>
+        <li><strong>The audit trail of actions taken on your account</strong> — retained permanently, and cannot be altered by anyone, including TENTai staff.</li>
       </ul>
 
       <h2>6. Your rights</h2>

@@ -408,6 +408,12 @@ export const geminiProvider: Provider = {
         ?.candidates?.[0]?.content?.parts?.[0]?.text ?? null;
 
     let lastError = "no usable Gemini model";
+    // Every model's refusal, in order. ⚠️ Reporting only the LAST one misled a
+    // diagnosis on 25 Sept 2026: the log said "gemini-2.5-flash-lite is no
+    // longer available", which read as a pinned retired model, when that was
+    // merely the last of a discovery walk — the three real candidates had been
+    // refused first, for reasons the log never showed.
+    const refused: string[] = [];
 
     /** Try each model in turn. Returns a result, or null to keep looking. */
     const walk = async (models: string[]) => {
@@ -425,6 +431,7 @@ export const geminiProvider: Provider = {
         if (!res.ok) {
           const detail = await res.text().catch(() => "");
           lastError = `HTTP ${res.status} ${detail.slice(0, 160)}`;
+          refused.push(`${model}: HTTP ${res.status}`);
           if (shouldTryNextModel(res.status)) {
             if (resolvedGeminiModel === model) resolvedGeminiModel = null;
             continue;
@@ -438,6 +445,7 @@ export const geminiProvider: Provider = {
           // some models answer exactly that way. Treated the same: move on
           // rather than reporting the fallback as broken.
           lastError = `${model} answered with no text`;
+          refused.push(`${model}: no text`);
           if (resolvedGeminiModel === model) resolvedGeminiModel = null;
           continue;
         }
@@ -463,7 +471,8 @@ export const geminiProvider: Provider = {
       }
     }
 
-    return { ok: false, provider: "gemini", error: lastError };
+    const tally = refused.length > 1 ? ` — refused: ${refused.slice(0, 8).join(", ")}` : "";
+    return { ok: false, provider: "gemini", error: `${lastError}${tally}` };
   },
 };
 

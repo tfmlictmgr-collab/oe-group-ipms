@@ -64,8 +64,8 @@ const BASE_THEMES: Record<DeliveryBrand, BaseBrand> = {
     logoText: "OE",
   },
   direct: {
-    name: "OE Group",
-    primary: "#8B1D1D", // dark red — OE Group house colour
+    name: "TENTai",
+    primary: "#8B1D1D", // dark red — TENTai house colour
     primaryForeground: "#ffffff",
     accent: "#C9A227", // gold
     surface: "#faf7f6",

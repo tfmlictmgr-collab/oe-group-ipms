@@ -151,7 +151,7 @@ export const PROCESS_CATALOGUE: Process[] = [
           "for administrators too. It is a data-protection control rather than " +
           "an oversight: pulling a whole roster out of the platform is a " +
           "different act from reading one row on screen, so it has its own " +
-          "switch. Your OE Group contact enables it per role under Settings → " +
+          "switch. Your TENTai contact enables it per role under Settings → " +
           "Permissions. Printing needs no permission.",
       },
       {
@@ -1659,9 +1659,9 @@ export const PROCESS_CATALOGUE: Process[] = [
         explanation:
           "The handbook is a rollout switch, not a permission — it ships " +
           "off for every role in every organisation, admin included, and an " +
-          "OE Group operator turns it on per organisation once that " +
+          "TENTai operator turns it on per organisation once that " +
           "organisation's own content has been reviewed (same shape as " +
-          "`tickets.assign_without_review`, 0178). Ask OE Group, not your " +
+          "`tickets.assign_without_review`, 0178). Ask TENTai, not your " +
           "own administrator settings.",
       },
     ],

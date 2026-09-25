@@ -1,5 +1,16 @@
 # Legal review pack — OE Group IPMS
 
+> **Update, 25 September 2026 — two corrections to read this pack by.**
+> 1. **The data controller is a TENTai entity**, not OE Group. Wherever this
+>    pack names OE Group as controller or as the party signing, read TENTai.
+>    Please confirm the entity's exact registered name for the notice and the
+>    DPAs.
+> 2. **There are now fourteen processors, not thirteen.** Cloudflare was added
+>    when its Turnstile bot check went live on every sign-in, invitation,
+>    password reset and vendor application. It receives visitors' IP addresses
+>    and browser signals.
+
+
 **Prepared:** 24 September 2026 · **Prepared by:** J. Amapakabo, ICT Manager
 
 This pack accompanies the OE Group integrated facilities and property

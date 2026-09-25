@@ -52,11 +52,11 @@ export async function capabilityRefusal(
         hint:
           "Other roles in your organisation already have it, so this is a change to " +
           "your own role rather than to the organisation. Ask an administrator to " +
-          "request it from your OE Group contact.",
+          "request it from your TENTai contact.",
       }
     : {
         scope: "org",
         message: `${subject} isn't turned on for your organisation yet.`,
-        hint: "Ask your OE Group contact to enable it.",
+        hint: "Ask your TENTai contact to enable it.",
       };
 }

@@ -116,7 +116,7 @@ export default function MatrixEditor({
           <p className="text-muted-foreground">
             <span className="font-medium text-foreground">Read-only.</span>{" "}
             This is what your staff can reach, so you can see it — but permissions
-            are governed centrally by OE Group and changed on the operator portal.
+            are governed centrally by TENTai and changed on the operator portal.
             Ask them for a change rather than looking for a switch here.
           </p>
         </div>
