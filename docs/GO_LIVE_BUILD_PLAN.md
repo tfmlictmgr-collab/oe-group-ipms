@@ -1661,7 +1661,16 @@ email already reach every role.
       `PAYSTACK_SECRET_KEY` stays unset unless a verified Paystack account
       exists** (2.12)
 - [x] 5.4 Operator admin bootstrapped; password changed; **MFA enabled** — 24 Sept 2026
-- [!] 5.5 Both 360dialog webhooks re-registered. ⚠️ **Two halves, and the
+- [~] 5.5 ✅ **Decided 25 Sept 2026: production takes the real numbers.**
+      Staging and dev routes are **neutralised, not deleted** — new random
+      `external_id`, `outbound_token` null — because `verify-channel-routing`
+      and `verify-conversational-intelligence` need a WhatsApp route per brand
+      to exist, and neither needs a key that can send. With no key, a staging
+      run can no longer message a real customer from the business number.
+      Both 360dialog Hub API keys regenerated, so the old ones staging and dev
+      held stop working as well. Close by read-back: query 2 of
+      `stage5-readback.sql` shows four rows, all OK.
+      Both 360dialog webhooks re-registered. ⚠️ **Two halves, and the
       script is only the first.** `register-whatsapp-number.mjs` mints the
       per-channel token and writes `channel_routes`; **a person must then paste
       `…/api/webhooks/whatsapp?token=<that value>` into the 360dialog Hub**,
@@ -1679,7 +1688,7 @@ email already reach every role.
       the real numbers; staging and dev lose WhatsApp, or get 360dialog sandbox
       numbers.** Mint a NEW webhook token for production (`openssl rand -hex
       24`, one per number, never reused across worlds — rule 8), register it,
-      paste the URL into the Hub, then delete staging's and dev's routes.
+      paste the URL into the Hub, then neutralise staging's and dev's routes (see above — not delete).
 - [ ] 5.5a **Flutterwave webhook registered** in each dashboard at
       `/api/webhooks/payments/flutterwave`, carrying the same secret hash
       that is set in the environment (2.12)
