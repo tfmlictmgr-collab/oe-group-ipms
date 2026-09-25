@@ -22,12 +22,24 @@
 
 -- ── 1. The orgs — identity, sender, domain (5.8) ──────────────────────────
 --
--- B1: no two orgs may share a sender, support or finance address. A shared one
--- tells a tenant of one brand that the other exists, and routes their replies
--- into the other's inbox.
+-- B1: no two CLIENT orgs may share a sender, support or finance address. A
+-- shared one tells a tenant of one brand that the other exists, and routes
+-- their replies into the other's inbox.
+--
+-- The platform operator (`is_platform_operator`, OE Group) is exempt from the
+-- sharing check, deliberately: its mail reaches only its own staff. An org the
+-- operator provisions is invited AS that org (`app/orgs/actions.ts` passes the
+-- new org's id to `sendEmail`), never as the operator. First run on production,
+-- 25 Sept 2026, flagged TFML for sharing its sender with OE Group — true, and
+-- not B1.
+--
+-- A missing custom_domain is a CHECK, not a STOP: an org without one is reached
+-- through the neutral platform address, which breaks no rule. It is a STOP only
+-- for the two brands, whose domains 5.8 bound.
 select o.slug,
        o.name,
        o.delivery_brand,
+       o.is_platform_operator,
        o.custom_domain,
        o.email_from_name,
        o.email_from_address,
@@ -35,16 +47,19 @@ select o.slug,
        o.finance_email,
        o.uses_platform_gateway,
        case
-         when o.custom_domain is null                    then 'STOP — no custom_domain (5.8)'
+         when o.custom_domain is null and o.delivery_brand in ('TFML','OEA')
+                                                         then 'STOP — a brand org with no custom_domain (5.8)'
          when o.email_from_address is null               then 'STOP — no sender address'
-         when o.support_email is null                    then 'STOP — no support address (the privacy notice falls back to it)'
-         when exists (select 1 from orgs x
-                       where x.id <> o.id
+         when o.support_email is null                    then 'CHECK — no support address (the privacy notice falls back to it when DPO_CONTACT_EMAIL is unset)'
+         when not o.is_platform_operator
+          and exists (select 1 from orgs x
+                       where x.id <> o.id and not x.is_platform_operator
                          and (lower(x.email_from_address) = lower(o.email_from_address)
                            or lower(x.support_email)      = lower(o.support_email)
                            or lower(x.finance_email)      = lower(o.finance_email)
                            or lower(x.custom_domain)      = lower(o.custom_domain)))
-                                                         then 'STOP — an address or domain is shared with another org (B1)'
+                                                         then 'STOP — an address or domain is shared with another client org (B1)'
+         when o.custom_domain is null                    then 'CHECK — no custom_domain; reached through the platform address'
          else 'OK'
        end as verdict
   from orgs o
