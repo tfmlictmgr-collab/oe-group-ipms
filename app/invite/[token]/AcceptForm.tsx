@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { TurnstileGate, TURNSTILE_SITE_KEY, type TurnstileGateHandle } from "@/components/auth/turnstile-gate";
 import { ChannelPicker, EMPTY_PREFS, type ChannelPrefs } from "@/components/patterns/channel-picker";
 import { provisionInviteAccount, redeemInvitation } from "./actions";
 import { runAction, describeError } from "@/lib/run-action";
@@ -32,12 +33,17 @@ export default function AcceptForm({
   const [show, setShow] = React.useState(false);
   const [prefs, setPrefs] = React.useState<ChannelPrefs>(EMPTY_PREFS);
   const [busy, setBusy] = React.useState(false);
+  // The first sign-in happens here, so it passes the same gate as the sign-in
+  // screen — see components/auth/turnstile-gate.
+  const [captchaToken, setCaptchaToken] = React.useState<string | null>(null);
+  const turnstile = React.useRef<TurnstileGateHandle>(null);
   const [error, setError] = React.useState<string | null>(null);
 
   const tooShort = password.length > 0 && password.length < 10;
   const mismatch = confirm.length > 0 && confirm !== password;
   const canSubmit =
-    fullName.trim().length >= 2 && password.length >= 10 && !mismatch && !busy;
+    fullName.trim().length >= 2 && password.length >= 10 && !mismatch && !busy &&
+    (!TURNSTILE_SITE_KEY || Boolean(captchaToken));
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -55,7 +61,10 @@ export default function AcceptForm({
       const { error: signInError } = await supabase.auth.signInWithPassword({
         email,
         password,
+        options: captchaToken ? { captchaToken } : undefined,
       });
+      // Single-use: a retry needs a fresh one.
+      turnstile.current?.reset();
       if (signInError) {
         throw new Error(
           existingAccount
@@ -151,6 +160,8 @@ export default function AcceptForm({
       <div className="space-y-3 border-t border-border pt-4">
         <ChannelPicker value={prefs} onChange={setPrefs} />
       </div>
+
+      <TurnstileGate ref={turnstile} onToken={setCaptchaToken} action="accept-invite" />
 
       {error && (
         <p
