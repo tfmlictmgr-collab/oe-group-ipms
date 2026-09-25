@@ -1024,7 +1024,21 @@ one-line reason rather than deleting it silently.
       already fails safely. **Accepted with a condition** — 7.5's
       `tickets.classified_by` monitoring query must exist, so "are we quietly
       running on the fallback?" is a fact and not a hunch.
-- [~] 2.8 **Decided 20 Sept 2026. Turnstile IN, SMS OUT.**
+- [x] 2.8 ✅ **Turnstile live, 25 Sept 2026 — on the vendor form AND every
+      sign-in door.** Vendor form: the widget renders on `oeaportal.com/apply/…`
+      and returns a green tick. Sign-in, invitation acceptance and password
+      reset now carry a token too (`components/auth/turnstile-gate.tsx`), and
+      **Supabase's own CAPTCHA (Auth → Attack Protection, Turnstile) is ON in
+      production** — the real gate, since sign-in goes browser → Supabase and a
+      page widget alone is bypassable. Password reset is our own mail path, so it
+      is verified server-side by `lib/turnstile.ts`. Proven: sign-in works on
+      `www.tfmlportal.com` and `oeaportal.com` with CAPTCHA on.
+      ⚠️ **CAPTCHA stays OFF on staging and dev** — 77 verify suites sign in
+      with a password there. Enabling it anywhere BEFORE this code is deployed
+      locks every account out.
+      📌 Cloudflare now sees every sign-in (IP, browser signals): add it to the
+      processor list with counsel (1.1).
+      **Decided 20 Sept 2026. Turnstile IN, SMS OUT.**
       **Turnstile keys set on Vercel, 20 Sept 2026.** The layer was already
       wired end to end (widget, form, server-side verification) and had only
       ever been missing its keys.
