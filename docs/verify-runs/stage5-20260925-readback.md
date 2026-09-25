@@ -70,3 +70,32 @@ before the first real payment).
 
 Zero cross-brand hits on six pages. The privacy notice — which named both
 brands on rc5 — names only its own on rc6.
+
+## 5.5 and 5.6 — live messages, 25 Sept 2026
+
+Production took the real WhatsApp numbers (decision recorded at 5.5). Both
+numbers registered in production with newly minted webhook tokens and newly
+generated 360dialog API keys; each Hub webhook set to
+`tent-ai-production.vercel.app/api/webhooks/whatsapp?token=…`. Staging's and
+dev's WhatsApp routes neutralised (new random `external_id`, no
+`outbound_token`): every row there reads `can_send = false`.
+
+One message from a personal phone to each channel, then in production:
+
+```sql
+select o.slug, e.channel, count(*) as messages, max(e.received_at) as last_received
+from chat_webhook_events e left join orgs o on o.id = e.org_id
+where e.received_at > now() - interval '6 hours' group by 1, 2;
+```
+
+| org | channel | messages | last received (UTC) |
+|---|---|---|---|
+| oea | whatsapp | 1 | 02:57:57 |
+| tfml | whatsapp | 1 | 02:59:43 |
+| oea | telegram | 1 | 03:00:53 |
+| tfml | telegram | 1 | 03:01:02 |
+
+Each message was delivered to production, routed by its own token to the
+correct org, and answered from that org's own number or bot (reported by the
+operator). A greeting opens no request, by design, so the dashboards stayed
+empty; a real issue creating a request is exercised in UAT (6.3).
