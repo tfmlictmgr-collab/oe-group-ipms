@@ -243,7 +243,7 @@ export default function InviteDialog({
                   <option value="3">Tier 3 — no limit</option>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  The amounts themselves are set by OE Group under Settings →
+                  The amounts themselves are set by TENTai under Settings →
                   Payment gate, so this chooses the band rather than the figure.
                 </p>
               </div>

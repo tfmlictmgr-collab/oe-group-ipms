@@ -36,7 +36,7 @@ export default async function PermissionsPage({
         <CardTitle>Role permissions</CardTitle>
         <CardDescription>
           What each role may reach. Seeded from the board-approved B7 matrix, and
-          governed centrally by OE Group — a capability granted here changes what
+          governed centrally by TENTai — a capability granted here changes what
           the database returns, not merely what the menu shows.
         </CardDescription>
       </CardHeader>

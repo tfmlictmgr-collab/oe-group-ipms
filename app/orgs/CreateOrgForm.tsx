@@ -131,7 +131,7 @@ export default function CreateOrgForm() {
             />
             <p className="text-xs text-muted-foreground">
               Recorded to operator_actions — visible to this org once it exists,
-              not only to OE Group.
+              not only to TENTai.
             </p>
           </div>
 

@@ -1,5 +1,16 @@
 # Sign-off schedule — OE Group IPMS legal and data-protection review
 
+> **Update, 25 September 2026 — two corrections to read this pack by.**
+> 1. **The data controller is a TENTai entity**, not OE Group. Wherever this
+>    pack names OE Group as controller or as the party signing, read TENTai.
+>    Please confirm the entity's exact registered name for the notice and the
+>    DPAs.
+> 2. **There are now fourteen processors, not thirteen.** Cloudflare was added
+>    when its Turnstile bot check went live on every sign-in, invitation,
+>    password reset and vendor application. It receives visitors' IP addresses
+>    and browser signals.
+
+
 **To be completed and returned by the reviewer.** This is the document that
 closes the review. A marked-up policy on its own does not tell us whether we
 may launch; each line below does.
@@ -47,15 +58,15 @@ cannot tell whether it was considered and rejected or simply missed.
 | C3 | If yes: certificate or acknowledgement reference | | |
 | C4 | Must the DPO be separately registered, and has that been done? | ☐ N/A ☐ Done — ref: | |
 
-## D. Processor agreements — thirteen, none signed
+## D. Processor agreements — fourteen, none signed
 
 | # | Item | Answer | Date |
 |---|---|---|---|
 | D1 | The NDPA addendum is fit to send to processors | ☐ Yes ☐ No — changes attached | |
-| D2 | The list of thirteen processors is complete and correctly characterised | ☐ Confirmed ☐ Corrections attached | |
+| D2 | The list of fourteen processors is complete and correctly characterised | ☐ Confirmed ☐ Corrections attached | |
 | D3 | Who signs on OE Group's behalf | | |
 | D4 | Which processors will not accept the addendum, and what we do instead | *(attach)* | |
-| D5 | Target date for all thirteen executed | | |
+| D5 | Target date for all fourteen executed | | |
 
 ## E. Cross-border transfers under GAID 2025
 

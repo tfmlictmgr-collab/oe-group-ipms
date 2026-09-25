@@ -51,8 +51,8 @@ export async function updatePaymentSettings(
   const { data: isOperator } = await supabase.rpc("caller_is_operator_admin");
   if (!isOperator) {
     return fail(
-      "The approval limit and performance gate are set by OE Group.",
-      "These two controls decide when a payment needs executive sign-off, so they are not the organisation's to change. Ask your OE Group contact."
+      "The approval limit and performance gate are set by TENTai.",
+      "These two controls decide when a payment needs executive sign-off, so they are not the organisation's to change. Ask your TENTai contact."
     );
   }
 

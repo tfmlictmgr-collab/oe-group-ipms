@@ -95,8 +95,9 @@ law. This addendum closes that gap without renegotiating their whole document.
 | Africa's Talking | phone numbers (SMS fallback) | Likely — Kenyan entity, confirm | Africa's Talking account/legal contact | Yes (§2) | ⛔ not started; only needed if SMS fallback is in scope for go-live |
 | Upstash | user IDs (rate limiting) | Yes — published | upstash.com/trust | Yes (§2) | ⛔ not started |
 | Sentry | may incidentally capture user IDs in error reports | Yes — published, GDPR-based | sentry.io/legal/dpa | Yes (§2) | ⛔ not started |
+| Cloudflare (Turnstile) | IP address and browser signals of everyone who signs in, accepts an invitation, requests a password reset or submits a vendor application | Yes — published, GDPR-based | cloudflare.com/cloudflare-customer-dpa | Yes (§2) | ⛔ not started — added 25 Sept 2026, when Turnstile went live on every sign-in |
 
-**All thirteen remain unsigned as of this draft.** This tracker turns
+**All fourteen remain unsigned as of this draft** (Cloudflare added 25 Sept 2026 as the fourteenth). This tracker turns
 "⛔ unsigned" (the compliance pack's single line) into thirteen concrete next
 actions, each with a named starting point — it does not itself close any of
 them.

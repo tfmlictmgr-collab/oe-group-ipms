@@ -68,8 +68,8 @@ export default async function OrgLauncherPage() {
       <main className="mx-auto max-w-3xl px-5 py-16">
         <EmptyState
           icon={<ShieldAlert />}
-          title="This page is for OE Group operators"
-          description="Your account belongs to one organisation, and this is where OE Group's own staff move between all of them. Your portal is where you already were."
+          title="This page is for TENTai operators"
+          description="Your account belongs to one organisation, and this is where TENTai's own staff move between all of them. Your portal is where you already were."
           action={
             <Button asChild variant="brand" size="sm">
               <Link href="/dashboard">Back to your dashboard</Link>
@@ -91,13 +91,13 @@ export default async function OrgLauncherPage() {
             <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--brand)] text-sm font-bold text-[var(--brand-fg)] shadow-sm">
               OE
             </span>
-            <span className="font-semibold tracking-tight">OE Group</span>
+            <span className="font-semibold tracking-tight">TENTai</span>
           </div>
           <h1 className="display-lg text-balance">
             Which organisation are you working in?
           </h1>
           <p className="max-w-2xl text-pretty text-muted-foreground">
-            Every organisation OE Group administers. Opening one takes you to its
+            Every organisation TENTai administers. Opening one takes you to its
             own address, with its own branding and its own people — the data stays
             separated exactly as it is inside the product.
           </p>

@@ -96,6 +96,7 @@ must carry transfer clauses; a DPA without them does not discharge s.41.
 | 11 | Upstash | rate limiting | Contractual clauses | Region; what a user id is joined to |
 | 12 | Sentry | error tracking | Contractual clauses | **EU region**; PII scrubbing settings as configured |
 | 13 | Anthropic *(Claude Code)* | engineering tooling | Not a production data flow | Confirm it never touches production data. It has not. |
+| 14 | Cloudflare | Turnstile bot check on sign-in, invitations, password reset and vendor applications | Contractual clauses | Added 25 Sept 2026. Receives the visitor's IP and browser signals; confirm processing location and retention |
 
 ⚠️ §10 of the compliance pack names five processors as processing outside
 Nigeria. That count is wrong — it is closer to eleven. Rows 7 and 8 are the only
@@ -198,7 +199,7 @@ Honest gaps. Each is a question, not a position.
 |---|---|---|
 | 1 | Review and correct this document | DPO |
 | 2 | Answer §6.1 — approval/filing requirement | Legal |
-| 3 | Ensure all 13 DPAs carry transfer clauses, not just processing terms | Legal |
+| 3 | Ensure all 14 DPAs carry transfer clauses, not just processing terms | Legal |
 | 4 | Confirm hosting for Paystack, Flutterwave, Telegram, Sentry, Upstash | ICT |
 | 5 | Provision production in `eu-west-1` / `dub1` — **only after 1–3** | ICT |
 | 6 | Re-read when the NDPC issues its first adequacy decisions | DPO |

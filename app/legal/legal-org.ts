@@ -25,7 +25,7 @@ export type LegalOrg = {
 export async function legalOrgForHost(): Promise<LegalOrg> {
   const org = await orgForCurrentHost().catch(() => null);
   if (!org || org.is_platform_operator) {
-    return { name: "OE Group", primary: "#003366", supportEmail: null, financeEmail: null };
+    return { name: "TENTai", primary: "#003366", supportEmail: null, financeEmail: null };
   }
 
   const { data } = await supabaseAdmin

@@ -90,7 +90,7 @@ preventing one).
 None of these can be shortened by anything in this repository, and every one of
 them gates real data or real money. They are Stage 1 and they start today.
 
-1. **13 processor DPAs, all unsigned** (`NDPA_COMPLIANCE_PACK.md` §4). Drafts
+1. **14 processor DPAs (Cloudflare added 25 Sept), all unsigned** (`NDPA_COMPLIANCE_PACK.md` §4). Drafts
    exist in `DPA_TEMPLATE_AND_TRACKER.md`. This is the largest compliance gap
    and it gates *any* real personal data.
 2. **Privacy notice unpublished** — drafted, needs legal review and the DPO's

@@ -89,7 +89,7 @@ export default async function OfflineClaimPage({
   return (
     <div className="space-y-6">
       <PrintMasthead
-        org={session.org?.name ?? "OE Group"}
+        org={session.org?.name ?? "TENTai"}
         title={`Payment ${claim.reference}`}
         subtitle={
           claim.posted_at
