@@ -1699,9 +1699,11 @@ email already reach every role.
       way at the same time.
       ✅ **Decided 25 Sept 2026: production takes the real numbers.**
       Staging and dev routes are **neutralised, not deleted** — new random
-      `external_id`, `outbound_token` null — because `verify-channel-routing`
-      and `verify-conversational-intelligence` need a WhatsApp route per brand
-      to exist, and neither needs a key that can send. With no key, a staging
+      `external_id`, and a unique **placeholder** `outbound_token`
+      (`staging-placeholder-no-send-…`) that 360dialog rejects. Corrected 25
+      Sept: the first version set the key NULL on the belief no suite needed
+      one; `verify-gateway-isolation` requires TFML and OEA to hold distinct
+      non-null keys, and failed until the placeholders went in. With no key, a staging
       run can no longer message a real customer from the business number.
       Both 360dialog Hub API keys regenerated, so the old ones staging and dev
       held stop working as well. Close by read-back: query 2 of

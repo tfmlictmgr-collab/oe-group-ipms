@@ -1,0 +1,11 @@
+v1.0.0-rc7
+
+Live updates finally work in production: user_notifications published
+(0301), one unsigned Realtime subscriber can no longer stop the stream for
+everyone (0302), and the browser joins as the signed-in user. Turnstile on
+every sign-in door with Supabase CAPTCHA on. TENTai named as the controller.
+
+- 0.2: npm ci, next build 85/85, 0 lint errors.
+- 0.3: 129 of 129 against staging - 123 in one full run on a1e888e, 6 alone
+  after it (docs/verify-runs/rc7-20260925.md says which and why).
+- 0.5: npm audit 32 (21/10/1), identical to rc6; lockfile unchanged.
