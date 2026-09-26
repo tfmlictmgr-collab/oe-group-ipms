@@ -30,6 +30,12 @@
 // Usage:
 //   npm run backup                 # into ./backups
 //   npm run backup -- --out /path  # somewhere else (an external disk, say)
+//   npm run backup -- --encrypt    # encrypt the main dump too
+//   npm run backup -- --no-auth    # leave out the sign-in accounts (the old backup)
+//
+// Two files: `<name>.dump` (the `public` schema) and `<name>.auth.dump.enc`
+// (the sign-in accounts, ALWAYS encrypted — it holds password hashes). Both
+// are needed to restore a project people can sign in to.
 //
 // ⚠️ THE FILE IT WRITES CONTAINS EVERY PERSONAL RECORD IN THE SYSTEM.
 // Treat it as the database itself: encrypted disk, never a shared drive, never
@@ -221,6 +227,35 @@ const counts = {};
 // constraints by type is what tells the two apart.
 const constraints = {};
 const CONTYPE = { p: "primary", f: "foreign", u: "unique", c: "check", x: "exclusion", t: "trigger" };
+
+// ── The sign-in accounts, which the `public` dump does not carry ───────────
+//
+// ⚠️ Found 26 Sept 2026, by the first restore drill of a REAL production dump:
+// three foreign keys refused to be created — `users`, `mfa_backup_codes` and
+// `password_resets` all point at `auth.users`, and `auth.users` was not in the
+// backup. The 24 Sept drill never saw it because that database had no users.
+// Restored into a new project, every row came back and NOBODY COULD SIGN IN:
+// the email, password hash and MFA device behind each account live in Supabase's
+// `auth` schema, not ours.
+//
+// So a second archive now carries the `auth` schema — its full structure, and
+// the DATA of only the tables that make a person able to sign in. Sessions,
+// refresh tokens, one-time tokens, challenges and flow state are deliberately
+// left out: they are live credentials, worthless after a restore (the new
+// project's JWT secret differs, so everyone signs in again) and dangerous in a
+// file. What IS kept — password hashes, TOTP secrets — is why that archive is
+// ALWAYS encrypted, whatever flags were passed.
+//
+// Whitelisted rather than blacklisted: when Supabase adds an auth table, the
+// safe default is that its data is NOT copied until someone decides it should
+// be. The names that do not exist on a given project are simply skipped.
+const AUTH_KEEP = [
+  "users", "identities", "mfa_factors",
+  "webauthn_credentials", "mfa_recovery_code_sets", "mfa_recovery_codes",
+];
+const withAuth = !has("no-auth");
+let authTables = [];
+const authCounts = {};
 try {
   await client.connect();
   const mig = await client.query("select max(name) as latest from _migrations");
@@ -241,6 +276,16 @@ try {
   for (const r of cons.rows) constraints[CONTYPE[r.t] ?? r.t] = r.n;
   ok(`schema at ${schemaVersion ?? "(unknown)"}, ${Object.values(counts).filter((n) => n !== null).length} tables counted, ` +
      `${Object.values(constraints).reduce((a, b) => a + b, 0)} constraints recorded`);
+  if (withAuth) {
+    const at = await client.query("select tablename from pg_tables where schemaname = 'auth' order by 1");
+    authTables = at.rows.map((r) => r.tablename);
+    for (const t of AUTH_KEEP.filter((t) => authTables.includes(t))) {
+      const r = await client.query(`select count(*)::bigint as n from auth.${t}`);
+      authCounts[t] = Number(r.rows[0].n);
+    }
+    if (!("users" in authCounts)) die("This database has no auth.users table — is it really a Supabase project?");
+    ok(`sign-in accounts counted: ${Object.entries(authCounts).map(([t, n]) => `${n} ${t}`).join(", ")}`);
+  }
 } catch (err) {
   die(`Could not read the database before dumping: ${err.message}`);
 } finally {
@@ -317,9 +362,86 @@ ok(`${(bytes / 1048576).toFixed(1)} MB, readable by pg_restore, ${tableData} tab
 
 const sha256 = sha256File(dumpFile);
 
+// ── The second archive: the sign-in accounts ───────────────────────────────
+//
+// Its own file, not folded into the first, so the `public` dump — and every
+// drill already proven against it — stays byte-for-byte what it was. A backup
+// taken with `--no-auth` is exactly the old backup.
+//
+// Structure of the whole `auth` schema (types, tables, functions — a scratch
+// PostgreSQL has none of it), data of AUTH_KEEP only. `--exclude-table-data`
+// is given every other auth table by name, read from the database itself a
+// moment ago, so a table Supabase adds tomorrow is excluded by default.
+const authFile = path.join(outDir, `${base}.auth.dump`);
+let auth = null;
+if (withAuth) {
+  console.log("\n  dumping the sign-in accounts (auth)…");
+  const excluded = authTables.filter((t) => !AUTH_KEEP.includes(t));
+  const authRun = spawnSync(pgDump, [
+    "--format=custom",
+    "--no-owner",
+    "--no-privileges",
+    "--schema=auth",
+    ...excluded.map((t) => `--exclude-table-data=auth.${t}`),
+    `--file=${authFile}`,
+    `--host=${env.SUPABASE_DB_HOST}`,
+    `--port=${env.SUPABASE_DB_PORT || 5432}`,
+    `--username=${env.SUPABASE_DB_USER}`,
+    `--dbname=${env.SUPABASE_DB_NAME}`,
+  ], {
+    encoding: "utf8",
+    env: { ...process.env, PGPASSWORD: env.SUPABASE_DB_PASSWORD, PGSSLMODE: "require" },
+    maxBuffer: 1024 * 1024 * 64,
+  });
+  if (authRun.status !== 0) {
+    fs.rmSync(authFile, { force: true });
+    fs.rmSync(dumpFile, { force: true });
+    die(
+      `pg_dump of the sign-in accounts failed (exit ${authRun.status}).\n\n${(authRun.stderr || "").trim()}\n\n` +
+      `  Both files have been deleted: a backup that restores every row and lets nobody\n` +
+      `  sign in is the failure this step exists to prevent. To take the old,\n` +
+      `  public-only backup deliberately, re-run with --no-auth.`
+    );
+  }
+  let authToc = "";
+  try {
+    authToc = execFileSync(flag("pg-restore") ?? "pg_restore", ["--list", authFile], {
+      encoding: "utf8",
+      maxBuffer: 1024 * 1024 * 64,
+    });
+  } catch (err) {
+    fs.rmSync(authFile, { force: true });
+    fs.rmSync(dumpFile, { force: true });
+    die(`The sign-in archive could not be read back by pg_restore --list.\n\n${String(err.stderr ?? err.message).trim()}\n\n  Both files have been deleted.`);
+  }
+  // Every kept table must be in the archive with its data — and nothing else
+  // may carry data. A session or refresh token in this file is a live
+  // credential, so that is checked here rather than trusted to the flags.
+  const withData = [...authToc.matchAll(/^\d+;.*TABLE DATA auth (\S+) /gm)].map((m) => m[1]);
+  const missing = Object.keys(authCounts).filter((t) => !withData.includes(t));
+  const extra = withData.filter((t) => !AUTH_KEEP.includes(t));
+  if (missing.length || extra.length) {
+    fs.rmSync(authFile, { force: true });
+    fs.rmSync(dumpFile, { force: true });
+    die(
+      `The sign-in archive does not hold what it should.\n` +
+      (missing.length ? `  missing data for: ${missing.join(", ")}\n` : "") +
+      (extra.length ? `  carries data it must not (live credentials?): ${extra.join(", ")}\n` : "") +
+      `\n  Both files have been deleted.`
+    );
+  }
+  auth = {
+    bytes: fs.statSync(authFile).size,
+    sha256: sha256File(authFile),
+    rowCounts: authCounts,
+    dataFor: withData,
+  };
+  ok(`sign-in archive readable by pg_restore; data for ${withData.join(", ")}; no sessions or tokens`);
+}
+
 // ── Encrypt, and prove the encryption round-trips before keeping it ─────
 //
-// Ordering is deliberate: the dump is verified by pg_restore FIRST, then
+// Ordering is deliberate: each dump is verified by pg_restore FIRST, then
 // encrypted. Encrypting an unverified dump would produce a file that is
 // provably intact and provably useless.
 //
@@ -327,34 +449,60 @@ const sha256 = sha256File(dumpFile);
 // nobody has decrypted is exactly the belief this script exists to refuse, and
 // a mistyped passphrase stays silent until the day you need the file. So it is
 // decrypted straight back and compared byte for byte.
-let finalFile = dumpFile;
-let encrypted = false;
-if (has("encrypt")) {
-  console.log("\n  encrypting…");
-  const pass = await passphrase(true);
-  const encFile = `${dumpFile}.enc`;
-  await encryptFile(dumpFile, encFile, pass);
-
-  const check = `${dumpFile}.roundtrip`;
+//
+// The sign-in archive is ALWAYS encrypted: it holds password hashes and TOTP
+// secrets. The `public` dump is encrypted when `--encrypt` is passed, as
+// before. One passphrase covers both, asked once.
+const encryptAndProve = async (file, expected, pass, { keep = "", dropPlain = false } = {}) => {
+  const encFile = `${file}.enc`;
+  const fail = (msg) => {
+    if (dropPlain) fs.rmSync(file, { force: true });
+    die(msg + (dropPlain ? `\n  The plaintext ${path.basename(file)} has been deleted too.` : keep));
+  };
+  await encryptFile(file, encFile, pass);
+  const check = `${file}.roundtrip`;
   try {
     await decryptFile(encFile, check, pass);
   } catch (err) {
     fs.rmSync(encFile, { force: true });
     fs.rmSync(check, { force: true });
-    die(`The encrypted file would not decrypt: ${err.message}\n\n  Nothing encrypted has been kept; the plaintext dump is still at ${dumpFile}.`);
+    fail(`The encrypted ${path.basename(file)} would not decrypt: ${err.message}\n\n  Nothing encrypted has been kept.`);
   }
   const back = sha256File(check);
   fs.rmSync(check, { force: true });
-  if (back !== sha256) {
+  if (back !== expected) {
     fs.rmSync(encFile, { force: true });
-    die(`The encrypted file decrypted to different bytes.\n\n  expected ${sha256}\n  got      ${back}\n\n  Nothing encrypted has been kept.`);
+    fail(`The encrypted ${path.basename(file)} decrypted to different bytes.\n\n  expected ${expected}\n  got      ${back}\n\n  Nothing encrypted has been kept.`);
   }
-  ok("decrypts back to the identical file — proven, not assumed");
+  fs.rmSync(file, { force: true });
+  return encFile;
+};
 
-  fs.rmSync(dumpFile, { force: true });
-  finalFile = encFile;
-  encrypted = true;
-  ok(`plaintext removed — ${path.basename(encFile)} is the only copy on this disk`);
+let finalFile = dumpFile;
+let encrypted = false;
+let authFinal = null;
+if (has("encrypt") || auth) {
+  console.log("\n  encrypting…" + (auth && !has("encrypt") ? " (the sign-in archive — always)" : ""));
+  let pass;
+  try {
+    pass = await readPassphrase(true);
+  } catch (e) {
+    // A mistyped confirmation must not leave password hashes on disk in the clear.
+    fs.rmSync(authFile, { force: true });
+    fs.rmSync(dumpFile, { force: true });
+    die(`${e.message}\n\n  Nothing has been kept — the unencrypted files are deleted. Re-run to try again.`);
+  }
+  if (auth) {
+    // The plaintext sign-in archive must not outlive a failure either.
+    authFinal = await encryptAndProve(authFile, auth.sha256, pass, { dropPlain: true });
+    ok(`sign-in archive encrypted, and decrypts back to the identical file — ${path.basename(authFinal)}`);
+  }
+  if (has("encrypt")) {
+    finalFile = await encryptAndProve(dumpFile, sha256, pass, { keep: `\n  The plaintext dump is still at ${dumpFile}.` });
+    encrypted = true;
+    ok("decrypts back to the identical file — proven, not assumed");
+    ok(`plaintext removed — ${path.basename(finalFile)} is the only copy on this disk`);
+  }
 }
 
 // ── The manifest: what a future restore is checked AGAINST ─────────────────
@@ -380,16 +528,45 @@ const manifest = {
   // now holds the extension objects the prep installs, and raises 3 errors
   // instead of the one benign one — measured, 24 Sept 2026. A real restore goes
   // into a new target too (§4, "Restoring for real"), never over a live one.
-  restoreWith:
-    "FIRST prepare the target: psql -d <target> -f docs/sql/restore-target-prep.sql  " +
-    "(without it the double-let guard and the auth foreign keys are silently lost).  THEN: " +
-    (encrypted
-      ? `npm run backup -- --decrypt "${path.basename(finalFile)}"  →  pg_restore --no-owner --no-privileges -d "<target>" "${path.basename(dumpFile)}"`
-      : `pg_restore --no-owner --no-privileges -d "<target>" "${path.basename(dumpFile)}"`),
-  covers: "The `public` schema of Postgres only.",
+  // The sign-in accounts: a separate, always-encrypted archive (see above).
+  // `bytes`/`sha256` again describe the plaintext. Compare `rowCounts` with the
+  // `auth:` lines of restore-drill-check.sql.
+  auth: auth
+    ? { file: path.basename(authFinal), encrypted: true, ...auth }
+    : { file: null, omitted: "taken with --no-auth: nobody could sign in after restoring this into a new project" },
+  // Order matters, and differs by target — BACKUP_AND_RESTORE.md §4 has both in full.
+  restoreWith: auth
+    ? {
+        decryptFirst: [
+          `npm run backup -- --decrypt "${path.basename(authFinal)}"`,
+          ...(encrypted ? [`npm run backup -- --decrypt "${path.basename(finalFile)}"`] : []),
+        ],
+        intoScratchPostgres: [
+          `pg_restore --no-owner --no-privileges -d <target> "${path.basename(authFile)}"   (creates the auth schema and the accounts)`,
+          "psql -d <target> -f docs/sql/restore-target-prep.sql",
+          `pg_restore --no-owner --no-privileges -d <target> "${path.basename(dumpFile)}"`,
+          "psql -d <target> -f docs/sql/restore-drill-check.sql",
+        ],
+        intoNewSupabaseProject: [
+          "psql -d <target> -f docs/sql/restore-target-prep.sql",
+          `pg_restore --data-only --no-owner -n auth -t users -d <target> "${path.basename(authFile)}"   (users FIRST — the other tables point at it)`,
+          `pg_restore --data-only --no-owner -n auth ${Object.keys(auth.rowCounts).filter((x) => x !== "users").map((x) => `-t ${x}`).join(" ")} -d <target> "${path.basename(authFile)}"`,
+          `pg_restore --no-owner --no-privileges -d <target> "${path.basename(dumpFile)}"`,
+        ],
+      }
+    : "FIRST prepare the target: psql -d <target> -f docs/sql/restore-target-prep.sql  " +
+      "(without it the double-let guard and the auth foreign keys are silently lost).  THEN: " +
+      (encrypted
+        ? `npm run backup -- --decrypt "${path.basename(finalFile)}"  →  pg_restore --no-owner --no-privileges -d "<target>" "${path.basename(dumpFile)}"`
+        : `pg_restore --no-owner --no-privileges -d "<target>" "${path.basename(dumpFile)}"`),
+  covers: auth
+    ? "The `public` schema of Postgres, and (in the .auth archive) the sign-in accounts: auth.users, identities and MFA factors."
+    : "The `public` schema of Postgres only.",
   doesNotCover: [
     "Storage buckets — identity documents, work-order media, vendor KYC, payment proofs and payout evidence are NOT in this file.",
-    "Auth users (the `auth` schema) — sign-in identities are not restored by this.",
+    auth
+      ? "Sessions and refresh tokens — deliberately. After a restore everyone signs in again."
+      : "Auth users (the `auth` schema) — sign-in identities are not restored by this.",
     "Edge functions, project settings, environment variables.",
   ],
 };
@@ -427,17 +604,25 @@ try {
   console.log(`  \x1b[33m!\x1b[0m backup succeeded, but the audit row could not be written: ${err.message}`);
 }
 
-console.log(`\n\x1b[32mBackup verified.\x1b[0m  ${finalFile}\n`);
+console.log(`\n\x1b[32mBackup verified.\x1b[0m  ${finalFile}`);
+if (authFinal) {
+  console.log(`  sign-in accounts:  ${authFinal}  (always encrypted)\n`);
+} else {
+  console.log("\n  \x1b[33m!\x1b[0m --no-auth: the sign-in accounts are NOT in this backup. Restored into a");
+  console.log("    new project, every row comes back and nobody can sign in.\n");
+}
+if (encrypted || authFinal) {
+  console.log("  ⚠️  THE PASSPHRASE IS AS UNRECOVERABLE AS GATEWAY_CREDENTIAL_KEY.");
+  console.log("      Without it the sign-in accounts cannot be restored. Escrow it —");
+  console.log("      sealed, two holders — never in the same envelope as the files.\n");
+}
 if (encrypted) {
   console.log("  ✓  Encrypted, and proven to decrypt back to the identical file.");
   console.log("      It is ciphertext wherever it goes — a cloud drive, an external disk,");
   console.log("      a colleague's machine. The destination no longer has to be trusted.");
   console.log("");
-  console.log("  ⚠️  THE PASSPHRASE IS AS UNRECOVERABLE AS GATEWAY_CREDENTIAL_KEY.");
-  console.log("      Escrow it the same way — sealed, two holders, named in the runbook —");
-  console.log("      and never in the same envelope as the file it protects.\n");
 } else {
-  console.log("  ⚠️  This file holds every personal record in the system, in the clear.");
+  console.log("  ⚠️  The main file holds every personal record in the system, in the clear.");
   console.log("      Encrypted disk only. Never a shared drive, never email.");
   console.log("      Delete it once the reason you took it has passed.");
   console.log("      Add --encrypt if this copy is going to leave this machine.\n");

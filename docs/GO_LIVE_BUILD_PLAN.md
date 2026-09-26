@@ -1577,6 +1577,16 @@ one-line reason rather than deleting it silently.
       Supabase project), `docs/sql/restore-drill-check.sql`, constraint counts
       in every backup manifest, §4 rewritten. **Still owed: the same drill on a
       real production dump**, on the operator's machine.
+      ⚠️ **Run 26 Sept 2026 on a real production dump, and it found a second
+      gap** (`docs/verify-runs/restore-drill-20260926.md`): every row and
+      constraint restored except the **three foreign keys into `auth.users`**.
+      The backup carried no sign-in accounts, so a restore into a new project
+      would have let nobody log in. Fixed the same day: `npm run backup` now
+      also writes `<name>.auth.dump.enc` (accounts only, no sessions or tokens,
+      always encrypted), and the check counts accounts and "app users with no
+      sign-in account". Proven locally against Supabase's published `auth`
+      schema, including a negative control. **Closes when the drill is re-run
+      on a new backup and every line matches.**
       2026, under 10 seconds**, proven at content level: rolled back to
       `c745150` and `/legal/privacy` returned **404** because that build does
       not contain the route, then promoted forward to 200 with the right DPO
