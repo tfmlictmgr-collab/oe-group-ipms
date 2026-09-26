@@ -1564,7 +1564,12 @@ one-line reason rather than deleting it silently.
       key set** (Flutterwave only, no Paystack): staging's Paystack test keys
       make a payout resolve where production refuses it — 2.12, owed 2. A
       *gateway* payout is out of scope until Option B
-- [~] 4.5 Rollback rehearsed *(gap G)* — **deployment revert DONE, 24 Sept
+- [x] 4.5 Rollback rehearsed *(gap G)* — ✅ **CLOSED 26 Sept 2026: both halves proven.**
+      **Database:** a real production backup (`09-55-22`, app data + encrypted
+      sign-in accounts) restored with every line of the check equal to the
+      manifest — foreign 271/271, double-let guard present, 3 accounts / 3
+      identities / 1 MFA factor, **0 app users without a sign-in**
+      (`docs/verify-runs/restore-drill-20260926.md`). **Deployment revert DONE, 24 Sept
       ⚠️ **The database half's documented procedure was WRONG, and silently —
       found 24 Sept 2026 by running it.** The full 321-migration schema was
       built locally, dumped exactly as `npm run backup` does, and restored as
@@ -1585,8 +1590,8 @@ one-line reason rather than deleting it silently.
       also writes `<name>.auth.dump.enc` (accounts only, no sessions or tokens,
       always encrypted), and the check counts accounts and "app users with no
       sign-in account". Proven locally against Supabase's published `auth`
-      schema, including a negative control. **Closes when the drill is re-run
-      on a new backup and every line matches.**
+      schema, including a negative control. **Closed the same day: re-run on a
+      new backup, every line matched.**
       2026, under 10 seconds**, proven at content level: rolled back to
       `c745150` and `/legal/privacy` returned **404** because that build does
       not contain the route, then promoted forward to 200 with the right DPO
