@@ -1547,8 +1547,17 @@ one-line reason rather than deleting it silently.
       Output: `docs/verify-runs/stage3-20260921-production-proof.md`.
 
 ### Stage 4 — Dress rehearsal on staging
-- [ ] 4.1 Staging on the exact RC tag and schema
-- [ ] 4.2 Full Stage 5 rehearsed on staging, timed, runbook written from it
+- [x] 4.1 Staging on the exact RC tag and schema — ✅ **proven 26 Sept 2026.**
+      Database: rc7's 129 suites ran against staging's database
+      (`rc7-20260925.md`). App: Vercel's staging deployment reads `a144669`,
+      and `curl -sSL https://oe-group-ipms-staging.vercel.app/legal/privacy | grep -c TENTai`
+      printed **1**, a string that exists only from rc7, so proven on content.
+- [x] 4.2 ~~Full Stage 5 rehearsed on staging, timed~~ — **done differently, 26
+      Sept 2026: the runbook is written from the REAL cutover** (Stage 3, 21
+      Sept; Stage 5, 24–25 Sept), which was performed before any rehearsal:
+      `docs/CUTOVER_RUNBOOK.md` — release, rebuild-from-empty, roll back. Times
+      not measured on the day are marked **est.**; the next run replaces them.
+      Recorded as accepted, not as a rehearsal that happened.
 - [ ] 4.3 Multi-role UAT, all ten roles
 - [ ] 4.4 Money path end to end — Flutterwave **collection** on test keys,
       bank-transfer payout, off-platform payment. ⚠️ **Rehearse the PRODUCTION
@@ -1602,7 +1611,12 @@ one-line reason rather than deleting it silently.
 > `PAYSTACK_SECRET_KEY` (removed). ⚠️ Open: ₦7,560,000 of collected,
 > unremitted rent appeared on staging's POC property between rc5 and rc6.
 
-> ⚠️ **Rule 7 again: rc7 is owed — live updates never worked in production**
+> ✅ **`v1.0.0-rc7` cut 26 Sept 2026 at `a144669`** — 129 of 129 on staging
+> (123 in one full run, 6 alone after it; `docs/verify-runs/rc7-20260925.md`),
+> build and the three suites that read the post-run delta re-run green on the
+> tagged tree. Carries live updates, Turnstile on sign-in, TENTai as controller.
+>
+> **Why rc7 was needed — live updates never worked in production**
 > (found 25 Sept 2026). Three faults, stacked, each hiding the next:
 > 1. **`user_notifications` was never in the Realtime publication** — only
 >    `tickets` was (0002); dev and staging had it ticked by hand. **0301**.
