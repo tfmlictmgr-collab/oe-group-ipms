@@ -1602,7 +1602,12 @@ one-line reason rather than deleting it silently.
 > `PAYSTACK_SECRET_KEY` (removed). ⚠️ Open: ₦7,560,000 of collected,
 > unremitted rent appeared on staging's POC property between rc5 and rc6.
 
-> ⚠️ **Rule 7 again: rc7 is owed — live updates never worked in production**
+> ✅ **`v1.0.0-rc7` cut 26 Sept 2026 at `a144669`** — 129 of 129 on staging
+> (123 in one full run, 6 alone after it; `docs/verify-runs/rc7-20260925.md`),
+> build and the three suites that read the post-run delta re-run green on the
+> tagged tree. Carries live updates, Turnstile on sign-in, TENTai as controller.
+>
+> **Why rc7 was needed — live updates never worked in production**
 > (found 25 Sept 2026). Three faults, stacked, each hiding the next:
 > 1. **`user_notifications` was never in the Realtime publication** — only
 >    `tickets` was (0002); dev and staging had it ticked by hand. **0301**.
