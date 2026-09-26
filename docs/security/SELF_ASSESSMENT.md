@@ -124,6 +124,18 @@ In a private window, on `https://www.tfmlportal.com/login`:
 | A3.6 | Sign in properly, then **Sign out**, then press the browser's **Back** button | the login screen, never a dashboard |
 | A3.7 | The operator account (`portal.tfmlconsultant.com`) | asks for the **6-digit MFA code** after the password |
 
+**From rc8 (sign-in lockout, 0303).** Five wrong passwords lock a sign-in. A3.1
+and A3.2 then read *"That email and password don't match… Wait 1 minute before
+trying again."*, still **identical** for both. ⚠️ **Never test the lock on your
+own or any real account in production.** Use an address that has no account.
+
+| # | Do | Expect |
+|---|---|---|
+| A3.8 | `nobody-<today>@example.com`, wrong password, **5 times**, waiting out each pause (1 + 2 + 4 + 8 minutes, about 15 minutes in all) | 1st–3rd: the refusal plus *"Wait N minutes"* (1, 2, 4). **4th:** *"One more failed attempt will lock this sign-in…"* **5th:** *"This sign-in is locked…"* |
+| A3.9 | Try again **before** a pause is over | *"Too many failed attempts. Try again in N minutes."* No attempt is made |
+| A3.10 | After the lock, try the same address once more | the same *locked* message. An unknown address locks exactly like a real one, so nothing reveals which addresses are accounts |
+| A3.11 | A **real** account's lock, warning email, unlock and reactivation link | proven on **staging** by `verify-sign-in-lockout`, not on production |
+
 ### A4. Pages that need a sign-in refuse without one
 
 In a private window (signed out), open each. **Expect a redirect to the login page, `Sign in required`, or `Not found` — never data.**

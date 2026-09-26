@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { LOCKED } from "@/lib/sign-in-lock";
 import type { Metadata } from "next";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { orgForCurrentHost } from "@/lib/org-host";
@@ -72,10 +73,10 @@ export default async function OrgLoginPage({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ wrong_org?: string }>;
+  searchParams: Promise<{ wrong_org?: string; deactivated?: string; locked?: string }>;
 }) {
   const { slug } = await params;
-  const { wrong_org } = await searchParams;
+  const { wrong_org, deactivated, locked } = await searchParams;
 
   // A hostname bound to one organisation serves ONLY that organisation's door.
   // Without this, portal.tfmlconsultant.com/o/oea would paint OEA's brand on
@@ -134,7 +135,15 @@ export default async function OrgLoginPage({
       // Says only that a sign-in is needed. The earlier wording named the
       // situation — "an account from another organisation" — which tells anyone
       // holding the session that this platform hosts other organisations.
-      notice={wrong_org ? "Please sign in to continue." : undefined}
+      notice={
+        deactivated
+          ? "This account has been deactivated. Please contact your administrator."
+          : locked
+            ? LOCKED
+            : wrong_org
+              ? "Please sign in to continue."
+              : undefined
+      }
       // Deliberately no "not your organisation?" link. It used to point at
       // /login, which is now the PLATFORM OPERATOR's door — inviting a client to
       // OE Group's own sign-in, from their own branded page. A client who is on

@@ -97,6 +97,23 @@ entirely correct.
 
 ---
 
+### If someone is locked out (from rc8)
+
+Five wrong passwords lock a sign-in (0303).
+
+- **An ordinary member:** an admin of **their own organisation** goes to
+  **People**, finds the member (marked **Locked**), and chooses **Manage →
+  Unlock and send reactivation link**. The link goes to the member's registered
+  email and lasts 24 hours. The member sets a new password with it.
+- **The operator admin, with no second operator admin to unlock them
+  (break-glass):**
+  ```
+  node scripts/use-env.mjs prod          # read back the ref
+  node scripts/unlock-sign-in.mjs --confirm civwriqvghvyqtfrzftu --email <their address>
+  ```
+  The script prints a one-time link. Give it to the person over a channel you
+  trust. The audit trail records it as `operator.sign_in_unlocked_break_glass`.
+
 ## Part 2 — Rebuild production from empty
 
 The order that worked, 21–25 Sept 2026. Plan references are in brackets.

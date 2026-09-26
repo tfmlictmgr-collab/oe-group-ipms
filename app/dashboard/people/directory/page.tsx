@@ -62,6 +62,7 @@ type UserRow = {
   approval_tier: number | null;
   former_email: string | null;
   email_released_at: string | null;
+  sign_in_locked_at: string | null;
 };
 
 type ScheduleRow = {
@@ -77,7 +78,7 @@ type ScheduleRow = {
 };
 
 const USER_COLUMNS =
-  "id, full_name, email, phone, role, deactivated_at, approval_tier, former_email, email_released_at";
+  "id, full_name, email, phone, role, deactivated_at, approval_tier, former_email, email_released_at, sign_in_locked_at";
 
 function contactLine(email?: string | null, phone?: string | null): string | undefined {
   const parts = [email, phone].filter((v): v is string => Boolean(v && v.trim()));
@@ -132,6 +133,7 @@ export default async function DirectoryPage({
         deactivated_at: u.deactivated_at,
         email_released_at: u.email_released_at,
         approval_tier: u.approval_tier,
+        sign_in_locked_at: u.sign_in_locked_at,
       }}
       currentUserId={profile.id}
     />
@@ -180,6 +182,7 @@ export default async function DirectoryPage({
         tags: [
           { label: portfolioLabel(u.role, brand, regionsByUser.get(u.id)) },
           ...(u.deactivated_at ? [{ label: "Deactivated", variant: "muted" as const }] : []),
+          ...(u.sign_in_locked_at && !u.deactivated_at ? [{ label: "Locked", variant: "warning" as const }] : []),
         ],
         inactive: Boolean(u.deactivated_at),
         you: u.id === profile.id,
@@ -221,6 +224,7 @@ export default async function DirectoryPage({
         tags: [
           ...(live.length > 1 ? [{ label: `${live.length} tenancies`, variant: "info" as const }] : []),
           ...(u.deactivated_at ? [{ label: "Deactivated", variant: "muted" as const }] : []),
+          ...(u.sign_in_locked_at && !u.deactivated_at ? [{ label: "Locked", variant: "warning" as const }] : []),
         ],
         inactive: Boolean(u.deactivated_at),
         actions: manage(u),
@@ -303,6 +307,7 @@ export default async function DirectoryPage({
         tags: [
           ...(props.length ? [{ label: `${props.length} propert${props.length === 1 ? "y" : "ies"}` }] : []),
           ...(u.deactivated_at ? [{ label: "Deactivated", variant: "muted" as const }] : []),
+          ...(u.sign_in_locked_at && !u.deactivated_at ? [{ label: "Locked", variant: "warning" as const }] : []),
         ],
         inactive: Boolean(u.deactivated_at),
         actions: manage(u),
@@ -367,6 +372,7 @@ export default async function DirectoryPage({
         tags: [
           at.length ? { label: "Contractor login" } : { label: "No company", variant: "warning" as const },
           ...(u.deactivated_at ? [{ label: "Deactivated", variant: "muted" as const }] : []),
+          ...(u.sign_in_locked_at && !u.deactivated_at ? [{ label: "Locked", variant: "warning" as const }] : []),
         ],
         inactive: Boolean(u.deactivated_at),
         actions: manage(u),

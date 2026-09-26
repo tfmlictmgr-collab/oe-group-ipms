@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ChevronDown, KeyRound, MailX, UserCheck, UserMinus } from "lucide-react";
+import { ChevronDown, KeyRound, LockOpen, MailX, UserCheck, UserMinus } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,7 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { createClient } from "@/lib/supabase/client";
-import { releaseMemberEmail, sendMemberPasswordReset } from "../actions";
+import { releaseMemberEmail, sendMemberPasswordReset, unlockAndSendReactivation } from "../actions";
 
 // What an administrator can do to an account — lifted out of the old Members
 // list (12 Sept 2026) so the Directory's rows and a person's profile offer the
@@ -29,6 +29,8 @@ export type ManagedMember = {
   deactivated_at: string | null;
   email_released_at: string | null;
   approval_tier: number | null;
+  /** Five failed passwords locked this sign-in (0303). */
+  sign_in_locked_at?: string | null;
 };
 
 /**
@@ -121,6 +123,29 @@ export default function MemberActions({
     });
   };
 
+  // 0303. Clears the lock and sends the reactivation link in one act: an
+  // unlock with no link would leave the person with a password they may no
+  // longer trust and no way to change it.
+  const unlock = () => {
+    const ok = window.confirm(
+      `Unlock ${name} and send a reactivation link?\n\n` +
+        `Their sign-in was locked after 5 failed password attempts. The link goes to ` +
+        `${member.email ?? "their registered address"} and lets them set a new password. ` +
+        `You will not see it.\n\nIf the attempts were not theirs, talk to them before unlocking.`
+    );
+    if (!ok) return;
+    void run(async () => {
+      const r = await unlockAndSendReactivation(member.id);
+      if (!r.ok) {
+        toast.error("Could not unlock", { description: r.message });
+        return;
+      }
+      toast.success(`Unlocked — reactivation link sent to ${r.data.email}`, {
+        description: "They set a new password with it, then sign in as normal.",
+      });
+    });
+  };
+
   // The one act here that cannot be taken back, so it asks in full.
   const releaseEmail = () => {
     const ok = window.confirm(
@@ -175,7 +200,12 @@ export default function MemberActions({
           {busy ? "Working…" : "Manage"} <ChevronDown className="size-3.5" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          {!inactive && !member.email_released_at && (
+          {!inactive && !member.email_released_at && member.sign_in_locked_at && !isMe && (
+            <DropdownMenuItem onClick={unlock}>
+              <LockOpen /> Unlock and send reactivation link
+            </DropdownMenuItem>
+          )}
+          {!inactive && !member.email_released_at && !member.sign_in_locked_at && (
             <DropdownMenuItem onClick={resetPassword}>
               <KeyRound /> Send a password reset link
             </DropdownMenuItem>

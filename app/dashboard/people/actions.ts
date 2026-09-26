@@ -1,5 +1,6 @@
 "use server";
 
+import { mintResetLink } from "@/lib/reset-link";
 import { portalOrigin } from "@/lib/portal-origin";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
@@ -261,22 +262,23 @@ export async function sendMemberPasswordReset(
   if (error) return fail(error.message);
   const address = String(email);
 
-  // Step 2. The link itself. `generateLink` mints it without sending anything,
-  // so the message goes out through the org's own sender with its own branding
-  // rather than through the auth provider's default mailer — and the link it
-  // carries leads to the member's OWN organisation's portal.
+  // Step 2. The link itself, minted without sending anything, so the message
+  // goes out through the org's own sender with its own branding rather than
+  // through the auth provider's default mailer — and the link it carries leads
+  // to the member's OWN organisation's portal.
   const { data: target } = await supabase
     .from("users").select("full_name, org_id").eq("id", userId).maybeSingle();
   const origin = await portalOrigin((target?.org_id as string | null) ?? null);
 
-  const { data: link, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
-    type: "recovery",
-    email: address,
-    options: { redirectTo: `${origin}/reset-password/confirm` },
-  });
-  if (linkError || !link?.properties?.action_link) {
+  // ⚠️ The app's own token (0139), via the helper every reset now shares. This
+  // used to mint a Supabase recovery link, which the confirm page cannot read —
+  // every administrator-sent reset landed on "Missing reset link" (lib/reset-link).
+  let actionLink: string;
+  try {
+    actionLink = await mintResetLink(userId, origin, ADMIN_LINK_HOURS);
+  } catch (e) {
     return fail(
-      `The reset link could not be created: ${linkError?.message ?? "no link returned"}`,
+      `The reset link could not be created: ${e instanceof Error ? e.message : String(e)}`,
       "Nothing has been sent. The member's password is unchanged."
     );
   }
@@ -295,8 +297,9 @@ export async function sendMemberPasswordReset(
         `An administrator at ${ctx.brandName} has asked us to help you set a new password.`,
         ``,
         `Open this link to choose one:`,
-        link.properties.action_link,
+        actionLink,
         ``,
+        `The link works once, for ${ADMIN_LINK_HOURS} hours.`,
         `If you did not expect this, you can ignore it — your current password still works until you use the link.`,
         `Nobody at ${ctx.brandName} can see your password, including the administrator who sent this.`,
         ``,
@@ -313,6 +316,44 @@ export async function sendMemberPasswordReset(
 
   revalidatePath("/dashboard/people/members");
   return ok({ email: address });
+}
+
+/** How long an administrator-sent link lasts. Longer than the self-service
+ * hour: the person may not be at their inbox when an administrator acts. */
+const ADMIN_LINK_HOURS = 24;
+
+/**
+ * Unlock a member locked by five failed passwords (0303), and send them a
+ * reactivation link — the reset link above — to their registered address.
+ *
+ * Order matters. The Supabase ban is lifted BEFORE the link goes out, or the
+ * person would set a new password and still be refused. And the administrator
+ * never sets or sees the password: the person chooses it, so the approvals
+ * they give stay evidence that they alone acted (0258).
+ */
+export async function unlockAndSendReactivation(
+  userId: string
+): Promise<ActionResult<{ email: string }>> {
+  const supabase = await createClient();
+  // Every authorisation check is in the function: an ACTIVE admin, same org,
+  // not themselves, the target locked and neither deactivated nor released.
+  const { error } = await supabase.rpc("unlock_member_sign_in", { p_user_id: userId });
+  if (error) return fail(error.message);
+
+  const { error: banError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+    ban_duration: "none",
+  });
+  if (banError) {
+    return fail(
+      `The lock was cleared here, but the sign-in provider refused to lift its block: ${banError.message}`,
+      "Running this again is safe. No link has been sent yet."
+    );
+  }
+
+  const sent = await sendMemberPasswordReset(userId);
+  if (!sent.ok) return sent;
+  revalidatePath("/dashboard/people");
+  return sent;
 }
 
 export async function revokeInvitation(invitationId: string): Promise<ActionResult> {

@@ -1857,6 +1857,31 @@ email already reach every role.
 
 ### Stage 6 — Prove it, then open it
 - [ ] 6.1 Security pass against the production hostname — passive, **active**, load, rate limit
+      🔐 **Sign-in lockout added for rc8, 26 Sept 2026 (operator's instruction,
+      0303):**
+      • every failed password is counted, per email, on every org and role;
+      • the wait grows 1 → 2 → 4 → 8 minutes;
+      • the 4th failure warns, on screen and by email to the real owner;
+      • the 5th locks the account.
+      A locked account is banned at Supabase, and the seven identity functions
+      treat it as inactive, so it reaches nothing, including sessions already
+      open. An admin of the same org unlocks it from People and sends a
+      reactivation link. The person sets their own password. "Forgot password"
+      cannot unlock it. Break-glass: `scripts/unlock-sign-in.mjs` (ICT, service
+      role). Unknown emails count, wait and lock identically, so A3 still holds.
+      The password is now checked by a server action (`lib/password-sign-in.ts`)
+      so failures cannot be skipped or faked.
+      Also fixes a latent fault: the admin's "send a password reset link" (0258)
+      minted a Supabase recovery link the reset page cannot read; all three
+      senders now share `lib/reset-link.ts`.
+      Suite: `verify-sign-in-lockout` (15 code-path checks, all FAIL on rc7,
+      plus the database rules on staging).
+      ⚠️ **Two production settings go with it:**
+      (1) **Supabase → Auth → Rate Limits**: raise "sign-ups and sign-ins",
+      because Supabase now sees our server's address for every user. The
+      per-visitor limit is applied in the app (30 per 10 minutes per IP).
+      (2) **Create a second operator admin, with MFA**, so a locked operator
+      admin can be unlocked without the script.
       ⚠️ **Finding A9.4 (High, B1), 26 Sept 2026, Part A in progress:** OEA's
       public vendor-application page opened on `www.tfmlportal.com` when the host
       in its link was swapped, showing OEA's name and form under TFML's address.
