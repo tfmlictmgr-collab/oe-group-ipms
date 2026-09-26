@@ -1547,8 +1547,18 @@ one-line reason rather than deleting it silently.
       Output: `docs/verify-runs/stage3-20260921-production-proof.md`.
 
 ### Stage 4 — Dress rehearsal on staging
-- [ ] 4.1 Staging on the exact RC tag and schema
-- [ ] 4.2 Full Stage 5 rehearsed on staging, timed, runbook written from it
+- [~] 4.1 Staging on the exact RC tag and schema — **database half proven, 26
+      Sept 2026**: rc7's 129 suites ran against staging's database
+      (`rc7-20260925.md`), so its schema is rc7's. **Owed: proof the staging
+      APP serves rc7** — `curl -sSL https://oe-group-ipms-staging.vercel.app/legal/privacy | grep -c TENTai`
+      prints ≥ 1, and Vercel's staging deployment reads `a144669`. ⚠️ The same
+      curl against `www.tfmlportal.com` proves production, not staging.
+- [x] 4.2 ~~Full Stage 5 rehearsed on staging, timed~~ — **done differently, 26
+      Sept 2026: the runbook is written from the REAL cutover** (Stage 3, 21
+      Sept; Stage 5, 24–25 Sept), which was performed before any rehearsal:
+      `docs/CUTOVER_RUNBOOK.md` — release, rebuild-from-empty, roll back. Times
+      not measured on the day are marked **est.**; the next run replaces them.
+      Recorded as accepted, not as a rehearsal that happened.
 - [ ] 4.3 Multi-role UAT, all ten roles
 - [ ] 4.4 Money path end to end — Flutterwave **collection** on test keys,
       bank-transfer payout, off-platform payment. ⚠️ **Rehearse the PRODUCTION
