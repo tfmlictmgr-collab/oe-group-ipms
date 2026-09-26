@@ -61,7 +61,7 @@ This is the path rc6 and rc7 took. Est. **2–3 h**, most of it the verify run.
 | 1.1 | Build the candidate tree | `npm ci`, `npm run build` | tsc clean, 0 lint errors, 85/85 pages | est. 10 min |
 | 1.2 | Full verify against **staging** | `node scripts/use-env.mjs staging`, then `npm run dev` in a second window, then `node scripts/verify-all.mjs` | 129/129 (grep `FAIL` with no trailing space). No "LEFT REAL ORG SETTINGS CHANGED" | est. 60–90 min |
 | 1.3 | Record it | `docs/verify-runs/rcN-YYYYMMDD.md` + tag message | committed | 15 min |
-| 1.4 | **Back up production** before any migration | `node scripts/use-env.mjs prod` → read ref → `npm run backup` | "read back OK", encrypted round-trip OK, manifest written | est. 5 min |
+| 1.4 | **Back up production** before any migration | `node scripts/use-env.mjs prod` → read ref → `npm run backup` | "Backup verified", manifest written, `operator.backup_taken` recorded. The file is **plaintext** unless you add `-- --encrypt`; add it whenever the copy will leave this machine | est. 5 min |
 | 1.5 | Apply new migrations to production **before** merging | same window: `npm run migrate` | ledger count = number of files in `supabase/migrations` (323 at rc7, highest `0302`) | est. 2 min |
 | 1.6 | Merge the PR | GitHub | Vercel shows the production deployment "Ready" | est. 3–5 min |
 | 1.7 | Prove the new build is serving, on content | `curl -sSL https://www.tfmlportal.com/<page> \| grep -c "<new string>"` | prints ≥ 1 | 1 min |
