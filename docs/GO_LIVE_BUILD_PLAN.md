@@ -1559,7 +1559,9 @@ one-line reason rather than deleting it silently.
       not measured on the day are marked **est.**; the next run replaces them.
       Recorded as accepted, not as a rehearsal that happened.
 - [ ] 4.3 Multi-role UAT, all ten roles
-- [ ] 4.4 Money path end to end — Flutterwave **collection** on test keys,
+- [ ] 4.4 📋 **Step-by-step written 26 Sept 2026: `docs/MONEY_PATH_REHEARSAL.md`** (OEA on staging:
+      offline rent in → three desks → reconciled → landlord paid by bank transfer
+      → receipt and remittance advice; 36 checks). Money path end to end — Flutterwave **collection** on test keys,
       bank-transfer payout, off-platform payment. ⚠️ **Rehearse the PRODUCTION
       key set** (Flutterwave only, no Paystack): staging's Paystack test keys
       make a payout resolve where production refuses it — 2.12, owed 2. A
