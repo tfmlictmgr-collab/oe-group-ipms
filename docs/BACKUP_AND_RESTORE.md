@@ -393,8 +393,10 @@ overwritten Supabase's own and broken every row-level policy.
 
 ⚠️ **Version match.** `pg_dump` must be at least the server's major version
 (`npm run backup` checks and refuses), and the scratch server should be the
-same major version as the dump. Supabase's version is on the dashboard under
-**Database → Settings**; install that version's client tools locally.
+same major version as the dump. Read the server's version in that project's
+SQL editor with `show server_version;` (corrected 26 Sept 2026: the dashboard's
+Database → Settings page does not show it); install that version's client tools
+locally.
 
 ### Restoring for real
 
