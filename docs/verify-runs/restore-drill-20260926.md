@@ -137,3 +137,27 @@ Take a new backup with the fixed script (`npm run backup`: two files,
 passphrase asked), run the drill as `BACKUP_AND_RESTORE.md` §4 now describes
 it, and match every line of the check against the manifest. That includes
 `auth.rowCounts` and "app users with no sign-in account = 0".
+
+## Follow-up: the stray ticket, removed 26 Sept 2026
+
+The ticket both backups carried was the operator's own test message to OEA's
+WhatsApp number (25 Sept 08:26 UTC, "Leaking kitchen tap at Flat 2…"). It had
+no messages, attachments, payments, requisitions or evaluations, and carried
+2 notifications and 1 chat-conversation pointer. Removed in production with
+`docs/sql/remove-test-ticket-20260925.sql`, which refuses unless it is the
+only ticket and nothing with money attached points at it:
+
+| after removal | n |
+|---|---|
+| tickets | 0 |
+| ticket_messages | 0 |
+| ticket_attachments | 0 |
+| ticket notifications | 0 |
+| conversations pointing at a ticket | 0 |
+
+**Who has messaged production:** `chat_webhook_events` holds 3 messages,
+OEA WhatsApp only, 1 distinct sender, 25 Sept 08:26–22:44 UTC. The operator
+confirmed, by matching the last four digits and without displaying the
+number, that all 3 are from their own phone. No customer data has reached
+production. The only personal data left in the chat tables is the operator's
+own number, from their own tests.

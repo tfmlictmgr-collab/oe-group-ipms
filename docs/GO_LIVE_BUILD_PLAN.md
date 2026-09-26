@@ -1592,6 +1592,12 @@ one-line reason rather than deleting it silently.
       sign-in account". Proven locally against Supabase's published `auth`
       schema, including a negative control. **Closed the same day: re-run on a
       new backup, every line matched.**
+      📌 Both backups showed **one ticket** in production (0 on 24 Sept): the
+      operator's 25 Sept test message. **Removed 26 Sept**
+      (`docs/sql/remove-test-ticket-20260925.sql`, all related counts 0), and
+      every message production has received is confirmed to be the operator's
+      own. **Production holds no customer data**, which is the state the pen test
+      (1.11/6.2) needs. Re-prove emptiness immediately before it starts.
       2026, under 10 seconds**, proven at content level: rolled back to
       `c745150` and `/legal/privacy` returned **404** because that build does
       not contain the route, then promoted forward to 200 with the right DPO
