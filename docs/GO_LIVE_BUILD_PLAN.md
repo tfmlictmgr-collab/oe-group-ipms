@@ -1857,6 +1857,17 @@ email already reach every role.
 
 ### Stage 6 — Prove it, then open it
 - [ ] 6.1 Security pass against the production hostname — passive, **active**, load, rate limit
+      ⚠️ **Finding A9.4 (High, B1), 26 Sept 2026, Part A in progress:** OEA's
+      public vendor-application page opened on `www.tfmlportal.com` when the host
+      in its link was swapped, showing OEA's name and form under TFML's address.
+      Six public pages chose their org from the URL and never checked the host
+      (only `/o/[slug]` did). **Fixed (`08f93af`):** `hostServesOrg` in
+      `lib/org-host.ts` on all six pages and on the two submissions whose org
+      comes from the request. A bound host serving another org's page answers
+      404. New suite `verify-public-pages-host-bound` discovers every public
+      page, so a new one can't skip the check; it fails 8 times on rc7 and passes
+      on the fix. ⚠️ **Inside `next build`, so rc7 is superseded (rule 7): needs
+      rc8**, batched with any other Part A findings.
       📌 **Order and tools: `security/README.md` §3** — ZAP baseline (passive)
       → k6 weekday → k6 spike → k6 rate-limit → ZAP full (active). Targets:
       `https://www.tfmlportal.com` and `https://oeaportal.com` — never a

@@ -76,6 +76,7 @@ secret, stop that section, screenshot it, and report it before continuing.
 | A9.1 oeaportal.com | login page names only its own brand | | |
 | A9.2 oeaportal.com | terms / refunds / privacy name only its own brand | | |
 | A9.3 oeaportal.com | tab title and favicon: own brand only | | |
+| A9.4 | a public link with its host swapped to the other portal → not found | **FAIL** (High, B1) | `oeaportal.com/apply/<OEA id>` opened on `www.tfmlportal.com` showing OEA's name and vendor form. Found by the operator, 26 Sept; the same gap was on 5 more public pages. Fixed on the branch for rc8 (`08f93af`); retest once rc8 is live |
 
 ## Summary
 
