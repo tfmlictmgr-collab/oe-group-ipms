@@ -92,9 +92,72 @@ reset, **and a live session with a refresh token**.
 project, including whether it lets `postgres` write into `auth`. It was
 proven against Supabase's published schema on plain PostgreSQL only.
 
+## Re-run with the fixed script: ✅ PASSED, 26 Sept 2026, closes 4.5
+
+**Backup:** `production-civwriqvghvyqtfrzftu-2026-09-26T09-55-22`, taken on
+`main` at `c275dc2` (PR #69). Two files:
+- `.dump`: 1.4 MB, 80 tables of data, sha256 `f0acfd94…e2f71a56`.
+- `.auth.dump.enc`: 93 KB plaintext, sha256 `79563cb8…a3e1ea`. It holds data for
+  `users`, `identities`, `mfa_factors`, `webauthn_credentials` and the two
+  recovery-code tables, and **no sessions or tokens**.
+
+Real Supabase allowed `postgres` to dump the `auth` schema, the one step that
+could not be tested locally. The accounts archive was encrypted, proven to
+round-trip, and then **decrypted on the operator's machine with the escrowed
+passphrase**.
+**Order:** accounts archive → `restore-target-prep.sql` → app data → check,
+into a fresh `postgres:17` container.
+
+| | manifest | restored |
+|---|---|---|
+| schema / migrations | `0302…` / 323 | `0302…` / 323 |
+| foreign | 271 | **271** |
+| check / primary / unique / trigger | 146 / 80 / 25 / 4 | identical |
+| exclusion (`leases_no_overlap`) | 1 | 1, **PRESENT** |
+| rows: orgs, users, tickets, audit_log | 4, 3, 1, 292 | identical |
+| rows: the other 8 counted tables | 0 | 0 |
+| auth: users / identities / mfa_factors | 3 / 3 / 1 | **3 / 3 / 1** |
+| app users with no sign-in account | — | **0** |
+
+Every line equals the manifest. The operator reported the restore steps
+complete; their error output was not pasted. The 271 foreign keys and the
+identical constraint set are the evidence that nothing refused. A production
+backup now restores into a system people can sign in to.
+
+📌 **`tickets = 1` in production** in both backups. Production was proven
+empty of tickets on 24 Sept. The row is most likely from the 25 Sept
+live-message or live-update testing. It must be identified and removed
+before the external pen test (1.11/6.2), which needs an empty production.
+
+## As first written, before the re-run
+
 ## To close 4.5
 
 Take a new backup with the fixed script (`npm run backup`: two files,
 passphrase asked), run the drill as `BACKUP_AND_RESTORE.md` §4 now describes
 it, and match every line of the check against the manifest. That includes
 `auth.rowCounts` and "app users with no sign-in account = 0".
+
+## Follow-up: the stray ticket, removed 26 Sept 2026
+
+The ticket both backups carried was the operator's own test message to OEA's
+WhatsApp number (25 Sept 08:26 UTC, "Leaking kitchen tap at Flat 2…"). It had
+no messages, attachments, payments, requisitions or evaluations, and carried
+2 notifications and 1 chat-conversation pointer. Removed in production with
+`docs/sql/remove-test-ticket-20260925.sql`, which refuses unless it is the
+only ticket and nothing with money attached points at it:
+
+| after removal | n |
+|---|---|
+| tickets | 0 |
+| ticket_messages | 0 |
+| ticket_attachments | 0 |
+| ticket notifications | 0 |
+| conversations pointing at a ticket | 0 |
+
+**Who has messaged production:** `chat_webhook_events` holds 3 messages,
+OEA WhatsApp only, 1 distinct sender, 25 Sept 08:26–22:44 UTC. The operator
+confirmed, by matching the last four digits and without displaying the
+number, that all 3 are from their own phone. No customer data has reached
+production. The only personal data left in the chat tables is the operator's
+own number, from their own tests.

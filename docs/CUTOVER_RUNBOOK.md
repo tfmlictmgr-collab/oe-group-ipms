@@ -178,15 +178,15 @@ A deployment rollback does not touch data. For wrong data:
    `BACKUP_AND_RESTORE.md` §4, "Restoring for real".
 3. Re-check `_migrations` against the deployed build.
 
-⚠️ **Drilled on a real production dump 26 Sept 2026, and it found a gap.**
-Every row and constraint came back except the three foreign keys into
-`auth.users`. The backup did not carry the sign-in accounts, so a restore into
-a new project would have let nobody log in
-(`docs/verify-runs/restore-drill-20260926.md`). Fixed the same day: the backup
-now writes a second, always-encrypted archive of the accounts, proven locally
-against Supabase's real `auth` schema. **Re-run the drill with a new backup to
-close 4.5.** The new-Supabase-project restore path is proven on plain
-PostgreSQL only.
+✅ **Drilled on a real production dump 26 Sept 2026.** The first run found
+that the backup carried no sign-in accounts: every row came back and nobody
+could have signed in. It was fixed the same day, and a second backup then
+restored with every line matching its manifest, including 3 accounts and 0 app
+users without a sign-in (`docs/verify-runs/restore-drill-20260926.md`).
+**Measured: about 20 minutes** from backup to check. The drill order is
+**accounts, then prep, then app data**. ⚠️ Restoring into a *new Supabase
+project* (accounts data-only, `users` first) is proven on plain PostgreSQL
+only.
 
 ---
 
