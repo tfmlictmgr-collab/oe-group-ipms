@@ -1,6 +1,7 @@
 "use server";
 
 import crypto from "node:crypto";
+import { hostServesOrg } from "@/lib/org-host";
 import { createClient } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ok, fail, type ActionResult } from "@/lib/action-result";
@@ -39,6 +40,11 @@ export type StartInput = {
 export async function startApplication(
   input: StartInput
 ): Promise<ActionResult<{ id: string; resumeToken: string }>> {
+  // B1: the page refuses another org's host; so does starting an application behind it.
+  if (!(await hostServesOrg(input.orgId))) {
+    return fail("This application link isn't available here.");
+  }
+
   const h = await headers();
   const gate = await checkRateLimit("apply-start", clientIp(h), 5, "10 m");
   if (!gate.allowed) {

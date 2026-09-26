@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { hostServesOrg } from "@/lib/org-host";
 import { gatewayConfigured, isProduction } from "@/lib/gateway";
 import { formatMoney } from "@/lib/currency";
 import SimulatedCheckout from "./SimulatedCheckout";
@@ -29,6 +30,8 @@ export default async function SimulatedCheckoutPage({
     .maybeSingle();
 
   if (!intent) notFound();
+  // B1: never on another organisation's host (lib/org-host).
+  if (!(await hostServesOrg(intent.org_id))) notFound();
   if (isProduction() || gatewayConfigured(intent.currency) || intent.gateway !== "simulated") {
     notFound();
   }

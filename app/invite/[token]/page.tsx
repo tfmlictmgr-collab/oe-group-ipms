@@ -1,4 +1,8 @@
 import Link from "next/link";
+import { notFound } from "next/navigation";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { hashInviteToken } from "@/lib/invitation";
+import { hostServesOrg } from "@/lib/org-host";
 import { ShieldCheck, XCircle } from "lucide-react";
 import { roleLabel } from "@/lib/roles";
 import { Button } from "@/components/ui/button";
@@ -24,6 +28,18 @@ export default async function InvitePage({
 }) {
   const { token } = await params;
   const invite = await previewInvitation(token);
+
+  // B1: on another organisation's host an invitation answers as a missing page,
+  // so that host's brand never shows, or confirms, another's. The preview
+  // carries no org id; it is read from the invitation row by the same hash.
+  if (invite) {
+    const { data: owner } = await supabaseAdmin
+      .from("invitations")
+      .select("org_id")
+      .eq("token_hash", hashInviteToken(token))
+      .maybeSingle();
+    if (!(await hostServesOrg(owner?.org_id))) notFound();
+  }
 
   // The page wears the brand that sent the invitation, not a house default.
   // Showing "OE Group Portal" above "TFML has invited you" put two brands on the

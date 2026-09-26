@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { ShieldCheck, CalendarClock, CheckCircle2, XCircle, Clock } from "lucide-react";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBrandTheme } from "@/lib/brands";
+import { hostServesOrg } from "@/lib/org-host";
 import { publicOrgName } from "@/lib/org-public";
 import { formatNaira } from "@/lib/currency";
 import { hashOfferToken } from "@/lib/tenancy-offer-token";
@@ -78,6 +79,8 @@ export default async function OfferPage({
   // A wrong token, a withdrawn offer and a token that never existed all answer
   // the same 404 — the alternative tells a stranger which of the three it was.
   if (!offer || offer.state === "withdrawn") notFound();
+  // B1: on another organisation's host the offer answers exactly as a wrong token does.
+  if (!(await hostServesOrg(offer.org_id))) notFound();
 
   // `name`, never `portal_name` — see `publicOrgName`. On this page in
   // particular: "pay only into an account in this name" is the whole defence

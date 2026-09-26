@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { ShieldCheck, CheckCircle2, Clock } from "lucide-react";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBrandTheme } from "@/lib/brands";
+import { hostServesOrg } from "@/lib/org-host";
 import { publicOrgName } from "@/lib/org-public";
 import { hashPayoutToken } from "@/lib/payout-evidence";
 import PayoutDetailsForm from "./PayoutDetailsForm";
@@ -48,14 +49,25 @@ function longDate(iso: string | null): string {
 
 export default async function PayoutDetailsPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
+  const tokenHash = hashPayoutToken(decodeURIComponent(token ?? ""));
   const { data } = await supabaseAdmin.rpc("payout_request_by_token", {
-    p_token_hash: hashPayoutToken(decodeURIComponent(token ?? "")),
+    p_token_hash: tokenHash,
   });
   const req = (Array.isArray(data) ? data[0] : data) as RequestRow | undefined;
 
   // A wrong token, a cancelled link and one that never existed all answer the
   // same 404 — anything else tells a stranger which of the three it was.
   if (!req || req.state === "withdrawn") notFound();
+
+  // B1: on another organisation's host the link answers exactly as a wrong token
+  // does. The RPC returns the org's name, not its id, so the id is read from the
+  // request row itself — by the same hash, server-side only.
+  const { data: owner } = await supabaseAdmin
+    .from("payout_detail_requests")
+    .select("org_id")
+    .eq("token_hash", tokenHash)
+    .maybeSingle();
+  if (!(await hostServesOrg(owner?.org_id))) notFound();
 
   const brandName = publicOrgName({ name: req.org_name, portal_name: req.portal_name });
   const brand = getBrandTheme(req.delivery_brand, { theme_primary: req.theme_primary }).primary;

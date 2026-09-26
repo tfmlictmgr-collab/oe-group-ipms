@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { hostServesOrg } from "@/lib/org-host";
 import type { Metadata } from "next";
 import { Building2, User, ShieldCheck, ChevronRight } from "lucide-react";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -80,6 +81,8 @@ export default async function ApplyPage({
   // turned into a directory. Worth re-examining if slugs ever become guessable
   // in bulk — a wordlist against short brand slugs is the realistic attack.
   if (!organisation) notFound();
+  // B1: another organisation's host answers as if this link never existed (lib/org-host).
+  if (!(await hostServesOrg(organisation.id))) notFound();
 
   const orgId = organisation.id;
   // What subsequent links on this page should carry: whatever the visitor

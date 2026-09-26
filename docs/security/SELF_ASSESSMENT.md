@@ -208,6 +208,7 @@ Ctrl+Shift+F (search all files) and search for each:
 | A9.1 | Open `oeaportal.com/login` and `www.tfmlportal.com/login`; read every word | each names only its own brand (and TENTai as platform) |
 | A9.2 | `/legal/terms`, `/legal/refunds`, `/legal/privacy` on each host | as A9.1 (already proven by 5.10 — re-check on rc7) |
 | A9.3 | The **title in the browser tab** and the favicon on each host | own brand only |
+| A9.4 | Take any public link from one portal, e.g. OEA's vendor-application link `https://www.oeaportal.com/apply/<id>`, and swap the host to the **other** portal (`www.tfmlportal.com/apply/<id>`). Repeat for an invitation, a tenancy offer and a payout-details link if you have one | **Not found**: the same page a made-up address gets. Never the other brand's name or form under this host. *Found FAILING on rc7, 26 Sept 2026; fixed for rc8 (`hostServesOrg`, `verify-public-pages-host-bound`)* |
 
 ---
 
