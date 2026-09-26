@@ -1547,12 +1547,11 @@ one-line reason rather than deleting it silently.
       Output: `docs/verify-runs/stage3-20260921-production-proof.md`.
 
 ### Stage 4 — Dress rehearsal on staging
-- [~] 4.1 Staging on the exact RC tag and schema — **database half proven, 26
-      Sept 2026**: rc7's 129 suites ran against staging's database
-      (`rc7-20260925.md`), so its schema is rc7's. **Owed: proof the staging
-      APP serves rc7** — `curl -sSL https://oe-group-ipms-staging.vercel.app/legal/privacy | grep -c TENTai`
-      prints ≥ 1, and Vercel's staging deployment reads `a144669`. ⚠️ The same
-      curl against `www.tfmlportal.com` proves production, not staging.
+- [x] 4.1 Staging on the exact RC tag and schema — ✅ **proven 26 Sept 2026.**
+      Database: rc7's 129 suites ran against staging's database
+      (`rc7-20260925.md`). App: Vercel's staging deployment reads `a144669`,
+      and `curl -sSL https://oe-group-ipms-staging.vercel.app/legal/privacy | grep -c TENTai`
+      printed **1**, a string that exists only from rc7, so proven on content.
 - [x] 4.2 ~~Full Stage 5 rehearsed on staging, timed~~ — **done differently, 26
       Sept 2026: the runbook is written from the REAL cutover** (Stage 3, 21
       Sept; Stage 5, 24–25 Sept), which was performed before any rehearsal:
