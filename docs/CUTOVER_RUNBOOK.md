@@ -61,7 +61,7 @@ This is the path rc6 and rc7 took. Est. **2–3 h**, most of it the verify run.
 | 1.1 | Build the candidate tree | `npm ci`, `npm run build` | tsc clean, 0 lint errors, 85/85 pages | est. 10 min |
 | 1.2 | Full verify against **staging** | `node scripts/use-env.mjs staging`, then `npm run dev` in a second window, then `node scripts/verify-all.mjs` | 129/129 (grep `FAIL` with no trailing space). No "LEFT REAL ORG SETTINGS CHANGED" | est. 60–90 min |
 | 1.3 | Record it | `docs/verify-runs/rcN-YYYYMMDD.md` + tag message | committed | 15 min |
-| 1.4 | **Back up production** before any migration | `node scripts/use-env.mjs prod` → read ref → `npm run backup` | "read back OK", encrypted round-trip OK, manifest written | est. 5 min |
+| 1.4 | **Back up production** before any migration | `node scripts/use-env.mjs prod` → read ref → `npm run backup` | "Backup verified", **two files**: `<name>.dump` and `<name>.auth.dump.enc` (sign-in accounts, always encrypted; asks for the escrowed passphrase). The main dump is **plaintext** unless you add `-- --encrypt` | measured ~2 min, 26 Sept |
 | 1.5 | Apply new migrations to production **before** merging | same window: `npm run migrate` | ledger count = number of files in `supabase/migrations` (323 at rc7, highest `0302`) | est. 2 min |
 | 1.6 | Merge the PR | GitHub | Vercel shows the production deployment "Ready" | est. 3–5 min |
 | 1.7 | Prove the new build is serving, on content | `curl -sSL https://www.tfmlportal.com/<page> \| grep -c "<new string>"` | prints ≥ 1 | 1 min |
@@ -178,12 +178,15 @@ A deployment rollback does not touch data. For wrong data:
    `BACKUP_AND_RESTORE.md` §4, "Restoring for real".
 3. Re-check `_migrations` against the deployed build.
 
-⚠️ **This half has not yet been drilled on a real production dump** (plan 4.5).
-The procedure was proven on a locally built schema on 24 Sept, and the drill
-found the documented steps were wrong: 88 errors, and the double-let guard was
-lost while every row count still matched. It was fixed with
-`restore-target-prep.sql`. Until the drill has been run on a real production
-dump, treat 3B as untested.
+⚠️ **Drilled on a real production dump 26 Sept 2026, and it found a gap.**
+Every row and constraint came back except the three foreign keys into
+`auth.users`. The backup did not carry the sign-in accounts, so a restore into
+a new project would have let nobody log in
+(`docs/verify-runs/restore-drill-20260926.md`). Fixed the same day: the backup
+now writes a second, always-encrypted archive of the accounts, proven locally
+against Supabase's real `auth` schema. **Re-run the drill with a new backup to
+close 4.5.** The new-Supabase-project restore path is proven on plain
+PostgreSQL only.
 
 ---
 

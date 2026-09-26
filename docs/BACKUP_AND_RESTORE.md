@@ -99,7 +99,30 @@ else does.
 node scripts/use-env.mjs <world>     # then READ BACK what it prints
 npm run backup                       # writes into ./backups
 npm run backup -- --out /Volumes/…   # or somewhere you choose
+npm run backup -- --encrypt          # encrypt the main dump too
 ```
+
+**It writes two files, and a restore people can sign in to needs both:**
+
+| File | Holds | Encrypted |
+|---|---|---|
+| `<name>.dump` | the `public` schema: every table the app owns | only with `--encrypt` |
+| `<name>.auth.dump.enc` | the **sign-in accounts**: `auth.users`, `identities`, MFA factors (with the structure of the whole `auth` schema) | **always**: it holds password hashes and TOTP secrets |
+
+⚠️ **Added 26 Sept 2026, after the first drill of a real production dump.**
+Until then the backup carried `public` only, and restoring it gave back every
+row while **nobody could sign in**: the three foreign keys into `auth.users`
+refused, because the accounts they point at live in Supabase's `auth` schema.
+The 24 Sept drill missed it because its database had no users.
+Sessions, refresh tokens and one-time tokens are **deliberately left out**.
+They are live credentials, and useless after a restore anyway, because everyone
+signs in again. The script checks the archive and deletes both files if any of
+them slipped in. `--no-auth` takes the old public-only backup, and says loudly
+that it has.
+
+The **passphrase** is now asked on every run, because the accounts archive is
+always encrypted. Use the escrowed backup passphrase: without it, the sign-in
+accounts cannot be restored.
 
 Requires PostgreSQL client tools (`pg_dump`, `pg_restore`) at least as new as
 the server. The script says so, with install instructions, if they are missing.
@@ -343,15 +366,28 @@ Restore into a **scratch database**, never over a live one. The point is to
 prove the file is good and that you know the commands, not to change anything.
 
 ```
+npm run backup -- --decrypt <name>.auth.dump.enc
 createdb ipms_restore_drill
+pg_restore --no-owner --no-privileges -d ipms_restore_drill <name>.auth.dump   # accounts FIRST
 psql -d ipms_restore_drill -f docs/sql/restore-target-prep.sql
-pg_restore --no-owner --no-privileges -d ipms_restore_drill <file>.dump
+pg_restore --no-owner --no-privileges -d ipms_restore_drill <name>.dump
 psql -d ipms_restore_drill -f docs/sql/restore-drill-check.sql
 ```
 
-Then compare **every** line of the check with the backup's `.manifest.json` —
-`rowCounts` **and** `constraints`. **A lower `exclusion` or `foreign` figure is
-a failed restore even when every row count matches.**
+Then compare **every** line of the check with the backup's `.manifest.json`:
+`rowCounts`, `constraints` **and** `auth.rowCounts`. **A lower `exclusion` or
+`foreign` figure is a failed restore even when every row count matches**, and
+so is any "app users with no sign-in account" other than **0**.
+
+📌 **The accounts go in before the prep**, not after. The prep creates a stub
+`auth` schema only where none exists. Restored first, the real one is there and
+the prep leaves it alone. The other way round, the stub blocks the real
+accounts.
+
+📌 **A backup taken before 26 Sept 2026 has no accounts archive.** Restore it
+the old way (prep, then the dump). Expect `foreign` exactly **3** below the
+manifest and "app users with no sign-in account" equal to the user count. That
+is the finding, not a new fault.
 
 ⚠️ **The prep step is not optional, and this section used to omit it** —
 corrected 24 Sept 2026, by measurement rather than by reading. The full
@@ -405,8 +441,22 @@ locally.
 2. Fix forward is still the default for *schema* problems — migrations are
    additive, so there is nothing to roll back. A restore is for **wrong data**,
    which is the case the deployment rollback never covered (gap G).
-3. From a Supabase daily backup: dashboard → Database → Backups → restore. From
-   an `npm run backup` file: the command in the manifest's `restoreWith`.
+3. From a Supabase daily backup: dashboard → Database → Backups → restore. That
+   one includes the sign-in accounts. From an `npm run backup` pair into a
+   **new Supabase project**, which already has its own empty `auth` schema,
+   follow the manifest's `restoreWith.intoNewSupabaseProject`:
+   ```
+   psql -d <target> -f docs/sql/restore-target-prep.sql
+   pg_restore --data-only --no-owner -n auth -t users -d <target> <name>.auth.dump
+   pg_restore --data-only --no-owner -n auth -t identities -t mfa_factors … -d <target> <name>.auth.dump
+   pg_restore --no-owner --no-privileges -d <target> <name>.dump
+   ```
+   **`users` alone first.** Given all the tables in one command, `pg_restore`
+   loads `identities` and `mfa_factors` before `users`, and both refuse
+   (measured, 26 Sept 2026). ⚠️ This path is proven against Supabase's
+   published `auth` migrations on plain PostgreSQL, **not yet against a real
+   new Supabase project**. Whether that project lets `postgres` write into
+   `auth` is Supabase's to decide and has not been tested.
 4. Afterwards, re-check `_migrations` — the restored schema version is in the
    manifest, and a restore that lands you on an older schema than the deployed
    build is its own incident.
