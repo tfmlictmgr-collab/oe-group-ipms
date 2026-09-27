@@ -109,15 +109,31 @@ console.log(`\nRunning ZAP ${mode} scan against ${target} …\n`);
 //    fails leaves nothing to read. The log is copied into security/reports/
 //    (gitignored) and the container removed afterwards, whatever happened.
 const name = `zap-${mode}-${Date.now()}`;
+
+// ⚠️ The target is written INTO the plan here, not left as `${ZAP_TARGET}`
+// for ZAP to substitute. ZAP substitutes it in most fields but NOT in the
+// authentication verification's `pollUrl`: the third C4 attempt's log read
+//   Failed sending poll request to ${ZAP_TARGET}/dashboard … incorrect path
+// so every sign-in "failed" its own check, ZAP re-authenticated in a loop,
+// and the browser and active-scan jobs gave up with no report. Only the
+// target is rendered; ZAP_USER / ZAP_PASSWORD stay environment variables and
+// are never written to disk. The rendered plan goes to security/reports/
+// (gitignored), which the container already mounts.
+const rendered = `${name}.plan.yaml`;
+fs.writeFileSync(
+  path.join(reports, rendered),
+  fs.readFileSync(path.join(rootDir, "security", "zap", plan), "utf8")
+    .replaceAll("${ZAP_TARGET}", scanTarget)
+);
+
 const run = spawnSync("docker", [
   "run", "--name", name,
   "--shm-size", "2g",
   ...(isLocal ? ["--add-host", "host.docker.internal:host-gateway"] : []),
-  "-v", `${path.join(rootDir, "security", "zap")}:/zap/wrk/plans:ro`,
   "-v", `${reports}:/zap/wrk/reports:rw`,
   ...env,
   "ghcr.io/zaproxy/zaproxy:stable",
-  "zap.sh", "-cmd", "-autorun", `/zap/wrk/plans/${plan}`,
+  "zap.sh", "-cmd", "-autorun", `/zap/wrk/reports/${rendered}`,
 ], { stdio: "inherit" });
 
 const logFile = path.join(reports, `${name}.log`);
