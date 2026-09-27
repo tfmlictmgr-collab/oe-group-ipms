@@ -258,6 +258,23 @@ title, amounts or names. Any leak here is the stop rule.
 
 Then repeat B1.1–B1.3 the other way round (TFML record, OEA reader).
 
+**B1.11 — how file links work, so the result is read correctly.** A file is
+never at a fixed address. Opening it asks the server, which checks the reader's
+organisation and then hands out a **signed link**: a one-off pass that lasts
+**5 minutes** (documents, receipts, proofs) or **1 hour** (request photos).
+Anyone holding that exact link can open it until it expires; that is what the
+link is for. So the test is:
+
+1. Paste the copied link into Browser 2 **and** a signed-out window straight
+   away. It may open. That is not a fail.
+2. Delete everything from `?token=` onwards and open what is left. **Expect:**
+   refused (an error message such as *"Object not found"* or *"not authorized"*).
+3. Wait until the link has expired, then open the full link again. That's
+   6 minutes for a document, or 61 minutes for a request photo. **Expect:**
+   refused (*"Token has expired"* or similar).
+4. **FAIL** only if step 2 or step 3 shows the file, or if a TFML reader could
+   get a fresh link to an OEA file from a page of their own.
+
 ### B2. A role cannot reach beyond its job
 
 Sign in as each account and open the addresses. **Expect** a refusal, a
@@ -279,16 +296,46 @@ redirect to the dashboard, or a page with no data — never the content.
 
 ### B3. File uploads refuse what they should
 
-On staging's vendor application form (`/apply/<staging org id>`) and a tenancy
-application (`/tenancy/tfml`):
+⚠️ The vendor application form (`/apply/…`) takes **no files**. Test the two
+forms that do:
+
+- **B3-T, the anonymous surface (it matters most):** the **OEA** tenancy
+  application. Tenancy applications are an OEA-only module, so `/tenancy/tfml`
+  always says *"Applications are closed"*. That is correct, not a fault. To
+  open OEA's form on staging:
+  1. Sign in at `/o/oea` as `oea.admin@`.
+  2. Go to **People → Tenancy Applications** and click **Open applications**.
+  3. Set one property to **Open**.
+  4. In a **signed-out** window, open `/tenancy/oea`. Pick that property,
+     enter a name and a `…@oegroup.test` address, and continue to the
+     document uploads.
+
+  The size limit is **10 MB**.
+- **B3-R, a signed-in surface:** a requisition attachment. Sign in at `/o/tfml`
+  as `tfml.ops@`, open `/dashboard/requisitions/new`, and use **Attach a
+  document**. A wrong type or size is refused the moment it is picked. An
+  accepted file is only uploaded when you click **Raise requisition**, which
+  needs a reference and one line with a description and an amount. The size
+  limit is **2 MB**.
+
+When you choose a file, Windows shows only the permitted types. Set the
+file-type box at the bottom right of the picker to **All files (\*.\*)** so
+the bad files can be picked.
 
 | # | Upload | Expect |
 |---|---|---|
-| B3.1 | a `.html` file renamed to `.pdf` | refused |
+| B3.1 | a `.html` file renamed to `.pdf` | **accepted as a PDF.** No form reads a file's contents; it goes by the type. **Pass:** when staff open it, it shows as a broken or blank PDF, or it downloads. **Fail:** it opens as a web page, or a pop-up appears |
 | B3.2 | an `.exe` or `.js` file | refused |
 | B3.3 | a file larger than the stated limit | refused, with the limit named |
 | B3.4 | an `.svg` image | refused (SVG can carry script) |
-| B3.5 | a normal PDF/JPG | accepted — then open it as **another org's** user (B1.11) |
+| B3.5 | a normal PDF/JPG | accepted. Then check that **another org's** user can't reach it (B1.11 steps 2–3) |
+
+These type and size rules are also enforced by the storage bucket itself, not
+only by the page (0300 for the anonymous one). A caller who skips the page
+still gets refused.
+
+Afterwards, as `oea.admin@`: set the property back to its previous state, then
+click **Close applications** if they were closed when you started.
 
 ### B4. Forms refuse script injection
 

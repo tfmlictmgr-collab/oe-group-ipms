@@ -140,7 +140,7 @@ secret, stop that section, screenshot it, and report it before continuing.
 | B1.8 | OEA service-charge budget opened by TFML → not found | | |
 | B1.9 | OEA statement opened by TFML → not found | | |
 | B1.10 | OEA receipt opened by TFML → not found | | |
-| B1.11 | OEA uploaded file (also signed out) opened by TFML → not found | | |
+| B1.11 | OEA file link: token stripped → refused; after expiry → refused (fresh link may open — not a fail) | | |
 | B1.1r | TFML request opened by OEA → not found | | |
 | B1.2r | TFML property opened by OEA → not found | | |
 | B1.3r | TFML lease opened by OEA → not found | | |
@@ -155,11 +155,11 @@ secret, stop that section, screenshot it, and report it before continuing.
 | B2.9 | finance → no approve option on its own payment | | |
 | B2.10 | approver above band → refused (N/A while bands off) | | |
 | B2.11 | non-operator → /orgs → operators-only page | | |
-| B3.1 | .html renamed .pdf → refused | | |
-| B3.2 | .exe / .js → refused | | |
-| B3.3 | over the size limit → refused, limit named | | |
-| B3.4 | .svg → refused | | |
-| B3.5 | normal PDF/JPG → accepted; unreachable by the other org | | |
+| B3.1 | .html renamed .pdf → accepted as PDF; opens as broken PDF / downloads, never a web page (T and R) | | |
+| B3.2 | .exe / .js → refused (T and R) | | |
+| B3.3 | over the size limit → refused, limit named (T 10 MB, R 2 MB) | | |
+| B3.4 | .svg → refused (T and R) | | |
+| B3.5 | normal PDF/JPG → accepted; unreachable by the other org per B1.11 (T and R) | | |
 | B4.1 | script text shown literally everywhere, no pop-up | | |
 | B5.1 | 10 wrong passwords → identical refusal each time (rc7) | | |
 | B5.2 | 5 forgot-password requests → "Check your email" every time | | |
