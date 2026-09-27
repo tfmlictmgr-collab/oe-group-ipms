@@ -82,3 +82,14 @@ secret, stop that section, screenshot it, and report it before continuing.
 
 - PASS: _n_ · FAIL: _n_ (Critical _n_, High _n_, Medium/Low _n_) · N/A: _n_
 - Findings sent to the build session: _date_
+
+---
+
+# Part C: automated scans (started 27 Sept 2026)
+
+| Run | Target | Result | What it means |
+|---|---|---|---|
+| Direct `zap-full-scan.py` (not via `npm run pentest:*`) | `https://oeaportal.com` (production, **active**) | 140 PASS, 1 WARN, 0 FAIL, but **void** | Outside the method: no pre-flight, no exclusions, and active on production. Only 8 URLs were reached, and the bare domain answers a 308 redirect, so it mostly tested the redirect. No finding counts for or against. Ran with `--env-file .env.local`: don't repeat that |
+| ZAP 40025 *Proxy Disclosure* (WARN, ×4) | the 308 redirects on `oeaportal.com` | **Accepted, informational** | Vercel's edge answering for the redirect. Not the application; nothing to fix |
+| C1 baseline | `https://oeaportal.com` | **re-run needed** | The bare domain again (6 URLs). Re-run against `https://www.oeaportal.com` and `https://www.tfmlportal.com`, then send the WARN/FAIL lines from the reports |
+| C4 full | `http://localhost:3000` | **did not run** | ZAP's container stopped in the AJAX spider, before the active scan, so nothing was attacked. **Finding C-PF (Medium, tooling):** the pre-flight cleared it while its environment loaded nothing (`injected env (0)`). Its checks read a failed query as an empty database. **Fixed:** it now names the database, refuses production, and stops on any unreadable query |

@@ -323,13 +323,25 @@ that refuses unsafe targets. In short:
 
 | # | Tool | Target | Notes |
 |---|---|---|---|
-| C1 | ZAP **baseline** (passive) | `https://www.tfmlportal.com`, `https://oeaportal.com` | safe on production |
+| C1 | ZAP **baseline** (passive) | `https://www.tfmlportal.com`, `https://www.oeaportal.com` | safe on production. ⚠️ **The `www.` form.** The bare domain answers only a 308 redirect, so a scan of it tests the redirect and not the application (found 27 Sept) |
 | C2 | k6 journey + spike | `https://www.tfmlportal.com` | read-only |
 | C3 | k6 rate-limit | `https://www.tfmlportal.com` | fills only your own IP's bucket |
 | C4 | ZAP **full** (active) | `https://oe-group-ipms-staging.vercel.app` | **staging only** — it submits forms |
 
 `npm run use-env` must match the target before each (prod for C1–C3, staging
 for C4) — the pre-flight reads that world's database.
+
+⚠️ **Only through `npm run pentest:*`, never `docker run … zap-full-scan.py`
+directly.** Found 27 Sept: a direct run skips the pre-flight and the exclusions
+(jobs, webhooks, ledger, payments, every Server Action). It also puts an active
+scan on production, which Part C reserves for the external tester. **Never pass
+`--env-file .env.local` to a scanner container**: that hands a third-party image
+every secret in the file, the service-role key included, and the scan needs
+none of them.
+
+⚠️ **C4 against `localhost` scans whatever database the dev server was started
+with.** Run `npm run use-env staging` **before** starting `npm run dev`, then scan.
+From 27 Sept the pre-flight names that database and refuses production.
 
 ---
 
