@@ -135,8 +135,10 @@ jobs:
           strength: medium
         # ⚠️ OFF. Not because they are unimportant, but because they are
         # DESTRUCTIVE against this app and are covered better elsewhere:
-        - id: 42      # Source code disclosure (noisy on Next.js chunks)
-          threshold: off
+        # (42, "Source code disclosure", was listed OFF here. ZAP no longer has
+        # a rule 42, and an unrecognised rule is a plan WARNING, which makes
+        # ZAP exit 2 even when the scan completes — removed 27 Sept 2026 so a
+        # clean run exits 0.)
         - id: 90020   # Remote OS command injection — its payloads are
           threshold: off   # time-delay based and would trip the rate limiter
 
