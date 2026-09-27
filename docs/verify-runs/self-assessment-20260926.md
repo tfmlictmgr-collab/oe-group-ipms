@@ -165,3 +165,16 @@ secret, stop that section, screenshot it, and report it before continuing.
 | B5.2 | 5 forgot-password requests → "Check your email" every time | | |
 | B6.1 | deactivate in SQL → open session reaches nothing | | |
 | B6.2 | reactivate → account works again | | |
+
+**Found during B4 (27 Sept): B4-F1, Medium, role reach.** Every new request was
+announced to every admin, FM and PM in the organisation. The test request came
+from a tenant with no lease, so it had no property: `tfml.pm` was alerted,
+couldn't open it, and didn't see it on their board. **Operator's rule, built for
+rc8 (0304):** a new request alerts only whoever can open it and act on it. An
+administrator sees everything but acts only on work left 24 hours (nobody
+assigned, or nobody acting). Proven locally by `verify-request-alert-audience`
+(36/36). To re-prove on staging at the rc8 cut.
+
+Side result: the AI triage treated the injected text as data. It titled the
+request *"Message contains only script/HTML injection content…"*, set it to Low,
+and ran nothing.

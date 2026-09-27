@@ -1900,6 +1900,27 @@ email already reach every role.
       page, so a new one can't skip the check; it fails 8 times on rc7 and passes
       on the fix. ⚠️ **Inside `next build`, so rc7 is superseded (rule 7): needs
       rc8**, batched with any other Part A findings.
+      📣 **Finding B4-F1 (Medium, role reach), 27 Sept 2026, Part B:** every
+      new request was announced to every admin, FM and PM in the organisation
+      (bell, WhatsApp, email), while each FM/PM can open only the requests on
+      their own buildings. A tenant with no lease raised one with no property:
+      the PM was told, couldn't open it, and it wasn't on their board. **Rule
+      set by the operator and built for rc8 (0304):**
+      • a new request alerts **only whoever can open it and act on it**: its
+        property's manager, or, with no property, whoever triages those (the
+        regional manager);
+      • the **administrator sees and opens every request but acts on one only
+        once it has gone 24 hours with nobody assigned, or 24 hours without
+        anyone on the desk acting on it**. This is enforced at the database for
+        every admin write, and the hourly job tells the admins about left work
+        once per idle spell;
+      • if nobody operational can open a request (no manager on the property,
+        no regional manager), the admins are told at once, with a note to fix
+        the coverage.
+      This closes a gap in 0178/0212: an admin could press **Review**, then
+      dispatch at once, skipping the 24-hour wait.
+      Suite: `verify-request-alert-audience` (36 checks, all rolled back).
+      `verify-unassigned-escalation` accepts the new refusal wording.
       📌 **Order and tools: `security/README.md` §3** — ZAP baseline (passive)
       → k6 weekday → k6 spike → k6 rate-limit → ZAP full (active). Targets:
       `https://www.tfmlportal.com` and `https://oeaportal.com` — never a

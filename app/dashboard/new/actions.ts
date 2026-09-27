@@ -5,8 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { classifyMessageWithProvider } from "@/lib/triage";
 import { shortRef } from "@/lib/acknowledgement";
 import { ok, fail, type ActionResult } from "@/lib/action-result";
-import { FM_PM } from "@/lib/roles";
-import { notifyRoleWithCascade } from "@/lib/role-notify";
+import { notifyTicketAudience } from "@/lib/role-notify";
 
 // Raising a request from the portal.
 //
@@ -188,19 +187,20 @@ export async function raiseRequest(input: {
   //
   // Best-effort, exactly as the chat path is: a notification failure must never
   // undo a ticket that has already been accepted and given a reference.
+  //
+  // 0304: told to whoever can open it and act on it — its property's manager,
+  // or whoever triages requests with no property — not every admin/FM/PM.
   try {
-    await notifyRoleWithCascade({
+    await notifyTicketAudience({
       orgId: me.org_id,
-      roles: ["admin", ...FM_PM],
+      ticketId: ticket.id,
       kind: "request",
       title: `New ${ticket.urgency} request — ${shortRef(ticket.id)}`,
       body: ticket.summary ?? messageText.slice(0, 140),
       link: `/dashboard/tickets/${ticket.id}`,
-      entityType: "ticket",
-      entityId: ticket.id,
     });
   } catch (e) {
-    console.error("Could not notify admin/FM of new portal request:", e);
+    console.error("Could not announce new portal request:", e);
   }
 
   revalidatePath("/dashboard/my-requests");

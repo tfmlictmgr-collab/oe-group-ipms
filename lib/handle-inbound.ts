@@ -28,8 +28,7 @@ import {
   type OpenThread,
   type ConversationState,
 } from "./inbound-router";
-import { notifyRoleWithCascade } from "./role-notify";
-import { FM_PM } from "@/lib/roles";
+import { notifyTicketAudience } from "./role-notify";
 import {
   buildAcknowledgement,
   buildFollowUpAck,
@@ -469,21 +468,21 @@ export async function handleInboundMessage(opts: {
   // cascade per each recipient's own registered channels. Best-effort: a
   // notification failure must never undo the ticket or the reply already
   // promised to the reporter.
+  //
+  // 0304: same audience as the portal — whoever can open it and act on it.
   try {
-    await notifyRoleWithCascade({
+    await notifyTicketAudience({
       orgId,
-      roles: ["admin", ...FM_PM],
+      ticketId: ticket.id,
       kind: "request",
       title: isQuestion
         ? `Question from a ${channel} sender — ${shortRef(ticket.id)}`
         : `New ${ticket.urgency} request — ${shortRef(ticket.id)}`,
       body: ticket.summary ?? messageText.slice(0, 140),
       link: `/dashboard/tickets/${ticket.id}`,
-      entityType: "ticket",
-      entityId: ticket.id,
     });
   } catch (e) {
-    console.error("Could not notify admin/FM of new chat request:", e);
+    console.error("Could not announce new chat request:", e);
   }
 
   return say(
