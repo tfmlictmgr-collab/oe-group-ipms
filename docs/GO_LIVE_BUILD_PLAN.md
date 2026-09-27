@@ -1857,6 +1857,13 @@ email already reach every role.
 
 ### Stage 6 — Prove it, then open it
 - [ ] 6.1 Security pass against the production hostname — passive, **active**, load, rate limit
+      🧪 **Production is for real use only; trying things out happens on staging.**
+      Twice in two days a test record reached production and was found only by a
+      check: a test ticket (25 Sept, removed) and an OEA test tenant (26 Sept,
+      retired, because the audit trail is append-only and an account that acted
+      can't be deleted). **Baseline from 27 Sept:** 3 active users, 1 retired
+      test account, 2 accepted invitations, and 0 of everything that holds a
+      customer or money. Re-prove it on the morning the external test starts.
       🔐 **Sign-in lockout added for rc8, 26 Sept 2026 (operator's instruction,
       0303):**
       • every failed password is counted, per email, on every org and role;
