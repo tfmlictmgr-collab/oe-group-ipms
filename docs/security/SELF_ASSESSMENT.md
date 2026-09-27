@@ -376,10 +376,15 @@ that refuses unsafe targets. In short:
 | C1 | ZAP **baseline** (passive) | `https://www.tfmlportal.com`, `https://www.oeaportal.com` | safe on production. ⚠️ **The `www.` form.** The bare domain answers only a 308 redirect, so a scan of it tests the redirect and not the application (found 27 Sept) |
 | C2 | k6 journey + spike | `https://tent-ai-production.vercel.app` | read-only. ⚠️ **The brand-neutral production address, not a brand domain** (corrected 27 Sept): on `www.tfmlportal.com`, `/login` redirects to TFML's own door and `/o/oea` rightly answers 404 (B1), so the script's checks would read as failures |
 | C3 | k6 rate-limit | `https://www.tfmlportal.com` | fills only your own IP's bucket; real Telegram traffic is untouched |
-| C4 | ZAP **full** (active) | `https://oe-group-ipms-staging.vercel.app` | **staging only** — it submits forms |
+| C4 | ZAP **full** (active) | `http://localhost:3000`: the release branch, served by `npm run dev` on the **scan** world | **the scan world only.** It submits forms. Staging and dev have both sent a real remittance, so the pre-flight refuses them, correctly |
 
-`npm run use-env` must match the target before each (prod for C1–C3, staging
-for C4) — the pre-flight reads that world's database.
+`npm run use-env` must match the target before each (prod for C1–C3, **scan**
+for C4) — the pre-flight reads that world's database. For C4, migrate the scan
+world first (`npm run migrate -- --world scan`), start `npm run dev` **after**
+`use-env scan`, then run `npm run pentest:full -- http://localhost:3000`. The
+runner tells the container to reach your machine as `host.docker.internal`.
+Scanning the branch locally is what lets C4 test the release's own code before
+it is merged.
 
 ⚠️ **Only through `npm run pentest:*`, never `docker run … zap-full-scan.py`
 directly.** Found 27 Sept: a direct run skips the pre-flight and the exclusions

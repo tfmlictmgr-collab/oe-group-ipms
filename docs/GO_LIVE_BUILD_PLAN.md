@@ -1921,6 +1921,17 @@ email already reach every role.
       dispatch at once, skipping the 24-hour wait.
       Suite: `verify-request-alert-audience` (36 checks, all rolled back).
       `verify-unassigned-escalation` accepts the new refusal wording.
+      🧱 **Staging was stuck at 0213a, found at the rc8 cut, 27 Sept 2026.**
+      `0213a` (21 Sept) revoked a 7-argument `remember_conversation_state`
+      that `0285` had already replaced on dev and staging. On those worlds it
+      failed with "function does not exist", and the runner stops at the first
+      failure. So **nothing after it reached staging: 0301 and 0302 (rc7) and
+      0303 and 0304 (rc8)**, which means rc7's staging verify ran without 0301
+      and 0302. Fixed by guarding each statement on the signature existing: a
+      fresh build does exactly what production ran (325/325 rebuilt from empty),
+      and a late world skips the replaced function. The file-end guard still
+      checks every version. Lesson: after `npm run migrate`, read the **last**
+      line, not the first "Applying…".
       📌 **Order and tools: `security/README.md` §3** — ZAP baseline (passive)
       → k6 weekday → k6 spike → k6 rate-limit → ZAP full (active). Targets:
       `https://www.tfmlportal.com` and `https://oeaportal.com` — never a

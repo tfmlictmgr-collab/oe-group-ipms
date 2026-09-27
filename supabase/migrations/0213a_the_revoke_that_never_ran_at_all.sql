@@ -71,18 +71,42 @@
 -- against a live database, and it is now the fourth query in
 -- `docs/sql/stage3-production-proof.sql`.
 
-revoke execute on function sender_open_requests(uuid, text, integer)                              from public;
-revoke execute on function resolve_ticket_by_ref(uuid, text, text)                                from public;
-revoke execute on function conversation_state(uuid, text, text)                                   from public;
-revoke execute on function remember_conversation_state(uuid, text, text, uuid, text, text, integer) from public;
-
--- Re-stated, not assumed. Revoking from PUBLIC does not touch a grant held by
--- a named role, and these five are called only by the WhatsApp and Telegram
--- webhook handlers, which hold the service role.
-grant execute on function sender_open_requests(uuid, text, integer)                              to service_role;
-grant execute on function resolve_ticket_by_ref(uuid, text, text)                                to service_role;
-grant execute on function conversation_state(uuid, text, text)                                   to service_role;
-grant execute on function remember_conversation_state(uuid, text, text, uuid, text, text, integer) to service_role;
+-- ⚠️ Amended 27 Sept 2026, and only for the worlds that have NOT applied it.
+-- The original named each function by its signature outright. On a world built
+-- from these files in order that is right, and production applied it that way.
+-- But dev and staging reach this file LATE, after `0285` dropped the 7-argument
+-- `remember_conversation_state` and created an 8-argument one in its place
+-- (revoked from PUBLIC there). The bare statement then raised "function does
+-- not exist", and because the runner stops at the first failure, NOTHING after
+-- it — 0301 to 0304 — could ever reach staging. Found at the rc8 cut.
+--
+-- So each statement now runs only if its signature exists. On a fresh build
+-- every one exists and the effect is identical to what production ran; on a
+-- late world a signature that is already gone is skipped. The guard below is
+-- unchanged and still checks every version of every name, so a skip cannot
+-- hide a leak.
+do $revoke$
+declare
+  sig text;
+begin
+  foreach sig in array array[
+    'sender_open_requests(uuid, text, integer)',
+    'resolve_ticket_by_ref(uuid, text, text)',
+    'conversation_state(uuid, text, text)',
+    'remember_conversation_state(uuid, text, text, uuid, text, text, integer)'
+  ] loop
+    if to_regprocedure('public.' || sig) is null then
+      raise notice '0213a: % no longer exists here (replaced later) — skipped', sig;
+      continue;
+    end if;
+    execute format('revoke execute on function public.%s from public', sig);
+    -- Re-stated, not assumed. Revoking from PUBLIC does not touch a grant held
+    -- by a named role, and these are called only by the WhatsApp and Telegram
+    -- webhook handlers, which hold the service role.
+    execute format('grant execute on function public.%s to service_role', sig);
+  end loop;
+end;
+$revoke$;
 
 -- The same guard shape 0204 introduced and 0214 generalised. It must hold on
 -- every world this file reaches, including the two where it runs late and

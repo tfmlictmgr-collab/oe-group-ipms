@@ -95,17 +95,18 @@ The active scan signs in as a **deliberately low-privilege** account. Scanning
 as an administrator answers the wrong question (*"can an admin do admin
 things?"*) while doing maximum damage.
 
-Set them **in the shell you scan from**, for that session only. `run-zap.mjs`
-reads them from the environment, not from `.env.local` (corrected 27 Sept 2026;
-this section used to say `.env.local`, which the runner never read). Type the
-password at the prompt so it is never echoed or kept in history:
+Add to `.env.local` — **never commit these**:
 
 ```
-export ZAP_USER=tfml.tenant@oegroup.test        # staging: a low-privilege fixture
-read -rs -p "ZAP password: " ZAP_PASSWORD && export ZAP_PASSWORD && echo
+ZAP_USER=uat.tenant@<your-domain>
+ZAP_PASSWORD=<the UAT tenant password>
 ```
 
-Afterwards: `unset ZAP_USER ZAP_PASSWORD; history -c`.
+`run-zap.mjs` reads them from there (since 27 Sept 2026; before that only the
+pre-flight did, and the scan refused for missing credentials). It forwards
+those two to the container and nothing else from the file. A value exported in
+the shell takes precedence, if you would rather not write the password down:
+`read -rs -p "ZAP password: " ZAP_PASSWORD && export ZAP_PASSWORD`.
 
 ⚠️ On **production**, create a throwaway tenant for the scan and **deactivate it
 afterwards**. Do not reuse a real person's account: the scan will submit forms

@@ -7,12 +7,21 @@
 //
 // Usage:  npm run pentest:baseline -- https://target
 //         npm run pentest:full     -- https://target
+//         npm run pentest:full     -- http://localhost:3000   (app served on this machine)
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
+import { config } from "dotenv";
 
 const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+
+// ZAP_USER / ZAP_PASSWORD live in .env.local (security/README.md §2). The
+// pre-flight loads that file in ITS OWN process, which never reached this one —
+// so the full scan refused for missing credentials unless they had also been
+// exported into the shell by hand. Only those two are forwarded to the
+// container below; nothing else from .env.local leaves this process.
+config({ path: path.join(rootDir, ".env.local"), quiet: true });
 const [, , mode, ...rest] = process.argv;
 const target = rest.find((a) => /^https?:\/\//.test(a));
 
@@ -50,9 +59,29 @@ if (docker.status !== 0) {
 const reports = path.join(rootDir, "security", "reports");
 fs.mkdirSync(reports, { recursive: true });
 
+// A target on THIS machine has to be renamed for the container. Inside it,
+// `localhost` is the container itself, so ZAP would scan nothing and report a
+// clean bill of health for an app it never reached. `host.docker.internal` is
+// the host as seen from a container (Docker Desktop provides it; `--add-host`
+// makes it exist on Linux too).
+//
+// ⚠ The pre-flight above was deliberately given the ORIGINAL target. Its
+// plain-HTTP rule admits `localhost` and nothing else, and rewriting the URL
+// before the gate would mean the gate judged a string the operator never typed.
+// Only the container sees the alias.
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+const targetUrl = new URL(target);
+const isLocal = LOCAL_HOSTS.has(targetUrl.hostname);
+let scanTarget = target.replace(/\/+$/, "");
+if (isLocal) {
+  targetUrl.hostname = "host.docker.internal";
+  scanTarget = targetUrl.toString().replace(/\/+$/, "");
+  console.log(`\nLocal target: the container will reach ${target} as ${scanTarget}\n`);
+}
+
 const plan = `automation-${mode}.yaml`;
 const env = [
-  "-e", `ZAP_TARGET=${target}`,
+  "-e", `ZAP_TARGET=${scanTarget}`,
   ...(process.env.ZAP_USER ? ["-e", `ZAP_USER=${process.env.ZAP_USER}`] : []),
   ...(process.env.ZAP_PASSWORD ? ["-e", `ZAP_PASSWORD=${process.env.ZAP_PASSWORD}`] : []),
 ];
@@ -69,6 +98,7 @@ if (mode === "full" && !process.env.ZAP_USER) {
 console.log(`\nRunning ZAP ${mode} scan against ${target} …\n`);
 const run = spawnSync("docker", [
   "run", "--rm",
+  ...(isLocal ? ["--add-host", "host.docker.internal:host-gateway"] : []),
   "-v", `${path.join(rootDir, "security", "zap")}:/zap/wrk/plans:ro`,
   "-v", `${reports}:/zap/wrk/reports:rw`,
   ...env,

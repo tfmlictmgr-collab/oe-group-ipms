@@ -5,6 +5,7 @@
 //   node scripts/use-env.mjs dev       → the Phase-1 dev Supabase
 //   node scripts/use-env.mjs staging   → the production-preview Supabase (rehearsal, no real data)
 //   node scripts/use-env.mjs prod      → the real production Supabase (once cutover has happened)
+//   node scripts/use-env.mjs scan      → a THROWAWAY Supabase for the ZAP active scan only
 //   node scripts/use-env.mjs           → show which world is active
 //
 // Backing files (all gitignored): .env.demo.local, .env.dev.local,
@@ -37,6 +38,12 @@ const HOSTS = {
   // Recorded 21 Sept 2026 at Stage 3.1 — `TENTai-production`, eu-west-1, the
   // region 1.7 fixed and the cross-border basis is filed against.
   prod: "civwriqvghvyqtfrzftu",
+
+  // Declared, deliberately without a ref: the scan world is created for one
+  // active scan and deleted after it, so a recorded ref would be stale by
+  // design (see WORLDS below). `null` keeps it visible to the checks that
+  // read this table — verify-bootstrap refused a world it could not see.
+  scan: null,
 };
 
 // Where each world's secrets live. Read rather than assumed, so `active()` can
@@ -54,7 +61,15 @@ const refIn = (file) => {
 
 // Worlds this script knows how to switch to. Separate from HOSTS so a world
 // can be switched to before its ref is known for display purposes.
-const WORLDS = ["demo", "dev", "staging", "prod"];
+//
+// `scan` is the disposable world for the ZAP active scan (security/README.md
+// §3 step 8). Dev and staging have both sent a real remittance, so the
+// pre-flight refuses them — correctly — and an active scan needs a database
+// that has never moved money. Its ref is deliberately NOT recorded in HOSTS: the project
+// is created for one scan and deleted after it, so a recorded ref would be
+// stale by design. The clash guard below still refuses a `.env.scan.local`
+// that names any other world's project, which is the mistake that matters.
+const WORLDS = ["demo", "dev", "staging", "prod", "scan"];
 
 // ⚠️ The value may be QUOTED — `NEXT_PUBLIC_SUPABASE_URL="https://…"` is valid
 // dotenv and is what `vercel env pull` writes. The original pattern required the
