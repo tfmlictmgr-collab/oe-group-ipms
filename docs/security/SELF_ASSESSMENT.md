@@ -324,8 +324,8 @@ that refuses unsafe targets. In short:
 | # | Tool | Target | Notes |
 |---|---|---|---|
 | C1 | ZAP **baseline** (passive) | `https://www.tfmlportal.com`, `https://www.oeaportal.com` | safe on production. ⚠️ **The `www.` form.** The bare domain answers only a 308 redirect, so a scan of it tests the redirect and not the application (found 27 Sept) |
-| C2 | k6 journey + spike | `https://www.tfmlportal.com` | read-only |
-| C3 | k6 rate-limit | `https://www.tfmlportal.com` | fills only your own IP's bucket |
+| C2 | k6 journey + spike | `https://tent-ai-production.vercel.app` | read-only. ⚠️ **The brand-neutral production address, not a brand domain** (corrected 27 Sept): on `www.tfmlportal.com`, `/login` redirects to TFML's own door and `/o/oea` rightly answers 404 (B1), so the script's checks would read as failures |
+| C3 | k6 rate-limit | `https://www.tfmlportal.com` | fills only your own IP's bucket; real Telegram traffic is untouched |
 | C4 | ZAP **full** (active) | `https://oe-group-ipms-staging.vercel.app` | **staging only** — it submits forms |
 
 `npm run use-env` must match the target before each (prod for C1–C3, staging
