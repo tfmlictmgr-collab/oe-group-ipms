@@ -96,8 +96,22 @@ if (mode === "full" && !process.env.ZAP_USER) {
 }
 
 console.log(`\nRunning ZAP ${mode} scan against ${target} …\n`);
+
+// ⚠️ Two things learned from the first C4 attempts, 27 Sept 2026:
+//
+//  • `--shm-size`. The browser jobs (sign-in, spiderAjax) run Firefox inside
+//    the container, and Docker's default 64 MB of shared memory is not enough
+//    for it: the Ajax spider "found 0 URLs" in 3 seconds and the active scan,
+//    which needs the browser-made session, then stopped with exit 2 and no
+//    report.
+//  • The container is NAMED, not `--rm`. ZAP writes the reason a job failed to
+//    its own log inside the container, never to stdout, so a `--rm` run that
+//    fails leaves nothing to read. The log is copied into security/reports/
+//    (gitignored) and the container removed afterwards, whatever happened.
+const name = `zap-${mode}-${Date.now()}`;
 const run = spawnSync("docker", [
-  "run", "--rm",
+  "run", "--name", name,
+  "--shm-size", "2g",
   ...(isLocal ? ["--add-host", "host.docker.internal:host-gateway"] : []),
   "-v", `${path.join(rootDir, "security", "zap")}:/zap/wrk/plans:ro`,
   "-v", `${reports}:/zap/wrk/reports:rw`,
@@ -106,10 +120,16 @@ const run = spawnSync("docker", [
   "zap.sh", "-cmd", "-autorun", `/zap/wrk/plans/${plan}`,
 ], { stdio: "inherit" });
 
+const logFile = path.join(reports, `${name}.log`);
+const copied = spawnSync("docker", ["cp", `${name}:/home/zap/.ZAP/zap.log`, logFile], { stdio: "ignore" });
+spawnSync("docker", ["rm", "-f", name], { stdio: "ignore" });
+if (copied.status === 0) console.log(`\nZAP's own log: security/reports/${name}.log`);
+
 console.log(
   run.status === 0
     ? `\nDone. Report in security/reports/ — triage per security/README.md §4.\n`
     : `\nZAP exited ${run.status}. A non-zero exit can mean findings were raised, ` +
-      `not that the scan failed — read the report before concluding either.\n`
+      `not that the scan failed — read the report before concluding either. ` +
+      `If there is no report, the reason is in the log above.\n`
 );
 process.exit(run.status ?? 1);
