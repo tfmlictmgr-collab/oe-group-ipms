@@ -91,5 +91,16 @@ secret, stop that section, screenshot it, and report it before continuing.
 |---|---|---|---|
 | Direct `zap-full-scan.py` (not via `npm run pentest:*`) | `https://oeaportal.com` (production, **active**) | 140 PASS, 1 WARN, 0 FAIL, but **void** | Outside the method: no pre-flight, no exclusions, and active on production. Only 8 URLs were reached, and the bare domain answers a 308 redirect, so it mostly tested the redirect. No finding counts for or against. Ran with `--env-file .env.local`: don't repeat that |
 | ZAP 40025 *Proxy Disclosure* (WARN, ×4) | the 308 redirects on `oeaportal.com` | **Accepted, informational** | Vercel's edge answering for the redirect. Not the application; nothing to fix |
-| C1 baseline | `https://oeaportal.com` | **re-run needed** | The bare domain again (6 URLs). Re-run against `https://www.oeaportal.com` and `https://www.tfmlportal.com`, then send the WARN/FAIL lines from the reports |
+| C1 baseline | `https://www.oeaportal.com` (the redirect was followed: 152 endpoints) | **0 High · 3 Medium · 2 Low** | Triaged below, 27 Sept. One Low is fixed for rc8 and the rest are accepted with reasons. **Still owed: the same run on `https://www.tfmlportal.com`** |
+
+**C1 triage (www.oeaportal.com):**
+
+| ZAP alert | Risk | Decision | Why |
+|---|---|---|---|
+| CSP header not set | Medium | **Known, tracked (plan 7.3)** | The CSP ships as *report-only* on purpose, and promoting it to enforcing is 7.3, after UAT's console is clean. ZAP lists the report-only header separately (Informational) |
+| Cross-domain misconfiguration (`Access-Control-Allow-Origin: *`) | Medium | **Accepted** | On `/monitoring`, the Sentry tunnel (`tunnelRoute`), which accepts error reports and returns nothing. None of our code sets the header. `*` also forbids credentials, so no signed-in content can be read cross-origin |
+| Sub-resource integrity missing | Medium | **False positive** | The evidence is a `<link rel="preload" as="image">` of OEA's logo. SRI applies to scripts and styles, not images |
+| `X-Powered-By: Next.js` | Low | **Fixed for rc8** | `poweredByHeader: false` in `next.config.mjs` |
+| Big redirect detected | Low | **Accepted** | The `/` → `/o/oea` redirect body is Next's own six-character link. Nothing sensitive |
+| "Credit card in URL" | Info | **False positive** | `/monitoring?o=…&p=…` carries Sentry's organisation and project IDs |
 | C4 full | `http://localhost:3000` | **did not run** | ZAP's container stopped in the AJAX spider, before the active scan, so nothing was attacked. **Finding C-PF (Medium, tooling):** the pre-flight cleared it while its environment loaded nothing (`injected env (0)`). Its checks read a failed query as an empty database. **Fixed:** it now names the database, refuses production, and stops on any unreadable query |

@@ -83,6 +83,10 @@ const cspReportOnly = [
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Found by the self-assessment's ZAP baseline (27 Sept 2026): every response
+  // carried `X-Powered-By: Next.js`, naming the framework to anyone choosing
+  // which exploits to try. Nothing needs it.
+  poweredByHeader: false,
   experimental: {
     // Required in Next 14 so instrumentation.ts runs (loads Sentry per runtime).
     instrumentationHook: true,
