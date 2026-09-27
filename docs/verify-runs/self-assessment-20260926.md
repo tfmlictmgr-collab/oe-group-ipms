@@ -117,7 +117,9 @@ secret, stop that section, screenshot it, and report it before continuing.
 
 **C3, k6 rate-limit (27 Sept), `https://www.tfmlportal.com`: PASS.** 1,180 unsigned posts to `/api/webhooks/telegram` at 40/s for 30 s. **207** refused as forged (403) while under the limit, then **973** dropped by the per-IP limiter (threshold count > 0 ✓); **0** server errors; checks 1,180/1,180. 207 admitted to the signature check in 30 s is a little under the README's ~300 rule of thumb, which fits a sliding-window limit of about 100 per 10 s: the configured limit, counted strictly.
 
-**Part C status:** C1 ✅ · C2a ✅ · C2b ✅ · C3 ✅ · C-PF fixed · **C4 (active scan, staging) at the rc8 run.**
+| C4 full, rc8 | `http://localhost:3000`: the rc8 branch on the **scan** world (`yoocayybhecqmrwowtkg`), signed in as a low-privilege tenant | **PASS: 0 High**, 2 Medium, 2 Low, 5 Informational (27 Sept, ZAP 2.17.0, `zap-full-2026-09-27.html`, not committed) | Spider 39 URLs, Ajax spider 39, active scan 35 min 46 s. **One sign-in held for the whole scan** (1 authentication in ZAP's log). It took four runs, each fixed in `run-zap.mjs`: (1) Firefox starved of shared memory, so the Ajax spider found 0 pages; (2) ZAP's own log was lost with `--rm`; (3) ZAP does not substitute `${ZAP_TARGET}` in the sign-in check's poll URL, so every sign-in "failed"; (4) a retired rule ID (42) made a completed scan exit 2. The 2 Medium are triaged below |
+
+**Part C status:** C1 ✅ · C2a ✅ · C2b ✅ · C3 ✅ · C-PF fixed · **C4 ✅ 0 High (Mediums being triaged).**
 
 ---
 

@@ -1889,6 +1889,9 @@ email already reach every role.
       per-visitor limit is applied in the app (30 per 10 minutes per IP).
       (2) **Create a second operator admin, with MFA**, so a locked operator
       admin can be unlocked without the script.
+      ✅ **Both done by the operator, 27 Sept 2026**: the sign-in rate limit
+      is raised on production, and a second TENTai operator admin exists
+      with MFA.
       ⚠️ **Finding A9.4 (High, B1), 26 Sept 2026, Part A in progress:** OEA's
       public vendor-application page opened on `www.tfmlportal.com` when the host
       in its link was swapped, showing OEA's name and form under TFML's address.
