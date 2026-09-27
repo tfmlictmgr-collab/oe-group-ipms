@@ -161,10 +161,10 @@ secret, stop that section, screenshot it, and report it before continuing.
 | B3.4 | .svg → refused (T and R) | PASS | 27 Sept, staging rc7; operator-reported, both forms |
 | B3.5 | normal PDF/JPG → accepted; unreachable by the other org per B1.11 (T and R) | PASS | 27 Sept, staging rc7; operator-reported, both forms |
 | B4.1 | script text shown literally everywhere, no pop-up | PASS | 27 Sept, staging rc7: tenant list, PM board and bell show the AI title (no script run); `tfml.admin` sees the Original message as literal text; no pop-up anywhere |
-| B5.1 | 10 wrong passwords → identical refusal each time (rc7) | | |
-| B5.2 | 5 forgot-password requests → "Check your email" every time | | |
-| B6.1 | deactivate in SQL → open session reaches nothing | | |
-| B6.2 | reactivate → account works again | | |
+| B5.1 | 10 wrong passwords → identical refusal each time (rc7) | PASS | 27 Sept, staging rc7; operator-reported |
+| B5.2 | 5 forgot-password requests → "Check your email" every time | PASS | 27 Sept, staging rc7; operator-reported |
+| B6.1 | deactivate in SQL → open session reaches nothing | PASS | 27 Sept, staging rc7; operator-reported |
+| B6.2 | reactivate → account works again | PASS | 27 Sept, staging rc7; operator-reported |
 
 **Found during B4 (27 Sept): B4-F1, Medium, role reach.** Every new request was
 announced to every admin, FM and PM in the organisation. The test request came
