@@ -1932,6 +1932,11 @@ email already reach every role.
       and a late world skips the replaced function. The file-end guard still
       checks every version. Lesson: after `npm run migrate`, read the **last**
       line, not the first "Applying…".
+      Knock-on, found by the rc8 verify: with 0302 finally on staging,
+      `verify-function-grants` flagged four anon grants. 0302 made them on
+      purpose (the Realtime fix of 25 Sept) but from inside a loop the check
+      cannot read, so it has been failing on production since then too.
+      `0305` restates them as plain statements. It is a no-op on every database.
       📌 **Order and tools: `security/README.md` §3** — ZAP baseline (passive)
       → k6 weekday → k6 spike → k6 rate-limit → ZAP full (active). Targets:
       `https://www.tfmlportal.com` and `https://oeaportal.com` — never a
