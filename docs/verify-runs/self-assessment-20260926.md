@@ -91,7 +91,7 @@ secret, stop that section, screenshot it, and report it before continuing.
 |---|---|---|---|
 | Direct `zap-full-scan.py` (not via `npm run pentest:*`) | `https://oeaportal.com` (production, **active**) | 140 PASS, 1 WARN, 0 FAIL, but **void** | Outside the method: no pre-flight, no exclusions, and active on production. Only 8 URLs were reached, and the bare domain answers a 308 redirect, so it mostly tested the redirect. No finding counts for or against. Ran with `--env-file .env.local`: don't repeat that |
 | ZAP 40025 *Proxy Disclosure* (WARN, ×4) | the 308 redirects on `oeaportal.com` | **Accepted, informational** | Vercel's edge answering for the redirect. Not the application; nothing to fix |
-| C1 baseline | `https://www.oeaportal.com` (the redirect was followed: 152 endpoints) | **0 High · 3 Medium · 2 Low** | Triaged below, 27 Sept. One Low is fixed for rc8 and the rest are accepted with reasons. **Still owed: the same run on `https://www.tfmlportal.com`** |
+| C1 baseline | `https://www.oeaportal.com` (the redirect was followed: 152 endpoints) | **0 High · 3 Medium · 2 Low** | Triaged below, 27 Sept. One Low is fixed for rc8 and the rest are accepted with reasons. Same triage for `https://www.tfmlportal.com` below |
 
 **C1 triage (www.oeaportal.com):**
 
@@ -104,3 +104,7 @@ secret, stop that section, screenshot it, and report it before continuing.
 | Big redirect detected | Low | **Accepted** | The `/` → `/o/oea` redirect body is Next's own six-character link. Nothing sensitive |
 | "Credit card in URL" | Info | **False positive** | `/monitoring?o=…&p=…` carries Sentry's organisation and project IDs |
 | C4 full | `http://localhost:3000` | **did not run** | ZAP's container stopped in the AJAX spider, before the active scan, so nothing was attacked. **Finding C-PF (Medium, tooling):** the pre-flight cleared it while its environment loaded nothing (`injected env (0)`). Its checks read a failed query as an empty database. **Fixed:** it now names the database, refuses production, and stops on any unreadable query |
+
+**C1 triage (www.tfmlportal.com, 27 Sept, 34 + 365 URLs):** **0 High · 3 Medium · 2 Low**, the same alerts as OEA with the same decisions. One addition: here the wildcard `Access-Control-Allow-Origin: *` is also listed on the pages (`/`, `/login`, `/o/tfml`). None of our code sets it. It is Vercel's header on responses it serves from cache, and a wildcard forbids credentials, so a third-party site can read only what an anonymous visitor sees. **Accepted (Low)**, and flagged for the external tester.
+
+**Emptiness re-check, 27 Sept:** users 3 → 4, invitations 2 → 4. OEA's administrator invited a tenant on production on 26 Sept: a gmail.com address (revoked), then an @oegroup.test fixture address (accepted, account created). No property, unit or lease is linked. A **test account on production** (Medium, process): removed with `docs/sql/remove-test-tenant-20260926.sql`.
