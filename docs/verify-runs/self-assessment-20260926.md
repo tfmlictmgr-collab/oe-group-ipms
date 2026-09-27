@@ -118,3 +118,50 @@ secret, stop that section, screenshot it, and report it before continuing.
 **C3, k6 rate-limit (27 Sept), `https://www.tfmlportal.com`: PASS.** 1,180 unsigned posts to `/api/webhooks/telegram` at 40/s for 30 s. **207** refused as forged (403) while under the limit, then **973** dropped by the per-IP limiter (threshold count > 0 ✓); **0** server errors; checks 1,180/1,180. 207 admitted to the signature check in 30 s is a little under the README's ~300 rule of thumb, which fits a sliding-window limit of about 100 per 10 s: the configured limit, counted strictly.
 
 **Part C status:** C1 ✅ · C2a ✅ · C2b ✅ · C3 ✅ · C-PF fixed · **C4 (active scan, staging) at the rc8 run.**
+
+---
+
+# Part B: staging, hands-on
+
+**Target:** `https://oe-group-ipms-staging.vercel.app` (serving rc7). Fixture accounts only.
+**Run by:** _name_, _date_.
+
+⚠️ Stop rule (§0.3): any other organisation's data in B1, or a role doing another's job in B2, means stop that section, screenshot, and report.
+
+| Test | What | Result | Evidence |
+|---|---|---|---|
+| B1.1 | OEA request opened by TFML → not found | | |
+| B1.2 | OEA property opened by TFML → not found | | |
+| B1.3 | OEA lease opened by TFML → not found | | |
+| B1.4 | OEA vendor opened by TFML → not found | | |
+| B1.5 | OEA person opened by TFML → not found | | |
+| B1.6 | OEA payment opened by TFML → not found | | |
+| B1.7 | OEA remittance opened by TFML → not found | | |
+| B1.8 | OEA service-charge budget opened by TFML → not found | | |
+| B1.9 | OEA statement opened by TFML → not found | | |
+| B1.10 | OEA receipt opened by TFML → not found | | |
+| B1.11 | OEA uploaded file (also signed out) opened by TFML → not found | | |
+| B1.1r | TFML request opened by OEA → not found | | |
+| B1.2r | TFML property opened by OEA → not found | | |
+| B1.3r | TFML lease opened by OEA → not found | | |
+| B2.1 | tenant → /dashboard/ledger refused | | |
+| B2.2 | tenant → /dashboard/people refused | | |
+| B2.3 | tenant → another tenant's request not found | | |
+| B2.4 | vendor → /dashboard/ledger refused | | |
+| B2.5 | vendor → /dashboard/vendors refused | | |
+| B2.6 | viewer → no Save/Approve/Delete, or refused | | |
+| B2.7 | pm → /dashboard/settings refused | | |
+| B2.8 | pm → export?type=staff → 403 | | |
+| B2.9 | finance → no approve option on its own payment | | |
+| B2.10 | approver above band → refused (N/A while bands off) | | |
+| B2.11 | non-operator → /orgs → operators-only page | | |
+| B3.1 | .html renamed .pdf → refused | | |
+| B3.2 | .exe / .js → refused | | |
+| B3.3 | over the size limit → refused, limit named | | |
+| B3.4 | .svg → refused | | |
+| B3.5 | normal PDF/JPG → accepted; unreachable by the other org | | |
+| B4.1 | script text shown literally everywhere, no pop-up | | |
+| B5.1 | 10 wrong passwords → identical refusal each time (rc7) | | |
+| B5.2 | 5 forgot-password requests → "Check your email" every time | | |
+| B6.1 | deactivate in SQL → open session reaches nothing | | |
+| B6.2 | reactivate → account works again | | |

@@ -227,7 +227,10 @@ Ctrl+Shift+F (search all files) and search for each:
 ## Part B — Staging, hands-on
 
 Address: `https://oe-group-ipms-staging.vercel.app`. Sign in at `/o/tfml` or
-`/o/oea` with the fixture accounts. Two browsers throughout: **Browser 1** and
+`/o/oea` with the fixture accounts. Their shared password is `PASSWORD` in
+`scripts/seed-brand-roles.mjs`; never paste it into chat. ⚠️ **Don't run
+`npm run verify` while Part B is in progress:** B6 deactivates a fixture account,
+and the suites check that fixtures are unchanged. Two browsers throughout: **Browser 1** and
 **Browser 2**.
 
 ### B1. One organisation cannot reach the other's records — the most important section
@@ -270,8 +273,8 @@ redirect to the dashboard, or a page with no data — never the content.
 | B2.6 | `tfml.viewer@` | any **Save / Approve / Delete** button | none present, or refused when pressed |
 | B2.7 | `tfml.pm@` | `/dashboard/settings` | refused (administrators only) |
 | B2.8 | `tfml.pm@` | `/api/records/export?type=staff` | `403` |
-| B2.9 | `tfml.finance@` | approve a payment **it raised itself** | refused — the approval ladder forbids approving your own |
-| B2.10 | `tfml.approver@` | approve a payment above its band (if bands are on) | refused |
+| B2.9 | `tfml.finance@` | approve a payment **it raised itself** | no approve option at all. The Payment Officer raises and sends but is not on the approval chain; the database also refuses anyone approving what they raised |
+| B2.10 | `tfml.approver@` | approve a payment above its band (if bands are on) | refused. **N/A while bands are off**, the default since 5 Sept (0261); record N/A |
 | B2.11 | any non-operator | `/orgs` | *"This page is for TENTai operators"* |
 
 ### B3. File uploads refuse what they should
@@ -304,7 +307,7 @@ save exactly:
 
 | # | Do | Expect |
 |---|---|---|
-| B5.1 | 10 wrong passwords in a row for `tfml.viewer@` | "Too many attempts. Wait a minute and try again." at some point |
+| B5.1 | 10 wrong passwords in a row for `tfml.viewer@` | **On rc7:** all 10 get the **identical** refusal, and nothing errors or reveals anything (Supabase's own per-IP limit won't trip at 10, so no "too many attempts" is expected). **From rc8** the 5-attempt lockout applies; it is tested by A3.8 and `verify-sign-in-lockout`, never on a fixture account, because a locked fixture breaks the suites |
 | B5.2 | Forgot password for the same address 5 times | still "Check your email" every time (it silently stops sending after 3) |
 
 ### B6. Sessions end when they should
