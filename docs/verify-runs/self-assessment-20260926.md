@@ -160,7 +160,7 @@ secret, stop that section, screenshot it, and report it before continuing.
 | B3.3 | over the size limit → refused, limit named (T 10 MB, R 2 MB) | PASS | 27 Sept, staging rc7; operator-reported, both forms |
 | B3.4 | .svg → refused (T and R) | PASS | 27 Sept, staging rc7; operator-reported, both forms |
 | B3.5 | normal PDF/JPG → accepted; unreachable by the other org per B1.11 (T and R) | PASS | 27 Sept, staging rc7; operator-reported, both forms |
-| B4.1 | script text shown literally everywhere, no pop-up | | |
+| B4.1 | script text shown literally everywhere, no pop-up | PASS | 27 Sept, staging rc7: tenant list, PM board and bell show the AI title (no script run); `tfml.admin` sees the Original message as literal text; no pop-up anywhere |
 | B5.1 | 10 wrong passwords → identical refusal each time (rc7) | | |
 | B5.2 | 5 forgot-password requests → "Check your email" every time | | |
 | B6.1 | deactivate in SQL → open session reaches nothing | | |
