@@ -168,17 +168,20 @@ try {
     // 23 hours: the request is stale-ish and the rescue must still refuse. An
     // off-by-one here is the difference between a safety valve and 0178 being
     // switched off for administrators.
+    // Since 0304 the administrator's own rule (act only on work left 24 hours)
+    // refuses first, in its own words; 0178's refusal is behind it. Either is
+    // the control holding.
     const t = await mkTicket(23);
     made.push(t);
     const r = await attemptDispatch(admin, t);
-    !r.ok && /has not been reviewed/i.test(r.error ?? "")
+    !r.ok && /has not been reviewed|is with its manager/i.test(r.error ?? "")
       ? ok("at 23 hours the administrator is still refused (0178 holds)")
       : bad("AN ADMINISTRATOR DISPATCHED A REQUEST LESS THAN 24 HOURS OLD");
 
     const t2 = await mkTicket(1);
     made.push(t2);
     const r2 = await attemptDispatch(admin, t2);
-    !r2.ok && /has not been reviewed/i.test(r2.error ?? "")
+    !r2.ok && /has not been reviewed|is with its manager/i.test(r2.error ?? "")
       ? ok("and at 1 hour")
       : bad("AN ADMINISTRATOR DISPATCHED A ONE-HOUR-OLD REQUEST");
   }

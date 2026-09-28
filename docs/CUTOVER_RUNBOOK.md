@@ -97,6 +97,37 @@ entirely correct.
 
 ---
 
+### If someone is locked out (from rc8)
+
+Five wrong passwords lock a sign-in (0303).
+
+- **An ordinary member:** an admin of **their own organisation** goes to
+  **People**, finds the member (marked **Locked**), and chooses **Manage →
+  Unlock and send reactivation link**. The link goes to the member's registered
+  email and lasts 24 hours. The member sets a new password with it.
+- **The operator admin, with no second operator admin to unlock them
+  (break-glass):**
+  ```
+  node scripts/use-env.mjs prod          # read back the ref
+  node scripts/unlock-sign-in.mjs --confirm civwriqvghvyqtfrzftu --email <their address>
+  ```
+  The script prints a one-time link. Give it to the person over a channel you
+  trust. The audit trail records it as `operator.sign_in_unlocked_break_glass`.
+
+### Who hears about a new request (from rc8)
+
+0304. A new request alerts only the people who can open it and act on it: its
+property's manager, or, when it has no property, the regional manager. An
+administrator sees every request but can act on one only once it has gone
+**24 hours with nobody assigned**, or **24 hours with nobody acting on it**.
+Until then the request page says from when. The hourly job
+(`/api/jobs/escalate-unassigned`) tells the administrators when either point is
+reached.
+
+- **"No manager covers it" in an admin's bell:** nobody operational can open
+  that request. Put a manager on the property in **Properties**, or appoint a
+  regional manager. After 24 hours the admin can dispatch it themselves.
+
 ## Part 2 — Rebuild production from empty
 
 The order that worked, 21–25 Sept 2026. Plan references are in brackets.

@@ -10,6 +10,8 @@ import { getBrandTheme } from "@/lib/brands";
 export type AccountState =
   | "active"
   | "deactivated"
+  /** Five failed passwords locked it (0303); an administrator unlocks it. */
+  | "locked"
   | "unknown"
   | "anonymous"
   | "unavailable";

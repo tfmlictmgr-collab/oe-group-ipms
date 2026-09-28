@@ -2,7 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { secretMatches } from "@/lib/webhook-security";
 
-// Telling the administrators about requests nobody has picked up.
+// Telling the administrators about requests nobody has picked up — and,
+// since 0304, about requests picked up and then left for 24 hours.
 //
 // Board direction, 28 Aug 2026 (decision 23): the administrator assigns job
 // requests still unassigned 24 hours after they were raised — whoever raised
@@ -61,5 +62,18 @@ async function run(req: NextRequest) {
     console.log(`unassigned escalation: flagged ${escalated} request(s) to administrators`);
   }
 
-  return NextResponse.json({ ok: true, escalated });
+  // 0304. Work that WAS picked up and then left: 24 hours with nobody on the
+  // desk acting on it. Same shape — told once per idle spell, and the
+  // administrator's authority to act comes from the row, not from this run.
+  const { data: idleData, error: idleError } = await supabaseAdmin.rpc("escalate_idle_requests");
+  if (idleError) {
+    console.error("idle escalation failed:", idleError.message);
+    return NextResponse.json({ ok: false, escalated, error: idleError.message }, { status: 500 });
+  }
+  const idle = Number(idleData ?? 0);
+  if (idle > 0) {
+    console.log(`idle escalation: flagged ${idle} request(s) to administrators`);
+  }
+
+  return NextResponse.json({ ok: true, escalated, idle });
 }

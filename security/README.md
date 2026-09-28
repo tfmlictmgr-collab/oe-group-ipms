@@ -102,6 +102,12 @@ ZAP_USER=uat.tenant@<your-domain>
 ZAP_PASSWORD=<the UAT tenant password>
 ```
 
+`run-zap.mjs` reads them from there (since 27 Sept 2026; before that only the
+pre-flight did, and the scan refused for missing credentials). It forwards
+those two to the container and nothing else from the file. A value exported in
+the shell takes precedence, if you would rather not write the password down:
+`read -rs -p "ZAP password: " ZAP_PASSWORD && export ZAP_PASSWORD`.
+
 ⚠️ On **production**, create a throwaway tenant for the scan and **deactivate it
 afterwards**. Do not reuse a real person's account: the scan will submit forms
 as them, and their name ends up on the audit trail against machine-generated

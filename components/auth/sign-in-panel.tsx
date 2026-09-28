@@ -10,6 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TurnstileGate, TURNSTILE_SITE_KEY, type TurnstileGateHandle } from "@/components/auth/turnstile-gate";
+import { passwordSignIn } from "@/lib/password-sign-in";
+import { REFUSED, signInRefusal } from "@/lib/sign-in-lock";
 
 export type SignInBrand = {
   /** What the portal calls itself — "OEA Portal", "TFML Portal". */
@@ -50,29 +52,8 @@ export type SignInBrand = {
  * client's door would have learned their victim is a customer here, and that two
  * portals share a system. Both are things B1 exists to keep private.
  */
-const REFUSED = "That email and password don't match. Check both and try again.";
-
-function signInMessage(raw: string): string {
-  const m = raw.toLowerCase();
-  if (m.includes("invalid login") || m.includes("invalid credentials")) {
-    return REFUSED;
-  }
-  if (m.includes("email not confirmed")) {
-    return "This account hasn't been activated yet. Use the link in your invitation email.";
-  }
-  if (m.includes("rate limit") || m.includes("too many")) {
-    return "Too many attempts. Wait a minute and try again.";
-  }
-  // Supabase's CAPTCHA refusal (Auth → Attack Protection). Says nothing about
-  // the account, so it cannot be used to probe which addresses exist.
-  if (m.includes("captcha")) {
-    return "The security check didn't go through. Wait for the tick beside \"Sign in\", then try again.";
-  }
-  if (m.includes("network") || m.includes("fetch")) {
-    return "Couldn't reach the server. Check your connection and try again.";
-  }
-  return "Something went wrong signing you in. Try again, and tell your administrator if it keeps happening.";
-}
+// REFUSED and every other refusal now live in lib/sign-in-lock (0303), beside
+// the lock's own messages, so the wording of a wrong password stays one string.
 
 const DEFAULT_POINTS = [
   { icon: Building2, text: "Request intake from WhatsApp, Telegram and the portal" },
@@ -205,27 +186,27 @@ export default function SignInPanel({
       return;
     }
 
-    const supabase = createClient();
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-      options: captchaToken ? { captchaToken } : undefined,
-    });
+    // The password is checked on the SERVER (0303), which counts failures,
+    // enforces the growing wait and the lock, and sets the session cookie.
+    // Everything after — the second factor, the organisation check — is
+    // unchanged and runs here, on the session that cookie carries.
+    let result;
+    try {
+      result = await passwordSignIn({ email, password, captchaToken });
+    } catch {
+      result = { ok: false as const, reason: "network" as const };
+    }
     // A Turnstile token is single-use, spent or not — mint a fresh one for any
     // retry (a wrong password, or coming back to this step after MFA).
     turnstile.current?.reset();
 
-    if (error) {
-      setError(signInMessage(error.message));
-      setLoading(false);
-      return;
-    }
-    if (!data.user) {
-      setError("Something went wrong signing you in. Try again.");
+    if (!result.ok) {
+      setError(signInRefusal(result));
       setLoading(false);
       return;
     }
 
+    const supabase = createClient();
     const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
     if (aal && aal.currentLevel === "aal1" && aal.nextLevel === "aal2") {
       // Enrolled in two-factor auth: the session exists but is not yet
@@ -235,7 +216,7 @@ export default function SignInPanel({
       return;
     }
 
-    await completeSignIn(data.user.id);
+    await completeSignIn(result.userId);
   }
 
   async function handleMfaSubmit(e: React.FormEvent) {

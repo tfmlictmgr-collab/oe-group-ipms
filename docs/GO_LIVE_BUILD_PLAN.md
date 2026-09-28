@@ -1559,7 +1559,9 @@ one-line reason rather than deleting it silently.
       not measured on the day are marked **est.**; the next run replaces them.
       Recorded as accepted, not as a rehearsal that happened.
 - [ ] 4.3 Multi-role UAT, all ten roles
-- [ ] 4.4 Money path end to end — Flutterwave **collection** on test keys,
+- [ ] 4.4 📋 **Step-by-step written 26 Sept 2026: `docs/MONEY_PATH_REHEARSAL.md`** (OEA on staging:
+      offline rent in → three desks → reconciled → landlord paid by bank transfer
+      → receipt and remittance advice; 36 checks). Money path end to end — Flutterwave **collection** on test keys,
       bank-transfer payout, off-platform payment. ⚠️ **Rehearse the PRODUCTION
       key set** (Flutterwave only, no Paystack): staging's Paystack test keys
       make a payout resolve where production refuses it — 2.12, owed 2. A
@@ -1855,6 +1857,99 @@ email already reach every role.
 
 ### Stage 6 — Prove it, then open it
 - [ ] 6.1 Security pass against the production hostname — passive, **active**, load, rate limit
+      🧪 **Production is for real use only; trying things out happens on staging.**
+      Twice in two days a test record reached production and was found only by a
+      check: a test ticket (25 Sept, removed) and an OEA test tenant (26 Sept,
+      retired, because the audit trail is append-only and an account that acted
+      can't be deleted). **Baseline from 27 Sept:** 3 active users, 1 retired
+      test account, 2 accepted invitations, and 0 of everything that holds a
+      customer or money. Re-prove it on the morning the external test starts.
+      🔐 **Sign-in lockout added for rc8, 26 Sept 2026 (operator's instruction,
+      0303):**
+      • every failed password is counted, per email, on every org and role;
+      • the wait grows 1 → 2 → 4 → 8 minutes;
+      • the 4th failure warns, on screen and by email to the real owner;
+      • the 5th locks the account.
+      A locked account is banned at Supabase, and the seven identity functions
+      treat it as inactive, so it reaches nothing, including sessions already
+      open. An admin of the same org unlocks it from People and sends a
+      reactivation link. The person sets their own password. "Forgot password"
+      cannot unlock it. Break-glass: `scripts/unlock-sign-in.mjs` (ICT, service
+      role). Unknown emails count, wait and lock identically, so A3 still holds.
+      The password is now checked by a server action (`lib/password-sign-in.ts`)
+      so failures cannot be skipped or faked.
+      Also fixes a latent fault: the admin's "send a password reset link" (0258)
+      minted a Supabase recovery link the reset page cannot read; all three
+      senders now share `lib/reset-link.ts`.
+      Suite: `verify-sign-in-lockout` (15 code-path checks, all FAIL on rc7,
+      plus the database rules on staging).
+      ⚠️ **Two production settings go with it:**
+      (1) **Supabase → Auth → Rate Limits**: raise "sign-ups and sign-ins",
+      because Supabase now sees our server's address for every user. The
+      per-visitor limit is applied in the app (30 per 10 minutes per IP).
+      (2) **Create a second operator admin, with MFA**, so a locked operator
+      admin can be unlocked without the script.
+      ✅ **Both done by the operator, 27 Sept 2026**: the sign-in rate limit
+      is raised on production, and a second TENTai operator admin exists
+      with MFA.
+      ⚠️ **Finding A9.4 (High, B1), 26 Sept 2026, Part A in progress:** OEA's
+      public vendor-application page opened on `www.tfmlportal.com` when the host
+      in its link was swapped, showing OEA's name and form under TFML's address.
+      Six public pages chose their org from the URL and never checked the host
+      (only `/o/[slug]` did). **Fixed (`08f93af`):** `hostServesOrg` in
+      `lib/org-host.ts` on all six pages and on the two submissions whose org
+      comes from the request. A bound host serving another org's page answers
+      404. New suite `verify-public-pages-host-bound` discovers every public
+      page, so a new one can't skip the check; it fails 8 times on rc7 and passes
+      on the fix. ⚠️ **Inside `next build`, so rc7 is superseded (rule 7): needs
+      rc8**, batched with any other Part A findings.
+      📣 **Finding B4-F1 (Medium, role reach), 27 Sept 2026, Part B:** every
+      new request was announced to every admin, FM and PM in the organisation
+      (bell, WhatsApp, email), while each FM/PM can open only the requests on
+      their own buildings. A tenant with no lease raised one with no property:
+      the PM was told, couldn't open it, and it wasn't on their board. **Rule
+      set by the operator and built for rc8 (0304):**
+      • a new request alerts **only whoever can open it and act on it**: its
+        property's manager, or, with no property, whoever triages those (the
+        regional manager);
+      • the **administrator sees and opens every request but acts on one only
+        once it has gone 24 hours with nobody assigned, or 24 hours without
+        anyone on the desk acting on it**. This is enforced at the database for
+        every admin write, and the hourly job tells the admins about left work
+        once per idle spell;
+      • if nobody operational can open a request (no manager on the property,
+        no regional manager), the admins are told at once, with a note to fix
+        the coverage.
+      This closes a gap in 0178/0212: an admin could press **Review**, then
+      dispatch at once, skipping the 24-hour wait.
+      Suite: `verify-request-alert-audience` (36 checks, all rolled back).
+      `verify-unassigned-escalation` accepts the new refusal wording.
+      🧱 **Staging was stuck at 0213a, found at the rc8 cut, 27 Sept 2026.**
+      `0213a` (21 Sept) revoked a 7-argument `remember_conversation_state`
+      that `0285` had already replaced on dev and staging. On those worlds it
+      failed with "function does not exist", and the runner stops at the first
+      failure. So **nothing after it reached staging: 0301 and 0302 (rc7) and
+      0303 and 0304 (rc8)**, which means rc7's staging verify ran without 0301
+      and 0302. Fixed by guarding each statement on the signature existing: a
+      fresh build does exactly what production ran (325/325 rebuilt from empty),
+      and a late world skips the replaced function. The file-end guard still
+      checks every version. Lesson: after `npm run migrate`, read the **last**
+      line, not the first "Applying…".
+      Knock-on, found by the rc8 verify: with 0302 finally on staging,
+      `verify-function-grants` flagged four anon grants. 0302 made them on
+      purpose (the Realtime fix of 25 Sept) but from inside a loop the check
+      cannot read, so it has been failing on production since then too.
+      `0305` restates them as plain statements. It is a no-op on every database.
+      📦 **Next.js advisories: decided 28 Sept 2026, ship rc8 on 14.2.35;
+      rc9 = Next 15.5 upgrade.** `npm audit` rates `next@14.2.35` critical.
+      The advisories are server-component DoS, middleware-redirect cache
+      poisoning, and XSS/SSRF in specific configurations. The only fixed lines
+      are ≥ 15.5.16, a major upgrade that touches every page and needs its own
+      full verify cycle, so it does not go into a release cut the day before
+      cutover. **Accepted risk for rc8**, stated to the external tester. rc9 is
+      the first release after cutover. The remaining high findings (fast-uri via
+      webpack/schema-utils, rollup via @sentry/nextjs) are build-time only and
+      never reach the running site.
       📌 **Order and tools: `security/README.md` §3** — ZAP baseline (passive)
       → k6 weekday → k6 spike → k6 rate-limit → ZAP full (active). Targets:
       `https://www.tfmlportal.com` and `https://oeaportal.com` — never a

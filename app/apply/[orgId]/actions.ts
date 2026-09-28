@@ -1,5 +1,6 @@
 "use server";
 
+import { hostServesOrg } from "@/lib/org-host";
 import { portalOrigin } from "@/lib/portal-origin";
 import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
@@ -47,6 +48,11 @@ const MIN_FILL_SECONDS = 3;   // a human cannot complete this form faster
 const MAX_FORM_AGE_MS = 60 * 60 * 1000; // 1h — stale forms are re-rendered
 
 export async function submitVendorApplication(input: ApplyInput): Promise<ApplyResult> {
+  // B1: the page refuses another org's host; so does the submission behind it.
+  if (!(await hostServesOrg(input.orgId))) {
+    return fail("This link isn't accepting vendor applications at the moment.");
+  }
+
   const h = await headers();
   const ip = clientIp(h);
 

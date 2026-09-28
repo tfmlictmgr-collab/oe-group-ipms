@@ -20,11 +20,13 @@ import TicketMedia, { type TicketAttachment } from "./TicketMedia";
 import { ChatWithUs } from "@/components/patterns/chat-with-us";
 import { shortRef } from "@/lib/acknowledgement";
 import { FM_PM, roleLabel } from "@/lib/roles";
+import { adminMayActFrom } from "@/lib/admin-act-rule";
 
 type AssignableTicket = Ticket & {
   assigned_vendor_id: string | null;
   assigned_to_user_id: string | null;
   assigned_at: string | null;
+  last_acted_at: string | null;
   acknowledged_at: string | null;
   reviewed_at: string | null;
   sender_id: string | null;
@@ -79,7 +81,7 @@ export default async function TicketDetailPage({
       // "Property / Unit" field below had only ever shown the AI's free-text
       // GUESS (`property_or_unit`), never the resolved, reliable value, even
       // on a ticket where one now exists.
-      "id, channel, message_text, category, urgency, summary, property_or_unit, requires_human_review, status, created_at, assigned_vendor_id, assigned_to_user_id, assigned_at, acknowledged_at, reviewed_at, sender_id, sender_role, property_id, unit_id, properties(name), units(label)"
+      "id, channel, message_text, category, urgency, summary, property_or_unit, requires_human_review, status, created_at, assigned_vendor_id, assigned_to_user_id, assigned_at, acknowledged_at, reviewed_at, last_acted_at, sender_id, sender_role, property_id, unit_id, properties(name), units(label)"
     )
     .eq("id", id)
     .single();
@@ -90,6 +92,13 @@ export default async function TicketDetailPage({
   // shape app/dashboard/my-work/page.tsx and approvals/page.tsx already work
   // around; a direct cast is what tsc rejects here).
   const t = ticket as unknown as AssignableTicket;
+
+  // 0304. An administrator sees every request but acts on one only once it has
+  // gone 24 hours with nobody assigned, or 24 hours without the desk acting on
+  // it. Until then the controls are not offered — the database would refuse
+  // them anyway — and the page says when they will be.
+  const adminWaitsUntil =
+    session.profile?.role === "admin" ? adminMayActFrom(t) : null;
 
   // For the dispatch control (admin/FM): available vendors + ops staff.
   const [vendorsRes, opsRes, myVendorRes] = await Promise.all([
@@ -177,7 +186,8 @@ export default async function TicketDetailPage({
   // narrower, different permission. An ops staff member could Acknowledge (its
   // own separate card) and then had no way to record progress or mark a job
   // done — the empty middle of "My jobs → acknowledge → [nothing] → evidence".
-  const canExecuteStatus = canManage || (session.profile?.role === "fm_ops_staff" && isAssignee);
+  const canExecuteStatus =
+    (canManage && !adminWaitsUntil) || (session.profile?.role === "fm_ops_staff" && isAssignee);
 
   const [criteriaRes, evalsRes] = canEvaluate
     ? await Promise.all([
@@ -385,6 +395,21 @@ export default async function TicketDetailPage({
           </CardHeader>
           <CardContent>
             <ChatWithUs theme={session.theme} ticketReference={shortRef(t.id)} size="sm" />
+          </CardContent>
+        </Card>
+      )}
+
+      {adminWaitsUntil && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Dispatch & status</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            This request is with its manager. As an administrator you can act on it
+            once it has gone 24 hours with nobody assigned, or 24 hours without
+            anyone acting on it — from{" "}
+            <span className="font-medium text-foreground">{formatDateTime(adminWaitsUntil.toISOString())}</span>.
+            You will be notified if it is left.
           </CardContent>
         </Card>
       )}

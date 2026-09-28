@@ -75,10 +75,31 @@ export async function requestPasswordReset(
   if (!account) return ok();
   const { data: profile } = await supabaseAdmin
     .from("users")
-    .select("org_id")
+    .select("org_id, sign_in_locked_at")
     .eq("id", account.user_id)
     .maybeSingle();
   if (!profile) return ok();
+
+  // ⚠️ A locked account (0303) is NOT reset from here. Five failed passwords
+  // locked it until an administrator unlocks it; a reset the locked-out person
+  // could request for themselves would make the lock a short wait. They are
+  // told, at their own address, what to do instead — and the screen says what
+  // it always says, so this reveals nothing to whoever typed the address.
+  if (profile.sign_in_locked_at) {
+    const locked = await sendEmail({
+      to: trimmed,
+      category: "account",
+      orgId: profile.org_id,
+      subject: (ctx) => `${ctx.brandName} — your account is locked`,
+      text: (ctx) =>
+        `A password reset was requested for your ${ctx.brandName} account, but the account is locked ` +
+        `after too many failed sign-in attempts, so no reset link has been sent.\n\n` +
+        `Contact your administrator. They will send a reactivation link to this address, which you ` +
+        `use to set a new password and sign in again.`,
+    });
+    if (!locked.sent) console.error("locked-account notice not sent:", locked.reason);
+    return ok();
+  }
 
   const token = generateResetToken();
   const { error: insertErr } = await supabaseAdmin.from("password_resets").insert({

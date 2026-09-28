@@ -7,12 +7,21 @@
 //
 // Usage:  npm run pentest:baseline -- https://target
 //         npm run pentest:full     -- https://target
+//         npm run pentest:full     -- http://localhost:3000   (app served on this machine)
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
+import { config } from "dotenv";
 
 const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+
+// ZAP_USER / ZAP_PASSWORD live in .env.local (security/README.md §2). The
+// pre-flight loads that file in ITS OWN process, which never reached this one —
+// so the full scan refused for missing credentials unless they had also been
+// exported into the shell by hand. Only those two are forwarded to the
+// container below; nothing else from .env.local leaves this process.
+config({ path: path.join(rootDir, ".env.local"), quiet: true });
 const [, , mode, ...rest] = process.argv;
 const target = rest.find((a) => /^https?:\/\//.test(a));
 
@@ -50,9 +59,29 @@ if (docker.status !== 0) {
 const reports = path.join(rootDir, "security", "reports");
 fs.mkdirSync(reports, { recursive: true });
 
+// A target on THIS machine has to be renamed for the container. Inside it,
+// `localhost` is the container itself, so ZAP would scan nothing and report a
+// clean bill of health for an app it never reached. `host.docker.internal` is
+// the host as seen from a container (Docker Desktop provides it; `--add-host`
+// makes it exist on Linux too).
+//
+// ⚠ The pre-flight above was deliberately given the ORIGINAL target. Its
+// plain-HTTP rule admits `localhost` and nothing else, and rewriting the URL
+// before the gate would mean the gate judged a string the operator never typed.
+// Only the container sees the alias.
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+const targetUrl = new URL(target);
+const isLocal = LOCAL_HOSTS.has(targetUrl.hostname);
+let scanTarget = target.replace(/\/+$/, "");
+if (isLocal) {
+  targetUrl.hostname = "host.docker.internal";
+  scanTarget = targetUrl.toString().replace(/\/+$/, "");
+  console.log(`\nLocal target: the container will reach ${target} as ${scanTarget}\n`);
+}
+
 const plan = `automation-${mode}.yaml`;
 const env = [
-  "-e", `ZAP_TARGET=${target}`,
+  "-e", `ZAP_TARGET=${scanTarget}`,
   ...(process.env.ZAP_USER ? ["-e", `ZAP_USER=${process.env.ZAP_USER}`] : []),
   ...(process.env.ZAP_PASSWORD ? ["-e", `ZAP_PASSWORD=${process.env.ZAP_PASSWORD}`] : []),
 ];
@@ -67,19 +96,56 @@ if (mode === "full" && !process.env.ZAP_USER) {
 }
 
 console.log(`\nRunning ZAP ${mode} scan against ${target} …\n`);
+
+// ⚠️ Two things learned from the first C4 attempts, 27 Sept 2026:
+//
+//  • `--shm-size`. The browser jobs (sign-in, spiderAjax) run Firefox inside
+//    the container, and Docker's default 64 MB of shared memory is not enough
+//    for it: the Ajax spider "found 0 URLs" in 3 seconds and the active scan,
+//    which needs the browser-made session, then stopped with exit 2 and no
+//    report.
+//  • The container is NAMED, not `--rm`. ZAP writes the reason a job failed to
+//    its own log inside the container, never to stdout, so a `--rm` run that
+//    fails leaves nothing to read. The log is copied into security/reports/
+//    (gitignored) and the container removed afterwards, whatever happened.
+const name = `zap-${mode}-${Date.now()}`;
+
+// ⚠️ The target is written INTO the plan here, not left as `${ZAP_TARGET}`
+// for ZAP to substitute. ZAP substitutes it in most fields but NOT in the
+// authentication verification's `pollUrl`: the third C4 attempt's log read
+//   Failed sending poll request to ${ZAP_TARGET}/dashboard … incorrect path
+// so every sign-in "failed" its own check, ZAP re-authenticated in a loop,
+// and the browser and active-scan jobs gave up with no report. Only the
+// target is rendered; ZAP_USER / ZAP_PASSWORD stay environment variables and
+// are never written to disk. The rendered plan goes to security/reports/
+// (gitignored), which the container already mounts.
+const rendered = `${name}.plan.yaml`;
+fs.writeFileSync(
+  path.join(reports, rendered),
+  fs.readFileSync(path.join(rootDir, "security", "zap", plan), "utf8")
+    .replaceAll("${ZAP_TARGET}", scanTarget)
+);
+
 const run = spawnSync("docker", [
-  "run", "--rm",
-  "-v", `${path.join(rootDir, "security", "zap")}:/zap/wrk/plans:ro`,
+  "run", "--name", name,
+  "--shm-size", "2g",
+  ...(isLocal ? ["--add-host", "host.docker.internal:host-gateway"] : []),
   "-v", `${reports}:/zap/wrk/reports:rw`,
   ...env,
   "ghcr.io/zaproxy/zaproxy:stable",
-  "zap.sh", "-cmd", "-autorun", `/zap/wrk/plans/${plan}`,
+  "zap.sh", "-cmd", "-autorun", `/zap/wrk/reports/${rendered}`,
 ], { stdio: "inherit" });
+
+const logFile = path.join(reports, `${name}.log`);
+const copied = spawnSync("docker", ["cp", `${name}:/home/zap/.ZAP/zap.log`, logFile], { stdio: "ignore" });
+spawnSync("docker", ["rm", "-f", name], { stdio: "ignore" });
+if (copied.status === 0) console.log(`\nZAP's own log: security/reports/${name}.log`);
 
 console.log(
   run.status === 0
     ? `\nDone. Report in security/reports/ — triage per security/README.md §4.\n`
     : `\nZAP exited ${run.status}. A non-zero exit can mean findings were raised, ` +
-      `not that the scan failed — read the report before concluding either.\n`
+      `not that the scan failed — read the report before concluding either. ` +
+      `If there is no report, the reason is in the log above.\n`
 );
 process.exit(run.status ?? 1);

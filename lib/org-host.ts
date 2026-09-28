@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 import { unstable_cache } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { hostAllowsOrg } from "@/lib/host-org-rule";
 
 // Resolving the request's hostname to the organisation that answers on it.
 //
@@ -56,4 +57,28 @@ export async function orgForCurrentHost(): Promise<HostOrg | null> {
   }
 
   return lookup(bare);
+}
+
+/**
+ * May this request's hostname show a page belonging to `orgId`?
+ *
+ * ⚠️ B1, found 26 Sept 2026 in the security self-assessment: OEA's public
+ * vendor-application page opened on `www.tfmlportal.com` simply by swapping the
+ * host in its link — OEA's name and form, under TFML's address. The public
+ * pages chose their organisation from the URL (an org id, a slug, a token) and
+ * never asked which organisation the HOST belongs to. `/o/[slug]` already did;
+ * every other public page now does too, through this one rule.
+ *
+ * Yes when the host is bound to that org, and when the host is bound to no org
+ * at all — localhost, preview deployments, the brand-neutral deployment address
+ * a link falls back to before an org has a domain. No when the host belongs to
+ * a DIFFERENT org: then the page answers exactly as a link that never existed
+ * would, so the host's own brand never shows, or confirms, another's.
+ *
+ * Presentation only, like everything in this file: which rows a caller reaches
+ * is still decided by the token or the session, never by the Host header.
+ */
+export async function hostServesOrg(orgId: string | null | undefined): Promise<boolean> {
+  const host = await orgForCurrentHost();
+  return hostAllowsOrg(host?.id ?? null, orgId);
 }

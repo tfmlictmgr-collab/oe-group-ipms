@@ -124,6 +124,18 @@ In a private window, on `https://www.tfmlportal.com/login`:
 | A3.6 | Sign in properly, then **Sign out**, then press the browser's **Back** button | the login screen, never a dashboard |
 | A3.7 | The operator account (`portal.tfmlconsultant.com`) | asks for the **6-digit MFA code** after the password |
 
+**From rc8 (sign-in lockout, 0303).** Five wrong passwords lock a sign-in. A3.1
+and A3.2 then read *"That email and password don't match… Wait 1 minute before
+trying again."*, still **identical** for both. ⚠️ **Never test the lock on your
+own or any real account in production.** Use an address that has no account.
+
+| # | Do | Expect |
+|---|---|---|
+| A3.8 | `nobody-<today>@example.com`, wrong password, **5 times**, waiting out each pause (1 + 2 + 4 + 8 minutes, about 15 minutes in all) | 1st–3rd: the refusal plus *"Wait N minutes"* (1, 2, 4). **4th:** *"One more failed attempt will lock this sign-in…"* **5th:** *"This sign-in is locked…"* |
+| A3.9 | Try again **before** a pause is over | *"Too many failed attempts. Try again in N minutes."* No attempt is made |
+| A3.10 | After the lock, try the same address once more | the same *locked* message. An unknown address locks exactly like a real one, so nothing reveals which addresses are accounts |
+| A3.11 | A **real** account's lock, warning email, unlock and reactivation link | proven on **staging** by `verify-sign-in-lockout`, not on production |
+
 ### A4. Pages that need a sign-in refuse without one
 
 In a private window (signed out), open each. **Expect a redirect to the login page, `Sign in required`, or `Not found` — never data.**
@@ -208,13 +220,17 @@ Ctrl+Shift+F (search all files) and search for each:
 | A9.1 | Open `oeaportal.com/login` and `www.tfmlportal.com/login`; read every word | each names only its own brand (and TENTai as platform) |
 | A9.2 | `/legal/terms`, `/legal/refunds`, `/legal/privacy` on each host | as A9.1 (already proven by 5.10 — re-check on rc7) |
 | A9.3 | The **title in the browser tab** and the favicon on each host | own brand only |
+| A9.4 | Take any public link from one portal, e.g. OEA's vendor-application link `https://www.oeaportal.com/apply/<id>`, and swap the host to the **other** portal (`www.tfmlportal.com/apply/<id>`). Repeat for an invitation, a tenancy offer and a payout-details link if you have one | **Not found**: the same page a made-up address gets. Never the other brand's name or form under this host. *Found FAILING on rc7, 26 Sept 2026; fixed for rc8 (`hostServesOrg`, `verify-public-pages-host-bound`)* |
 
 ---
 
 ## Part B — Staging, hands-on
 
 Address: `https://oe-group-ipms-staging.vercel.app`. Sign in at `/o/tfml` or
-`/o/oea` with the fixture accounts. Two browsers throughout: **Browser 1** and
+`/o/oea` with the fixture accounts. Their shared password is `PASSWORD` in
+`scripts/seed-brand-roles.mjs`; never paste it into chat. ⚠️ **Don't run
+`npm run verify` while Part B is in progress:** B6 deactivates a fixture account,
+and the suites check that fixtures are unchanged. Two browsers throughout: **Browser 1** and
 **Browser 2**.
 
 ### B1. One organisation cannot reach the other's records — the most important section
@@ -242,6 +258,23 @@ title, amounts or names. Any leak here is the stop rule.
 
 Then repeat B1.1–B1.3 the other way round (TFML record, OEA reader).
 
+**B1.11 — how file links work, so the result is read correctly.** A file is
+never at a fixed address. Opening it asks the server, which checks the reader's
+organisation and then hands out a **signed link**: a one-off pass that lasts
+**5 minutes** (documents, receipts, proofs) or **1 hour** (request photos).
+Anyone holding that exact link can open it until it expires; that is what the
+link is for. So the test is:
+
+1. Paste the copied link into Browser 2 **and** a signed-out window straight
+   away. It may open. That is not a fail.
+2. Delete everything from `?token=` onwards and open what is left. **Expect:**
+   refused (an error message such as *"Object not found"* or *"not authorized"*).
+3. Wait until the link has expired, then open the full link again. That's
+   6 minutes for a document, or 61 minutes for a request photo. **Expect:**
+   refused (*"Token has expired"* or similar).
+4. **FAIL** only if step 2 or step 3 shows the file, or if a TFML reader could
+   get a fresh link to an OEA file from a page of their own.
+
 ### B2. A role cannot reach beyond its job
 
 Sign in as each account and open the addresses. **Expect** a refusal, a
@@ -257,22 +290,52 @@ redirect to the dashboard, or a page with no data — never the content.
 | B2.6 | `tfml.viewer@` | any **Save / Approve / Delete** button | none present, or refused when pressed |
 | B2.7 | `tfml.pm@` | `/dashboard/settings` | refused (administrators only) |
 | B2.8 | `tfml.pm@` | `/api/records/export?type=staff` | `403` |
-| B2.9 | `tfml.finance@` | approve a payment **it raised itself** | refused — the approval ladder forbids approving your own |
-| B2.10 | `tfml.approver@` | approve a payment above its band (if bands are on) | refused |
+| B2.9 | `tfml.finance@` | approve a payment **it raised itself** | no approve option at all. The Payment Officer raises and sends but is not on the approval chain; the database also refuses anyone approving what they raised |
+| B2.10 | `tfml.approver@` | approve a payment above its band (if bands are on) | refused. **N/A while bands are off**, the default since 5 Sept (0261); record N/A |
 | B2.11 | any non-operator | `/orgs` | *"This page is for TENTai operators"* |
 
 ### B3. File uploads refuse what they should
 
-On staging's vendor application form (`/apply/<staging org id>`) and a tenancy
-application (`/tenancy/tfml`):
+⚠️ The vendor application form (`/apply/…`) takes **no files**. Test the two
+forms that do:
+
+- **B3-T, the anonymous surface (it matters most):** the **OEA** tenancy
+  application. Tenancy applications are an OEA-only module, so `/tenancy/tfml`
+  always says *"Applications are closed"*. That is correct, not a fault. To
+  open OEA's form on staging:
+  1. Sign in at `/o/oea` as `oea.admin@`.
+  2. Go to **People → Tenancy Applications** and click **Open applications**.
+  3. Set one property to **Open**.
+  4. In a **signed-out** window, open `/tenancy/oea`. Pick that property,
+     enter a name and a `…@oegroup.test` address, and continue to the
+     document uploads.
+
+  The size limit is **10 MB**.
+- **B3-R, a signed-in surface:** a requisition attachment. Sign in at `/o/tfml`
+  as `tfml.ops@`, open `/dashboard/requisitions/new`, and use **Attach a
+  document**. A wrong type or size is refused the moment it is picked. An
+  accepted file is only uploaded when you click **Raise requisition**, which
+  needs a reference and one line with a description and an amount. The size
+  limit is **2 MB**.
+
+When you choose a file, Windows shows only the permitted types. Set the
+file-type box at the bottom right of the picker to **All files (\*.\*)** so
+the bad files can be picked.
 
 | # | Upload | Expect |
 |---|---|---|
-| B3.1 | a `.html` file renamed to `.pdf` | refused |
+| B3.1 | a `.html` file renamed to `.pdf` | **accepted as a PDF.** No form reads a file's contents; it goes by the type. **Pass:** when staff open it, it shows as a broken or blank PDF, or it downloads. **Fail:** it opens as a web page, or a pop-up appears |
 | B3.2 | an `.exe` or `.js` file | refused |
 | B3.3 | a file larger than the stated limit | refused, with the limit named |
 | B3.4 | an `.svg` image | refused (SVG can carry script) |
-| B3.5 | a normal PDF/JPG | accepted — then open it as **another org's** user (B1.11) |
+| B3.5 | a normal PDF/JPG | accepted. Then check that **another org's** user can't reach it (B1.11 steps 2–3) |
+
+These type and size rules are also enforced by the storage bucket itself, not
+only by the page (0300 for the anonymous one). A caller who skips the page
+still gets refused.
+
+Afterwards, as `oea.admin@`: set the property back to its previous state, then
+click **Close applications** if they were closed when you started.
 
 ### B4. Forms refuse script injection
 
@@ -291,7 +354,7 @@ save exactly:
 
 | # | Do | Expect |
 |---|---|---|
-| B5.1 | 10 wrong passwords in a row for `tfml.viewer@` | "Too many attempts. Wait a minute and try again." at some point |
+| B5.1 | 10 wrong passwords in a row for `tfml.viewer@` | **On rc7:** all 10 get the **identical** refusal, and nothing errors or reveals anything (Supabase's own per-IP limit won't trip at 10, so no "too many attempts" is expected). **From rc8** the 5-attempt lockout applies; it is tested by A3.8 and `verify-sign-in-lockout`, never on a fixture account, because a locked fixture breaks the suites |
 | B5.2 | Forgot password for the same address 5 times | still "Check your email" every time (it silently stops sending after 3) |
 
 ### B6. Sessions end when they should
@@ -310,13 +373,30 @@ that refuses unsafe targets. In short:
 
 | # | Tool | Target | Notes |
 |---|---|---|---|
-| C1 | ZAP **baseline** (passive) | `https://www.tfmlportal.com`, `https://oeaportal.com` | safe on production |
-| C2 | k6 journey + spike | `https://www.tfmlportal.com` | read-only |
-| C3 | k6 rate-limit | `https://www.tfmlportal.com` | fills only your own IP's bucket |
-| C4 | ZAP **full** (active) | `https://oe-group-ipms-staging.vercel.app` | **staging only** — it submits forms |
+| C1 | ZAP **baseline** (passive) | `https://www.tfmlportal.com`, `https://www.oeaportal.com` | safe on production. ⚠️ **The `www.` form.** The bare domain answers only a 308 redirect, so a scan of it tests the redirect and not the application (found 27 Sept) |
+| C2 | k6 journey + spike | `https://tent-ai-production.vercel.app` | read-only. ⚠️ **The brand-neutral production address, not a brand domain** (corrected 27 Sept): on `www.tfmlportal.com`, `/login` redirects to TFML's own door and `/o/oea` rightly answers 404 (B1), so the script's checks would read as failures |
+| C3 | k6 rate-limit | `https://www.tfmlportal.com` | fills only your own IP's bucket; real Telegram traffic is untouched |
+| C4 | ZAP **full** (active) | `http://localhost:3000`: the release branch, served by `npm run dev` on the **scan** world | **the scan world only.** It submits forms. Staging and dev have both sent a real remittance, so the pre-flight refuses them, correctly |
 
-`npm run use-env` must match the target before each (prod for C1–C3, staging
-for C4) — the pre-flight reads that world's database.
+`npm run use-env` must match the target before each (prod for C1–C3, **scan**
+for C4) — the pre-flight reads that world's database. For C4, migrate the scan
+world first (`npm run migrate -- --world scan`), start `npm run dev` **after**
+`use-env scan`, then run `npm run pentest:full -- http://localhost:3000`. The
+runner tells the container to reach your machine as `host.docker.internal`.
+Scanning the branch locally is what lets C4 test the release's own code before
+it is merged.
+
+⚠️ **Only through `npm run pentest:*`, never `docker run … zap-full-scan.py`
+directly.** Found 27 Sept: a direct run skips the pre-flight and the exclusions
+(jobs, webhooks, ledger, payments, every Server Action). It also puts an active
+scan on production, which Part C reserves for the external tester. **Never pass
+`--env-file .env.local` to a scanner container**: that hands a third-party image
+every secret in the file, the service-role key included, and the scan needs
+none of them.
+
+⚠️ **C4 against `localhost` scans whatever database the dev server was started
+with.** Run `npm run use-env staging` **before** starting `npm run dev`, then scan.
+From 27 Sept the pre-flight names that database and refuses production.
 
 ---
 

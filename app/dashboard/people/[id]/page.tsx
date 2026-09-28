@@ -113,7 +113,7 @@ export default async function PersonProfilePage({
     .select(
       "id, full_name, email, phone, role, created_at, deactivated_at, approval_tier, " +
       "former_email, email_released_at, notify_email, notify_whatsapp, notify_sms, " +
-      "notify_telegram, telegram_chat_id"
+      "notify_telegram, telegram_chat_id, sign_in_locked_at"
     )
     .eq("id", id)
     .maybeSingle<{
@@ -122,6 +122,7 @@ export default async function PersonProfilePage({
       approval_tier: number | null; former_email: string | null;
       email_released_at: string | null; notify_email: boolean; notify_whatsapp: boolean;
       notify_sms: boolean; notify_telegram: boolean; telegram_chat_id: string | null;
+      sign_in_locked_at: string | null;
     }>();
 
   // `users_select` decides. Somebody in another organisation, or a row this
@@ -316,6 +317,7 @@ export default async function PersonProfilePage({
                 deactivated_at: person.deactivated_at,
                 email_released_at: person.email_released_at,
                 approval_tier: person.approval_tier,
+                sign_in_locked_at: person.sign_in_locked_at,
               }}
               currentUserId={viewer.id}
             />

@@ -1,7 +1,9 @@
 import Script from "next/script";
+import { notFound } from "next/navigation";
 import { XCircle } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getBrandTheme } from "@/lib/brands";
+import { hostServesOrg } from "@/lib/org-host";
 import ApplyForm from "./ApplyForm";
 
 // Public page — no session required. The org must have opted in; an unknown or
@@ -12,6 +14,9 @@ export default async function ApplyPage({
   params: Promise<{ orgId: string }>;
 }) {
   const { orgId } = await params;
+
+  // B1: another organisation's host never paints this org's form (lib/org-host).
+  if (!(await hostServesOrg(orgId))) notFound();
 
   // A malformed id would make the RPC throw; treat it as "closed".
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(orgId);

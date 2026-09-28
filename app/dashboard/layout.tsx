@@ -70,6 +70,14 @@ export default async function DashboardLayout({
       await supabaseAuth.auth.signOut();
       redirect("/login?deactivated=1");
     }
+    // A session opened before the lock (0303) reaches nothing already; end it,
+    // and say which of the two it was — a lock is lifted by a reactivation
+    // link, a deactivation is not.
+    if (session.accountState === "locked") {
+      const supabaseAuth = await createClient();
+      await supabaseAuth.auth.signOut();
+      redirect("/login?locked=1");
+    }
     redirect("/login");
   }
 

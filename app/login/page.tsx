@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { LOCKED } from "@/lib/sign-in-lock";
 import { orgForCurrentHost } from "@/lib/org-host";
 import SignInPanel from "@/components/auth/sign-in-panel";
 
@@ -17,9 +18,9 @@ import SignInPanel from "@/components/auth/sign-in-panel";
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ wrong_org?: string; deactivated?: string }>;
+  searchParams: Promise<{ wrong_org?: string; deactivated?: string; locked?: string }>;
 }) {
-  const { wrong_org, deactivated } = await searchParams;
+  const { wrong_org, deactivated, locked } = await searchParams;
 
   // The root page (`/`) already sends a bound client hostname straight to its
   // own door and never lands here. But `/login` is a URL of its own — bookmarked,
@@ -31,7 +32,9 @@ export default async function LoginPage({
   // path that skipped the check. A client org's own door takes over here instead.
   const hostOrg = await orgForCurrentHost();
   if (hostOrg?.slug && !hostOrg.is_platform_operator) {
-    redirect(`/o/${hostOrg.slug}`);
+    // Carry the reason through: until 26 Sept a client's own door dropped it, so
+    // a deactivated TFML or OEA member was signed out and never told why.
+    redirect(`/o/${hostOrg.slug}${deactivated ? "?deactivated=1" : locked ? "?locked=1" : ""}`);
   }
 
   return (
@@ -61,7 +64,9 @@ export default async function LoginPage({
       notice={
         deactivated
           ? "This account has been deactivated. Please contact your administrator."
-          : wrong_org
+          : locked
+            ? LOCKED
+            : wrong_org
             ? "Please sign in to continue."
             : undefined
       }

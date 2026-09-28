@@ -146,3 +146,46 @@ export async function cascadeToUserIds(
     buildWhatsAppTemplate
   );
 }
+
+/**
+ * Announces a NEW request to the people who can open it and act on it — and
+ * nobody else (0304, operator's rule of 27 Sept 2026).
+ *
+ * ⚠️ This replaced `notifyRoleWithCascade({ roles: ["admin", ...FM_PM] })`,
+ * which told every administrator, FM and PM in the organisation about every
+ * request — on WhatsApp and email too — while `tickets_select` let each FM/PM
+ * open only the ones on their own buildings. The person told could not act,
+ * and the people who could were buried in everyone else's work.
+ *
+ * Who is told is decided in SQL (`notify_ticket_audience`), next to the policy
+ * it mirrors: the manager of the request's property, or — with no property —
+ * whoever triages those. Administrators act only on work left 24 hours, and
+ * hear about it from the hourly escalation; the one exception is a request
+ * nobody operational can open, which the database sends to them at once with
+ * a note saying why.
+ */
+export async function notifyTicketAudience(opts: {
+  orgId: string;
+  ticketId: string;
+  kind: string;
+  title: string;
+  body?: string | null;
+  link?: string | null;
+}): Promise<void> {
+  const { data, error } = await supabaseAdmin.rpc("notify_ticket_audience", {
+    p_ticket_id: opts.ticketId,
+    p_kind: opts.kind,
+    p_title: opts.title,
+    p_body: opts.body ?? null,
+    p_link: opts.link ?? null,
+  });
+  if (error) throw new Error(`notify_ticket_audience: ${error.message}`);
+
+  const told = (data ?? []) as { user_id: string; fallback: boolean }[];
+  if (told.length === 0) return;
+
+  const fallback = told.some((r) => r.fallback);
+  const title = fallback ? `${opts.title} — no manager covers it` : opts.title;
+  const message = opts.body ? `${title} — ${opts.body}` : title;
+  await cascadeToUserIds(opts.orgId, told.map((r) => r.user_id), message, "ticket", opts.ticketId);
+}
