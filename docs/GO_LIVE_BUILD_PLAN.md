@@ -1856,7 +1856,17 @@ email already reach every role.
          rc6 is live.**
 
 ### Stage 6 — Prove it, then open it
-- [ ] 6.1 Security pass against the production hostname — passive, **active**, load, rate limit
+- [x] 6.1 Security pass against the production hostname — passive, **active**, load, rate limit
+      ✅ **Closed 28 Sept 2026 with `v1.0.0-rc8` at `57efb38`.**
+      - Self-assessment Parts A, B and C are complete.
+      - C1 (passive, production): 0 High. C2 and C3 (load and rate limit,
+        production): pass.
+      - **C4 (active): 0 High**, run on the rc8 branch over a throwaway
+        database. An active scan never runs on production; production's active
+        test is the external one, 6.2.
+      - Every finding along the way is fixed in rc8: A9.4, the lockout, B4-F1
+        and C-PF.
+      - Record: `docs/verify-runs/rc8-20260928.md`.
       🧪 **Production is for real use only; trying things out happens on staging.**
       Twice in two days a test record reached production and was found only by a
       check: a test ticket (25 Sept, removed) and an OEA test tenant (26 Sept,
