@@ -1940,6 +1940,16 @@ email already reach every role.
       purpose (the Realtime fix of 25 Sept) but from inside a loop the check
       cannot read, so it has been failing on production since then too.
       `0305` restates them as plain statements. It is a no-op on every database.
+      📦 **Next.js advisories: decided 28 Sept 2026, ship rc8 on 14.2.35;
+      rc9 = Next 15.5 upgrade.** `npm audit` rates `next@14.2.35` critical.
+      The advisories are server-component DoS, middleware-redirect cache
+      poisoning, and XSS/SSRF in specific configurations. The only fixed lines
+      are ≥ 15.5.16, a major upgrade that touches every page and needs its own
+      full verify cycle, so it does not go into a release cut the day before
+      cutover. **Accepted risk for rc8**, stated to the external tester. rc9 is
+      the first release after cutover. The remaining high findings (fast-uri via
+      webpack/schema-utils, rollup via @sentry/nextjs) are build-time only and
+      never reach the running site.
       📌 **Order and tools: `security/README.md` §3** — ZAP baseline (passive)
       → k6 weekday → k6 spike → k6 rate-limit → ZAP full (active). Targets:
       `https://www.tfmlportal.com` and `https://oeaportal.com` — never a
