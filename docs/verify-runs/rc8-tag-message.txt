@@ -1,0 +1,16 @@
+v1.0.0-rc8
+
+Five wrong passwords lock a sign-in, on every org and role; only the
+person's own administrator reopens it (0303). A public page answers only on
+its own organisation's host (A9.4). A new request reaches whoever can act on
+it, and an administrator acts only on work left 24 hours (0304). Backups carry
+the sign-in accounts. Staging caught up on every migration since 0213a.
+
+- 0.2: npm ci, next build (on the merged tree), 0 lint errors.
+- 0.3: 132 of 132 against staging - 131 in one full run, verify-remittance
+  alone after it (timed out once; 49 s alone). docs/verify-runs/rc8-20260928.md.
+- 0.4: self-assessment Parts A, B, C complete; C4 active scan on this branch,
+  0 High.
+- 0.5: npm audit 30 (21/8/1); lockfile unchanged from rc7. next@14.2.35
+  advisories accepted for rc8; rc9 is the Next 15.5 upgrade.
+- Migrations for production: 0303, 0304, 0305 (ledger 326, highest 0305).
