@@ -11,6 +11,6 @@ the sign-in accounts. Staging caught up on every migration since 0213a.
   alone after it (timed out once; 49 s alone). docs/verify-runs/rc8-20260928.md.
 - 0.4: self-assessment Parts A, B, C complete; C4 active scan on this branch,
   0 High.
-- 0.5: npm audit 30 (21/8/1); lockfile unchanged from rc7. next@14.2.35
+- 0.5: npm audit 32 (21/10/1); lockfile unchanged from rc7. next@14.2.35
   advisories accepted for rc8; rc9 is the Next 15.5 upgrade.
 - Migrations for production: 0303, 0304, 0305 (ledger 326, highest 0305).
