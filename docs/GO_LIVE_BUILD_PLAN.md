@@ -858,6 +858,10 @@ one-line reason rather than deleting it silently.
       at all. ⚠️ **Telegram is now carrying live tenant conversations** — that
       processor has no agreement and the Bot API has no known enterprise DPA
       process.
+      📨 **28 Sept 2026: counsel's correction note sent**
+      (`docs/legal/02_CORRECTION_NOTE_20260925.md`): the controller is TENTai,
+      and Cloudflare is processor fourteen. Signatures are still outstanding,
+      and **the board authorised go-live on 28 Sept with this item open.**
 - [~] 1.2 Privacy notice legally reviewed and published — **published 24 Sept
       2026 at `/legal/privacy`; legal review still owed.** The two halves were
       being treated as one: Terms and Refunds went live for Flutterwave while
@@ -922,7 +926,7 @@ one-line reason rather than deleting it silently.
       If it is not ₦0.00, post the real figure and who it belongs to, before
       that first payment.
 - [~] 1.10 Flutterwave / FX — **in**, as the collections gateway (23 Sept 2026); board minute owed
-- [ ] 1.11 External pen test commissioned and booked for the empty-production
+- [x] 1.11 External pen test commissioned and booked for the empty-production
       window. ⚠️ **Not commissioned, and this is the item with a closing
       window.** Booking takes 2–4 weeks; production is empty **today**. 6.2
       requires the test to run against an empty production, so onboarding real
@@ -930,7 +934,10 @@ one-line reason rather than deleting it silently.
       **Commission it regardless of when it executes** — the booking clock runs
       either way, and the decision of which comes first belongs to the board,
       alongside the PITR trigger (`BACKUP_AND_RESTORE.md` §5, now met).
-- [ ] 1.12 Target date and board go/no-go slot set
+      ✅ **Commissioned and completed, reported by the operator 28 Sept 2026,
+      against rc8** (see 6.2).
+- [x] 1.12 Target date and board go/no-go slot set — **go-live 28 Sept 2026,
+      authorised by the board that day.**
 
 ### Stage 2 — Close the technical gaps
 - [x] 2.1 Cutover docs refreshed: 7 buckets, full env table, new flows *(gaps A, B, C)* — **done 20 Sept 2026**
@@ -1558,8 +1565,14 @@ one-line reason rather than deleting it silently.
       `docs/CUTOVER_RUNBOOK.md` — release, rebuild-from-empty, roll back. Times
       not measured on the day are marked **est.**; the next run replaces them.
       Recorded as accepted, not as a rehearsal that happened.
-- [ ] 4.3 Multi-role UAT, all ten roles
-- [ ] 4.4 📋 **Step-by-step written 26 Sept 2026: `docs/MONEY_PATH_REHEARSAL.md`** (OEA on staging:
+- [x] 4.3 Multi-role UAT, all ten roles — **done on staging**, reported by the
+      operator 28 Sept 2026. It continues on production with live data through
+      the first month (6.3).
+- [x] 4.4 ✅ **Accepted 28 Sept 2026 as continuous (operator's decision): the
+      money path is proven on live data as each organisation goes live, through
+      the first month of onboarding.** It is not a blocker. The first real
+      collection, reconciliation and payout are 6.6.
+      📋 **Step-by-step written 26 Sept 2026: `docs/MONEY_PATH_REHEARSAL.md`** (OEA on staging:
       offline rent in → three desks → reconciled → landlord paid by bank transfer
       → receipt and remittance advice; 36 checks). Money path end to end — Flutterwave **collection** on test keys,
       bank-transfer payout, off-platform payment. ⚠️ **Rehearse the PRODUCTION
@@ -1615,7 +1628,7 @@ one-line reason rather than deleting it silently.
       "a second client organisation is onboarded, so a bad day affects people
       who did not choose this trade". Four orgs are provisioned. For the board,
       not for whoever remembers.
-- [ ] 4.6 Findings fixed; if anything changed, `rc2` cut and 4.1–4.5 repeated
+- [x] 4.6 Findings fixed; if anything changed, `rc2` cut and 4.1–4.5 repeated — **latest: rc8, 28 Sept 2026**
 
 ### ⏱ Where the cutover actually stands — 24 September 2026
 
@@ -1856,7 +1869,17 @@ email already reach every role.
          rc6 is live.**
 
 ### Stage 6 — Prove it, then open it
-- [ ] 6.1 Security pass against the production hostname — passive, **active**, load, rate limit
+- [x] 6.1 Security pass against the production hostname — passive, **active**, load, rate limit
+      ✅ **Closed 28 Sept 2026 with `v1.0.0-rc8` at `57efb38`.**
+      - Self-assessment Parts A, B and C are complete.
+      - C1 (passive, production): 0 High. C2 and C3 (load and rate limit,
+        production): pass.
+      - **C4 (active): 0 High**, run on the rc8 branch over a throwaway
+        database. An active scan never runs on production; production's active
+        test is the external one, 6.2.
+      - Every finding along the way is fixed in rc8: A9.4, the lockout, B4-F1
+        and C-PF.
+      - Record: `docs/verify-runs/rc8-20260928.md`.
       🧪 **Production is for real use only; trying things out happens on staging.**
       Twice in two days a test record reached production and was found only by a
       check: a test ticket (25 Sept, removed) and an OEA test tenant (26 Sept,
@@ -1964,9 +1987,15 @@ email already reach every role.
       and schema, and the README itself names "a staging clone" as the answer
       once production holds data. Passive and load tests are read-only and
       belong on production.
-- [ ] 6.2 External penetration test completed in the empty window
-- [ ] 6.3 Production UAT with real staff, all ten roles
-- [ ] 6.4 Board go/no-go minuted *(requires 1.1–1.5)*
+- [x] 6.2 External penetration test completed in the empty window — **done,
+      reported by the operator 28 Sept 2026.** Record its findings and their
+      remediation here when the report is filed.
+- [x] 6.3 Production UAT with real staff, all ten roles — **accepted as
+      continuous through the first month of go-live** (operator's decision,
+      28 Sept 2026), alongside 4.4.
+- [x] 6.4 Board go/no-go minuted *(requires 1.1–1.5)* — **GO, 28 Sept 2026.**
+      Authorised with 1.1 (DPA signatures), 1.2 (legal review), 1.4, 1.5 and
+      1.8 (Flutterwave live keys) still open, as a deliberate board decision.
 - [ ] 6.5 First real org onboarded end to end through the real UI
 - [ ] 6.6 First real collection, reconciliation and payout, reconciled by hand
 
