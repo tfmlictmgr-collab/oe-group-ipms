@@ -991,6 +991,18 @@ one-line reason rather than deleting it silently.
       and declined** on a recorded basis ($100/mo per project; a day of ledger
       is reconstructible from gateway and bank records; and it covers Postgres
       only, so it would protect no identity document or payment proof).
+      🔁 **Re-decided at go-live, 28 Sept 2026: still declined, on cost.** The
+      trigger (a second client org) is met, and this is a conscious decision
+      made with it met. **What it means:** anything entered since the last
+      backup is lost in a restore, and has to be entered again. **How that is
+      contained:**
+      - `npm run backup` after each loading session and every evening, so the
+        loss window is a session, not up to 24 hours;
+      - keep every file uploaded (rent rolls, unit and asset sheets) as the
+        re-entry source;
+      - money is re-derived from bank statements and gateway records.
+
+      Revisit once money moves daily.
       Baseline is Supabase Pro **daily backups, stated RPO ~24h**, plus
       `npm run backup` — a `pg_dump` that **reads the archive back with
       `pg_restore --list` before reporting success and deletes it if it
@@ -1996,7 +2008,18 @@ email already reach every role.
 - [x] 6.4 Board go/no-go minuted *(requires 1.1–1.5)* — **GO, 28 Sept 2026.**
       Authorised with 1.1 (DPA signatures), 1.2 (legal review), 1.4, 1.5 and
       1.8 (Flutterwave live keys) still open, as a deliberate board decision.
-- [ ] 6.5 First real org onboarded end to end through the real UI
+- [~] 6.5 First real org onboarded end to end through the real UI —
+      **started 28 Sept 2026.** A production backup was taken before the first
+      real record. Self-serve processor DPAs are being accepted first
+      (`DPA_TEMPLATE_AND_TRACKER.md`). Code changes to `main` are frozen during
+      the load; rc9 (PR #73) waits as a draft.
+      **Progress, 28 Sept:**
+      - OEA's organisation and some of its staff are onboarded, and its
+        property upload has begun;
+      - no money has moved yet;
+      - the `main` freeze is set as a GitHub ruleset ("Go-live freeze":
+        restrict updates on the default branch). Turn its enforcement off to
+        release a fix, then back on.
 - [ ] 6.6 First real collection, reconciliation and payout, reconciled by hand
 
 ### Stage 7 — Operate
