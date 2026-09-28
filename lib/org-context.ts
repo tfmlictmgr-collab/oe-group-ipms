@@ -15,8 +15,9 @@ export { ORG_HEADER, BRAND_HEADER, ROLE_HEADER } from "./org-headers";
 export { applyTrustedOrgHeaders, type OrgClaim } from "./org-headers";
 
 // Server-side read of the trusted context (server components / route handlers).
-export function orgContext(): OrgClaim {
-  const h = headers();
+// Async since Next 15, where headers() returns a promise.
+export async function orgContext(): Promise<OrgClaim> {
+  const h = await headers();
   return {
     orgId: h.get(ORG_HEADER),
     brand: h.get(BRAND_HEADER),
