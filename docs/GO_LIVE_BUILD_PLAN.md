@@ -1996,7 +1996,11 @@ email already reach every role.
 - [x] 6.4 Board go/no-go minuted *(requires 1.1–1.5)* — **GO, 28 Sept 2026.**
       Authorised with 1.1 (DPA signatures), 1.2 (legal review), 1.4, 1.5 and
       1.8 (Flutterwave live keys) still open, as a deliberate board decision.
-- [ ] 6.5 First real org onboarded end to end through the real UI
+- [~] 6.5 First real org onboarded end to end through the real UI —
+      **started 28 Sept 2026.** A production backup was taken before the first
+      real record. Self-serve processor DPAs are being accepted first
+      (`DPA_TEMPLATE_AND_TRACKER.md`). Code changes to `main` are frozen during
+      the load; rc9 (PR #73) waits as a draft.
 - [ ] 6.6 First real collection, reconciliation and payout, reconciled by hand
 
 ### Stage 7 — Operate
