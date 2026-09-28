@@ -119,7 +119,17 @@ secret, stop that section, screenshot it, and report it before continuing.
 
 | C4 full, rc8 | `http://localhost:3000`: the rc8 branch on the **scan** world (`yoocayybhecqmrwowtkg`), signed in as a low-privilege tenant | **PASS: 0 High**, 2 Medium, 2 Low, 5 Informational (27 Sept, ZAP 2.17.0, `zap-full-2026-09-27.html`, not committed) | Spider 39 URLs, Ajax spider 39, active scan 35 min 46 s. **One sign-in held for the whole scan** (1 authentication in ZAP's log). It took four runs, each fixed in `run-zap.mjs`: (1) Firefox starved of shared memory, so the Ajax spider found 0 pages; (2) ZAP's own log was lost with `--rm`; (3) ZAP does not substitute `${ZAP_TARGET}` in the sign-in check's poll URL, so every sign-in "failed"; (4) a retired rule ID (42) made a completed scan exit 2. The 2 Medium are triaged below |
 
-**Part C status:** C1 ✅ · C2a ✅ · C2b ✅ · C3 ✅ · C-PF fixed · **C4 ✅ 0 High (Mediums being triaged).**
+**C4 triage (rc8 branch, scan world, 28 Sept):**
+
+| Alert | Risk | Verdict | Why |
+|---|---|---|---|
+| CSP header not set | Medium | **Known, tracked (plan 7.3)** | Same as C1: the CSP ships report-only on purpose (listed separately as Informational). It becomes enforcing at 7.3 |
+| HTTP Only Site | Medium | **N/A: artefact of the target** | C4 scanned `http://localhost:3000`, because an active scan belongs on a disposable world. Production is HTTPS-only with HSTS, proven by A7.1 and A7.6 on all three hosts |
+| Big Redirect Detected | Low | **Accepted** | Same as C1: Next.js's own redirect body. Nothing sensitive |
+| Cookie No HttpOnly Flag | Low | **Accepted, with the reason stated** | The only cookies the app sets are Supabase's session cookies (`@supabase/ssr`). They are readable by script by design: the browser client needs the session, for example for signed-in Realtime (`lib/supabase/realtime`). HttpOnly would need a different session design. The defence in depth is keeping script injection out: B4 passed, and there is no raw-HTML rendering anywhere in the code. Enforcing the CSP (7.3) is the next layer |
+| Informational ×5 | Info | No action | Report-only CSP, content-type on one response, modern-web-app detection, session-management identification, user-agent fuzzer |
+
+**Part C status:** C1 ✅ · C2a ✅ · C2b ✅ · C3 ✅ · C-PF fixed · **C4 ✅ 0 High; both Mediums known or N/A.**
 
 ---
 
