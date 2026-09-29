@@ -87,39 +87,39 @@ const nextConfig = {
   // carried `X-Powered-By: Next.js`, naming the framework to anyone choosing
   // which exploits to try. Nothing needs it.
   poweredByHeader: false,
-  experimental: {
-    // Required in Next 14 so instrumentation.ts runs (loads Sentry per runtime).
-    instrumentationHook: true,
-    // ⚠️ lib/triage.ts reads docs/AURA_Triage_Classification_Prompt.md at
-    // REQUEST time via readFileSync(process.cwd() + ...) — a pattern Next's
-    // serverless file tracer (@vercel/nft) does not reliably detect, because
-    // the path is assembled at runtime rather than statically imported. Without
-    // this entry the file silently does not ship in the deployed function:
-    // readFileSync then either throws ENOENT or (as happened in production,
-    // 2026-08-05) reads something that doesn't match the expected fence and
-    // throws "Could not find a fenced system prompt block" — uncaught, because
-    // that call sits outside classifyMessage's try/catch, which crashed EVERY
-    // inbound WhatsApp/Telegram message that needed fresh classification
-    // (a genuinely new ticket) while leaving already-open-thread replies
-    // (follow-up/status/pleasantry, which never call it) looking fine. This
-    // explicitly guarantees the file is bundled for both webhook routes.
-    //
-    // ⚠️ Found 2026-08-20: the portal's own "Submit Request" path
-    // (app/dashboard/new/actions.ts, a server action calling
-    // classifyMessageWithProvider directly, not through handle-inbound.ts)
-    // hits the exact same gap and was never added here. It didn't crash —
-    // loadSystemPrompt()'s try/catch (deliberately added after the webhook
-    // incident above) caught the missing file and fell back to
-    // `{ classification: FALLBACK_CLASSIFICATION, provider: "none" }`
-    // silently, so every portal-submitted request landed as
-    // general/normal/needs-human-review regardless of what was actually
-    // typed — indistinguishable from "no AI key configured" unless you check
-    // `tickets.classified_by`, which is what caught it.
-    outputFileTracingIncludes: {
-      "/api/webhooks/whatsapp/route": ["./docs/AURA_Triage_Classification_Prompt.md"],
-      "/api/webhooks/telegram/route": ["./docs/AURA_Triage_Classification_Prompt.md"],
-      "/dashboard/new": ["./docs/AURA_Triage_Classification_Prompt.md"],
-    },
+  // Next 15 (rc9): `instrumentationHook` is no longer needed (instrumentation.ts
+  // runs by default), and `outputFileTracingIncludes` left `experimental` for
+  // the top level. ⚠️ Left under `experimental`, Next 15 does not apply it, and
+  // the triage prompt below would silently stop shipping — the 5 Aug incident.
+  // ⚠️ lib/triage.ts reads docs/AURA_Triage_Classification_Prompt.md at
+  // REQUEST time via readFileSync(process.cwd() + ...) — a pattern Next's
+  // serverless file tracer (@vercel/nft) does not reliably detect, because
+  // the path is assembled at runtime rather than statically imported. Without
+  // this entry the file silently does not ship in the deployed function:
+  // readFileSync then either throws ENOENT or (as happened in production,
+  // 2026-08-05) reads something that doesn't match the expected fence and
+  // throws "Could not find a fenced system prompt block" — uncaught, because
+  // that call sits outside classifyMessage's try/catch, which crashed EVERY
+  // inbound WhatsApp/Telegram message that needed fresh classification
+  // (a genuinely new ticket) while leaving already-open-thread replies
+  // (follow-up/status/pleasantry, which never call it) looking fine. This
+  // explicitly guarantees the file is bundled for both webhook routes.
+  //
+  // ⚠️ Found 2026-08-20: the portal's own "Submit Request" path
+  // (app/dashboard/new/actions.ts, a server action calling
+  // classifyMessageWithProvider directly, not through handle-inbound.ts)
+  // hits the exact same gap and was never added here. It didn't crash —
+  // loadSystemPrompt()'s try/catch (deliberately added after the webhook
+  // incident above) caught the missing file and fell back to
+  // `{ classification: FALLBACK_CLASSIFICATION, provider: "none" }`
+  // silently, so every portal-submitted request landed as
+  // general/normal/needs-human-review regardless of what was actually
+  // typed — indistinguishable from "no AI key configured" unless you check
+  // `tickets.classified_by`, which is what caught it.
+  outputFileTracingIncludes: {
+    "/api/webhooks/whatsapp/route": ["./docs/AURA_Triage_Classification_Prompt.md"],
+    "/api/webhooks/telegram/route": ["./docs/AURA_Triage_Classification_Prompt.md"],
+    "/dashboard/new": ["./docs/AURA_Triage_Classification_Prompt.md"],
   },
 
   async headers() {
