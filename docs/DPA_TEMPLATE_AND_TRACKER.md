@@ -81,21 +81,30 @@ law. This addendum closes that gap without renegotiating their whole document.
 
 ## 3. Processor tracker
 
+**Go-live, 28 Sept 2026.** The board authorised live data with the NDPA
+addenda (§2) still unsigned. The interim step is to **accept each processor's
+own published DPA today** wherever it is self-serve. Those marked 🟡 below are
+self-serve: most are part of the provider's terms already, so "accept" means
+confirming the account is on those terms, downloading the PDF, and writing the
+date and version into the Status column. The ⛔ rows need a request, or
+counsel, and stay with 1.1. Email goes through **Resend only**; no other mail
+provider carries personal data.
+
 | Processor | Personal data involved | Has own DPA? | Where to get it | NDPA addendum needed? | Status |
 |---|---|---|---|---|---|
-| Supabase | all of it (database, auth, storage) | Yes — published, GDPR-based | Supabase dashboard → Organization → Legal Documents, or supabase.com/legal/dpa | Yes (§2) | ⛔ not started |
-| Vercel | all of it, in transit | Yes — published | vercel.com/legal/dpa | Yes (§2) | ⛔ not started |
-| Anthropic | request/message text; extracted document text | Yes — available on request for business accounts | via Anthropic account team / trust.anthropic.com | Yes (§2) | ⛔ not started |
-| Google (Gemini) | message text (classifier failover only) | Yes — Google Cloud DPA | cloud.google.com/terms/data-processing-addendum | Yes (§2) | ⛔ not started |
+| Supabase | all of it (database, auth, storage) | Yes — published, GDPR-based | Supabase dashboard → Organization → Legal Documents, or supabase.com/legal/dpa | Yes (§2) | 🟡 self-serve: dashboard → Organization → Legal Documents. **Accepted: ____ (version ____)** |
+| Vercel | all of it, in transit | Yes — published | vercel.com/legal/dpa | Yes (§2) | 🟡 self-serve: part of its terms; download and file. **Accepted: ____ (version ____)** |
+| Anthropic | request/message text; extracted document text | Yes — available on request for business accounts | via Anthropic account team / trust.anthropic.com | Yes (§2) | 🟡 check the Commercial Terms for an incorporated DPA; if none applies, request one via the account team. **Accepted: ____** |
+| Google (Gemini) | message text (classifier failover only) | Yes — Google Cloud DPA | cloud.google.com/terms/data-processing-addendum | Yes (§2) | 🟡 covers **paid** API use only. Move production to the paid tier first. **Accepted: ____** |
 | 360dialog | phone numbers, message content | **Confirm** — likely yes as a Meta BSP, but direct-client tier (not Partner) may differ; check | 360dialog account/legal contact | Yes (§2) once confirmed | ⛔ not started, confirm first |
 | Telegram | chat IDs, message content | **Unlikely** — Bot API has no known standard enterprise DPA process | Confirm via @BotSupport or Telegram's own privacy/legal contact; if none, use model DPA (§4) | Model DPA if no standard one exists | ⛔ not started, confirm first |
 | Paystack | name, email, amount, bank details | Yes — Nigerian entity, DPA available on request | Paystack business/legal contact | Yes (§2), lighter weight since Paystack is itself NDPA-governed | ⛔ verification in progress (business KYC), DPA not yet requested |
 | Flutterwave | as above, FX collections | Yes — likely, Nigerian entity | Flutterwave business/legal contact | Yes (§2) | ⛔ verification in progress (business KYC), DPA not yet requested; also gated on the in/out-of-scope decision in `GO_LIVE_CHECKLIST.md` |
-| Resend | name, email, message content | Yes — published | resend.com/legal/dpa | Yes (§2) | ⛔ not started |
+| Resend | name, email, message content | Yes — published | resend.com/legal/dpa | Yes (§2) | 🟡 self-serve: resend.com/legal/dpa. **Accepted: ____ (version ____)** |
 | Africa's Talking | phone numbers (SMS fallback) | Likely — Kenyan entity, confirm | Africa's Talking account/legal contact | Yes (§2) | ⛔ not started; only needed if SMS fallback is in scope for go-live |
-| Upstash | user IDs (rate limiting) | Yes — published | upstash.com/trust | Yes (§2) | ⛔ not started |
-| Sentry | may incidentally capture user IDs in error reports | Yes — published, GDPR-based | sentry.io/legal/dpa | Yes (§2) | ⛔ not started |
-| Cloudflare (Turnstile) | IP address and browser signals of everyone who signs in, accepts an invitation, requests a password reset or submits a vendor application | Yes — published, GDPR-based | cloudflare.com/cloudflare-customer-dpa | Yes (§2) | ⛔ not started — added 25 Sept 2026, when Turnstile went live on every sign-in |
+| Upstash | user IDs (rate limiting) | Yes — published | upstash.com/trust | Yes (§2) | 🟡 self-serve: upstash.com/trust. **Accepted: ____ (version ____)** |
+| Sentry | may incidentally capture user IDs in error reports | Yes — published, GDPR-based | sentry.io/legal/dpa | Yes (§2) | 🟡 self-serve: Organization settings → Legal & Compliance. **Accepted: ____ (version ____)** |
+| Cloudflare (Turnstile) | IP address and browser signals of everyone who signs in, accepts an invitation, requests a password reset or submits a vendor application | Yes — published, GDPR-based | cloudflare.com/cloudflare-customer-dpa | Yes (§2) | 🟡 self-serve: part of its self-serve terms; download and file. **Accepted: ____ (version ____)** |
 
 **All fourteen remain unsigned as of this draft** (Cloudflare added 25 Sept 2026 as the fourteenth). This tracker turns
 "⛔ unsigned" (the compliance pack's single line) into thirteen concrete next
