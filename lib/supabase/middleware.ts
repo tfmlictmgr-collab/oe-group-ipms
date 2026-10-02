@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { applyTrustedOrgHeaders } from "@/lib/org-headers";
+import { mfaGate, isMfaGated, MFA_PATH } from "@/lib/mfa-gate";
 
 // Refreshes the auth session on every request, guards /dashboard, and stamps
 // the caller's org/brand/role from the SIGNED JWT onto the forwarded request
@@ -57,10 +58,40 @@ export async function updateSession(request: NextRequest) {
   // redirect rather than a clean bounce to the login screen.
   const path = request.nextUrl.pathname;
   const isProtected = path.startsWith("/dashboard") || path === "/orgs";
-  if (isProtected && !user) {
+  // `/mfa` is behind the sign-in too: it is where the gate below sends people,
+  // and a visitor with no session has no factor to set up or answer.
+  if ((isProtected || path === MFA_PATH) && !user) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
+  }
+
+  // 0308. Two-factor sign-in. Enrolled people must have answered the code in
+  // this session; everyone else must enrol once their organisation's date has
+  // passed. `getAuthenticatorAssuranceLevel()` reads the session token locally
+  // and `user.factors` came with `getUser()` above, so an enrolled person costs
+  // no extra round trip — only someone NOT enrolled asks for their org's date.
+  if (user && isMfaGated(path)) {
+    const hasVerifiedFactor = (user.factors ?? []).some(
+      (f) => f.factor_type === "totp" && f.status === "verified"
+    );
+    const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+    let enforcedFrom: string | null = null;
+    if (!hasVerifiedFactor) {
+      const { data } = await supabase.rpc("my_mfa_enforced_from");
+      enforcedFrom = (data as string | null) ?? null;
+    }
+    const gate = mfaGate({ hasVerifiedFactor, currentLevel: aal?.currentLevel, enforcedFrom });
+    if (gate.kind === "verify" || gate.kind === "enroll") {
+      const url = request.nextUrl.clone();
+      url.pathname = MFA_PATH;
+      url.search = "";
+      url.searchParams.set("next", path + request.nextUrl.search);
+      const redirect = NextResponse.redirect(url);
+      // Keep any refreshed auth cookies, or the redirect logs them out.
+      supabaseResponse.cookies.getAll().forEach((c) => redirect.cookies.set(c));
+      return redirect;
+    }
   }
 
   return supabaseResponse;

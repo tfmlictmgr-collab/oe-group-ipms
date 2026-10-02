@@ -249,6 +249,46 @@ export async function releaseMemberEmail(
  * than returned to the caller. Returning it would put a working credential on
  * an administrator's screen, which is the thing this avoids.
  */
+/**
+ * Removes a member's second factor so they can set up a new one (0308) —
+ * for someone who has lost both their authenticator and their backup codes.
+ *
+ * Same two-step shape as the password reset below. Step 1 is the database:
+ * an active administrator of the same org, not themselves, signed in at AAL2
+ * if they are enrolled, with a reason — and the audit row is written there,
+ * before anything changes. Step 2 removes the factor through the auth
+ * provider's admin API, never by editing the auth schema from SQL.
+ */
+export async function resetMemberMfa(
+  userId: string,
+  reason: string
+): Promise<ActionResult<{ email: string }>> {
+  const supabase = await createClient();
+  const { data: email, error } = await supabase.rpc("authorise_member_mfa_reset", {
+    p_user_id: userId,
+    p_reason: reason,
+  });
+  if (error) return fail(error.message);
+
+  const { data: list, error: listErr } = await supabaseAdmin.auth.admin.mfa.listFactors({ userId });
+  if (listErr) {
+    return fail(
+      `The reset was authorised but their factors could not be read: ${listErr.message}`,
+      "Nothing was removed. Try again; the attempt is on the audit trail."
+    );
+  }
+  for (const factor of list?.factors ?? []) {
+    const { error: delErr } = await supabaseAdmin.auth.admin.mfa.deleteFactor({ id: factor.id, userId });
+    if (delErr) {
+      return fail(
+        `Could not remove one of their factors: ${delErr.message}`,
+        "Some may already be gone. Try again; the attempt is on the audit trail."
+      );
+    }
+  }
+  return ok({ email: String(email) });
+}
+
 export async function sendMemberPasswordReset(
   userId: string
 ): Promise<ActionResult<{ email: string }>> {
