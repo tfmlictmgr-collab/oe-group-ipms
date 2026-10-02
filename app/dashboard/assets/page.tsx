@@ -22,6 +22,8 @@ export default async function AssetsPage() {
       "admin",
       ...FM_PM,
       "regional_manager",
+      // 0307. Holds `assets.read`, org-wide; never `assets.write`.
+      "operations_executive",
       "finance_approver",
       "property_owner",
       "executive",

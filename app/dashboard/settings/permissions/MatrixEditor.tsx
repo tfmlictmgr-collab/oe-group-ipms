@@ -22,7 +22,10 @@ import { setPermission, resetToB7, type MatrixView } from "./actions";
 // Ordered roughly by seniority so the matrix reads the way the org does.
 const ROLES = [
   "tenant", "vendor", "fm_ops_staff", ...FM_PM,
-  "regional_manager", "finance_approver",
+  "regional_manager",
+  // 0307 — added in the same change that created it, for once.
+  "operations_executive",
+  "finance_approver",
   // 0151 created these two and this list was never told — the third time this
   // exact omission has happened here, after `executive` and `regional_manager`.
   // They carry real seeded grants (the auditor holds org-wide sight of the
@@ -47,6 +50,7 @@ const SHORT_LABEL: Record<string, string> = {
   facility_manager: "FM",
   property_manager: "PM",
   regional_manager: "Regional",
+  operations_executive: "Executive",
   finance_approver: "Pay officer",
   payment_audit_approver: "Pay auditor",
   payment_approver: "Pay approver",

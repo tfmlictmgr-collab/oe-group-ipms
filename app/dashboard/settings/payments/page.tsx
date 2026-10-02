@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Eye } from "lucide-react";
 import SettingsForm from "../SettingsForm";
 import FeeSettingsForm from "./FeeSettingsForm";
+import ExecutiveLimitForm from "./ExecutiveLimitForm";
 import AdminOnly from "../AdminOnly";
 
 export default async function PaymentSettingsPage() {
@@ -21,12 +22,12 @@ export default async function PaymentSettingsPage() {
   const [{ data: settings }, { data: org }, { data: isOperator }] = await Promise.all([
     supabase
       .from("payment_settings")
-      .select("min_performance_score, approval_threshold_amount, admin_fee_percent, tier1_threshold_amount")
+      .select("min_performance_score, approval_threshold_amount, admin_fee_percent, tier1_threshold_amount, ops_executive_requisition_limit")
       .eq("org_id", session.profile.org_id)
       .single(),
     supabase
       .from("orgs")
-      .select("management_fee_pct")
+      .select("management_fee_pct, delivery_brand")
       .eq("id", session.profile.org_id)
       .single(),
     // The two gate controls are operator-governed as of 0149 — the same shape
@@ -39,6 +40,9 @@ export default async function PaymentSettingsPage() {
   const minScore = Number(settings?.min_performance_score ?? 70);
   const threshold = Number(settings?.approval_threshold_amount ?? 1000000);
   const tier1Threshold = Number(settings?.tier1_threshold_amount ?? 100000);
+  const execLimit = Number(settings?.ops_executive_requisition_limit ?? 500000);
+  // 0307. The Executive is an OEA role; the limit means nothing elsewhere.
+  const isOea = org?.delivery_brand === "OEA";
 
   return (
     <div className="space-y-4">
@@ -93,6 +97,38 @@ export default async function PaymentSettingsPage() {
           )}
         </CardContent>
       </Card>
+
+      {isOea && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Executive requisition limit</CardTitle>
+            <CardDescription>
+              The largest FM, PM or operations requisition the Executive may
+              approve at the Managing Partner&apos;s stage. Never their own, and
+              never a vendor payment or landlord payout.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {isOperator ? (
+              <ExecutiveLimitForm orgId={session.profile.org_id} initialLimit={execLimit} />
+            ) : (
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  <span className="font-medium text-foreground">Read-only.</span>{" "}
+                  Set centrally by TENTai, like the approval limits above. Ask
+                  your TENTai contact for a change.
+                </p>
+                <dl className="max-w-xs rounded-lg border px-4 py-3">
+                  <dt className="text-sm text-muted-foreground">Executive limit</dt>
+                  <dd className="mt-1 text-lg font-medium tabular-nums">
+                    ₦{execLimit.toLocaleString()}
+                  </dd>
+                </dl>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

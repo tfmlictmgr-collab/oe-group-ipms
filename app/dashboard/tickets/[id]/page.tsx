@@ -71,7 +71,10 @@ export default async function TicketDetailPage({
   const canManage =
     session.profile?.role === "admin" ||
     (FM_PM as readonly string[]).includes(session.profile?.role ?? "") ||
-    session.profile?.role === "regional_manager";
+    session.profile?.role === "regional_manager" ||
+    // 0307. The OEA Executive coordinates every FM/PM/Ops desk and holds
+    // `tickets.assign` org-wide. Review-before-dispatch still applies to them.
+    session.profile?.role === "operations_executive";
 
   const supabase = await createClient();
   const { data: ticket } = await supabase

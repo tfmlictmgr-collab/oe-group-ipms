@@ -31,6 +31,8 @@ export default async function VendorsPage() {
   // link from that capability and only this list said no.
   if (!roleAllowed(session.profile?.role, [
     "admin", ...FM_PM, "regional_manager", "finance_approver", "executive",
+    // 0307. Holds `vendors.read` to dispatch work; never `vendors.write`.
+    "operations_executive",
   ])) {
     return <RoleGate title="Vendors" />;
   }

@@ -57,7 +57,7 @@ export async function inviteMember(
     .from("users").select("org_id, role, full_name").eq("id", user.id).single();
   if (!me) return fail("Could not resolve your profile.");
 
-  if (!["admin", ...FM_PM, "regional_manager"].includes(me.role)) {
+  if (!["admin", ...FM_PM, "regional_manager", "operations_executive"].includes(me.role)) {
     return fail("Only an administrator or a manager may invite people.");
   }
 
@@ -82,12 +82,23 @@ export async function inviteMember(
   // change in three places instead of one. `invitableBy()` is now the single
   // client-side answer and it mirrors `invitable_roles()` in the database,
   // which remains the enforcement.
-  if (!(invitableBy(me.role) as readonly string[]).includes(input.role)) {
+  // delivery_brand decides whether the role reads "Operations Staff" (TFML) or
+  // "Property Operations Staff" (OEA) — and, since 0307, whether a brand-only
+  // role (the OEA Executive) may be issued at all.
+  const { data: org } = await supabase
+    .from("orgs").select("delivery_brand").eq("id", me.org_id).single();
+  const brand = org?.delivery_brand ?? null;
+
+  if (!(invitableBy(me.role, brand) as readonly string[]).includes(input.role)) {
     return fail(
-      `You cannot invite someone as ${roleLabel(input.role)}.`,
+      `You cannot invite someone as ${roleLabel(input.role, brand)}.`,
       me.role === "regional_manager"
         ? "A regional manager may invite facilities and property managers, owners, tenants and vendors. Administrators, the executive and the payment desks are an administrator's to appoint."
-        : "You may only invite roles below your own."
+        : me.role === "operations_executive"
+          ? "The Executive may invite facilities managers, properties managers and operations staff. Everyone else is an administrator's to appoint."
+          : me.role === "admin"
+            ? "That role exists on OEA only."
+            : "You may only invite roles below your own."
     );
   }
 
@@ -138,11 +149,6 @@ export async function inviteMember(
 
   const origin = await portalOrigin(me.org_id);
   const url = buildInviteUrl(origin, token);
-
-  // delivery_brand decides whether the role reads "Operations Staff" (TFML) or
-  // "Property Operations Staff" (OEA).
-  const { data: org } = await supabase
-    .from("orgs").select("delivery_brand").eq("id", me.org_id).single();
 
   // `accepted` is what the provider tells us synchronously; whether it ARRIVED
   // is decided later, by the delivery webhook, against this invitation.

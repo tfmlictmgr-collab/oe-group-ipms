@@ -86,6 +86,48 @@ export async function updatePaymentSettings(
   return ok();
 }
 
+/**
+ * The OEA Executive's requisition limit (0307). Operator-governed for the same
+ * reason as the tier limits above, and through its own RPC so the change
+ * carries a reason and an `operator_actions` row. The database re-checks all
+ * of it and remains the enforcement.
+ */
+export async function updateOpsExecutiveLimit(
+  orgId: string,
+  limit: number,
+  reason: string
+): Promise<ActionResult> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return fail("Your session expired. Please sign in again.");
+
+  const { data: isOperator } = await supabase.rpc("caller_is_operator_admin");
+  if (!isOperator) {
+    return fail(
+      "The Executive's requisition limit is set by TENTai.",
+      "It decides which requisitions can be approved without the Managing Partner, so it is not the organisation's to change."
+    );
+  }
+  if (reason.trim().length < 10) {
+    return fail(
+      "Say why this limit is changing.",
+      "At least a short sentence — it is the record an auditor reads."
+    );
+  }
+  if (!Number.isFinite(limit) || limit <= 0) {
+    return fail("The limit must be greater than zero.");
+  }
+
+  const { error } = await supabase.rpc("operator_set_ops_executive_limit", {
+    p_org_id: orgId,
+    p_limit: limit,
+    p_reason: reason.trim(),
+  });
+  if (error) return failFromDb(error, "save the Executive's limit");
+  revalidatePath("/dashboard/settings/payments");
+  return ok();
+}
+
 // Per-org branding. RLS (orgs_admin_update) restricts writes to the caller's own
 // org and to admins; this action additionally validates the values and touches
 // ONLY the theme columns + display name, so no other org field can be edited

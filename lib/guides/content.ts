@@ -756,6 +756,75 @@ export const ROLE_GUIDES: Record<string, RoleGuide> = {
     ],
   },
 
+  // 0307 (2 Oct 2026). OEA only.
+  operations_executive: {
+    title: "Your Executive guide",
+    audience:
+      "For the Executive — coordinating every facilities manager, properties manager and operations person at OEA.",
+    sections: [
+      SIGNING_IN,
+      {
+        heading: "Coordinating the desks",
+        steps: [
+          {
+            title: "What you see",
+            body:
+              "Every request in the organisation, every property and its assets, " +
+              "and the vendor list — not only one region. Use the Requests page " +
+              "filters to find what is stuck and on whose desk.",
+          },
+          {
+            title: "Dispatching and closing",
+            body:
+              "You can assign a request to a vendor or a member of staff and close " +
+              "it once the work is done. A request still has to be reviewed by its " +
+              "facilities or properties manager before it is dispatched — you can " +
+              "chase that review, not skip it.",
+          },
+          {
+            title: "Onboarding",
+            body:
+              "Under People you can invite facilities managers, properties managers " +
+              "and operations staff, and place managers on the properties they will " +
+              "run. Regional managers, the payment desks and administrators are the " +
+              "administrator's to appoint.",
+          },
+        ],
+      },
+      {
+        heading: "Approving requisitions",
+        intro:
+          "You hold the Managing Partner's stage for small FM, PM and operations " +
+          "requisitions, so routine spend does not wait on the Managing Partner.",
+        steps: [
+          {
+            title: "What reaches you",
+            body:
+              "Under Approvals: requisitions the auditor has reviewed, up to your " +
+              "limit (set by OE Group — ₦500,000 at launch). Approve it, send it back " +
+              "with a reason, or refuse it. The payment approver signs after you and " +
+              "the payment officer releases the money.",
+          },
+          {
+            title: "What does not",
+            body:
+              "Anything above your limit, every vendor invoice and every landlord " +
+              "payout stay with the Managing Partner. You cannot approve a " +
+              "requisition you raised, or lower one into your limit to approve it.",
+          },
+        ],
+      },
+      GETTING_HELP,
+    ],
+    cannot: [
+      "Approve a requisition above your limit, a vendor payment or a landlord payout.",
+      "Approve a requisition you raised.",
+      "Release a payment, post to the ledger, or change a bank account.",
+      "Change your own approval limit.",
+      "Invite a regional manager, a payment desk, an administrator or another Executive.",
+    ],
+  },
+
   executive: {
     title: "Your executive guide",
     audience:

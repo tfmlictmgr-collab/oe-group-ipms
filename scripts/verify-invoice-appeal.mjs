@@ -167,6 +167,8 @@ async function scenario(orgId, vendorId, status, actorId, sql, extra = "") {
              join users u
                on u.org_id = $1::uuid and u.role = want
               and u.deactivated_at is null and u.id <> $3::uuid
+              -- 0307: the OEA Executive never decides a vendor payment.
+              and want <> 'operations_executive'::user_role
             -- Highest tier first, so the tier-resolved stage is cleared by
             -- someone whose band covers the fixture amount whatever it is.
             order by s.stage_order, u.approval_tier desc nulls last`,

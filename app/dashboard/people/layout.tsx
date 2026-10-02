@@ -29,7 +29,8 @@ export default async function PeopleLayout({
   // and the product refused them the only screen that does it, while the nav
   // went on offering the link. A menu item that leads to "Not available for
   // your role" is the UI disagreeing with the policy, and the policy was right.
-  if (!roleAllowed(session.profile?.role, ["admin", ...FM_PM, "regional_manager"])) {
+  // `operations_executive` (0307) onboards the FM/PM/Ops staff they coordinate.
+  if (!roleAllowed(session.profile?.role, ["admin", ...FM_PM, "regional_manager", "operations_executive"])) {
     return <RoleGate title="People & Onboarding" />;
   }
 

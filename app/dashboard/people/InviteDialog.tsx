@@ -110,7 +110,7 @@ export default function InviteDialog({
   // `invitableBy()` is the mirror of the database's `invitable_roles()` and
   // exists for precisely this. It was written, exported, and never called
   // here.
-  const roles = React.useMemo(() => invitableBy(myRole), [myRole]);
+  const roles = React.useMemo(() => invitableBy(myRole, brand), [myRole, brand]);
 
   // Never leave the form holding a role this person cannot issue — including
   // the initial `facility_manager`, which a facilities manager themselves may
@@ -225,6 +225,8 @@ export default function InviteDialog({
                 <p className="text-xs text-muted-foreground">
                   {myRole === "regional_manager"
                     ? `Managers, owners, tenants and vendors are yours to invite. An administrator, the ${roleLabel("executive", brand)} and the payment desks are an administrator's.`
+                    : myRole === "operations_executive"
+                    ? `Facilities managers, properties managers and operations staff are yours to invite. Everyone else is an administrator's.`
                     : `You can invite the roles below your own. An administrator, the ${roleLabel("executive", brand)} and the payment desks are an administrator's.`}
                 </p>
               )}
