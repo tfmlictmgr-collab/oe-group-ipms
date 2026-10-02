@@ -112,7 +112,10 @@ const fm = await one(
 const stages = (await db.query("select stage_order, required_roles from payment_chain_stages($1) order by 1", [org.id])).rows;
 const deciders = [];
 for (const s of stages) {
-  const roles = String(s.required_roles).replace(/[{}]/g, "").split(",");
+  // 0307: the OEA Executive shares stage 2 for small requisitions only, never
+  // a vendor payment — so they are never this fixture's decider.
+  const roles = String(s.required_roles).replace(/[{}]/g, "").split(",")
+    .filter((r) => r !== "operations_executive");
   const u = await one(
     `select id from users where org_id = $1 and role = any($2::user_role[]) and deactivated_at is null
         and email not like 'probe%' and id <> $3 and not (id = any($4::uuid[]))

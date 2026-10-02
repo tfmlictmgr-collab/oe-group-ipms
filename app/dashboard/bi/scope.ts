@@ -39,6 +39,10 @@ export function biScope(role: string | undefined): BiScope {
     // B7 v3.3: ops KPIs and managed vendors, "nothing financial". Same operational
     // shape as the FM/PM, minus the budget column — hence no `budget`.
     case "regional_manager":
+    // 0307. The OEA Executive coordinates operations org-wide: the same ops
+    // KPIs, nothing financial — the requisitions they clear are seen on the
+    // approvals board, not as a ledger.
+    case "operations_executive":
       return { requests: true, vendorPerf: true, collection: false, liabilities: false, budget: false };
     case "finance_approver": // financial
       return { requests: false, vendorPerf: false, collection: true, liabilities: true, budget: true };

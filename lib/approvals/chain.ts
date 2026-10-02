@@ -102,7 +102,11 @@ export const CHAIN_SHAPES = {
     },
     {
       stageOrder: 2 as const,
-      requiredRoles: ["executive"],
+      // 0307. The Executive shares this stage NARROWLY: requisitions only, at
+      // or below the operator-set limit, never one they raised. The shape lists
+      // every role the stage can ever admit; `stageRolesFor()` narrows it per
+      // payable, and `enforce_approval_rules()` is the enforcement.
+      requiredRoles: ["executive", "operations_executive"],
       tierResolved: false,
       label: "Managing Partner approval",
       short: "MP approval",
@@ -214,6 +218,15 @@ export interface ChainState {
    */
   tiersEnabled: boolean;
   /**
+   * The OEA Executive's requisition limit for this payable's organisation
+   * (0307), or null where it could not be read. Already applied to each
+   * stage's `requiredRoles`; kept here for the sentence that explains it.
+   */
+  opsExecutiveLimit: number | null;
+  /** Who raised it — set for a requisition only. An Executive may not action
+   *  one they raised (0307). */
+  raisedBy: string | null;
+  /**
    * Sent back for correction and not yet re-given (0250b). A return at stage
    * N>1 retires stage N-1, so the chain simply shows that rung outstanding
    * again; a return at stage 1 has no rung below it and the payable leaves the
@@ -301,6 +314,7 @@ export function canActorAction(actor: Actor, state: ChainState): boolean {
   if (state.rejected || !state.nextStage) return false;
   const stage = state.nextStage;
   if (!stage.requiredRoles.includes(actor.role)) return false;
+  if (actor.role === "operations_executive" && state.raisedBy === actor.id) return false;
   // One human, one stage — holding two roles does not make you two people.
   if (state.stages.some((s) => s.actorId === actor.id)) return false;
   if (stage.tierResolved) {
@@ -325,6 +339,19 @@ export function whyNotActionable(
   const stage = state.nextStage;
   if (state.stages.some((s) => s.actorId === actor.id)) {
     return "You actioned an earlier stage — this needs a second pair of hands.";
+  }
+  if (actor.role === "operations_executive" && state.raisedBy === actor.id) {
+    return "You raised this requisition — it needs a second pair of hands.";
+  }
+  if (
+    actor.role === "operations_executive" &&
+    !stage.requiredRoles.includes(actor.role) &&
+    stage.stageOrder === 2 &&
+    state.shape === "oea"
+  ) {
+    return state.payableType !== "ops_requisition"
+      ? "The Executive approves requisitions only — this is the Managing Partner's."
+      : `${formatNaira(state.amount)} is above your limit of ${formatNaira(state.opsExecutiveLimit ?? 0)} — the Managing Partner decides it.`;
   }
   if (!stage.requiredRoles.includes(actor.role)) {
     return `Waiting on ${stage.label.toLowerCase()}.`;
@@ -372,7 +399,30 @@ const ROLE_WORDS: Record<string, string> = {
   facility_manager: "facilities manager",
   property_manager: "properties manager",
   regional_manager: "regional manager",
+  operations_executive: "Executive",
 };
+
+/**
+ * Which of a stage's roles may act on THIS payable (0307).
+ *
+ * Every role but the Executive is admitted by the stage alone. The Executive
+ * is admitted only on a requisition at or below their organisation's limit —
+ * mirrored from `enforce_approval_rules()`, which is the enforcement. Applied
+ * once, in `getChainState`, so that `canActorAction`, `waitingOn` and every
+ * screen reading `requiredRoles` agree without each restating the rule.
+ */
+export function stageRolesFor(
+  roles: readonly string[],
+  payableType: PayableType,
+  amount: number,
+  opsExecutiveLimit: number | null
+): readonly string[] {
+  const executiveMay =
+    payableType === "ops_requisition" &&
+    opsExecutiveLimit !== null &&
+    amount <= opsExecutiveLimit;
+  return executiveMay ? roles : roles.filter((r) => r !== "operations_executive");
+}
 
 export function formatNaira(amount: number): string {
   return `₦${Number(amount).toLocaleString("en-NG", {
@@ -460,11 +510,20 @@ export async function getChainState(
   // is resolved from the SAME org the amount was, rather than from the viewer's
   // own organisation — a payable is approved on its own org's chain and the
   // reader may be an operator looking at someone else's.
-  const [{ data: tier }, { data: shapeRow }, { data: tiersOn }] = await Promise.all([
-    supabase.rpc("resolve_required_tier", { p_org_id: orgId, p_amount: amount }),
-    supabase.rpc("org_payment_chain", { p_org_id: orgId }),
-    supabase.rpc("org_approval_tiers_enabled", { p_org_id: orgId }),
-  ]);
+  const [{ data: tier }, { data: shapeRow }, { data: tiersOn }, { data: execLimit }, { data: raiser }] =
+    await Promise.all([
+      supabase.rpc("resolve_required_tier", { p_org_id: orgId, p_amount: amount }),
+      supabase.rpc("org_payment_chain", { p_org_id: orgId }),
+      supabase.rpc("org_approval_tiers_enabled", { p_org_id: orgId }),
+      // 0307. Answers only for the caller's own org; null elsewhere, which
+      // narrows the Executive out — the safe direction for a display.
+      supabase.rpc("ops_executive_requisition_limit", { p_org_id: orgId }),
+      payableType === "ops_requisition"
+        ? supabase.from("ops_requisitions").select("raised_by").eq("id", payableId).maybeSingle()
+        : Promise.resolve({ data: null }),
+    ]);
+  const opsExecutiveLimit = execLimit == null ? null : Number(execLimit);
+  const raisedBy = (raiser as { raised_by?: string } | null)?.raised_by ?? null;
   const tiersEnabled = Boolean(tiersOn);
   const requiredTier = (Number(tier) || 1) as ApprovalTier;
   const shape: ChainShape =
@@ -498,7 +557,7 @@ export async function getChainState(
       stageOrder: s.stageOrder,
       label: s.label,
       short: s.short,
-      requiredRoles: s.requiredRoles,
+      requiredRoles: stageRolesFor(s.requiredRoles, payableType, amount, opsExecutiveLimit),
       // The shape's capability AND the org's setting. `canActorAction`,
       // `whyNotActionable`, `waitingOn` and `ChainTrail` all key off this one
       // field, so switching it here switches off the band gate, its refusal
@@ -559,6 +618,8 @@ export async function getChainState(
     clearedForDisbursement,
     amountChangedAfterApproval: !rejected && stages.some((s) => s.staleDecision !== null),
     tiersEnabled,
+    opsExecutiveLimit,
+    raisedBy,
     returnedAtStage: (returnedRow?.stage_order as StageOrder | undefined) ?? null,
     returnedReason: returnedRow?.reason ?? null,
     returnedBy: returnedRow?.users?.full_name ?? null,

@@ -296,7 +296,7 @@ export default async function DashboardLayout({
     // queue move. Same reasoning as seesPayments: not capability-derived,
     // because approval is non-delegable (decision 7).
     seesApprovals: [
-      "admin", "executive", ...FM_PM, "regional_manager",
+      "admin", "executive", ...FM_PM, "regional_manager", "operations_executive",
       "payment_approver", "payment_audit_approver", "finance_approver",
     ].includes(role),
     // 0281/0282. The three confirmation desks are hardwired — this chain ends
@@ -331,6 +331,8 @@ export default async function DashboardLayout({
     // Everyone operational who is not given a personal home screen above.
     isStaff: [
       "admin", ...FM_PM, "finance_approver", "executive", "regional_manager",
+      // 0307. Coordinates operations; lands on the staff home like the RM.
+      "operations_executive",
       // Both chain roles (0151). A role whose home screen resolves to nothing
       // is a person who signs in and lands nowhere — caught by
       // verify-role-surface, which checks exactly that and is the reason this

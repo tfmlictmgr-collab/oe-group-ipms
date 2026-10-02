@@ -116,7 +116,7 @@ console.log("A. The rank ladder");
 {
   const expected = [
     ["admin", 100], ["executive", 90], ["finance_approver", 70],
-    ["regional_manager", 60], ["facility_manager", 50], ["fm_ops_staff", 30],
+    ["operations_executive", 62], ["regional_manager", 60], ["facility_manager", 50], ["fm_ops_staff", 30],
     ["tenant", 10],
   ];
   let allOk = true;
@@ -162,6 +162,14 @@ console.log("\nB. A regional manager invites exactly the five the board named");
   got === want
     ? ok("invitable_roles('regional_manager') is exactly those five and nothing else")
     : bad(`invitable_roles('regional_manager') = ${got}`);
+
+  // 0307. The OEA Executive's stated set.
+  const { data: execSet } = await svc.rpc("invitable_roles", { p_inviter: "operations_executive" });
+  const gotExec = [...(execSet ?? [])].sort().join(",");
+  const wantExec = ["facility_manager", "fm_ops_staff", "property_manager"].sort().join(",");
+  gotExec === wantExec
+    ? ok("invitable_roles('operations_executive') is FM, PM and Ops and nothing else")
+    : bad(`invitable_roles('operations_executive') = ${gotExec}`);
 
   await c.auth.signOut();
 }

@@ -33,6 +33,9 @@ const BASE_LABELS: Record<string, string> = {
   executive: "Managing Director",
   payment_audit_approver: "Payment Auditor",
   payment_approver: "Payment Approver",
+  // 0306/0307. OEA only — see OEA_ONLY_ROLES. The identifier is NOT
+  // `executive`, which on OEA is the Managing Partner.
+  operations_executive: "Executive",
 };
 
 // Per-brand overrides. Only where the brand genuinely changes the job title.
@@ -137,6 +140,7 @@ export function readsServiceChargeRegister(role: string | null | undefined): boo
  * to select. Two lists that must agree will eventually disagree.
  */
 export const INVITABLE_ROLES = [
+  "operations_executive",
   "facility_manager",
   "property_manager",
   "regional_manager",
@@ -179,6 +183,9 @@ export const ROLE_RANK: Record<string, number> = {
   // ranked them since 0151 while this list had not.
   payment_approver: 65,
   payment_audit_approver: 64,
+  // 0307. Above the regional manager, below the Managing Partner. Mirrors
+  // `role_rank()`; who they may invite is a list, not this number.
+  operations_executive: 62,
   regional_manager: 60,
   // Peers, not a hierarchy. Equal ranks cannot invite each other (the rule is
   // "strictly below your own"), which is the intent: a facilities manager has
@@ -220,6 +227,23 @@ export const REGIONAL_MANAGER_INVITABLE: readonly InvitableRole[] = [
 ];
 
 /**
+ * What the OEA EXECUTIVE may issue (0307): the people they coordinate, and
+ * nobody else. Mirrors the `operations_executive` arm of `invitable_roles()`.
+ */
+export const OPERATIONS_EXECUTIVE_INVITABLE: readonly InvitableRole[] = [
+  "facility_manager",
+  "property_manager",
+  "fm_ops_staff",
+];
+
+/**
+ * Roles that exist on one brand only. The database refuses them anywhere else
+ * (`operations_executive_is_oea_only`, 0307); this only stops the form
+ * offering what the database will refuse.
+ */
+export const OEA_ONLY_ROLES: readonly string[] = ["operations_executive"];
+
+/**
  * The roles `inviterRole` may issue.
  *
  * **The administrator is the only role that may issue any role at all** (board,
@@ -235,9 +259,19 @@ export const REGIONAL_MANAGER_INVITABLE: readonly InvitableRole[] = [
  * enforcement. Two places deliberately: the database must stand alone, and the
  * UI must not offer what the database will refuse.
  */
-export function invitableBy(inviterRole: string | null | undefined): InvitableRole[] {
+export function invitableBy(
+  inviterRole: string | null | undefined,
+  brand?: string | null
+): InvitableRole[] {
   const role = inviterRole ?? "";
-  if (role === "admin") return [...INVITABLE_ROLES];
+  // A brand-only role is offered only on its brand. With no brand given the
+  // list is not narrowed — the database's guard is the enforcement either way.
+  const onBrand = (r: InvitableRole) =>
+    brand === undefined || brand === "OEA" || !OEA_ONLY_ROLES.includes(r);
+  if (role === "admin") return INVITABLE_ROLES.filter(onBrand);
+  if (role === "operations_executive") {
+    return INVITABLE_ROLES.filter((r) => OPERATIONS_EXECUTIVE_INVITABLE.includes(r));
+  }
   if (role === "regional_manager") {
     return INVITABLE_ROLES.filter((r) => REGIONAL_MANAGER_INVITABLE.includes(r));
   }
@@ -286,6 +320,8 @@ export const ROLE_HINTS: Partial<Record<string, string>> = {
     // decision 42 narrowed whom it may invite. It now shows on every regional
     // manager's profile, where a wrong sentence reads as a fact about a person.
     "Runs a region. Everything a facilities/properties manager does, plus the service charge and tenancies on the buildings they hold, and inviting managers, vendors, tenants and owners — all of it bounded to the region, project or site they are assigned to. Never approves or releases a payment.",
+  operations_executive:
+    "OEA only. Coordinates every facilities manager, properties manager and operations person in the organisation: sees and dispatches every request, and invites FM, PM and operations staff. Approves FM/PM/Ops requisitions at the Managing Partner's stage up to a limit OE Group sets (₦500,000 at launch) — never one they raised, never a vendor payment or landlord payout, and the audit review and payment approval still apply. Cannot release money.",
   executive:
     "Oversight for the Managing Director / Managing Partner. Sees everything the payment officer sees and approves payments — on OEA, every outbound payment passes them, at every amount. Cannot execute a remittance, change the approval threshold, or write to the ledger: authorising and disbursing stay in different hands.",
 };

@@ -117,6 +117,8 @@ const REQUIRED = {
   // `seesServiceCharges` was hiding the module from them.
   regional_manager: ["seesProperties", "seesVendors", "canEnroll", "seesServiceCharges", "seesLettings"],
   finance_approver: ["seesServiceCharges"],
+  // 0307. Org-wide sight of operations, and onboarding of FM/PM/Ops.
+  operations_executive: ["seesProperties", "seesVendors", "canEnroll"],
   property_owner:   ["seesProperties"],
   fm_ops_staff:     [],
   tenant:           [],
@@ -135,6 +137,8 @@ const FORBIDDEN = {
   // Enrolment is a write. Oversight oversees; it does not staff the org.
   executive:        ["canEnroll"],
   finance_approver: ["canEnroll"],
+  // 0307. Coordinates operations; nothing financial and no tenancies.
+  operations_executive: ["seesServiceCharges", "seesLettings"],
   // B7 gives these their own work and nothing organisational.
   fm_ops_staff:     ["seesProperties", "seesVendors", "seesLettings", "seesServiceCharges", "canEnroll"],
   tenant:           ["seesProperties", "seesVendors", "seesLettings", "seesServiceCharges", "canEnroll"],
@@ -355,6 +359,10 @@ console.log("\nE. Every role has somewhere to land");
     property_manager: "/dashboard",
     finance_approver: "/dashboard",
     regional_manager: "/dashboard",
+    // 0307. The OEA Executive lands on the staff dashboard's whole queue — they
+    // hold `tickets.read_all` and are not DESK_FIRST, so the default view is
+    // every request in the organisation, which is the job.
+    operations_executive: "/dashboard",
     // The approval-chain roles (0151). They land on the staff dashboard, whose
     // nav carries Approvals — the queue is the whole reason either account
     // exists.
