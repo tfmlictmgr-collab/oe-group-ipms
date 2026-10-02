@@ -1371,7 +1371,7 @@ export const PROCESS_CATALOGUE: Process[] = [
     },
     capabilities: ["people.invite", "people.deactivate", "invitation.create_admin"],
     routes: ["/dashboard/people", "/dashboard/people/directory"],
-    roles: ["admin", "regional_manager"],
+    roles: ["admin", "regional_manager", "operations_executive"],
   },
   {
     id: "read-the-audit-trail",
@@ -1624,7 +1624,7 @@ export const PROCESS_CATALOGUE: Process[] = [
     },
     capabilities: ["bi.read"],
     routes: ["/dashboard/bi", "/dashboard/bi/analytics"],
-    roles: ["admin", "executive", "regional_manager"],
+    roles: ["admin", "executive", "regional_manager", "operations_executive"],
   },
   {
     id: "open-your-own-role-guide",
