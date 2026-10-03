@@ -71,6 +71,12 @@ export type NavContext = {
    */
   isOpsStaff: boolean;
   /**
+   * May raise an ops requisition (`requisitions.raise`) — and so needs
+   * somewhere to follow the ones they raised. The approvals queue lists what a
+   * person can act on, which for a raiser outside the chain is nothing.
+   */
+  raisesRequisitions: boolean;
+  /**
    * A landlord.
    *
    * Given a portfolio home rather than the shared requests list, because the
@@ -255,6 +261,12 @@ export const NAV_GROUPS: NavGroup[] = [
         href: "/dashboard/my-jobs",
         icon: Wrench,
         show: (c) => c.isOpsStaff,
+      },
+      {
+        label: "My Requisitions",
+        href: "/dashboard/requisitions",
+        icon: ReceiptText,
+        show: (c) => c.raisesRequisitions,
       },
       {
         label: "My Portfolio",

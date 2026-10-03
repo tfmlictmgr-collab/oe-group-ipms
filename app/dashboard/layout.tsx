@@ -219,6 +219,9 @@ export default async function DashboardLayout({
     // the matrix — and they were the one role with somewhere to be sent and
     // nowhere to look.
     isOpsStaff: role === "fm_ops_staff",
+    // The matrix switch that lets them raise one is the switch that gives them
+    // a list of their own (3 Oct 2026).
+    raisesRequisitions: can("requisitions.raise"),
     isOwner: role === "property_owner",
     // Decision 9, verbatim: "Nothing financial, no org-wide read." Statements
     // is a financial screen with two branches — a per-unit tenant bill, or the
@@ -263,10 +266,15 @@ export default async function DashboardLayout({
     // Nothing is granted here: both pages gate their write controls on
     // `leases.write` separately, which oversight does not hold, so they arrive
     // read-only exactly as RLS intends.
+    // 0314. Asked of `leases.read`, the capability `leases_select` now checks,
+    // rather than of the applications capabilities — recommending a tenancy
+    // application happens under People → Tenancy Applications, and holding it
+    // is what used to put the rent roll in front of a facilities manager.
+    // A landlord holds it too, for their own building, but reads it through
+    // their portfolio home rather than the staff screens (verify-role-surface).
     seesLettings:
+      (can("leases.read") && role !== "property_owner") ||
       can("leases.write") ||
-      can("applications.review_all") ||
-      can("applications.recommend") ||
       isOversight(role),
     // ⚠️ NOT derived from `sc.read_all` alone, and that was the whole defect
     // (0231). `sc_budgets_select` has admitted "oversight, or a property I
