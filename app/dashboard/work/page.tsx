@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import RoleGate, { roleAllowed } from "../RoleGate";
 import RaiseWorkForm, { type Option } from "./RaiseWorkForm";
-import { FM_PM } from "@/lib/roles";
+import { OPS_MANAGERS } from "@/lib/roles";
 
 // Work an FM/PM initiates, rather than work a tenant reports.
 //
@@ -24,7 +24,7 @@ export default async function RaiseWorkPage() {
   if (!session) redirect("/login");
 
   if (!roleAllowed(session.profile?.role, [
-    "admin", ...FM_PM, "regional_manager",
+    "admin", ...OPS_MANAGERS,
   ])) {
     return <RoleGate title="Raise work" />;
   }

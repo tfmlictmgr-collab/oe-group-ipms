@@ -13,7 +13,7 @@
 // is the attack on a tiered ladder, and neither layer offers a way to do it.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { FM_PM } from "@/lib/roles";
+import { OPS_MANAGERS } from "@/lib/roles";
 
 export type PayableType = "vendor_payment" | "landlord_payout" | "ops_requisition";
 export type ApprovalTier = 1 | 2 | 3;
@@ -54,7 +54,7 @@ export const CHAIN_SHAPES = {
   standard: [
     {
       stageOrder: 1 as const,
-      requiredRoles: [...FM_PM, "regional_manager"],
+      requiredRoles: [...OPS_MANAGERS],
       tierResolved: false,
       // ⚠️ NOT an approval (board, 22 Aug 2026). An FM/PM confirms the work was
       // DONE — they have been to the building and the job card matches. They

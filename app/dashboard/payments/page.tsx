@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import RoleGate, { roleAllowed } from "../RoleGate";
 import BatchApprove, { type PaymentRow } from "./BatchApprove";
-import { FM_PM } from "@/lib/roles";
+import { OPS_MANAGERS } from "@/lib/roles";
 
 export const dynamic = "force-dynamic";
 
@@ -43,7 +43,7 @@ export default async function PaymentsPage() {
   // they hold the capability this page is for (0236/0238); the nav offers the
   // link from that capability and only this list said no.
   if (!roleAllowed(session.profile?.role, [
-    "admin", ...FM_PM, "regional_manager", "finance_approver", "executive",
+    "admin", ...OPS_MANAGERS, "finance_approver", "executive",
   ])) {
     return <RoleGate title="Vendor Payments" />;
   }

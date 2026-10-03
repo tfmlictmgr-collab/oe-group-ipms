@@ -117,8 +117,8 @@ const REQUIRED = {
   // `seesServiceCharges` was hiding the module from them.
   regional_manager: ["seesProperties", "seesVendors", "canEnroll", "seesServiceCharges", "seesLettings"],
   finance_approver: ["seesServiceCharges"],
-  // 0307. Org-wide sight of operations, and onboarding of FM/PM/Ops.
-  operations_executive: ["seesProperties", "seesVendors", "canEnroll"],
+  // 0309. Everything an FM/PM/RM reaches, over the whole organisation.
+  operations_executive: ["seesProperties", "seesVendors", "canEnroll", "seesServiceCharges", "seesLettings"],
   property_owner:   ["seesProperties"],
   fm_ops_staff:     [],
   tenant:           [],
@@ -137,8 +137,6 @@ const FORBIDDEN = {
   // Enrolment is a write. Oversight oversees; it does not staff the org.
   executive:        ["canEnroll"],
   finance_approver: ["canEnroll"],
-  // 0307. Coordinates operations; nothing financial and no tenancies.
-  operations_executive: ["seesServiceCharges", "seesLettings"],
   // B7 gives these their own work and nothing organisational.
   fm_ops_staff:     ["seesProperties", "seesVendors", "seesLettings", "seesServiceCharges", "canEnroll"],
   tenant:           ["seesProperties", "seesVendors", "seesLettings", "seesServiceCharges", "canEnroll"],

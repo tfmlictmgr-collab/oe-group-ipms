@@ -4,7 +4,7 @@ import { ArrowLeft, ArrowRight, CalendarClock, FileText, Receipt, Home } from "l
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
 import { formatMoney } from "@/lib/currency";
-import { FM_PM } from "@/lib/roles";
+import { OPS_MANAGERS } from "@/lib/roles";
 import { PageHeader } from "@/components/patterns/page-header";
 import { StatusBadge } from "@/components/patterns/status-badge";
 import { PrintButton } from "@/components/patterns/print-button";
@@ -194,7 +194,7 @@ export default async function LeaseDetailPage({
 
   const role = session.profile?.role ?? "";
   const viewerIsTenant = lease.tenant_user_id === session.user.id;
-  const isStaff = ["admin", "finance_approver", "executive", "regional_manager", ...FM_PM]
+  const isStaff = ["admin", "finance_approver", "executive", ...OPS_MANAGERS]
     .includes(role);
 
   // ⚠️ TWO READS, chosen by who is looking — and since 0229 that is not a

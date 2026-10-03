@@ -776,10 +776,18 @@ export const ROLE_GUIDES: Record<string, RoleGuide> = {
           {
             title: "Dispatching and closing",
             body:
-              "You can assign a request to a vendor or a member of staff and close " +
-              "it once the work is done. A request still has to be reviewed by its " +
-              "facilities or properties manager before it is dispatched — you can " +
-              "chase that review, not skip it.",
+              "You can review a request, assign it to a vendor or a member of staff, " +
+              "and close it once the work is done — on any property in the " +
+              "organisation.",
+          },
+          {
+            title: "Doing the work yourself",
+            body:
+              "Everything a facilities, properties or regional manager can do, you " +
+              "can do anywhere in the organisation: raise a work order or a " +
+              "requisition, keep the asset register, register and evaluate vendors, " +
+              "run service charges and tenancies, and edit properties. A requisition " +
+              "you raise is approved by the Managing Partner, never by you.",
           },
           {
             title: "Onboarding",

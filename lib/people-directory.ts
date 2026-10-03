@@ -62,6 +62,6 @@ export function isLiveTenancy(status: string | null | undefined): boolean {
 export function seesTenantMoney(role: string | null | undefined): boolean {
   return [
     "admin", "finance_approver", "executive", "payment_approver",
-    "property_manager", "regional_manager",
+    "property_manager", "regional_manager", "operations_executive",
   ].includes(role ?? "");
 }

@@ -11,7 +11,7 @@ import {
   buildInviteUrl,
   sendInviteEmail,
 } from "@/lib/invitation";
-import { roleLabel, INVITABLE_ROLES, invitableBy, type InvitableRole, FM_PM } from "@/lib/roles";
+import { roleLabel, INVITABLE_ROLES, invitableBy, type InvitableRole, OPS_MANAGERS } from "@/lib/roles";
 import { ok, fail, failFromDb, type ActionResult } from "@/lib/action-result";
 import { sendEmail } from "@/lib/email";
 
@@ -57,7 +57,7 @@ export async function inviteMember(
     .from("users").select("org_id, role, full_name").eq("id", user.id).single();
   if (!me) return fail("Could not resolve your profile.");
 
-  if (!["admin", ...FM_PM, "regional_manager", "operations_executive"].includes(me.role)) {
+  if (!["admin", ...OPS_MANAGERS].includes(me.role)) {
     return fail("Only an administrator or a manager may invite people.");
   }
 
