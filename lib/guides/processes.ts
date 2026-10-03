@@ -437,7 +437,11 @@ export const PROCESS_CATALOGUE: Process[] = [
         "executive, give the Managing Partner's approval; as the demo payment " +
         "approver, approve it; as the demo payment officer, remit it.",
     },
-    capabilities: ["payment.approve", "payment.remit"],
+    capabilities: [
+      "payment.approve", "payment.remit",
+      // 0312. The FM's sign-off (service verified, performance check) is a switch.
+      "payments.verify_service",
+    ],
     routes: [
       "/dashboard/my-company",
       "/dashboard/approvals",
@@ -1782,6 +1786,8 @@ export const PROCESS_CATALOGUE: Process[] = [
       "requisitions.raise", "requisitions.approve_within_limit", "operations.org_wide",
       // 0311. Work orders, split out of dispatch.
       "workorders.raise",
+      // 0312. Verifying vendor invoices.
+      "payments.verify_service",
     ],
     routes: ["/orgs"],
     roles: ["admin"],

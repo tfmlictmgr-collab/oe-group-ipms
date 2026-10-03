@@ -60,6 +60,7 @@ export default function PaymentActions({
   rejectedReason,
   canReopen,
   canRemit,
+  canVerify = true,
   orgId,
 }: {
   paymentId: string;
@@ -77,6 +78,12 @@ export default function PaymentActions({
    * refused, which reads as a broken system rather than a deliberate boundary.
    */
   canRemit?: boolean;
+  /**
+   * 0312. Whether this viewer may verify the service and run the performance
+   * check — the `payments.verify_service` switch. The trigger refuses it
+   * regardless; this stops the screen offering a button that will be refused.
+   */
+  canVerify?: boolean;
   /** The organisation — the folder a transfer confirmation is filed under (0289). */
   orgId?: string;
 }) {
@@ -350,6 +357,21 @@ export default function PaymentActions({
   // it is meant to stop here, so they are told why rather than shown a button
   // the database is certain to refuse — which reads as a broken system rather
   // than a deliberate boundary. Rejecting is still theirs.
+  if ((step.action === "verify" || step.action === "performance") && !canVerify) {
+    return (
+      <div className="space-y-3">
+        <p className="flex items-start gap-2 rounded-md bg-info/10 px-3 py-2 text-sm">
+          <CheckCircle2 className="mt-0.5 size-4 flex-shrink-0 text-info" />
+          <span>
+            Waiting on someone who verifies invoices in this organisation. Verifying the
+            service is switched off for your role.
+          </span>
+        </p>
+        <div className="flex flex-wrap items-center gap-2">{rejectControl}</div>
+      </div>
+    );
+  }
+
   if (step.action === "remit" && !canRemit) {
     return (
       <div className="space-y-3">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { ChevronDown, Search, Inbox, Banknote, AlertTriangle } from "lucide-react";
@@ -60,6 +60,15 @@ export type QueueRow = {
   sortKey: string;
 };
 
+const KINDS = [
+  { key: "all", label: "All" },
+  { key: "vendor_payment", label: "Invoices" },
+  { key: "landlord_payout", label: "Landlord payouts" },
+  { key: "ops_requisition", label: "Requisitions" },
+] as const;
+type KindKey = (typeof KINDS)[number]["key"];
+const KIND_KEY = "approvals:kind";
+
 /**
  * The approvals queue.
  *
@@ -107,6 +116,26 @@ export default function ApprovalsBoard({
   truncated: boolean;
 }) {
   const [tab, setTab] = useState<"mine" | "others">("mine");
+  // Which kind of payable — asked for 3 Oct 2026 so invoices, landlord payouts
+  // and requisitions can each be seen on their own. A view filter over rows the
+  // server already scoped, so it is browser state, remembered per viewer.
+  const [kind, setKindState] = useState<KindKey>("all");
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(KIND_KEY);
+      if (saved && KINDS.some((k) => k.key === saved)) setKindState(saved as KindKey);
+    } catch {
+      // Private window or blocked storage: the tabs still work, unremembered.
+    }
+  }, []);
+  const setKind = (k: KindKey) => {
+    setKindState(k);
+    try {
+      localStorage.setItem(KIND_KEY, k);
+    } catch {
+      // As above.
+    }
+  };
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState<Record<string, boolean>>({});
 
@@ -159,7 +188,16 @@ export default function ApprovalsBoard({
     [rows, actor, inChain, isOfficer]
   );
 
-  const active = tab === "mine" ? mine : others;
+  const inTab = tab === "mine" ? mine : others;
+  const kindCounts = useMemo(() => {
+    const m = new Map<KindKey, number>([["all", inTab.length]]);
+    for (const r of inTab) m.set(r.payableType, (m.get(r.payableType) ?? 0) + 1);
+    return m;
+  }, [inTab]);
+  const active = useMemo(
+    () => (kind === "all" ? inTab : inTab.filter((r) => r.payableType === kind)),
+    [inTab, kind]
+  );
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -246,6 +284,27 @@ export default function ApprovalsBoard({
         </div>
       </div>
 
+      <div className="flex flex-wrap gap-1 border-b border-border" role="tablist" aria-label="Which kind of payment to show">
+        {KINDS.map((k) => (
+          <button
+            key={k.key}
+            role="tab"
+            type="button"
+            aria-selected={kind === k.key}
+            onClick={() => setKind(k.key)}
+            className={cn(
+              "-mb-px inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-medium transition-colors",
+              kind === k.key
+                ? "border-[var(--brand)] text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {k.label}
+            <span className="tabular-nums opacity-70">{kindCounts.get(k.key) ?? 0}</span>
+          </button>
+        ))}
+      </div>
+
       {/* Raised between — a second way to find one, asked for alongside the
           reference search. Server-side, so it searches the whole table rather
           than the rows that happened to be on the page. */}
@@ -306,7 +365,9 @@ export default function ApprovalsBoard({
             <p className="mt-2 text-sm font-medium">
               {query
                 ? "Nothing matches that reference"
-                : tab === "mine"
+                : kind !== "all" && inTab.length > 0
+                  ? `No ${KINDS.find((k) => k.key === kind)?.label.toLowerCase()} here — the other tabs hold the rest`
+                  : tab === "mine"
                   ? "Nothing is waiting on you right now"
                   : "Nothing is waiting on anyone else"}
             </p>
