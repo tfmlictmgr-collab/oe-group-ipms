@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Lock, RotateCcw, ShieldCheck, Eye } from "lucide-react";
+import { Lock, RotateCcw, ShieldCheck, Eye, ChevronDown, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { roleLabel, FM_PM } from "@/lib/roles";
 import { Button } from "@/components/ui/button";
@@ -22,7 +22,10 @@ import { setPermission, resetToB7, type MatrixView } from "./actions";
 // Ordered roughly by seniority so the matrix reads the way the org does.
 const ROLES = [
   "tenant", "vendor", "fm_ops_staff", ...FM_PM,
-  "regional_manager", "finance_approver",
+  "regional_manager",
+  // 0307 — added in the same change that created it, for once.
+  "operations_executive",
+  "finance_approver",
   // 0151 created these two and this list was never told — the third time this
   // exact omission has happened here, after `executive` and `regional_manager`.
   // They carry real seeded grants (the auditor holds org-wide sight of the
@@ -47,6 +50,7 @@ const SHORT_LABEL: Record<string, string> = {
   facility_manager: "FM",
   property_manager: "PM",
   regional_manager: "Regional",
+  operations_executive: "Executive",
   finance_approver: "Pay officer",
   payment_audit_approver: "Pay auditor",
   payment_approver: "Pay approver",
@@ -55,6 +59,35 @@ const SHORT_LABEL: Record<string, string> = {
   executive: "MD / MP",
   admin: "Admin",
 };
+
+/**
+ * Capabilities that mean something for one role only (0310). Every other
+ * role's cell shows a dash rather than a switch that would change nothing —
+ * a toggle that does nothing teaches people the matrix is decorative.
+ */
+const ONLY_FOR: Record<string, readonly string[]> = {
+  "requisitions.approve_within_limit": ["operations_executive"],
+  "operations.org_wide": ["operations_executive"],
+};
+
+/** Which groups are open, remembered per browser. Collapsed by default: the
+ *  matrix is long, and a group with a deviation in it opens itself. */
+const OPEN_KEY = "permissions-matrix:open-groups";
+function readOpen(): Set<string> | null {
+  try {
+    const raw = window.localStorage.getItem(OPEN_KEY);
+    return raw ? new Set(JSON.parse(raw) as string[]) : null;
+  } catch {
+    return null;
+  }
+}
+function writeOpen(open: Set<string>) {
+  try {
+    window.localStorage.setItem(OPEN_KEY, JSON.stringify([...open]));
+  } catch {
+    // Private window or blocked storage: the groups still work, just unremembered.
+  }
+}
 
 export default function MatrixEditor({
   view,
@@ -77,6 +110,35 @@ export default function MatrixEditor({
 
   const deviating = React.useMemo(() => new Set(view.deviations), [view.deviations]);
   const modules = Array.from(new Set(view.capabilities.map((c) => c.module)));
+
+  // Deviations per group, so a collapsed group still says it holds one.
+  const driftByModule = React.useMemo(() => {
+    const m = new Map<string, number>();
+    for (const c of view.capabilities) {
+      const n = view.deviations.filter((d) => d.endsWith(`:${c.key}`)).length;
+      if (n) m.set(c.module, (m.get(c.module) ?? 0) + n);
+    }
+    return m;
+  }, [view.capabilities, view.deviations]);
+
+  const [open, setOpen] = React.useState<Set<string>>(
+    () => new Set(modules.filter((m) => driftByModule.has(m)))
+  );
+  // Restore the remembered set after mount (localStorage is browser-only).
+  React.useEffect(() => {
+    const saved = readOpen();
+    if (saved) setOpen(saved);
+  }, []);
+  const setAndSave = (next: Set<string>) => {
+    setOpen(next);
+    writeOpen(next);
+  };
+  const toggleGroup = (mod: string) => {
+    const next = new Set(open);
+    if (next.has(mod)) next.delete(mod);
+    else next.add(mod);
+    setAndSave(next);
+  };
 
   async function toggle(role: string, capability: string, next: boolean) {
     const key = `${role}:${capability}`;
@@ -158,20 +220,57 @@ export default function MatrixEditor({
         </div>
       )}
 
+      <div className="flex justify-end gap-2">
+        <Button variant="ghost" size="sm" onClick={() => setAndSave(new Set(modules))}>
+          <ChevronsUpDown className="size-4" /> Expand all
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => setAndSave(new Set())}>
+          <ChevronsDownUp className="size-4" /> Collapse all
+        </Button>
+      </div>
+
       {modules.map((mod) => {
         const caps = view.capabilities.filter((c) => c.module === mod);
+        const isOpen = open.has(mod);
+        const drift = driftByModule.get(mod) ?? 0;
+        const panelId = `perm-group-${mod.replace(/\W+/g, "-").toLowerCase()}`;
         return (
           <Card key={mod}>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">{mod}</CardTitle>
-              {caps.every((c) => c.locked) && (
+            <CardHeader className={isOpen ? "pb-3" : undefined}>
+              <button
+                type="button"
+                onClick={() => toggleGroup(mod)}
+                aria-expanded={isOpen}
+                aria-controls={panelId}
+                className="flex w-full items-center justify-between gap-3 text-left"
+              >
+                <span className="space-y-0.5">
+                  <CardTitle className="text-base">{mod}</CardTitle>
+                  <span className="block text-xs text-muted-foreground">
+                    {caps.length} capabilit{caps.length === 1 ? "y" : "ies"}
+                    {drift > 0 && (
+                      <span className="text-warning">
+                        {" "}· {drift} differ{drift === 1 ? "s" : ""} from the approved matrix
+                      </span>
+                    )}
+                  </span>
+                </span>
+                <ChevronDown
+                  className={cn(
+                    "size-4 flex-shrink-0 text-muted-foreground transition-transform",
+                    isOpen && "rotate-180"
+                  )}
+                />
+              </button>
+              {isOpen && caps.every((c) => c.locked) && (
                 <CardDescription>
                   These are not preferences. They are the controls an auditor
                   checks, and they are fixed in the database.
                 </CardDescription>
               )}
             </CardHeader>
-            <CardContent className="overflow-x-auto">
+            {isOpen && (
+            <CardContent id={panelId} className="overflow-x-auto">
               <table className="w-full min-w-[62rem] text-sm">
                 <thead>
                   <tr className="border-b border-border">
@@ -213,6 +312,17 @@ export default function MatrixEditor({
                             </td>
                           );
                         }
+                        if (ONLY_FOR[c.key] && !ONLY_FOR[c.key].includes(r)) {
+                          return (
+                            <td
+                              key={r}
+                              className="py-3 text-center text-muted-foreground"
+                              title={`Has no effect for ${roleLabel(r, brand)}`}
+                            >
+                              —
+                            </td>
+                          );
+                        }
                         return (
                           <td key={r} className="py-3 text-center">
                             <button
@@ -244,6 +354,7 @@ export default function MatrixEditor({
                 </tbody>
               </table>
             </CardContent>
+            )}
           </Card>
         );
       })}

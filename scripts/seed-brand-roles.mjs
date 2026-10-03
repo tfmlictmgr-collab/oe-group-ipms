@@ -30,7 +30,7 @@ const PASSWORD = "OEGroupDemo2026!";
 
 const world = requireNonProductionTarget(
   rootDir,
-  "This clears deactivated_at and lifts auth bans on 22 fixture accounts that all share one hardcoded password."
+  "This clears deactivated_at and lifts auth bans on 23 fixture accounts that all share one hardcoded password."
 );
 console.log(`Seeding brand role logins into ${world}\n`);
 
@@ -167,6 +167,9 @@ const BRANDS = [
       vendor:                 ["oea.vendor@oegroup.test",        "GreenLeaf Landscaping (Vendor)"],
       regional_manager:       ["oea.regional@oegroup.test",      "Aisha Sani (OEA)"],
       executive:              ["oea.executive@oegroup.test",     "Emeka Ilo (OEA Managing Partner)"],
+      // 0306/0307. The OEA-only Executive below the Managing Partner. OEA
+      // only — the database refuses the role on any other brand.
+      operations_executive:   ["oea.opsexec@oegroup.test",       "Adaeze Obi (OEA Executive)"],
       viewer:                 ["oea.viewer@oegroup.test",        "Blessing Okoro (OEA)"],
       finance_approver:       ["oea.finance@oegroup.test",       "Uche Nwosu (OEA)"],
       payment_approver:       ["oea.approver@oegroup.test",      "Tunde Salami (OEA)"],

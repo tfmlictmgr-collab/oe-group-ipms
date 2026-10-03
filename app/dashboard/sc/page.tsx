@@ -9,7 +9,7 @@ import { PageHeader } from "@/components/patterns/page-header";
 import { EmptyState } from "@/components/patterns/empty-state";
 import { StatusBadge } from "@/components/patterns/status-badge";
 import RoleGate, { roleAllowed } from "../RoleGate";
-import { FM_PM } from "@/lib/roles";
+import { OPS_MANAGERS } from "@/lib/roles";
 
 type BudgetRow = {
   id: string;
@@ -32,7 +32,7 @@ export default async function ServiceChargePage() {
   // way. What they SEE here is still decided by `sc_budgets_select` — their own
   // properties, expanded through the node subtree — not by this list.
   if (!roleAllowed(session.profile?.role, [
-    "admin", ...FM_PM, "regional_manager", "finance_approver", "executive",
+    "admin", ...OPS_MANAGERS, "finance_approver", "executive",
   ])) {
     return <RoleGate title="Service Charge Administration" />;
   }

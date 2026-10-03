@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import RoleGate, { roleAllowed } from "../RoleGate";
 import RaiseWorkForm, { type Option } from "./RaiseWorkForm";
-import { FM_PM } from "@/lib/roles";
+import { OPS_MANAGERS } from "@/lib/roles";
 
 // Work an FM/PM initiates, rather than work a tenant reports.
 //
@@ -24,12 +24,18 @@ export default async function RaiseWorkPage() {
   if (!session) redirect("/login");
 
   if (!roleAllowed(session.profile?.role, [
-    "admin", ...FM_PM, "regional_manager",
+    "admin", ...OPS_MANAGERS,
   ])) {
     return <RoleGate title="Raise work" />;
   }
 
   const supabase = await createClient();
+  // 0311. Its own switch in the permission matrix (Work orders). The RPC
+  // refuses when it is off, so the form is not offered either.
+  const { data: mayRaise } = await supabase.rpc("has_permission", {
+    p_capability: "workorders.raise",
+  });
+  if (!mayRaise) return <RoleGate title="Raise work" />;
 
   // Everything here is read under the caller's own RLS, so the pickers can
   // only ever offer what `raise_work_order` would accept — properties they

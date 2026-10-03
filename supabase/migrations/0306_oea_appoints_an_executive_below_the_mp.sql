@@ -1,0 +1,26 @@
+-- OEA appoints an Executive below the Managing Partner (requested
+-- 2 Oct 2026).
+--
+-- The Executive coordinates every facilities manager, properties manager and
+-- operations person in the organisation, onboards them, and clears FM/PM/Ops
+-- requisitions up to an operator-set limit (₦500,000 at launch) at the stage
+-- the Managing Partner holds today. Above that limit the Managing Partner
+-- still signs. OEA only.
+--
+-- ⚠️ The IDENTIFIER is `operations_executive`, not `executive`. `executive`
+-- already exists and on OEA it IS the Managing Partner (`lib/roles.ts`
+-- BRAND_LABELS) — tier 3, org-wide sight, stage 2 of the OEA chain. Reusing
+-- that value for a junior role would hand them all of it. What the person reads
+-- is "Executive"; what the database compares is a name that cannot be confused
+-- with the MP's.
+--
+-- ⚠️ ALTER TYPE ... ADD VALUE cannot be USED in the transaction that adds it,
+-- and scripts/migrate.mjs wraps each file in one. Hence the split, exactly as
+-- 0182/0183 did for `property_manager`: this file adds the value and 0307 uses
+-- it. On its own this file grants nothing: no function, policy or capability
+-- names the value until 0307 does. An administrator could in principle invite
+-- someone into it in the gap (`invitable_roles('admin')` reads `enum_range`),
+-- but they would arrive holding no right at all, and 0307's OEA-only guard
+-- refuses the role on any non-OEA member row that exists by the time it runs.
+
+alter type user_role add value if not exists 'operations_executive';

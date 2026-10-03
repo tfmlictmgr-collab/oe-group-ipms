@@ -35,6 +35,9 @@ export function biScope(role: string | undefined): BiScope {
     // and the same operational budgets over a different discipline.
     case "facility_manager":
     case "property_manager":
+    // 0309. The OEA Executive does the FM/PM work across the organisation, so
+    // they see what an FM/PM sees — over every property.
+    case "operations_executive":
       return { requests: true, vendorPerf: true, collection: false, liabilities: false, budget: true };
     // B7 v3.3: ops KPIs and managed vendors, "nothing financial". Same operational
     // shape as the FM/PM, minus the budget column — hence no `budget`.

@@ -201,6 +201,9 @@ export default async function DashboardLayout({
     // the matrix — and they were the one role with somewhere to be sent and
     // nowhere to look.
     isOpsStaff: role === "fm_ops_staff",
+    // The matrix switch that lets them raise one is the switch that gives them
+    // a list of their own (3 Oct 2026).
+    raisesRequisitions: can("requisitions.raise"),
     isOwner: role === "property_owner",
     // Decision 9, verbatim: "Nothing financial, no org-wide read." Statements
     // is a financial screen with two branches — a per-unit tenant bill, or the
@@ -245,10 +248,15 @@ export default async function DashboardLayout({
     // Nothing is granted here: both pages gate their write controls on
     // `leases.write` separately, which oversight does not hold, so they arrive
     // read-only exactly as RLS intends.
+    // 0314. Asked of `leases.read`, the capability `leases_select` now checks,
+    // rather than of the applications capabilities — recommending a tenancy
+    // application happens under People → Tenancy Applications, and holding it
+    // is what used to put the rent roll in front of a facilities manager.
+    // A landlord holds it too, for their own building, but reads it through
+    // their portfolio home rather than the staff screens (verify-role-surface).
     seesLettings:
+      (can("leases.read") && role !== "property_owner") ||
       can("leases.write") ||
-      can("applications.review_all") ||
-      can("applications.recommend") ||
       isOversight(role),
     // ⚠️ NOT derived from `sc.read_all` alone, and that was the whole defect
     // (0231). `sc_budgets_select` has admitted "oversight, or a property I
@@ -264,12 +272,14 @@ export default async function DashboardLayout({
     seesServiceCharges:
       can("sc.read_all") ||
       can("sc.manage") ||
-      ["facility_manager", "property_manager", "regional_manager"].includes(role),
+      ["facility_manager", "property_manager", "regional_manager", "operations_executive"].includes(role),
     // Vendor payments: FM/PM verifies delivery, finance and oversight decide.
     // Not capability-derived because approval is non-delegable, and a screen
     // whose only action is refused is worse than no screen.
     seesPayments: [
       "admin", ...FM_PM, "finance_approver", "executive",
+      // 0309. The Executive verifies delivery like the FM/PM they coordinate.
+      "operations_executive",
       // The two chain roles exist to look at payments; a payment approver who
       // cannot reach the payments screen is a role that cannot do its job.
       "payment_approver", "payment_audit_approver",
@@ -278,7 +288,7 @@ export default async function DashboardLayout({
     // queue move. Same reasoning as seesPayments: not capability-derived,
     // because approval is non-delegable (decision 7).
     seesApprovals: [
-      "admin", "executive", ...FM_PM, "regional_manager",
+      "admin", "executive", ...FM_PM, "regional_manager", "operations_executive",
       "payment_approver", "payment_audit_approver", "finance_approver",
     ].includes(role),
     // 0281/0282. The three confirmation desks are hardwired — this chain ends
@@ -313,6 +323,8 @@ export default async function DashboardLayout({
     // Everyone operational who is not given a personal home screen above.
     isStaff: [
       "admin", ...FM_PM, "finance_approver", "executive", "regional_manager",
+      // 0307. Coordinates operations; lands on the staff home like the RM.
+      "operations_executive",
       // Both chain roles (0151). A role whose home screen resolves to nothing
       // is a person who signs in and lands nowhere — caught by
       // verify-role-surface, which checks exactly that and is the reason this

@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import RoleGate, { roleAllowed } from "../../RoleGate";
 import { writableProperties } from "../actions";
 import AssetForm from "./AssetForm";
-import { FM_PM } from "@/lib/roles";
+import { OPS_MANAGERS } from "@/lib/roles";
 
 export default async function NewAssetPage() {
   const session = await getSessionProfile();
@@ -18,7 +18,7 @@ export default async function NewAssetPage() {
   // regional manager and several deliberately do not. It belongs here because
   // they hold the capability this page is for (0236/0238); the nav offers the
   // link from that capability and only this list said no.
-  if (!roleAllowed(session.profile?.role, ["admin", ...FM_PM, "regional_manager"])) {
+  if (!roleAllowed(session.profile?.role, ["admin", ...OPS_MANAGERS])) {
     return <RoleGate title="Add asset" />;
   }
 

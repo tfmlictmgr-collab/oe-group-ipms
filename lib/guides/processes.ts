@@ -300,6 +300,8 @@ export const PROCESS_CATALOGUE: Process[] = [
     capabilities: [
       "tickets.read_all",
       "tickets.assign",
+      // 0311. Raising planned work, its own switch since it split from dispatch.
+      "workorders.raise",
       "tickets.close",
       "tickets.triage_unassigned",
       "tickets.assign_without_review",
@@ -309,6 +311,8 @@ export const PROCESS_CATALOGUE: Process[] = [
       "/dashboard/my-requests",
       "/dashboard/my-work",
       "/dashboard/my-jobs",
+      // A requisition raised for a job, followed to its outcome.
+      "/dashboard/requisitions",
     ],
     roles: [
       "tenant",
@@ -435,7 +439,11 @@ export const PROCESS_CATALOGUE: Process[] = [
         "executive, give the Managing Partner's approval; as the demo payment " +
         "approver, approve it; as the demo payment officer, remit it.",
     },
-    capabilities: ["payment.approve", "payment.remit"],
+    capabilities: [
+      "payment.approve", "payment.remit",
+      // 0312. The FM's sign-off (service verified, performance check) is a switch.
+      "payments.verify_service",
+    ],
     routes: [
       "/dashboard/my-company",
       "/dashboard/approvals",
@@ -1371,7 +1379,7 @@ export const PROCESS_CATALOGUE: Process[] = [
     },
     capabilities: ["people.invite", "people.deactivate", "invitation.create_admin"],
     routes: ["/dashboard/people", "/dashboard/people/directory"],
-    roles: ["admin", "regional_manager"],
+    roles: ["admin", "regional_manager", "operations_executive"],
   },
   {
     id: "read-the-audit-trail",
@@ -1624,7 +1632,7 @@ export const PROCESS_CATALOGUE: Process[] = [
     },
     capabilities: ["bi.read"],
     routes: ["/dashboard/bi", "/dashboard/bi/analytics"],
-    roles: ["admin", "executive", "regional_manager"],
+    roles: ["admin", "executive", "regional_manager", "operations_executive"],
   },
   {
     id: "open-your-own-role-guide",
@@ -1774,7 +1782,17 @@ export const PROCESS_CATALOGUE: Process[] = [
         "View a seeded demo org's matrix and state whether it carries any " +
         "intentional deviation from baseline.",
     },
-    capabilities: ["permissions.edit"],
+    capabilities: [
+      "permissions.edit",
+      // 0310. The Executive's own powers are switches on this screen.
+      "requisitions.raise", "requisitions.approve_within_limit", "operations.org_wide",
+      // 0311. Work orders, split out of dispatch.
+      "workorders.raise",
+      // 0312. Verifying vendor invoices.
+      "payments.verify_service",
+      // 0313. Opening or closing a property for tenancy applications.
+      "applications.open_close",
+    ],
     routes: ["/orgs"],
     roles: ["admin"],
   },

@@ -117,6 +117,8 @@ const REQUIRED = {
   // `seesServiceCharges` was hiding the module from them.
   regional_manager: ["seesProperties", "seesVendors", "canEnroll", "seesServiceCharges", "seesLettings"],
   finance_approver: ["seesServiceCharges"],
+  // 0309. Everything an FM/PM/RM reaches, over the whole organisation.
+  operations_executive: ["seesProperties", "seesVendors", "canEnroll", "seesServiceCharges", "seesLettings"],
   property_owner:   ["seesProperties"],
   fm_ops_staff:     [],
   tenant:           [],
@@ -355,6 +357,10 @@ console.log("\nE. Every role has somewhere to land");
     property_manager: "/dashboard",
     finance_approver: "/dashboard",
     regional_manager: "/dashboard",
+    // 0307. The OEA Executive lands on the staff dashboard's whole queue — they
+    // hold `tickets.read_all` and are not DESK_FIRST, so the default view is
+    // every request in the organisation, which is the job.
+    operations_executive: "/dashboard",
     // The approval-chain roles (0151). They land on the staff dashboard, whose
     // nav carries Approvals — the queue is the whole reason either account
     // exists.

@@ -8,7 +8,7 @@ import { PageHeader } from "@/components/patterns/page-header";
 import { Button } from "@/components/ui/button";
 import RequestsBoard from "./RequestsBoard";
 import ScopeTabs from "./ScopeTabs";
-import { FM_PM } from "@/lib/roles";
+import { OPS_MANAGERS } from "@/lib/roles";
 import { parseScope, showsScopeTabs, scopeLabel, scopesFor } from "./request-scope";
 
 export default async function DashboardPage({
@@ -47,11 +47,13 @@ export default async function DashboardPage({
   if (session?.profile?.role === "payment_approver") redirect("/dashboard/approvals");
   if (session?.profile?.role === "finance_approver") redirect("/dashboard/payments");
 
-  const canRaiseWork = ["admin", ...FM_PM, "regional_manager"].includes(
-    session?.profile?.role ?? ""
-  );
-
   const supabase = await createClient();
+
+  // 0311. The role list says who could ever raise work; the matrix switch says
+  // whether this organisation lets them.
+  const canRaiseWork =
+    ["admin", ...OPS_MANAGERS].includes(session?.profile?.role ?? "") &&
+    Boolean((await supabase.rpc("has_permission", { p_capability: "workorders.raise" })).data);
   const {
     data: { user },
   } = await supabase.auth.getUser();

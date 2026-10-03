@@ -39,7 +39,7 @@ const DESK_FIRST: readonly string[] = [...FM_PM, "regional_manager", "fm_ops_sta
  * list is unfiltered and RLS-scoped, so anything they raised already appears
  * there beside the jobs dispatched to them.
  */
-const CAN_RAISE: readonly string[] = [...DESK_FIRST, "admin"];
+const CAN_RAISE: readonly string[] = [...DESK_FIRST, "admin", "operations_executive"];
 
 /**
  * ⚠️ The landing view is "desk", NOT "mine".
@@ -69,6 +69,9 @@ export function scopesFor(role: string | null | undefined): RequestScope[] {
   const r = role ?? "";
   if (DESK_FIRST.includes(r)) return ["desk", "mine", "raised", "properties"];
   if (r === "admin") return ["raised", "all"];
+  // 0309. The Executive raises and is dispatched work like an FM, over the
+  // whole organisation — so "All" is their desk, with their own two views.
+  if (r === "operations_executive") return ["all", "mine", "raised"];
   return [];
 }
 

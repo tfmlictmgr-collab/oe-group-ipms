@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { ChevronDown, Search, Inbox, Banknote, AlertTriangle } from "lucide-react";
@@ -13,6 +13,7 @@ import StageActions from "@/components/approvals/StageActions";
 import ResubmitPanel from "@/components/approvals/ResubmitPanel";
 import PayableDetail, { type PayableDetailData } from "@/components/approvals/PayableDetail";
 import { refMatches } from "@/lib/acknowledgement";
+import { rememberSort } from "./sort";
 import {
   canActorAction, whyNotActionable, waitingOn, formatNaira,
   type Actor, type ChainState, type PayableType, type StageOrder,
@@ -58,6 +59,15 @@ export type QueueRow = {
    */
   sortKey: string;
 };
+
+const KINDS = [
+  { key: "all", label: "All" },
+  { key: "vendor_payment", label: "Invoices" },
+  { key: "landlord_payout", label: "Landlord payouts" },
+  { key: "ops_requisition", label: "Requisitions" },
+] as const;
+type KindKey = (typeof KINDS)[number]["key"];
+const KIND_KEY = "approvals:kind";
 
 /**
  * The approvals queue.
@@ -106,6 +116,26 @@ export default function ApprovalsBoard({
   truncated: boolean;
 }) {
   const [tab, setTab] = useState<"mine" | "others">("mine");
+  // Which kind of payable — asked for 3 Oct 2026 so invoices, landlord payouts
+  // and requisitions can each be seen on their own. A view filter over rows the
+  // server already scoped, so it is browser state, remembered per viewer.
+  const [kind, setKindState] = useState<KindKey>("all");
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(KIND_KEY);
+      if (saved && KINDS.some((k) => k.key === saved)) setKindState(saved as KindKey);
+    } catch {
+      // Private window or blocked storage: the tabs still work, unremembered.
+    }
+  }, []);
+  const setKind = (k: KindKey) => {
+    setKindState(k);
+    try {
+      localStorage.setItem(KIND_KEY, k);
+    } catch {
+      // As above.
+    }
+  };
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState<Record<string, boolean>>({});
 
@@ -158,21 +188,39 @@ export default function ApprovalsBoard({
     [rows, actor, inChain, isOfficer]
   );
 
-  const active = tab === "mine" ? mine : others;
+  const inTab = tab === "mine" ? mine : others;
+  const kindCounts = useMemo(() => {
+    const m = new Map<KindKey, number>([["all", inTab.length]]);
+    for (const r of inTab) m.set(r.payableType, (m.get(r.payableType) ?? 0) + 1);
+    return m;
+  }, [inTab]);
+  const active = useMemo(
+    () => (kind === "all" ? inTab : inTab.filter((r) => r.payableType === kind)),
+    [inTab, kind]
+  );
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return active;
     // Two ways to match: the plain text of the row (vendor, job, the raiser's
     // own reference), and the auto reference with punctuation ignored — so
     // "REQ4F2A1C90", "req4f2a1c90" and a hyphenated form pasted from an older
     // message all find the same row.
-    const matched = active.filter((r) => r.haystack.includes(q) || refMatches(query, r.ref));
-    // Copied before sorting: `active` is one of the memoised arrays above, and
-    // sorting in place would reorder those on every keystroke.
-    return [...matched].sort((a, b) =>
-      sort === "newest" ? b.sortKey.localeCompare(a.sortKey) : a.sortKey.localeCompare(b.sortKey)
-    );
+    const matched = q
+      ? active.filter((r) => r.haystack.includes(q) || refMatches(query, r.ref))
+      : active;
+    // ⚠️ ALWAYS sorted (3 Oct 2026). This used to return early when the search
+    // box was empty, and the rows arrive as three blocks — invoices, then
+    // landlord payouts, then requisitions, each ordered on its own — so with
+    // no search the queue was not newest-first at all: a requisition raised a
+    // minute ago sat below every invoice. Copied before sorting: `active` is
+    // one of the memoised arrays above, and sorting in place would reorder
+    // those. The id breaks ties so two rows raised in the same instant cannot
+    // swap places between renders.
+    return [...matched].sort((a, b) => {
+      const byTime =
+        sort === "newest" ? b.sortKey.localeCompare(a.sortKey) : a.sortKey.localeCompare(b.sortKey);
+      return byTime || a.payableId.localeCompare(b.payableId);
+    });
   }, [active, query, sort]);
 
   const TABS = [
@@ -223,7 +271,10 @@ export default function ApprovalsBoard({
           </div>
           <select
             value={sort}
-            onChange={(e) => setParam("sort", e.target.value)}
+            onChange={(e) => {
+              rememberSort(e.target.value === "oldest" ? "oldest" : "newest");
+              setParam("sort", e.target.value);
+            }}
             aria-label="Order the approvals queue"
             className="h-9 flex-shrink-0 rounded-md border border-input bg-card px-2 text-xs text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]"
           >
@@ -231,6 +282,27 @@ export default function ApprovalsBoard({
             <option value="oldest">Oldest first</option>
           </select>
         </div>
+      </div>
+
+      <div className="flex flex-wrap gap-1 border-b border-border" role="tablist" aria-label="Which kind of payment to show">
+        {KINDS.map((k) => (
+          <button
+            key={k.key}
+            role="tab"
+            type="button"
+            aria-selected={kind === k.key}
+            onClick={() => setKind(k.key)}
+            className={cn(
+              "-mb-px inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-medium transition-colors",
+              kind === k.key
+                ? "border-[var(--brand)] text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {k.label}
+            <span className="tabular-nums opacity-70">{kindCounts.get(k.key) ?? 0}</span>
+          </button>
+        ))}
       </div>
 
       {/* Raised between — a second way to find one, asked for alongside the
@@ -293,7 +365,9 @@ export default function ApprovalsBoard({
             <p className="mt-2 text-sm font-medium">
               {query
                 ? "Nothing matches that reference"
-                : tab === "mine"
+                : kind !== "all" && inTab.length > 0
+                  ? `No ${KINDS.find((k) => k.key === kind)?.label.toLowerCase()} here — the other tabs hold the rest`
+                  : tab === "mine"
                   ? "Nothing is waiting on you right now"
                   : "Nothing is waiting on anyone else"}
             </p>

@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { Plus, Download, Upload } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
-import { roleAbbrev, FM_PM } from "@/lib/roles";
+import { roleAbbrev, FM_PM, OPS_MANAGERS } from "@/lib/roles";
 import { PageHeader } from "@/components/patterns/page-header";
 import { Button } from "@/components/ui/button";
 import RoleGate, { roleAllowed } from "../RoleGate";
@@ -22,6 +22,8 @@ export default async function AssetsPage() {
       "admin",
       ...FM_PM,
       "regional_manager",
+      // 0307. Holds `assets.read`, org-wide; never `assets.write`.
+      "operations_executive",
       "finance_approver",
       "property_owner",
       "executive",
@@ -30,7 +32,7 @@ export default async function AssetsPage() {
     return <RoleGate title="Asset Register" />;
   }
 
-  const canWrite = ["admin", ...FM_PM].includes(session.profile?.role ?? "");
+  const canWrite = ["admin", ...OPS_MANAGERS].includes(session.profile?.role ?? "");
   // Who maintains plant is the FACILITIES manager on both brands now that OEA
   // employs them too — this used to read the brand and would have told an OEA
   // reader their assets were maintained by the "PM", which is precisely the

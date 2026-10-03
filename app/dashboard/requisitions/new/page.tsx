@@ -7,13 +7,13 @@ import { PageHeader } from "@/components/patterns/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import RequisitionForm from "../RequisitionForm";
-import { FM_PM } from "@/lib/roles";
+import { OPS_MANAGERS } from "@/lib/roles";
 
 // Raising an FM/PM ops requisition — reachable from the shared Requests
 // screen, My Jobs, and (with a ticket already chosen) from that job's own
 // page. Same eligibility raise_ops_requisition itself enforces server-side
 // (0170): operational staff and the people above them.
-const ELIGIBLE = ["fm_ops_staff", ...FM_PM, "regional_manager", "admin"];
+const ELIGIBLE = ["fm_ops_staff", ...OPS_MANAGERS, "admin"];
 
 export default async function NewRequisitionPage({
   searchParams,
@@ -27,6 +27,12 @@ export default async function NewRequisitionPage({
   const { ticket: ticketId } = await searchParams;
 
   const supabase = await createClient();
+  // 0310. Also a switch in the permission matrix — the RPC refuses when it is
+  // off, so the form is not offered either.
+  const { data: mayRaise } = await supabase.rpc("has_permission", {
+    p_capability: "requisitions.raise",
+  });
+  if (!mayRaise) redirect("/dashboard");
   const [{ data: vendors }, ticketRes] = await Promise.all([
     supabase.from("vendors").select("id, name").order("name"),
     ticketId

@@ -9,7 +9,7 @@ import { EmptyState } from "@/components/patterns/empty-state";
 import { Button } from "@/components/ui/button";
 import RoleGate, { roleAllowed } from "../RoleGate";
 import VendorList from "./VendorList";
-import { FM_PM } from "@/lib/roles";
+import { OPS_MANAGERS } from "@/lib/roles";
 
 type VendorRow = {
   id: string;
@@ -30,7 +30,7 @@ export default async function VendorsPage() {
   // they hold the capability this page is for (0236/0238); the nav offers the
   // link from that capability and only this list said no.
   if (!roleAllowed(session.profile?.role, [
-    "admin", ...FM_PM, "regional_manager", "finance_approver", "executive",
+    "admin", ...OPS_MANAGERS, "finance_approver", "executive",
   ])) {
     return <RoleGate title="Vendors" />;
   }
@@ -39,7 +39,7 @@ export default async function VendorsPage() {
   // see vendors, but creating a company is the same audience `vendors.write`
   // covers. RLS refuses the insert regardless — this only decides whether to
   // offer a button that would be refused.
-  const canAddVendor = roleAllowed(session.profile?.role, ["admin", ...FM_PM, "regional_manager"]);
+  const canAddVendor = roleAllowed(session.profile?.role, ["admin", ...OPS_MANAGERS]);
 
   const supabase = await createClient();
   // ⚠️ Scores come from `vendor_evaluation_tickets`, NOT an embedded
