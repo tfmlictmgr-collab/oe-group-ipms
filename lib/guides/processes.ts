@@ -1774,7 +1774,11 @@ export const PROCESS_CATALOGUE: Process[] = [
         "View a seeded demo org's matrix and state whether it carries any " +
         "intentional deviation from baseline.",
     },
-    capabilities: ["permissions.edit"],
+    capabilities: [
+      "permissions.edit",
+      // 0310. The Executive's own powers are switches on this screen.
+      "requisitions.raise", "requisitions.approve_within_limit", "operations.org_wide",
+    ],
     routes: ["/orgs"],
     roles: ["admin"],
   },
