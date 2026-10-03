@@ -27,6 +27,12 @@ export default async function NewRequisitionPage({
   const { ticket: ticketId } = await searchParams;
 
   const supabase = await createClient();
+  // 0310. Also a switch in the permission matrix — the RPC refuses when it is
+  // off, so the form is not offered either.
+  const { data: mayRaise } = await supabase.rpc("has_permission", {
+    p_capability: "requisitions.raise",
+  });
+  if (!mayRaise) redirect("/dashboard");
   const [{ data: vendors }, ticketRes] = await Promise.all([
     supabase.from("vendors").select("id, name").order("name"),
     ticketId

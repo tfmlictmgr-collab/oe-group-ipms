@@ -349,9 +349,15 @@ export function whyNotActionable(
     stage.stageOrder === 2 &&
     state.shape === "oea"
   ) {
-    return state.payableType !== "ops_requisition"
-      ? "The Executive approves requisitions only — this is the Managing Partner's."
-      : `${formatNaira(state.amount)} is above your limit of ${formatNaira(state.opsExecutiveLimit ?? 0)} — the Managing Partner decides it.`;
+    if (state.payableType !== "ops_requisition") {
+      return "The Executive approves requisitions only — this is the Managing Partner's.";
+    }
+    // 0310. A null limit means the operator has switched the Executive's
+    // approval off for this organisation.
+    if (state.opsExecutiveLimit === null) {
+      return "Requisition approval is switched off for the Executive in this organisation — the Managing Partner decides it.";
+    }
+    return `${formatNaira(state.amount)} is above your limit of ${formatNaira(state.opsExecutiveLimit)} — the Managing Partner decides it.`;
   }
   if (!stage.requiredRoles.includes(actor.role)) {
     return `Waiting on ${stage.label.toLowerCase()}.`;
