@@ -1,10 +1,12 @@
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { getSessionProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import {
   type PayableDetailData, type PayableLine, type JobCard,
 } from "@/components/approvals/PayableDetail";
 import ApprovalsBoard, { type QueueRow } from "./ApprovalsBoard";
+import { APPROVALS_SORT_COOKIE } from "./sort";
 import {
   ALL_CHAIN_ROLES, getChainState, formatNaira, effectiveTier, tierLabel,
 } from "@/lib/approvals/chain";
@@ -57,7 +59,14 @@ export default async function ApprovalsPage({
   const supabase = await createClient();
 
   const sp = await searchParams;
-  const sort: "newest" | "oldest" = sp.sort === "oldest" ? "oldest" : "newest";
+  // The URL wins; without one, the order this person last chose (a cookie the
+  // board sets — server-readable, so it decides what is FETCHED, which
+  // localStorage could not); without that, newest first. Reported 3 Oct 2026:
+  // the choice was lost every time they left the page and came back through
+  // the nav, which links to a bare /dashboard/approvals.
+  const remembered = (await cookies()).get(APPROVALS_SORT_COOKIE)?.value;
+  const sort: "newest" | "oldest" =
+    (sp.sort ?? remembered) === "oldest" ? "oldest" : "newest";
   const ascending = sort === "oldest";
   // Dates arrive as yyyy-mm-dd from a native date input. `to` is pushed to the
   // end of its day so "to 5 Sept" includes the 5th — an exclusive upper bound on

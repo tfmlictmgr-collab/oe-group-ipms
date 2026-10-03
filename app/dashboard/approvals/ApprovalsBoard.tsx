@@ -13,6 +13,7 @@ import StageActions from "@/components/approvals/StageActions";
 import ResubmitPanel from "@/components/approvals/ResubmitPanel";
 import PayableDetail, { type PayableDetailData } from "@/components/approvals/PayableDetail";
 import { refMatches } from "@/lib/acknowledgement";
+import { rememberSort } from "./sort";
 import {
   canActorAction, whyNotActionable, waitingOn, formatNaira,
   type Actor, type ChainState, type PayableType, type StageOrder,
@@ -162,17 +163,26 @@ export default function ApprovalsBoard({
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return active;
     // Two ways to match: the plain text of the row (vendor, job, the raiser's
     // own reference), and the auto reference with punctuation ignored — so
     // "REQ4F2A1C90", "req4f2a1c90" and a hyphenated form pasted from an older
     // message all find the same row.
-    const matched = active.filter((r) => r.haystack.includes(q) || refMatches(query, r.ref));
-    // Copied before sorting: `active` is one of the memoised arrays above, and
-    // sorting in place would reorder those on every keystroke.
-    return [...matched].sort((a, b) =>
-      sort === "newest" ? b.sortKey.localeCompare(a.sortKey) : a.sortKey.localeCompare(b.sortKey)
-    );
+    const matched = q
+      ? active.filter((r) => r.haystack.includes(q) || refMatches(query, r.ref))
+      : active;
+    // ⚠️ ALWAYS sorted (3 Oct 2026). This used to return early when the search
+    // box was empty, and the rows arrive as three blocks — invoices, then
+    // landlord payouts, then requisitions, each ordered on its own — so with
+    // no search the queue was not newest-first at all: a requisition raised a
+    // minute ago sat below every invoice. Copied before sorting: `active` is
+    // one of the memoised arrays above, and sorting in place would reorder
+    // those. The id breaks ties so two rows raised in the same instant cannot
+    // swap places between renders.
+    return [...matched].sort((a, b) => {
+      const byTime =
+        sort === "newest" ? b.sortKey.localeCompare(a.sortKey) : a.sortKey.localeCompare(b.sortKey);
+      return byTime || a.payableId.localeCompare(b.payableId);
+    });
   }, [active, query, sort]);
 
   const TABS = [
@@ -223,7 +233,10 @@ export default function ApprovalsBoard({
           </div>
           <select
             value={sort}
-            onChange={(e) => setParam("sort", e.target.value)}
+            onChange={(e) => {
+              rememberSort(e.target.value === "oldest" ? "oldest" : "newest");
+              setParam("sort", e.target.value);
+            }}
             aria-label="Order the approvals queue"
             className="h-9 flex-shrink-0 rounded-md border border-input bg-card px-2 text-xs text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]"
           >
