@@ -30,6 +30,12 @@ export default async function RaiseWorkPage() {
   }
 
   const supabase = await createClient();
+  // 0311. Its own switch in the permission matrix (Work orders). The RPC
+  // refuses when it is off, so the form is not offered either.
+  const { data: mayRaise } = await supabase.rpc("has_permission", {
+    p_capability: "workorders.raise",
+  });
+  if (!mayRaise) return <RoleGate title="Raise work" />;
 
   // Everything here is read under the caller's own RLS, so the pickers can
   // only ever offer what `raise_work_order` would accept — properties they

@@ -300,6 +300,8 @@ export const PROCESS_CATALOGUE: Process[] = [
     capabilities: [
       "tickets.read_all",
       "tickets.assign",
+      // 0311. Raising planned work, its own switch since it split from dispatch.
+      "workorders.raise",
       "tickets.close",
       "tickets.triage_unassigned",
       "tickets.assign_without_review",
@@ -1778,6 +1780,8 @@ export const PROCESS_CATALOGUE: Process[] = [
       "permissions.edit",
       // 0310. The Executive's own powers are switches on this screen.
       "requisitions.raise", "requisitions.approve_within_limit", "operations.org_wide",
+      // 0311. Work orders, split out of dispatch.
+      "workorders.raise",
     ],
     routes: ["/orgs"],
     roles: ["admin"],
