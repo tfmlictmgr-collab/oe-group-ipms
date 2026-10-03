@@ -311,6 +311,8 @@ export const PROCESS_CATALOGUE: Process[] = [
       "/dashboard/my-requests",
       "/dashboard/my-work",
       "/dashboard/my-jobs",
+      // A requisition raised for a job, followed to its outcome.
+      "/dashboard/requisitions",
     ],
     roles: [
       "tenant",
