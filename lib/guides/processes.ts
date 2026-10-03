@@ -1788,6 +1788,8 @@ export const PROCESS_CATALOGUE: Process[] = [
       "workorders.raise",
       // 0312. Verifying vendor invoices.
       "payments.verify_service",
+      // 0313. Opening or closing a property for tenancy applications.
+      "applications.open_close",
     ],
     routes: ["/orgs"],
     roles: ["admin"],

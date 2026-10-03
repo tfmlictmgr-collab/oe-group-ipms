@@ -86,6 +86,11 @@ export default async function TenancyApplicationsPage({
   const profile = session.profile!;
 
   const supabase = await createClient();
+  // 0313. Opening or closing a property's intake is a matrix switch
+  // (applications.open_close), baseline administrator and executive.
+  const { data: mayOpenClose } = await supabase.rpc("has_permission", {
+    p_capability: "applications.open_close",
+  });
   const [orgRes, moduleRes, queueRes, windowsRes] = await Promise.all([
     supabase
       .from("orgs")
@@ -185,7 +190,7 @@ export default async function TenancyApplicationsPage({
         <CardContent>
           <PropertyWindows
             rows={(windowsRes.data ?? []) as PropertyWindow[]}
-            isAdmin={profile.role === "admin" || profile.role === "executive"}
+            isAdmin={Boolean(mayOpenClose)}
           />
         </CardContent>
       </Card>
