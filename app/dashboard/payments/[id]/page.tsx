@@ -154,6 +154,12 @@ export default async function PaymentDetailPage({
   };
   const canActionChain = canActorAction(chainActor, chain);
 
+  // 0312. Verifying the service and running the performance check is a
+  // switch in the permission matrix (Invoices).
+  const { data: mayVerify } = await supabase.rpc("has_permission", {
+    p_capability: "payments.verify_service",
+  });
+
   const stages = stageState(p);
   const canAct =
     session.profile?.role === "admin" ||
@@ -354,6 +360,7 @@ export default async function PaymentDetailPage({
                 // Finance disburses, and only finance (0142). The database
                 // refuses everyone else; this keeps the screen honest about it.
                 canRemit={session.profile?.role === "finance_approver"}
+                canVerify={Boolean(mayVerify)}
                 // Reopening corrects someone else's refusal, so it sits with
                 // the people who answer for the money. The trigger enforces
                 // this regardless of what the page renders.
