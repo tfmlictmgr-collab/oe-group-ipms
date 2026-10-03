@@ -162,3 +162,31 @@ export async function setApprovalBands(
   revalidatePath("/orgs");
   return ok();
 }
+
+/**
+ * Two-factor enforcement for one organisation (0308). `fromIso` null switches
+ * it off. Operator-only and reasoned — `operator_set_mfa_enforcement` refuses
+ * anyone else and anything under ten characters, and records the before and
+ * after where the organisation can read it.
+ */
+export async function setMfaEnforcement(
+  orgId: string,
+  fromIso: string | null,
+  reason: string
+): Promise<ActionResult> {
+  if (reason.trim().length < 10) {
+    return fail("Say why, in at least 10 characters — it is the record an auditor reads.");
+  }
+  if (fromIso !== null && Number.isNaN(new Date(fromIso).getTime())) {
+    return fail("That date could not be read.");
+  }
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("operator_set_mfa_enforcement", {
+    p_org_id: orgId,
+    p_from: fromIso,
+    p_reason: reason.trim(),
+  });
+  if (error) return failFromDb(error, "set two-factor enforcement");
+  revalidatePath("/orgs");
+  return ok();
+}

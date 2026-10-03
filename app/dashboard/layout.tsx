@@ -7,6 +7,8 @@ import { AppShell } from "@/components/shell/app-shell";
 import { roleLabel, FM_PM, isOversight } from "@/lib/roles";
 import type { NavContext } from "@/components/shell/nav-config";
 import { seesBi, biScope } from "./bi/scope";
+import { mfaGate } from "@/lib/mfa-gate";
+import MfaDueBanner from "./MfaDueBanner";
 
 // ⚠️ The browser tab named the wrong company.
 //
@@ -134,6 +136,22 @@ export default async function DashboardLayout({
   // what exists.
   const supabase = await createClient();
   const { data: notifications } = await supabase.rpc("my_notifications", { p_days: 30 });
+
+  // 0308. The deadline, said before it arrives. Once it has passed the
+  // middleware sends them to /mfa instead, so the banner only ever counts down.
+  // An enrolled person costs nothing here beyond the factors already loaded.
+  const { data: { user: authUser } } = await supabase.auth.getUser();
+  const enrolled = (authUser?.factors ?? []).some(
+    (f) => f.factor_type === "totp" && f.status === "verified"
+  );
+  const { data: mfaFrom } = enrolled
+    ? { data: null }
+    : await supabase.rpc("my_mfa_enforced_from");
+  const mfa = mfaGate({
+    hasVerifiedFactor: enrolled,
+    currentLevel: null,
+    enforcedFrom: (mfaFrom as string | null) ?? null,
+  });
 
   // A viewer is outside the organisation, so it is listed in none of the sets
   // below rather than added to any of them. The nav is presentation; RLS is what
@@ -364,6 +382,7 @@ export default async function DashboardLayout({
         ctx={ctx}
         notifications={notifications ?? []}
       >
+        {mfa.kind === "due" && <MfaDueBanner enforcedFrom={mfa.enforcedFrom.toISOString()} />}
         {children}
       </AppShell>
     </div>

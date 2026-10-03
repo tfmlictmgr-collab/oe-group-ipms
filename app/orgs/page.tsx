@@ -9,6 +9,7 @@ import { EmptyState } from "@/components/patterns/empty-state";
 import { getBrandTheme } from "@/lib/brands";
 import DomainField from "./DomainField";
 import ApprovalChainField from "./ApprovalChainField";
+import MfaEnforcementField from "./MfaEnforcementField";
 import CreateOrgForm from "./CreateOrgForm";
 
 // The OE Group operator launcher: every organisation on the platform as a card,
@@ -42,6 +43,8 @@ type Row = {
   // setters shipped without one, so the levers existed and could not be pulled.
   approval_chain_shape: string | null;
   approval_tiers_enabled: boolean;
+  // 0308, joined in from `operator_mfa_enrolment()`.
+  mfa?: { enforcedFrom: string | null; active: number; enrolled: number };
 };
 
 export default async function OrgLauncherPage() {
@@ -49,8 +52,16 @@ export default async function OrgLauncherPage() {
   if (!session) redirect("/login");
 
   const supabase = await createClient();
-  const { data } = await supabase.rpc("operator_org_directory");
-  const orgs = (data ?? []) as Row[];
+  const [{ data }, { data: mfaRows }] = await Promise.all([
+    supabase.rpc("operator_org_directory"),
+    supabase.rpc("operator_mfa_enrolment"),
+  ]);
+  const mfaByOrg = new Map(
+    ((mfaRows ?? []) as {
+      org_id: string; mfa_enforced_from: string | null; active_members: number; enrolled_members: number;
+    }[]).map((m) => [m.org_id, { enforcedFrom: m.mfa_enforced_from, active: m.active_members, enrolled: m.enrolled_members }])
+  );
+  const orgs = ((data ?? []) as Row[]).map((o) => ({ ...o, mfa: mfaByOrg.get(o.id) }));
 
   // An empty set is what a non-operator gets — and since /login now routes
   // everyone here first, that is the ordinary path for a tenant user who used
@@ -216,6 +227,16 @@ function OrgCard({ org }: { org: Row }) {
             orgName={org.name}
             shape={org.approval_chain_shape}
             bandsEnabled={org.approval_tiers_enabled}
+          />
+        )}
+        {!org.retired && org.mfa && (
+          // On the operator's own row too: OE Group's staff sign in like anyone.
+          <MfaEnforcementField
+            orgId={org.id}
+            orgName={org.name}
+            enforcedFrom={org.mfa.enforcedFrom}
+            activeMembers={org.mfa.active}
+            enrolledMembers={org.mfa.enrolled}
           />
         )}
       </div>

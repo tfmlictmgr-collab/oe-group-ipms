@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ChevronDown, KeyRound, LockOpen, MailX, UserCheck, UserMinus } from "lucide-react";
+import { ChevronDown, KeyRound, LockOpen, MailX, ShieldOff, UserCheck, UserMinus } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,7 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { createClient } from "@/lib/supabase/client";
-import { releaseMemberEmail, sendMemberPasswordReset, unlockAndSendReactivation } from "../actions";
+import { releaseMemberEmail, resetMemberMfa, sendMemberPasswordReset, unlockAndSendReactivation } from "../actions";
 
 // What an administrator can do to an account — lifted out of the old Members
 // list (12 Sept 2026) so the Directory's rows and a person's profile offer the
@@ -146,6 +146,30 @@ export default function MemberActions({
     });
   };
 
+  // 0308. For someone who has lost their authenticator AND their backup codes.
+  // It removes their factor; it does not sign them in. Next time they sign in
+  // with their own password they set a new one up. The reason is recorded on
+  // the audit trail — say how you confirmed it was really them.
+  const resetMfa = () => {
+    const reason = window.prompt(
+      `Reset two-factor sign-in for ${name}?\n\n` +
+        `Only do this after confirming it is really them (a call or video, not just an email). ` +
+        `Their authenticator and backup codes stop working, and they set up a new one at their next sign-in.\n\n` +
+        `How did you confirm it was them?`
+    );
+    if (reason === null) return;
+    void run(async () => {
+      const r = await resetMemberMfa(member.id, reason);
+      if (!r.ok) {
+        toast.error("Could not reset two-factor sign-in", { description: r.message });
+        return;
+      }
+      toast.success(`Two-factor reset for ${name}`, {
+        description: "They set up a new authenticator at their next sign-in. The reset is on the audit trail.",
+      });
+    });
+  };
+
   // The one act here that cannot be taken back, so it asks in full.
   const releaseEmail = () => {
     const ok = window.confirm(
@@ -208,6 +232,11 @@ export default function MemberActions({
           {!inactive && !member.email_released_at && !member.sign_in_locked_at && (
             <DropdownMenuItem onClick={resetPassword}>
               <KeyRound /> Send a password reset link
+            </DropdownMenuItem>
+          )}
+          {!inactive && (
+            <DropdownMenuItem onClick={resetMfa}>
+              <ShieldOff /> Reset two-factor sign-in
             </DropdownMenuItem>
           )}
           <DropdownMenuItem onClick={() => setActive(inactive)}>
