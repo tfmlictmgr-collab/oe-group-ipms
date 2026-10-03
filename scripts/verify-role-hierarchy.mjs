@@ -46,6 +46,16 @@ if (orgRes.error) { console.error("db unreachable:", orgRes.error.message); proc
 // operator and of every independent client (the service-charge client, 0094). The
 // old `.find()` returned whichever such row came back first.
 const poc = orgRes.data.find((o) => o.slug === "oe-group-foundation-poc");
+// The probes are created in this org. Without it every section fails on
+// `poc.id` with a TypeError that names nothing (3 Oct 2026, staging).
+if (!poc) {
+  console.error(
+    `This suite runs its probes in the "oe-group-foundation-poc" organisation, which ${URL_} does not have.\n` +
+      `Organisations found: ${orgRes.data.map((o) => o.slug).join(", ") || "none"}.\n` +
+      `Point .env.local at a world that has it (npm run use-env <world>), or seed it there first.`
+  );
+  process.exit(1);
+}
 
 const S = Date.now().toString(36).toUpperCase().slice(-5);
 const madeUsers = [];
@@ -85,10 +95,20 @@ const mkProp = async (name) => {
 async function makeUser(role) {
   const email = `probehier.${role}.${S}@oegroup.test`;
   const { data: created, error } = await svc.auth.admin.createUser({ email, password: PW, email_confirm: true });
-  if (error) throw new Error(`${email}: ${error.message}`);
-  await svc.from("users").upsert({
+  // A refusal can arrive as an error OR as an empty user with no error (an auth
+  // hook, a sign-up setting, a stale service key) — say which, rather than
+  // failing on `created.user.id` with no reason (3 Oct 2026).
+  if (error || !created?.user) {
+    throw new Error(
+      `${email}: could not create the probe account — ` +
+        (error?.message ?? `the auth service returned ${JSON.stringify(created)}`) +
+        ` (target: ${URL_})`
+    );
+  }
+  const { error: rowErr } = await svc.from("users").upsert({
     id: created.user.id, org_id: poc.id, email, full_name: `Probe ${role}`, role,
   });
+  if (rowErr) throw new Error(`${email}: the profile row was refused — ${rowErr.message}`);
   madeUsers.push(created.user.id);
   return { id: created.user.id, email };
 }
