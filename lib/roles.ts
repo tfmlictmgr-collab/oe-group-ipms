@@ -68,6 +68,20 @@ const BRAND_LABELS: Partial<Record<DeliveryBrand, Record<string, string>>> = {
 export const FM_PM = ["facility_manager", "property_manager"] as const;
 
 /**
+ * Every role that does facilities/property operations work — the TypeScript
+ * twin of `fm_roles()` since 0309: the two peer managers, the regional manager
+ * over a region, and the OEA Executive over the whole organisation. Each is
+ * bounded to the places `current_user_property_ids()` gives them; this list
+ * only decides whether a screen is offered at all.
+ *
+ * Use this where a gate means "anyone who does the FM/PM work". Keep `FM_PM`
+ * where a rule really is about the two peer managers alone.
+ */
+export const OPS_MANAGERS = [
+  ...FM_PM, "regional_manager", "operations_executive",
+] as const;
+
+/**
  * Who may see money and the audit trail — the TypeScript mirror of the SQL
  * `oversight_roles()`.
  *
@@ -321,7 +335,7 @@ export const ROLE_HINTS: Partial<Record<string, string>> = {
     // manager's profile, where a wrong sentence reads as a fact about a person.
     "Runs a region. Everything a facilities/properties manager does, plus the service charge and tenancies on the buildings they hold, and inviting managers, vendors, tenants and owners — all of it bounded to the region, project or site they are assigned to. Never approves or releases a payment.",
   operations_executive:
-    "OEA only. Coordinates every facilities manager, properties manager and operations person in the organisation: sees and dispatches every request, and invites FM, PM and operations staff. Approves FM/PM/Ops requisitions at the Managing Partner's stage up to a limit OE Group sets (₦500,000 at launch) — never one they raised, never a vendor payment or landlord payout, and the audit review and payment approval still apply. Cannot release money.",
+    "OEA only. Does everything a facilities, properties or regional manager does — raise work orders and requisitions, dispatch and close jobs, assets, vendors, service charges and tenancies — across every property in the organisation, and invites FM, PM and operations staff. Approves FM/PM/Ops requisitions at the Managing Partner's stage up to a limit OE Group sets (₦500,000 at launch) — never one they raised, never a vendor payment or landlord payout, and the audit review and payment approval still apply. Cannot release money.",
   executive:
     "Oversight for the Managing Director / Managing Partner. Sees everything the payment officer sees and approves payments — on OEA, every outbound payment passes them, at every amount. Cannot execute a remittance, change the approval threshold, or write to the ledger: authorising and disbursing stay in different hands.",
 };

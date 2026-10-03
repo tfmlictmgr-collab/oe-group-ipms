@@ -4,7 +4,7 @@ import { getSessionProfile } from "@/lib/auth";
 import { PageHeader } from "@/components/patterns/page-header";
 import RoleGate, { roleAllowed } from "../RoleGate";
 import SubNav from "./SubNav";
-import { FM_PM } from "@/lib/roles";
+import { OPS_MANAGERS } from "@/lib/roles";
 
 // Shared chrome for the People section. The counts are computed once here so
 // every sub-page shows the same figures and each page stays focused on one job.
@@ -30,7 +30,7 @@ export default async function PeopleLayout({
   // went on offering the link. A menu item that leads to "Not available for
   // your role" is the UI disagreeing with the policy, and the policy was right.
   // `operations_executive` (0307) onboards the FM/PM/Ops staff they coordinate.
-  if (!roleAllowed(session.profile?.role, ["admin", ...FM_PM, "regional_manager", "operations_executive"])) {
+  if (!roleAllowed(session.profile?.role, ["admin", ...OPS_MANAGERS])) {
     return <RoleGate title="People & Onboarding" />;
   }
 

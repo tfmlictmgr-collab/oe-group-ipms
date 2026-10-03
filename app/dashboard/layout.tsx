@@ -264,12 +264,14 @@ export default async function DashboardLayout({
     seesServiceCharges:
       can("sc.read_all") ||
       can("sc.manage") ||
-      ["facility_manager", "property_manager", "regional_manager"].includes(role),
+      ["facility_manager", "property_manager", "regional_manager", "operations_executive"].includes(role),
     // Vendor payments: FM/PM verifies delivery, finance and oversight decide.
     // Not capability-derived because approval is non-delegable, and a screen
     // whose only action is refused is worse than no screen.
     seesPayments: [
       "admin", ...FM_PM, "finance_approver", "executive",
+      // 0309. The Executive verifies delivery like the FM/PM they coordinate.
+      "operations_executive",
       // The two chain roles exist to look at payments; a payment approver who
       // cannot reach the payments screen is a role that cannot do its job.
       "payment_approver", "payment_audit_approver",

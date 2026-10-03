@@ -7,7 +7,7 @@ import { PageHeader } from "@/components/patterns/page-header";
 import { Button } from "@/components/ui/button";
 import SubmitInvoiceForm from "./SubmitInvoiceForm";
 import RoleGate, { roleAllowed } from "../../RoleGate";
-import { FM_PM } from "@/lib/roles";
+import { OPS_MANAGERS } from "@/lib/roles";
 
 export default async function NewPaymentPage() {
   const session = await getSessionProfile();
@@ -19,7 +19,7 @@ export default async function NewPaymentPage() {
   // told "Could not submit invoice" by a 403 — a whole form that could never
   // succeed. The policy is the authority; this is the same list, so the form is
   // offered only to people it will accept.
-  if (!roleAllowed(session.profile?.role, ["admin", ...FM_PM, "regional_manager"])) {
+  if (!roleAllowed(session.profile?.role, ["admin", ...OPS_MANAGERS])) {
     return <RoleGate title="Submit Vendor Invoice" />;
   }
 
