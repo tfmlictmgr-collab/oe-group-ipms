@@ -96,10 +96,12 @@ function deliveryLine(d?: {
 }
 
 export default function CollectionsClient({
-  intents, billable, returnedRef, returnedIntentId, ngn, fx, fxCurrencies,
+  intents, billable, unpaidCount, returnedRef, returnedIntentId, ngn, fx, fxCurrencies,
 }: {
   intents: IntentRow[];
   billable: BillableRow[];
+  /** Unpaid service charges before excluding those with a live request. */
+  unpaidCount: number;
   returnedRef: string | null;
   returnedIntentId: string | null;
   /** How THIS org collects Naira — resolved the way the checkout resolves it (0288). */
@@ -555,9 +557,12 @@ export default function CollectionsClient({
         </CardHeader>
         <CardContent>
           {billable.length === 0 ? (
+            // Two different facts: nothing is owed at all, or everything owed is
+            // already out with a payer. The old sentence claimed the second for both.
             <p className="text-sm text-muted-foreground">
-              Nothing outstanding — every unpaid service charge already has a live
-              payment request.
+              {unpaidCount === 0
+                ? "No unpaid service-charge invoices. Generate invoices from a budget under Service Charges and they will appear here. Rent is paid by the tenant from My Rent."
+                : "Every unpaid service charge already has a live payment request — see Payment requests below."}
             </p>
           ) : (
             <div className="overflow-x-auto">
