@@ -76,6 +76,7 @@ export default async function CollectionsPage({
     <CollectionsClient
       intents={rows}
       billable={billable}
+      unpaidCount={(charges ?? []).length}
       returnedRef={ref ?? null}
       returnedIntentId={requested?.id ?? null}
       ngn={ngn}
