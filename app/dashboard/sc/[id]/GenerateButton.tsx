@@ -30,10 +30,17 @@ export default function GenerateButton({
   function handleClick() {
     startTransition(async () => {
       try {
-        await runAction(generateInvoices(budgetId));
-        toast.success("Invoices generated", {
-          description: "Each occupant's statement has been updated.",
-        });
+        const { unaddressed } = await runAction(generateInvoices(budgetId));
+        if (unaddressed.length > 0) {
+          toast.warning("Invoices generated — some are addressed to nobody", {
+            description: `${unaddressed.join(", ")}: the recorded occupant's account is deactivated, so ${unaddressed.length === 1 ? "that invoice was" : "those invoices were"} raised unaddressed. Clear or reassign the occupant under People → Unit Occupancy, then regenerate.`,
+            duration: 15000,
+          });
+        } else {
+          toast.success("Invoices generated", {
+            description: "Each occupant's statement has been updated.",
+          });
+        }
       } catch (e) {
         toast.error("Could not generate invoices", {
           description: describeError(e),

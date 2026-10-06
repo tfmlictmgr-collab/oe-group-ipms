@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import { apportion, unitDisplayLabel, type ApportionMethod } from "@/lib/apportionment";
 import { sendCascade } from "@/lib/cascade";
 import { flattenTemplateVar, firstNameTemplateVar } from "@/lib/notify";
@@ -11,7 +12,9 @@ import { ok, fail, failFromDb, type ActionResult } from "@/lib/action-result";
 // Generates (or regenerates) per-unit service-charge invoices for a budget by
 // apportioning its total across the property's units. Runs under the caller's
 // session, so RLS enforces that only admin/finance can do this.
-export async function generateInvoices(budgetId: string): Promise<ActionResult> {
+export async function generateInvoices(
+  budgetId: string
+): Promise<ActionResult<{ unaddressed: string[] }>> {
   const supabase = await createClient();
 
   const { data: budget, error: bErr } = await supabase
@@ -87,6 +90,34 @@ export async function generateInvoices(budgetId: string): Promise<ActionResult> 
     );
   }
 
+  // ⚠️ A deactivated account is not a payer (6 Oct 2026). Deactivating a
+  // tenant leaves `units.occupant_user_id` alone — rightly, since losing portal
+  // access is not evidence they have moved out (decision 22) — so this used to
+  // bill the departed account: an invoice addressed to someone who cannot sign
+  // in, whose email 0199 has already replaced with `released+…@invalid`, and
+  // which the gateway then refuses at checkout. The unit still owes its share,
+  // so the invoice is still raised; it is raised UNADDRESSED, the same as a
+  // vacant unit, and the person generating is told which units to look at.
+  //
+  // Read through the service role, deliberately: under the caller's own
+  // session a user row they cannot see would come back as nothing, and
+  // "nothing" here would mean "bill them" — decision 25's zero that means
+  // "you may not see this". The ids come from units this caller already read.
+  const occupantIdsOnUnits = Array.from(
+    new Set(units.map((u) => u.occupant_user_id).filter((id): id is string => !!id))
+  );
+  const departed = new Set<string>();
+  if (occupantIdsOnUnits.length > 0) {
+    const { data: accounts, error: accErr } = await supabaseAdmin
+      .from("users")
+      .select("id, deactivated_at")
+      .in("id", occupantIdsOnUnits);
+    if (accErr) return failFromDb(accErr, "check the occupants of this property");
+    for (const a of accounts ?? []) {
+      if (a.deactivated_at) departed.add(a.id as string);
+    }
+  }
+
   const shares = apportion(
     Number(budget.total_amount),
     units.map((u) => ({
@@ -96,7 +127,8 @@ export async function generateInvoices(budgetId: string): Promise<ActionResult> 
       factor: Number(u.apportionment_factor),
       // 0198: the area is PER unit, so a row of 12 stalls weighs 12x it.
       quantity: Number(u.unit_quantity ?? 1),
-      occupant_user_id: u.occupant_user_id,
+      occupant_user_id:
+        u.occupant_user_id && !departed.has(u.occupant_user_id) ? u.occupant_user_id : null,
       statedAmount: manualShares.get(u.id) ?? null,
     })),
     method
@@ -208,7 +240,11 @@ export async function generateInvoices(budgetId: string): Promise<ActionResult> 
 
   revalidatePath(`/dashboard/sc/${budgetId}`);
   revalidatePath("/dashboard/sc");
-  return ok();
+  return ok({
+    unaddressed: units
+      .filter((u) => u.occupant_user_id && departed.has(u.occupant_user_id))
+      .map((u) => unitDisplayLabel(u.label, u.description)),
+  });
 }
 
 // ── How the budget is split, and who says so ──────────────────────────────
