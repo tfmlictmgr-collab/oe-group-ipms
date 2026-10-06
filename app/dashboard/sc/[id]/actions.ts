@@ -19,10 +19,18 @@ export async function generateInvoices(
 
   const { data: budget, error: bErr } = await supabase
     .from("sc_budgets")
-    .select("id, org_id, property_id, period, total_amount, apportion_method")
+    .select("id, org_id, property_id, period, total_amount, apportion_method, status")
     .eq("id", budgetId)
     .single();
   if (bErr || !budget) return fail("That budget could not be found.");
+  // The database refuses this too (0315's trigger on service_charges); asked
+  // here first so the person reads a sentence, not a trigger's exception.
+  if ((budget as { status?: string }).status === "void") {
+    return fail(
+      "This budget was voided, so nothing can be invoiced against it.",
+      "Raise a new budget for the property and period instead."
+    );
+  }
 
   const method = ((budget as { apportion_method?: string }).apportion_method ??
     "area") as ApportionMethod;
@@ -410,4 +418,82 @@ export async function saveManualShares(
     variance: Number(state?.variance ?? 0),
     reconciles: Boolean(state?.reconciles),
   });
+}
+
+// ── A budget filed in error (0315) ──────────────────────────────────────────
+//
+// A budget is never moved to another property: its invoices were apportioned
+// across THIS property's units, and statements and the per-property fund find
+// its money through it. A mistake is deleted (if nothing ever referenced it) or
+// voided, and raised again on the right property.
+
+/** The exception text a 0315 function or trigger raised, for the person to read. */
+function raisedMessage(error: { message: string; code?: string }): string | null {
+  return error.code === "P0001" ? error.message : null;
+}
+
+/**
+ * Voids a budget: retires its invoices and marks it void with who, when and
+ * why. The database refuses while money is attached to any of its invoices and
+ * checks sc.manage plus the place itself; nothing here is the boundary.
+ */
+export async function voidBudget(budgetId: string, reason: string): Promise<ActionResult> {
+  const trimmed = reason.trim();
+  if (trimmed.length < 10) {
+    return fail("Say why this budget is being voided.", "At least 10 characters. It stays on the record.");
+  }
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("void_sc_budget", {
+    p_budget_id: budgetId,
+    p_reason: trimmed,
+  });
+  if (error) {
+    const raised = raisedMessage(error);
+    return raised ? fail(raised) : failFromDb(error, "void this budget");
+  }
+  revalidatePath(`/dashboard/sc/${budgetId}`);
+  revalidatePath("/dashboard/sc");
+  return ok();
+}
+
+/**
+ * Deletes a draft budget nothing ever referenced. `sc_budgets_delete` decides
+ * who (sc.manage, plus the place); the foreign key from `service_charges`
+ * refuses a budget that has ever been invoiced; `audit_budgets_delete` records
+ * it. The returned rows are checked because a delete RLS declines matches zero
+ * rows and raises nothing (decision 38).
+ */
+export async function deleteBudget(budgetId: string): Promise<ActionResult> {
+  const supabase = await createClient();
+
+  const { data: budget } = await supabase
+    .from("sc_budgets").select("id, status").eq("id", budgetId).maybeSingle();
+  if (!budget) return fail("That budget could not be found.");
+  if (budget.status !== "draft") {
+    return fail(
+      "Only a draft budget that was never invoiced can be deleted.",
+      "Its invoices are financial records. Use Void budget instead."
+    );
+  }
+
+  const { data: removed, error } = await supabase
+    .from("sc_budgets").delete().eq("id", budgetId).select("id");
+  if (error) {
+    if (/foreign key/i.test(error.message)) {
+      return fail(
+        "This budget has invoices on record, so it cannot be deleted.",
+        "Use Void budget instead."
+      );
+    }
+    return failFromDb(error, "delete this budget");
+  }
+  if (!removed || removed.length === 0) {
+    return fail(
+      "You do not have permission to delete this budget.",
+      "Nothing has been removed. Deleting a budget needs sc.manage on its property."
+    );
+  }
+
+  revalidatePath("/dashboard/sc");
+  return ok();
 }

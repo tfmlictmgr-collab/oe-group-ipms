@@ -329,6 +329,15 @@ export function describeEntry(e: AuditEntry, names: (id: unknown) => string | nu
       return a.occupant_user_id ? `Recorded ${names(a.occupant_user_id) ?? "a tenant"} as living in ${a.label ?? "a unit"}` : `Recorded ${a.label ?? "a unit"} as empty`;
     case "funds.override_authorised":
       return "Authorised one payment a property's fund could not cover";
+
+    // 0315: a budget filed in error.
+    case "sc_budget.status_change":
+      if (a.status === "void") {
+        return `Voided the ${a.period ?? ""} service-charge budget${a.void_reason ? ` — “${String(a.void_reason).slice(0, 90)}”` : ""}`.replace("  ", " ");
+      }
+      return `Service-charge budget ${a.period ?? ""} moved from ${low(b.status)} to ${low(a.status)}`.replace("  ", " ");
+    case "sc_budget.deleted":
+      return `Deleted the draft ${b.period ?? ""} service-charge budget of ${money(b.total_amount) ?? "an amount"}`.replace("  ", " ");
   }
 
   // Everything else: a plain statement from the table and the columns that moved.
