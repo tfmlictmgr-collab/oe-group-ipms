@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/table";
 import GenerateButton from "./GenerateButton";
 import ApportionmentControls from "./ApportionmentControls";
+import BudgetCorrection from "./BudgetCorrection";
 
 const METHOD_LABEL: Record<ApportionMethod, string> = {
   area: "pro-rata by occupied space",
@@ -40,7 +41,7 @@ export default async function BudgetDetailPage({
     .from("sc_budgets")
     .select(
       "id, period, description, total_amount, status, property_id, apportion_method, " +
-      "properties(name, address)"
+      "voided_at, void_reason, voider:voided_by(full_name), properties(name, address)"
     )
     .eq("id", id)
     .maybeSingle();
@@ -57,6 +58,9 @@ export default async function BudgetDetailPage({
     status: string;
     property_id: string;
     apportion_method: ApportionMethod | null;
+    voided_at: string | null;
+    void_reason: string | null;
+    voider: { full_name: string | null } | null;
     properties: { name: string; address: string | null } | null;
   };
 
@@ -111,7 +115,10 @@ export default async function BudgetDetailPage({
     apportion(Number(budget.total_amount), unitInputs, "area").map((s) => [s.id, s.amount])
   );
 
-  const canManage = Boolean(canManageData);
+  const isVoid = budget.status === "void";
+  // A void budget is closed (0315): nothing on it changes again, so none of
+  // the controls that change it are offered.
+  const canManage = Boolean(canManageData) && !isVoid;
 
   // ⚠️ Read from `sc_manual_shares_state()` — the SAME function the server
   // action calls to refuse generation, and the same one the editor above shows
@@ -145,13 +152,37 @@ export default async function BudgetDetailPage({
         title="Service Charge Budget"
         description={[property?.name, budget.description, budget.period].filter(Boolean).join(" · ")}
         actions={
-          <Button asChild variant="ghost" size="sm">
-            <Link href="/dashboard/sc">
-              <ArrowLeft /> Back
-            </Link>
-          </Button>
+          <div className="flex items-center gap-1">
+            {canManage && (
+              <BudgetCorrection
+                budgetId={budget.id}
+                status={budget.status}
+                propertyName={property?.name ?? "this property"}
+                period={budget.period}
+              />
+            )}
+            <Button asChild variant="ghost" size="sm">
+              <Link href="/dashboard/sc">
+                <ArrowLeft /> Back
+              </Link>
+            </Button>
+          </div>
         }
       />
+
+      {isVoid && (
+        <div className="rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm">
+          <p className="font-medium">This budget was voided.</p>
+          <p className="mt-1 text-muted-foreground">
+            {budget.voided_at && new Date(budget.voided_at).toLocaleString("en-GB", {
+              day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
+            })}
+            {budget.voider?.full_name ? ` by ${budget.voider.full_name}` : ""}
+            {budget.void_reason ? ` — ${budget.void_reason}` : ""}. Its invoices are
+            retired and nothing more can be raised against it.
+          </p>
+        </div>
+      )}
 
       <Card>
         <CardContent className="pt-5">

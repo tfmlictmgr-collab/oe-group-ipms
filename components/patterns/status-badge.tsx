@@ -33,6 +33,8 @@ const VARIANT_BY_STATUS: Record<string, Variant> = {
   unpaid: "destructive",
   overdue: "destructive",
   draft: "muted",
+  // A service-charge budget filed in error (0315).
+  void: "muted",
   active: "success",
 };
 
