@@ -1,14 +1,16 @@
-// Verifies that Flutterwave takes Naira collections and that payouts never
-// reach an adapter that cannot pay out (board, 23 Sept 2026 — Option A).
+// Verifies the gateway split by currency (7 Oct 2026): Paystack takes Naira
+// collections and every payout, Flutterwave takes foreign currency — and that
+// payouts never reach an adapter that cannot pay out.
 //
 //   npx tsx scripts/verify-flutterwave-collections.mjs
 //
-// Paystack's business verification could not be passed in time; Flutterwave's
-// could, and one Flutterwave account takes Naira and foreign currency. So
-// Flutterwave became the PREFERRED Naira collector, with Paystack kept for any
-// organisation that has only a Paystack account and for automated payouts. The
-// Flutterwave adapter collects and refuses to transfer, so the one thing this
-// change must never do is hand it to a payout — that would claim a remittance
+// History. On 23 Sept 2026 (Option A) Paystack's verification could not be
+// passed in time, so Flutterwave was made the PREFERRED Naira collector. Paystack
+// verified OEA on 2 Oct and Flutterwave on 5 Oct, and on 7 Oct Naira moved back
+// to Paystack, where its payouts already were; Flutterwave keeps every foreign
+// currency, and stays a Naira fallback only for an org with no Paystack account.
+// The Flutterwave adapter collects and refuses to transfer, so the one thing
+// this must never do is hand it to a payout — that would claim a remittance
 // and then fail at the gateway.
 //
 // What it proves, and how:
@@ -89,8 +91,8 @@ async function refusal(p) {
 // ════════════════════════════════════════════════════════════════════════════
 section("A. The preference table — the one place the choice is made");
 
-same(gw.gatewayPreference("NGN", "collect"), ["flutterwave", "paystack"])
-  ? ok("Naira collections: Flutterwave first, Paystack only where Flutterwave is not connected")
+same(gw.gatewayPreference("NGN", "collect"), ["paystack", "flutterwave"])
+  ? ok("Naira collections: Paystack first, Flutterwave only where an org has no Paystack account")
   : bad(`NGN collect → ${gw.gatewayPreference("NGN", "collect")}`);
 same(gw.gatewayPreference("usd", "collect"), ["flutterwave"])
   ? ok("foreign-currency collections: Flutterwave, as before (case-insensitive)")
@@ -125,13 +127,20 @@ if (!tfml) {
   });
 
   await withKeys({ PAYSTACK_SECRET_KEY: PS_TEST, FLUTTERWAVE_SECRET_KEY: FW_TEST, FLUTTERWAVE_WEBHOOK_HASH: "h" }, async () => {
-    gw.collectionGatewayName("NGN") === "flutterwave" && gw.gatewayMode("NGN") === "test"
-      ? ok("both keys: Naira moves to Flutterwave, and the label reads Flutterwave's own mode")
+    gw.collectionGatewayName("NGN") === "paystack" && gw.gatewayMode("NGN") === "test"
+      ? ok("both keys: Naira is collected through Paystack, labelled with Paystack's own mode")
       : bad(`both → ${gw.collectionGatewayName("NGN")}/${gw.gatewayMode("NGN")}`);
+    gw.collectionGatewayName("USD") === "flutterwave"
+      ? ok("…while foreign currency stays on Flutterwave")
+      : bad(`both, USD → ${gw.collectionGatewayName("USD")}`);
     const c = await gw.resolveOrgGateway(tfml.id, "NGN", "collect");
-    c.merchant === "platform" && c.adapter.name === "flutterwave"
-      ? ok(`…${tfml.name}'s Naira checkout opens on Flutterwave`)
+    c.merchant === "platform" && c.adapter.name === "paystack"
+      ? ok(`…${tfml.name}'s Naira checkout opens on Paystack`)
       : bad(`${tfml.name} collect → ${c.merchant}/${c.adapter.name}`);
+    const fx = await gw.resolveOrgGateway(tfml.id, "USD", "collect");
+    fx.adapter.name === "flutterwave"
+      ? ok(`…and its dollar checkout on Flutterwave`)
+      : bad(`${tfml.name} USD collect → ${fx.merchant}/${fx.adapter.name}`);
     const p = await gw.resolveOrgGateway(tfml.id, "NGN", "payout");
     p.adapter.name === "paystack"
       ? ok("…while its payouts stay on Paystack, the only adapter that can transfer")
@@ -140,7 +149,7 @@ if (!tfml) {
 
   await withKeys({ FLUTTERWAVE_SECRET_KEY: FW_LIVE, FLUTTERWAVE_WEBHOOK_HASH: "h" }, async () => {
     gw.collectionGatewayName("NGN") === "flutterwave" && gw.gatewayMode("NGN") === "live"
-      ? ok("Flutterwave key only (the go-live shape): Naira on Flutterwave, labelled LIVE")
+      ? ok("Flutterwave key only: Naira falls back to Flutterwave rather than being refused, labelled LIVE")
       : bad(`FW only → ${gw.collectionGatewayName("NGN")}/${gw.gatewayMode("NGN")}`);
     gw.gatewayConfigured("NGN")
       ? ok("…and Naira reads as configured, so no screen offers the simulated checkout")
@@ -191,10 +200,18 @@ section("C. An organisation's own account still wins — preference, not replace
       skip("no organisation here has only a Paystack credential");
     }
     if (withFw) {
+      const hasPaystack = byOrg.get(withFw[0]).includes("paystack");
       const r = await gw.resolveOrgGateway(withFw[0], "NGN", "collect");
-      r.merchant === "org" && r.adapter.name === "flutterwave"
-        ? ok("an org that connected Flutterwave collects Naira on its own Flutterwave account")
-        : bad(`flutterwave org → ${r.merchant}/${r.adapter.name}`);
+      const want = hasPaystack ? "paystack" : "flutterwave";
+      r.merchant === "org" && r.adapter.name === want
+        ? ok(hasPaystack
+            ? "an org with both accounts collects Naira on its own Paystack account"
+            : "an org with only Flutterwave still collects Naira on its own Flutterwave account")
+        : bad(`flutterwave org, NGN → ${r.merchant}/${r.adapter.name} (expected ${want})`);
+      const f = await gw.resolveOrgGateway(withFw[0], "USD", "collect");
+      f.merchant === "org" && f.adapter.name === "flutterwave"
+        ? ok("…and takes foreign currency on its own Flutterwave account")
+        : bad(`flutterwave org, USD → ${f.merchant}/${f.adapter.name}`);
     } else {
       skip("no organisation here has connected Flutterwave yet — exercised by the adapter check below");
     }
@@ -328,7 +345,7 @@ section("G. Every caller says whether it collects or pays out");
 
 console.log(
   failures === 0
-    ? "\n\x1b[32mALL CHECKS PASSED — Naira is collected on Flutterwave where it is connected, and no payout reaches an adapter that cannot pay.\x1b[0m"
+    ? "\n\x1b[32mALL CHECKS PASSED — Naira is collected on Paystack, foreign currency on Flutterwave, and no payout reaches an adapter that cannot pay.\x1b[0m"
     : `\n\x1b[31m${failures} CHECK(S) FAILED\x1b[0m`
 );
 process.exit(failures === 0 ? 0 : 1);

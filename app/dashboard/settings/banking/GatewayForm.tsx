@@ -41,9 +41,9 @@ const COPY: Record<Gateway, {
     webhookHint:
       "Required. Flutterwave proves a payment notification with this value alone, so it must be entered again whenever the key is replaced.",
     webhookRequired: true,
-    connected: "Naira and foreign-currency collections for this organisation now use it.",
+    connected: "Foreign-currency collections for this organisation now use it, and Naira too if Paystack is not connected.",
     none:
-      "This organisation has no Flutterwave account of its own. Connect one to take Naira and foreign-currency payments online into its own merchant account.",
+      "This organisation has no Flutterwave account of its own. Connect one to take payments in foreign currency online into its own merchant account.",
   },
   paystack: {
     name: "Paystack",
@@ -53,9 +53,9 @@ const COPY: Record<Gateway, {
     webhookPlaceholder: "Optional",
     webhookHint: "Optional — Paystack signs its notifications with the secret key itself.",
     webhookRequired: false,
-    connected: "Automated payouts for this organisation now use it, and Naira collections too if Flutterwave is not connected.",
+    connected: "Naira collections and automated payouts for this organisation now use it.",
     none:
-      "This organisation has no Paystack account of its own, so payouts are made by recorded bank transfer. Flutterwave is the collections gateway; Paystack is only needed for automated payouts.",
+      "This organisation has no Paystack account of its own. Connect one to take Naira payments online and to send automated payouts; until then, payouts are made by recorded bank transfer.",
   },
 };
 
