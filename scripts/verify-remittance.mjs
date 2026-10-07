@@ -247,14 +247,77 @@ console.log("\nB2. Disbursement is finance's, and never the approver's (0142)");
     : bad("A DEACTIVATED ACCOUNT RELEASED MONEY");
 }
 
-console.log("\nC. One live remittance per payment");
+// ⚠️ Rewritten for 0311 (decision 59). This section used to assert that a
+// second create for the same invoice is REFUSED. Since 0311 a create supersedes
+// a payout that is still `queued`: one refused before its claim (no Paystack
+// account, a recipient on the shared platform account) otherwise held
+// `remittances_one_live_per_payment_uidx` forever and no route could pay the
+// invoice. That is safe ONLY because `queued` means unclaimed — the claim takes
+// the row lock and refuses anything not `queued`, so nothing has left the
+// account on a queued row, and the superseded row can never be claimed after.
+// What must still hold, and is asserted here: exactly one live remittance per
+// invoice, the superseded one closed with a reason, the superseded one never
+// claimable, and a payout that is `sending`, `unknown` or `sent` is never
+// superseded (sections C2, E2 and J2).
+const liveFor = async (paymentId) => {
+  const { data } = await svc.from("remittances").select("id, status")
+    .eq("payment_id", paymentId).neq("status", "failed");
+  return data ?? [];
+};
+
+console.log("\nC. A second create supersedes a payout that was never claimed — and only that");
+let vendorPaymentId;
 {
   const { data: r } = await svc.from("remittances").select("payment_id").eq("id", vendorRemId).single();
-  const { error } = await svc.rpc("create_vendor_remittance", {
-    p_payment_id: r.payment_id, p_reference: `REM-${stamp}-V2`, p_executed_by: fin.id,
+  vendorPaymentId = r.payment_id;
+  const firstRemId = vendorRemId;
+  const { data: secondId, error } = await svc.rpc("create_vendor_remittance", {
+    p_payment_id: vendorPaymentId, p_reference: `REM-${stamp}-V2`, p_executed_by: fin.id,
   });
-  error ? ok("a second remittance for the same invoice is refused")
-        : bad("A SECOND REMITTANCE WAS CREATED FOR THE SAME INVOICE");
+  if (error) {
+    bad(`the unclaimed payout was not superseded — ${error.message}`);
+  } else {
+    made.remittances.push(secondId);
+    const { data: old } = await svc.from("remittances")
+      .select("status, gateway_message").eq("id", firstRemId).single();
+    old.status === "failed" && /superseded before sending/.test(old.gateway_message ?? "")
+      ? ok("the unclaimed payout is closed as failed, with the reason recorded")
+      : bad(`old payout is ${old.status} (${old.gateway_message ?? "no reason"})`);
+    const live = await liveFor(vendorPaymentId);
+    live.length === 1 && live[0].id === secondId && live[0].status === "queued"
+      ? ok("exactly one live remittance for the invoice — the new one, queued")
+      : bad(`${live.length} live remittances for one invoice: ${JSON.stringify(live)}`);
+
+    // The officer who lost the race still holds the old id. Their claim must
+    // be refused, or one invoice would reach the gateway twice.
+    const { error: staleErr } = await svc.rpc("claim_remittance_for_sending", {
+      p_id: firstRemId, p_sent_by: fin.id,
+    });
+    staleErr && /already failed/.test(staleErr.message)
+      ? ok("the superseded payout can never be claimed for sending")
+      : bad(`A SUPERSEDED PAYOUT WAS CLAIMABLE (${staleErr?.message ?? "no error"})`);
+    vendorRemId = secondId;
+  }
+}
+
+console.log("\nC1. Three officers creating at once leave exactly one live payout");
+{
+  const payId = await newPayment("approved", { verified: true, scored: true, approved: true });
+  const results = await Promise.all([1, 2, 3].map((n) =>
+    svc.rpc("create_vendor_remittance", {
+      p_payment_id: payId, p_reference: `REM-${stamp}-RACE${n}`, p_executed_by: fin.id,
+    })));
+  for (const r of results) if (!r.error) made.remittances.push(r.data);
+  const live = await liveFor(payId);
+  live.length === 1
+    ? ok("3 concurrent creates → 1 live remittance (the payment row lock serialises them)")
+    : bad(`${live.length} LIVE REMITTANCES FOR ONE INVOICE`);
+  const claims = await Promise.all(results.filter((r) => !r.error).map((r) =>
+    svc.rpc("claim_remittance_for_sending", { p_id: r.data, p_sent_by: fin.id })));
+  const won = claims.filter((c) => !c.error).length;
+  won === 1
+    ? ok("and every officer claiming the id they were handed → exactly 1 claim succeeds")
+    : bad(`${won} CLAIMS SUCCEEDED FOR ONE INVOICE`);
 }
 
 console.log("\nD. An instruction can be claimed for sending exactly once");
@@ -268,6 +331,20 @@ console.log("\nD. An instruction can be claimed for sending exactly once");
   won === 1
     ? ok("3 concurrent claims → exactly 1 winner; the others were refused")
     : bad(`${won} callers each believed they were sending`);
+}
+
+console.log("\nC2. A payout already on its way is never superseded");
+{
+  const { error } = await svc.rpc("create_vendor_remittance", {
+    p_payment_id: vendorPaymentId, p_reference: `REM-${stamp}-V3`, p_executed_by: fin.id,
+  });
+  const { data: still } = await svc.from("remittances").select("status").eq("id", vendorRemId).single();
+  error && /already on its way/.test(error.message)
+    ? ok("a create while the payout is `sending` is refused, in words")
+    : bad(`A SENDING PAYOUT WAS NOT PROTECTED (${error?.message ?? "a remittance was created"})`);
+  still.status === "sending"
+    ? ok("and the payout in flight is untouched")
+    : bad(`THE PAYOUT IN FLIGHT WAS MOVED TO ${still.status}`);
 }
 
 // Held by name. This was `made.entries[0]`, which silently became the wrong
@@ -312,6 +389,17 @@ console.log("\nF. Re-confirming does not post a second time");
     ? ok("the same ledger entry is returned")
     : bad(`different entry ${again} (expected ${vendorRemEntryId})`);
   before === after ? ok("funds unchanged — no double posting") : bad(`DOUBLE POSTED: ${before - after}`);
+}
+
+console.log("\nE2. A sent payout is never superseded");
+{
+  const { error } = await svc.rpc("create_vendor_remittance", {
+    p_payment_id: vendorPaymentId, p_reference: `REM-${stamp}-V4`, p_executed_by: fin.id,
+  });
+  const { data: still } = await svc.from("remittances").select("status").eq("id", vendorRemId).single();
+  error && still.status === "sent"
+    ? ok(`a create after the money has gone is refused (${error.message.slice(0, 52)})`)
+    : bad(`A SENT PAYOUT WAS SUPERSEDED (${error?.message ?? "a remittance was created"}; status ${still.status})`);
 }
 
 console.log("\nG. A sent remittance cannot be restated or re-sent");
@@ -435,6 +523,16 @@ console.log("\nJ. An unknown outcome stays unknown");
   // The dangerous move: re-claiming it as if it were fresh.
   const { error } = await svc.rpc("claim_remittance_for_sending", { p_id: remId, p_sent_by: fin.id });
   error ? ok("cannot be re-claimed for sending — no blind retry") : bad("RE-CLAIMED AND WOULD SEND AGAIN");
+
+  // Nor superseded by a fresh create: an unknown payout may have arrived at the
+  // bank, so replacing it is exactly the blind retry the line above forbids.
+  const { error: againErr } = await svc.rpc("create_vendor_remittance", {
+    p_payment_id: payId, p_reference: `REM-${stamp}-U2`, p_executed_by: fin.id,
+  });
+  const { data: u } = await svc.from("remittances").select("status").eq("id", remId).single();
+  againErr && /waiting to be reconciled/.test(againErr.message) && u.status === "unknown"
+    ? ok("and a fresh create cannot supersede it — it stays unknown")
+    : bad(`AN UNKNOWN PAYOUT WAS SUPERSEDED (${againErr?.message ?? "a remittance was created"}; status ${u.status})`);
 }
 
 console.log("\nK. Segregation still holds");
