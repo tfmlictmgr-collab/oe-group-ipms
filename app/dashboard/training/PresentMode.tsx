@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   X, ChevronLeft, ChevronRight, Maximize, Minimize, LayoutGrid, NotebookPen,
 } from "lucide-react";
@@ -167,6 +168,20 @@ export default function PresentMode({
   // Swipe on a touch screen, so a tablet can drive the deck.
   const touchX = useRef<number | null>(null);
 
+  // Rendered into <body>, not in place. The dashboard wraps every page in an
+  // animated container, and a transformed ancestor becomes the containing
+  // block for anything `position: fixed` inside it, so in place the deck was
+  // trapped in the content column at a fraction of the window (8 Oct 2026).
+  // A portal is the only placement no future wrapper can trap.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+    // The page behind keeps its scroll position but cannot scroll under the deck.
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
   // Scale the 1280×720 canvas to the space actually available.
   const stageRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0.5);
@@ -181,7 +196,7 @@ export default function PresentMode({
     const ro = new ResizeObserver(fit);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [notesOpen]);
+  }, [notesOpen, mounted]);
 
   const slide = slides[current];
   const notesProcess =
@@ -190,8 +205,10 @@ export default function PresentMode({
       : null;
   const ctx: Ctx = { processes, roleName, orgName, audience, trainerView, index: current, total: slides.length };
 
-  return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-neutral-950 text-white" role="dialog" aria-label="Presentation">
+  if (!mounted) return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex flex-col bg-neutral-950 text-white" role="dialog" aria-modal="true" aria-label="Presentation">
       {/* Progress */}
       <div className="h-1 w-full bg-white/10">
         <div
@@ -285,7 +302,8 @@ export default function PresentMode({
           onClose={() => setGridOpen(false)}
         />
       )}
-    </div>
+    </div>,
+    document.body
   );
 }
 
