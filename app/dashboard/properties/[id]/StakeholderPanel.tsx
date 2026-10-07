@@ -70,7 +70,7 @@ export default function StakeholderPanel({
   if (candidates.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
-        No one to attach yet — invite a {brand === "OEA" ? "properties manager" : "facilities manager"} or
+        No one to attach yet — invite a {brand === "OEA" ? "property manager" : "facilities manager"} or
         a property owner under People first.
       </p>
     );

@@ -95,7 +95,7 @@ export async function inviteMember(
       me.role === "regional_manager"
         ? "A regional manager may invite facilities and property managers, owners, tenants and vendors. Administrators, the executive and the payment desks are an administrator's to appoint."
         : me.role === "operations_executive"
-          ? "The Executive may invite facilities managers, properties managers and operations staff. Everyone else is an administrator's to appoint."
+          ? "The Executive may invite facilities managers, property managers and operations staff. Everyone else is an administrator's to appoint."
           : me.role === "admin"
             ? "That role exists on OEA only."
             : "You may only invite roles below your own."

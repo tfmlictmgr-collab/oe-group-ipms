@@ -403,7 +403,7 @@ const ROLE_WORDS: Record<string, string> = {
   payment_approver: "payment approver",
   finance_approver: "payment officer",
   facility_manager: "facilities manager",
-  property_manager: "properties manager",
+  property_manager: "property manager",
   regional_manager: "regional manager",
   operations_executive: "Executive",
 };
