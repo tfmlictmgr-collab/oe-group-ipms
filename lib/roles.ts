@@ -46,9 +46,6 @@ const BRAND_LABELS: Partial<Record<DeliveryBrand, Record<string, string>>> = {
     // title each organisation actually uses.
     executive: "Managing Partner",
   },
-  TFML: {
-    regional_manager: "Regional Facilities Manager",
-  },
 };
 
 /**
