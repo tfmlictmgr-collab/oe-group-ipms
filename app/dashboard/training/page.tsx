@@ -120,6 +120,7 @@ export default async function TrainingPage() {
           <TrainingBrowser
             processes={processes}
             roles={roles.map((r) => ({ key: r, label: roleLabel(r, brand) }))}
+            orgName={org.name}
           />
         </Suspense>
       )}
