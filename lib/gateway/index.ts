@@ -1,9 +1,9 @@
 import crypto from "node:crypto";
 
-// One interface over Flutterwave (Naira and FX collections — preferred since
-// 23 Sept 2026) and Paystack (Naira collections where Flutterwave is not
-// connected, and payouts), plus a simulated adapter used when no keys are
-// configured. Which one carries what is decided in `gatewayPreference` alone.
+// One interface over Paystack (Naira collections and payouts) and Flutterwave
+// (foreign-currency collections, and Naira only where an org has no Paystack
+// account), plus a simulated adapter used when no keys are configured. Which
+// one carries what is decided in `gatewayPreference` alone (7 Oct 2026).
 //
 // The simulated adapter is not a stub that pretends to succeed — it exercises
 // the same code path end to end (intent → checkout → webhook → verify → post),
@@ -282,7 +282,7 @@ class PaystackAdapter implements PaymentGatewayAdapter {
   }
 }
 
-// ── Flutterwave (Naira and FX collections) ─────────────────────────────────
+// ── Flutterwave (FX collections; Naira only as a fallback) ─────────────────
 class FlutterwaveAdapter implements PaymentGatewayAdapter {
   readonly name = "flutterwave" as const;
   constructor(private secret: string, private webhookHash: string) {}
@@ -352,7 +352,7 @@ class FlutterwaveAdapter implements PaymentGatewayAdapter {
     }
   }
 
-  // Flutterwave COLLECTS (Naira and FX). Payouts are not built on it yet —
+  // Flutterwave COLLECTS (FX, and Naira as a fallback). Payouts are not built on it yet —
   // `gatewayPreference` never hands this adapter to a payout, so these two are
   // a backstop, not a path. Refusing here is deliberate: silently returning a fake success
   // for an unimplemented payout path is how money appears to have moved when it
@@ -482,15 +482,18 @@ type RealGateway = "paystack" | "flutterwave";
  * Which gateways may carry this currency for this purpose, in order of
  * preference. The ONE place the choice is made — every resolver below reads it.
  *
- * ⚠️ Flutterwave replaces Paystack (board, 23 Sept 2026 — Option A). Paystack's
- * business verification could not be passed in time; Flutterwave's could, and
- * one Flutterwave account takes both Naira and foreign currency. So:
+ * 📌 7 Oct 2026: Naira collections move back to Paystack. On 23 Sept (Option A)
+ * Flutterwave was put first for Naira because Paystack's verification could not
+ * be passed in time. Paystack verified OEA on 2 Oct and Flutterwave on 5 Oct,
+ * so Naira now goes where its payouts already go: one provider for Naira in and
+ * out means one settlement stream to reconcile against the client-funds account
+ * (decision 2), and Paystack pays out from its own balance. Flutterwave keeps
+ * every foreign currency, which is what the board chose it for (decision 4).
  *
- *   collect, NGN   → Flutterwave first, Paystack only where Flutterwave is not
- *                    connected. Preference, not replacement: an org whose only
- *                    key is Paystack behaves exactly as it did before, which is
- *                    what makes this change behaviour-preserving until somebody
- *                    actually connects Flutterwave.
+ *   collect, NGN   → Paystack first, Flutterwave only where an org has no
+ *                    Paystack account. A preference, not a removal: an org
+ *                    connected to Flutterwave alone still takes Naira online
+ *                    rather than being refused.
  *   collect, other → Flutterwave, as since Day 5 (the B3 FX split).
  *   payout,  NGN   → Paystack only. The Flutterwave adapter COLLECTS and refuses
  *                    to transfer (see `FlutterwaveAdapter.transfer`), so handing
@@ -507,7 +510,7 @@ type RealGateway = "paystack" | "flutterwave";
 export function gatewayPreference(currency: string, purpose: GatewayPurpose): RealGateway[] {
   const ngn = currency.toUpperCase() === "NGN";
   if (purpose === "payout") return ngn ? ["paystack"] : [];
-  return ngn ? ["flutterwave", "paystack"] : ["flutterwave"];
+  return ngn ? ["paystack", "flutterwave"] : ["flutterwave"];
 }
 
 /** The deployment-wide (platform) key for a gateway, if one is set. */
@@ -550,7 +553,7 @@ export function getGateway(currency = "NGN"): PaymentGatewayAdapter {
   // A live deployment must never silently fall back to simulation.
   if (isProduction()) {
     throw new Error(
-      `No payment gateway configured for ${currency}. Set FLUTTERWAVE_SECRET_KEY (Naira and FX) or PAYSTACK_SECRET_KEY (Naira).`
+      `No payment gateway configured for ${currency}. Set PAYSTACK_SECRET_KEY (Naira) or FLUTTERWAVE_SECRET_KEY (foreign currency).`
     );
   }
   return new SimulatedAdapter(process.env.SIMULATED_GATEWAY_SECRET ?? "dev-simulated-secret");
@@ -607,7 +610,7 @@ export function getAdapterByName(name: GatewayName): PaymentGatewayAdapter {
  */
 export function gatewayMode(currency = "NGN"): "live" | "test" | "simulated" {
   // The key of the gateway this currency is actually COLLECTED through — for
-  // Naira, Flutterwave when it is set (23 Sept 2026), else Paystack.
+  // Naira, Paystack when it is set (7 Oct 2026), else Flutterwave.
   const name = collectionGatewayName(currency);
   const key = name === "simulated" ? null : platformKey(name);
   if (!key) return "simulated";
@@ -711,8 +714,8 @@ export async function resolveOrgGateway(
   const preference = gatewayPreference(currency, purpose);
 
   // The org's own account for the first preferred gateway it has connected.
-  // Flutterwave is asked first for Naira collections, so an org that connects
-  // it moves its Naira collections there with no other change.
+  // Paystack is asked first for Naira collections (7 Oct 2026); an org with
+  // only Flutterwave connected still collects Naira through it.
   let wanted: RealGateway | null = null;
   try {
     for (const g of preference) {
