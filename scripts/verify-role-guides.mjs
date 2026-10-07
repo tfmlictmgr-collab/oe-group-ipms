@@ -9,7 +9,7 @@
 // The claims:
 //   • every role in the `user_role` enum resolves to a guide
 //   • FM and PM get the same body under their own names (decision 18), and the
-//     name follows the brand — OEA's is "Properties Manager"
+//     name follows the brand — OEA's is "Property Manager"
 //   • each guide renders to a real, non-empty PDF that starts with %PDF
 //   • the org's own branding reaches the document — its name is inside the
 //     bytes, so a guide cannot silently go out carrying nobody's brand

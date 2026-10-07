@@ -18,7 +18,7 @@ const BASE_LABELS: Record<string, string> = {
   vendor: "Vendor",
   fm_ops_staff: "Operations Staff",
   facility_manager: "Facilities Manager",
-  property_manager: "Properties Manager",
+  property_manager: "Property Manager",
   // ⚠️ The IDENTIFIER stays `finance_approver` (decision 23: "label renamed").
   // The enum value is named in 123 files including `enforce_payment_transition`,
   // `submit_vendor_invoice`, `assert_may_disburse` and `oversight_roles()`;
@@ -42,7 +42,6 @@ const BASE_LABELS: Record<string, string> = {
 const BRAND_LABELS: Partial<Record<DeliveryBrand, Record<string, string>>> = {
   OEA: {
     fm_ops_staff: "Property Operations Staff",
-    regional_manager: "Regional Properties Manager",
     // OEA is a partnership; TFML is a company. Same role, same policies, the
     // title each organisation actually uses.
     executive: "Managing Partner",
@@ -333,9 +332,9 @@ export const ROLE_HINTS: Partial<Record<string, string>> = {
     // role the service charge and tenancies on the buildings it holds, and
     // decision 42 narrowed whom it may invite. It now shows on every regional
     // manager's profile, where a wrong sentence reads as a fact about a person.
-    "Runs a region. Everything a facilities/properties manager does, plus the service charge and tenancies on the buildings they hold, and inviting managers, vendors, tenants and owners — all of it bounded to the region, project or site they are assigned to. Never approves or releases a payment.",
+    "Runs a region. Everything a facilities/property manager does, plus the service charge and tenancies on the buildings they hold, and inviting managers, vendors, tenants and owners — all of it bounded to the region, project or site they are assigned to. Never approves or releases a payment.",
   operations_executive:
-    "OEA only. Does everything a facilities, properties or regional manager does — raise work orders and requisitions, dispatch and close jobs, assets, vendors, service charges and tenancies — across every property in the organisation, and invites FM, PM and operations staff. Approves FM/PM/Ops requisitions at the Managing Partner's stage up to a limit OE Group sets (₦500,000 at launch) — never one they raised, never a vendor payment or landlord payout, and the audit review and payment approval still apply. Cannot release money.",
+    "OEA only. Does everything a facilities, property or regional manager does — raise work orders and requisitions, dispatch and close jobs, assets, vendors, service charges and tenancies — across every property in the organisation, and invites FM, PM and operations staff. Approves FM/PM/Ops requisitions at the Managing Partner's stage up to a limit OE Group sets (₦500,000 at launch) — never one they raised, never a vendor payment or landlord payout, and the audit review and payment approval still apply. Cannot release money.",
   executive:
     "Oversight for the Managing Director / Managing Partner. Sees everything the payment officer sees and approves payments — on OEA, every outbound payment passes them, at every amount. Cannot execute a remittance, change the approval threshold, or write to the ledger: authorising and disbursing stay in different hands.",
 };

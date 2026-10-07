@@ -760,7 +760,7 @@ export const ROLE_GUIDES: Record<string, RoleGuide> = {
   operations_executive: {
     title: "Your Executive guide",
     audience:
-      "For the Executive — coordinating every facilities manager, properties manager and operations person at OEA.",
+      "For the Executive — coordinating every facilities manager, property manager and operations person at OEA.",
     sections: [
       SIGNING_IN,
       {
@@ -792,7 +792,7 @@ export const ROLE_GUIDES: Record<string, RoleGuide> = {
           {
             title: "Onboarding",
             body:
-              "Under People you can invite facilities managers, properties managers " +
+              "Under People you can invite facilities managers, property managers " +
               "and operations staff, and place managers on the properties they will " +
               "run. Regional managers, the payment desks and administrators are the " +
               "administrator's to appoint.",
