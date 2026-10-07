@@ -925,7 +925,7 @@ one-line reason rather than deleting it silently.
       statement showing ₦0.00 on the day the first real payment is recorded.
       If it is not ₦0.00, post the real figure and who it belongs to, before
       that first payment.
-- [~] 1.10 Flutterwave / FX — **in**, as the collections gateway (23 Sept 2026); board minute owed
+- [x] 1.10 Flutterwave / FX — **in, for foreign currency.** 23 Sept: made the Naira collections gateway too (Option A), pending a minute. 7 Oct: Paystack verified OEA on 2 Oct and Flutterwave on 5 Oct, so Naira went back to Paystack and the code again matches locked decision 4 as written. **The Option A minute is superseded; no amendment is owed.**
 - [x] 1.11 External pen test commissioned and booked for the empty-production
       window. ⚠️ **Not commissioned, and this is the item with a closing
       window.** Booking takes 2–4 weeks; production is empty **today**. 6.2
@@ -1159,7 +1159,15 @@ one-line reason rather than deleting it silently.
       ✅ **Closed 23 Sept 2026: `rc3` is dead as predicted and `rc4` replaced
       it** — see 2.13. It died twice over, once on PR #37 (`app/layout.tsx`)
       and again on PR #53 (the gateway).
-- [~] 2.12 **Flutterwave replaces Paystack for collections — Option A, built
+- [x] 2.12 📌 **Superseded 7 Oct 2026: Naira collections back on Paystack.** Paystack
+      verified OEA on 2 Oct and Flutterwave on 5 Oct; both live keys are on the OEA
+      portal. `gatewayPreference()` now puts Naira collections on Paystack first
+      (Flutterwave only where an org has no Paystack account), keeps every foreign
+      currency on Flutterwave, and leaves payouts on Paystack. One provider for
+      Naira in and out means one settlement stream to reconcile, and Paystack pays
+      out from its own balance. `verify-flutterwave-collections` asserts the split.
+      The record of Option A follows unchanged.
+      **Flutterwave replaces Paystack for collections — Option A, built
       23 Sept 2026.** Paystack's verification asks (SCUML certificate,
       shareholder ID and address for 51% owners) cannot be met in time;
       Flutterwave's can, and one account takes Naira and FX.

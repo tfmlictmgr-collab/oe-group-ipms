@@ -71,34 +71,35 @@ export default async function BankingSettingsPage() {
       </CardContent>
     </Card>
 
-    {/* Flutterwave first: it is the collections gateway since 23 Sept 2026,
-        for Naira as well as foreign currency. Paystack stays, for automated
-        payouts and for any org that has only a Paystack account. */}
+    {/* Split by currency since 7 Oct 2026 (gatewayPreference): Paystack takes
+        Naira in and pays out; Flutterwave takes foreign currency, and Naira
+        only for an org with no Paystack account. */}
     <Card className="mt-4">
       <CardHeader>
-        <CardTitle>Flutterwave (Naira &amp; foreign-currency collections)</CardTitle>
+        <CardTitle>Paystack (Naira collections &amp; automated payouts)</CardTitle>
         <CardDescription>
-          This organisation&rsquo;s own merchant account. Online payments from
-          tenants and clients land in it, so its money never moves through
-          another organisation&rsquo;s balance.
+          This organisation&rsquo;s own merchant account. Online Naira payments
+          from tenants and clients land in it, and automated payouts to vendors
+          and landlords draw on it, so its money never moves through another
+          organisation&rsquo;s balance. Without it, payouts are made by recorded
+          bank transfer under Ledger → Payouts.
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <GatewayForm gateway="flutterwave" status={flutterwave as never} />
+        <GatewayForm gateway="paystack" status={paystack as never} />
       </CardContent>
     </Card>
 
     <Card className="mt-4">
       <CardHeader>
-        <CardTitle>Paystack (automated payouts)</CardTitle>
+        <CardTitle>Flutterwave (foreign-currency collections)</CardTitle>
         <CardDescription>
-          Optional. Used for automated payouts to vendors and landlords, and for
-          Naira collections only if Flutterwave is not connected. Without it,
-          payouts are made by recorded bank transfer under Ledger → Payouts.
+          This organisation&rsquo;s own merchant account for payments in dollars,
+          pounds and euros. It takes Naira only if Paystack is not connected.
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <GatewayForm gateway="paystack" status={paystack as never} />
+        <GatewayForm gateway="flutterwave" status={flutterwave as never} />
       </CardContent>
     </Card>
     </>

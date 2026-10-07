@@ -1,5 +1,11 @@
 # Board minute — payment gateway, Option A
 
+> ⛔ **SUPERSEDED 7 October 2026 — do not sign.** Paystack verified OEA on 2 October and
+> Flutterwave on 5 October, and the code returned to the split locked decision 4 already
+> states: Naira collections and payouts on Paystack, foreign currency on Flutterwave
+> (`gatewayPreference()`, 7 Oct). Decision 4 therefore needs no amendment. Kept
+> unchanged below as the record of what was proposed between 23 September and 7 October.
+
 **Draft for adoption. Not yet signed.** Prepared 23 September 2026 to record a
 decision the board has already taken, so that it exists in writing. Nothing in
 this file is evidence that the board has approved it; the sign-off block at the
