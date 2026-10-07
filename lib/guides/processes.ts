@@ -82,6 +82,226 @@ export type Edition = "TFML" | "OEA" | "operator";
 
 export const PROCESS_CATALOGUE: Process[] = [
   {
+    id: "the-whole-journey",
+    title: "The whole journey, end to end: who does what, in order",
+    module: "Getting started",
+    startsWhen:
+      "Day one of training, before any single screen. Every later process is " +
+      "one stretch of this road, and trainees learn faster once they can see " +
+      "where their own desk sits on it.",
+    steps: [
+      {
+        role: "admin",
+        action:
+          "People in. People → Invitations → Invite each person with the " +
+          "narrowest role that does their job. They accept, set a password and " +
+          "set up two-factor sign-in (\"Sign in for the first time\").",
+      },
+      {
+        role: "property_manager",
+        action:
+          "Places in. Properties → file each building with at least one unit, " +
+          "creating its state, project and site on the way if they do not exist " +
+          "yet (\"File a property and its units\").",
+      },
+      {
+        role: "tenant",
+        action:
+          "Work comes in. A tenant reports a problem on WhatsApp or My " +
+          "Requests, or a manager raises planned work (\"Raise a request and see " +
+          "it through to close\").",
+      },
+      {
+        role: "vendor",
+        action:
+          "Work gets done. The contractor or operations staff member is " +
+          "dispatched, does the job and attaches evidence; the manager checks it " +
+          "and closes it.",
+      },
+      {
+        role: "facility_manager",
+        action:
+          "Money is asked for. The contractor invoices against the job card, " +
+          "or the manager raises a requisition for a cost they met directly " +
+          "(\"From a vendor's invoice to money in their account\", \"Raise a " +
+          "requisition and see it paid\").",
+      },
+      {
+        role: "payment_audit_approver",
+        action:
+          "Money is authorised, each desk on its own Approvals queue. TFML: " +
+          "work signed off → audit check → final approval (Payment Approver or " +
+          "Managing Director). OEA: audit review → Managing Partner → Payment " +
+          "Approver. Nobody signs twice, and nobody who signed may release.",
+      },
+      {
+        role: "finance_approver",
+        action:
+          "Money goes out. The Payment Officer sends it — through Paystack, or " +
+          "by a bank transfer recorded with the bank's own confirmation — and " +
+          "the payee is sent a remittance advice.",
+      },
+      {
+        role: "tenant",
+        action:
+          "Money comes in. Tenants pay rent and service charge online (posts " +
+          "itself once the gateway confirms) or by bank transfer reported with " +
+          "a receipt (confirmed by three desks). Either way a receipt follows.",
+      },
+      {
+        role: "property_owner",
+        action:
+          "The landlord is paid and told. Rent collected, net of the " +
+          "management fee, is paid out to the landlord, who sees it on their " +
+          "statement with the remittance advice.",
+      },
+      {
+        role: "executive",
+        action:
+          "Everyone can see it happened. Statements, Client Funds, the BI " +
+          "dashboard and the Audit Trail show each step, who took it and when.",
+      },
+    ],
+    doneMeans:
+      "A trainee can point at their own step on this list, name the desk " +
+      "before theirs and the desk after, and say which process to open for " +
+      "the detail.",
+    refusals: [
+      {
+        trigger: "\"Why can't one person just approve and pay it?\"",
+        explanation:
+          "Because the person who approves money may never be the person who " +
+          "releases it (decision 16). Every step above that touches money " +
+          "names a different desk on purpose.",
+      },
+    ],
+    trainer: {
+      demo:
+        "Open the seeded demo organisation and walk one generator repair from " +
+        "the tenant's WhatsApp message to the vendor's remittance advice, " +
+        "switching accounts at each step so the room sees each desk's screen.",
+      commonMistake:
+        "Starting with the screen a trainee will use most. Show the whole road " +
+        "first; otherwise people learn their step as an island and do not know " +
+        "who to ask when it stalls.",
+      exercise:
+        "Hand each trainee a role card and ask them to stand in order of the " +
+        "ten steps, then say what they need from the person before them.",
+    },
+    capabilities: [],
+    routes: ["/dashboard", "/dashboard/overview"],
+    roles: [
+      "admin", "property_manager", "facility_manager", "regional_manager",
+      "tenant", "vendor", "fm_ops_staff", "payment_audit_approver",
+      "executive", "payment_approver", "finance_approver", "property_owner",
+    ],
+  },
+  {
+    id: "first-sign-in-and-two-factor",
+    title: "Sign in for the first time, and set up two-factor sign-in",
+    module: "Getting started",
+    startsWhen:
+      "Somebody receives an invitation email from their organisation: a new " +
+      "member of staff, a tenant whose offer was accepted, a contractor, or a " +
+      "landlord.",
+    steps: [
+      {
+        role: "admin",
+        action:
+          "People → Invitations → Invite. Name, email, the role, and for a manager " +
+          "the places they cover. The invitation goes out in the organisation's " +
+          "own name. Resend or revoke it from the same list while it is pending.",
+      },
+      {
+        role: "tenant",
+        action:
+          "Opens the email and presses the link. The page shows which " +
+          "organisation invited them. They give their full name, create a " +
+          "password, confirm it, and press \"Accept invitation\".",
+      },
+      {
+        role: "system",
+        action:
+          "Creates the account with exactly the role and places on the " +
+          "invitation, and shows \"Your account is ready.\" The link cannot be " +
+          "used again.",
+      },
+      {
+        role: "tenant",
+        action:
+          "Signs in with that email and password. If the organisation requires " +
+          "two-factor sign-in, they go straight to \"Set up two-factor sign-in\": " +
+          "scan the code with an authenticator app (Google Authenticator, " +
+          "Microsoft Authenticator or similar), type the six-digit code, and " +
+          "press \"Verify and enable\".",
+      },
+      {
+        role: "tenant",
+        action:
+          "Saves the backup codes shown once on screen (\"Copy all\"), somewhere " +
+          "other than the phone. Each one works once, if the phone is lost.",
+      },
+      {
+        role: "system",
+        action:
+          "From then on, every sign-in asks for the code from the app after the " +
+          "password. Anyone can also switch it on themselves, before it is " +
+          "required, under Settings → Security.",
+      },
+      {
+        role: "admin",
+        action:
+          "Lost both phone and backup codes: People → Directory → the person → " +
+          "Manage → \"Reset two-factor sign-in\", with a written reason. They set " +
+          "it up again at their next sign-in.",
+      },
+    ],
+    doneMeans:
+      "The person lands on their own dashboard, sees only the menu their role " +
+      "allows, and Settings → Security shows two-factor sign-in as on.",
+    refusals: [
+      {
+        trigger: "An invitation link says it no longer works.",
+        explanation:
+          "It has been used, revoked or has expired. An administrator resends " +
+          "it from People → Invitations; the old link stays dead on purpose.",
+      },
+      {
+        trigger: "Someone asks to skip two-factor sign-in once the date has passed.",
+        explanation:
+          "Not possible from inside the organisation. OE Group sets the date per " +
+          "organisation; after it, every account sets up a second factor before " +
+          "it reaches the dashboard.",
+      },
+      {
+        trigger: "An administrator tries to reset their own two-factor sign-in.",
+        explanation:
+          "Refused. Another administrator must do it, with a reason, and it is " +
+          "written to the audit trail. A stolen password alone must never be " +
+          "enough to strip a factor.",
+      },
+    ],
+    trainer: {
+      demo:
+        "Invite a spare demo address, accept it in a private browser window, and " +
+        "set up two-factor sign-in with a phone on the projector.",
+      commonMistake:
+        "Keeping the backup codes in a note on the same phone as the " +
+        "authenticator app. When the phone goes, both go.",
+      exercise:
+        "Each trainee enables two-factor sign-in on their demo account under " +
+        "Settings → Security, signs out, and signs back in with the code.",
+    },
+    capabilities: ["people.invite"],
+    routes: ["/dashboard/people/invitations", "/dashboard/settings/security", "/dashboard/settings/profile"],
+    roles: [
+      "admin", "tenant", "vendor", "property_owner", "facility_manager",
+      "property_manager", "regional_manager", "fm_ops_staff", "executive",
+      "operations_executive", "finance_approver", "payment_audit_approver",
+      "payment_approver", "viewer",
+    ],
+  },
+  {
     id: "tenancy-schedule-and-records",
     title: "Produce the tenancy schedule, and hand it to a landlord",
     module: "Lettings",
@@ -143,6 +363,14 @@ export const PROCESS_CATALOGUE: Process[] = [
       "anyone who opens it.",
     refusals: [
       {
+        trigger: "A facilities manager cannot open Leases & Rent or the Tenancy Schedule.",
+        explanation:
+          "Reading tenancies is its own switch, `leases.read`, set per role by OE " +
+          "Group. It is off for facilities managers and operations staff at " +
+          "baseline: maintaining plant does not need a tenant roster (decision " +
+          "29). Property managers, regional managers and the oversight desks hold it.",
+      },
+      {
         trigger:
           "The download button is missing and a note about permissions appears " +
           "instead.",
@@ -179,7 +407,7 @@ export const PROCESS_CATALOGUE: Process[] = [
         "on the tenancy statement. Then filter to that landlord and download " +
         "the CSV.",
     },
-    capabilities: ["leases.write", "sc.manage", "records.export"],
+    capabilities: ["leases.read", "leases.write", "sc.manage", "records.export"],
     routes: ["/dashboard/schedule", "/dashboard/leases", "/dashboard/people", "/dashboard/records"],
     roles: [
       "property_manager",
@@ -459,6 +687,253 @@ export const PROCESS_CATALOGUE: Process[] = [
       "finance_approver",
       "admin",
       "executive",
+    ],
+  },
+  {
+    id: "requisition-to-disbursement",
+    title: "Raise a requisition and see it paid",
+    module: "Payments",
+    startsWhen:
+      "A manager needs money for a cost that is not a contractor's invoice: " +
+      "diesel for a generator, a part bought at the market, a one-off " +
+      "technician, petty operational spend against a job.",
+    steps: [
+      {
+        role: "facility_manager",
+        action:
+          "My Requisitions → \"Raise a requisition\". Give it your own reference, " +
+          "link it to the service request it is for (or mark it a standalone " +
+          "requisition), add a cost line per payee, and attach the invoice or " +
+          "quote. Press \"Raise requisition\". (A property manager, regional " +
+          "manager, operations staff member or OEA's Executive raises it the same " +
+          "way.)",
+      },
+      {
+        role: "payment_audit_approver",
+        action:
+          "Approvals → Requisitions tab → the card shows the reference, who raised " +
+          "it, the lines, the job card and the invoice itself. Review it against " +
+          "the evidence: approve, send it back for correction, or refuse.",
+      },
+      {
+        role: "executive",
+        action:
+          "OEA: Managing Partner approval, at every amount. TFML: the Managing " +
+          "Director may give final approval in place of the Payment Approver.",
+      },
+      {
+        role: "operations_executive",
+        action:
+          "OEA only: may give the Managing Partner's approval on a requisition at " +
+          "or below the limit OE Group sets (₦500,000 at launch), never on one " +
+          "they raised themselves. Above the limit it waits for the Managing " +
+          "Partner.",
+      },
+      {
+        role: "payment_approver",
+        action:
+          "Final payment approval. Approvals → the requisition → Approve, or send " +
+          "it back one desk.",
+      },
+      {
+        role: "finance_approver",
+        action:
+          "Approvals → the requisition → each payee line → \"Send through " +
+          "Paystack\", or, where the organisation has no Paystack account or the " +
+          "payee is paid by hand, make the transfer at the bank and record it " +
+          "with the bank's confirmation and reference (\"Pay a contractor, a " +
+          "landlord or a one-off payee by bank transfer\"). The screen shows " +
+          "whether the property's fund can cover it before anything is sent.",
+      },
+      {
+        role: "system",
+        action:
+          "Posts the payment to the ledger against the property's own fund, " +
+          "issues a remittance advice, and tells the payee and the raiser.",
+      },
+      {
+        role: "facility_manager",
+        action:
+          "My Requisitions shows every requisition they raised and who it is " +
+          "waiting on. One sent back to them reads \"Sent back to you for " +
+          "correction\": open it, fix it and resend.",
+      },
+    ],
+    doneMeans:
+      "Every line on the requisition reads Settled, the approval record shows " +
+      "each desk's signature with its time, and the payee holds a remittance " +
+      "advice.",
+    refusals: [
+      {
+        trigger: "The Payment Officer is refused when sending a requisition they approved.",
+        explanation:
+          "Whoever signed any stage may not also release the money. A second " +
+          "Payment Officer sends it (decision 16).",
+      },
+      {
+        trigger: "\"The property's service-charge fund cannot cover this.\"",
+        explanation:
+          "Each building's fund is its own money (decision 27). Collect the " +
+          "outstanding service charge first, raise it against the property that " +
+          "should bear it, or the Payment Officer authorises a short fund once, " +
+          "with a written reason.",
+      },
+      {
+        trigger: "OEA's Executive cannot approve a requisition.",
+        explanation:
+          "Either it is above their limit, it is one they raised, or it is a " +
+          "vendor invoice or landlord payout, which always wait for the Managing " +
+          "Partner.",
+      },
+      {
+        trigger: "\"Raise a requisition\" is missing from somebody's menu.",
+        explanation:
+          "Raising one is a switch in the permission matrix " +
+          "(`requisitions.raise`), set by OE Group per role.",
+      },
+    ],
+    trainer: {
+      demo:
+        "Raise a ₦45,000 diesel requisition as the demo facilities manager, then " +
+        "sign in as each desk in turn and walk it to Settled.",
+      commonMistake:
+        "Raising it without the invoice attached. The auditor's whole job is to " +
+        "check the money against the evidence, so it comes back.",
+      exercise:
+        "Raise a requisition, have a colleague send it back for correction, fix " +
+        "it, and resend it.",
+    },
+    capabilities: ["requisitions.raise", "requisitions.approve_within_limit", "payment.approve", "payment.remit"],
+    routes: ["/dashboard/requisitions", "/dashboard/approvals"],
+    roles: [
+      "facility_manager", "property_manager", "regional_manager", "fm_ops_staff",
+      "operations_executive", "payment_audit_approver", "executive",
+      "payment_approver", "finance_approver",
+    ],
+  },
+  {
+    id: "rent-paid-online-to-landlord-payout",
+    title: "Rent paid online, receipted, and paid on to the landlord",
+    module: "Money in",
+    startsWhen:
+      "A tenancy's rent falls due. The rent demand is raised ahead of the due " +
+      "date by the organisation's own lead time (Settings → Lettings).",
+    steps: [
+      {
+        role: "system",
+        action:
+          "Raises the rent demand for the period and tells the tenant on their " +
+          "channels. Renewal notices go out separately at the organisation's own " +
+          "thresholds (90, 60 and 30 days by default).",
+      },
+      {
+        role: "tenant",
+        action:
+          "My Rent → the demand → \"Pay now\". Pays on the organisation's own " +
+          "checkout page. Stopped half-way? \"Continue payment\" reopens the same " +
+          "checkout, never a second charge.",
+      },
+      {
+        role: "system",
+        action:
+          "On the tenant's return, and again when the gateway's notice arrives, " +
+          "checks the payment with the gateway directly. Once confirmed: posts it " +
+          "to the ledger, takes the management fee at the rate frozen on that " +
+          "demand, holds the rest for the landlord, marks the demand settled and " +
+          "emails the receipt. Nobody approves an online payment: the gateway's " +
+          "confirmation is the evidence.",
+      },
+      {
+        role: "tenant",
+        action:
+          "My Rent moves the demand to Paid, with its receipt to open or print. " +
+          "Paid by bank transfer instead? See \"Record a payment made by bank " +
+          "transfer\": the same demand settles once three desks confirm it.",
+      },
+      {
+        role: "finance_approver",
+        action:
+          "Client Funds → Collections shows the payment beside every other " +
+          "collection, and \"refresh\" re-asks the gateway for one still pending.",
+      },
+      {
+        role: "finance_approver",
+        action:
+          "Client Funds → Payouts → the landlord → \"Raise payout\" for the period. " +
+          "It shows the gross collected, the fees retained and the net due.",
+      },
+      {
+        role: "payment_approver",
+        action:
+          "The landlord payout climbs the same approval chain as a vendor " +
+          "invoice (audit, then the Managing Director / Managing Partner or the " +
+          "Payment Approver, by brand), on Approvals → Landlord payouts.",
+      },
+      {
+        role: "finance_approver",
+        action:
+          "Once approved, a Payment Officer who signed none of the stages sends it " +
+          "through Paystack or records a bank transfer.",
+      },
+      {
+        role: "property_owner",
+        action:
+          "Is told the money has gone, opens the remittance advice, and sees the " +
+          "rent, the fees and the net on Statements and My Portfolio.",
+      },
+    ],
+    doneMeans:
+      "The tenant's demand reads Paid with a receipt, Client Funds shows the " +
+      "collection and the payout, and the landlord's statement carries the " +
+      "net amount with its remittance advice.",
+    refusals: [
+      {
+        trigger: "\"Pay now\" says online payment is not available.",
+        explanation:
+          "This organisation has not connected its own Paystack or Flutterwave " +
+          "account yet, and its money never runs through another organisation's " +
+          "account (decision 47). The tenant pays by bank transfer and reports " +
+          "it instead.",
+      },
+      {
+        trigger: "A tenant says they paid but the demand still shows pending.",
+        explanation:
+          "The gateway has not confirmed it yet. The Payment Officer presses " +
+          "refresh on Collections; if the gateway could not be asked at all, it " +
+          "is left alone rather than guessed.",
+      },
+      {
+        trigger: "The tenant sees a different total on the gateway's receipt.",
+        explanation:
+          "When the gateway passes its fee to the payer it adds it to the charge. " +
+          "The demand is credited the amount it asked for; the fee is the " +
+          "gateway's and never reaches client funds.",
+      },
+      {
+        trigger: "A landlord payout is refused for more than is owed.",
+        explanation:
+          "The ledger refuses to pay any payee more than it holds for them. " +
+          "Check the period and the amount collected.",
+      },
+    ],
+    trainer: {
+      demo:
+        "As the demo tenant, pay a rent demand on the simulated checkout, show " +
+        "the receipt, then as the Payment Officer raise and (after approvals) " +
+        "send the landlord's payout.",
+      commonMistake:
+        "Raising a landlord payout before the rent has actually been collected. " +
+        "Payouts are of money held, never of money expected.",
+      exercise:
+        "Pay one demand online and one by reported bank transfer, then compare " +
+        "how each reached the ledger.",
+    },
+    requiresFeature: "lettings",
+    capabilities: ["payment.approve", "payment.remit"],
+    routes: ["/dashboard/my-rent", "/dashboard/ledger/collections", "/dashboard/ledger/payouts", "/dashboard/statements", "/dashboard/portfolio"],
+    roles: [
+      "tenant", "finance_approver", "payment_audit_approver", "executive",
+      "payment_approver", "property_owner",
     ],
   },
   {
@@ -985,7 +1460,7 @@ export const PROCESS_CATALOGUE: Process[] = [
         action: "Authorises it. Sees the same record and the same evidence.",
       },
       {
-        role: "finance_approver",
+        role: "payment_approver",
         action:
           "Checks the money actually reached the designated account — matching " +
           "it to a bank statement line where one has been imported — then " +
@@ -1027,7 +1502,7 @@ export const PROCESS_CATALOGUE: Process[] = [
         explanation:
           "Because nobody has confirmed it against the bank. A reported payment " +
           "is a CLAIM: it changes no balance, feeds no landlord remittance and " +
-          "issues no receipt until the audit, executive and payment officer " +
+          "issues no receipt until the audit, executive and payment approver " +
           "desks have each signed. The screen and any printout say \"This is not " +
           "a receipt\" until then.",
       },
@@ -1063,14 +1538,15 @@ export const PROCESS_CATALOGUE: Process[] = [
         "point of stage 1 is that somebody LOOKED at the evidence — the amount " +
         "on the slip, the date, and the account it went to.",
       exercise:
-        "As the demo payment officer: try to confirm a payment you recorded " +
-        "yourself, read the refusal, then have a colleague confirm it instead.",
+        "As the demo payment officer: record a walk-in payment, then try to " +
+        "confirm it and read the refusal. The payment officer records; the " +
+        "audit, executive and payment approver desks confirm (decision 54).",
     },
     capabilities: ["payments.record_offline"],
     routes: ["/dashboard/payments/offline", "/dashboard/my-rent", "/dashboard/ledger"],
     roles: [
       "tenant", "property_manager", "facility_manager", "regional_manager",
-      "finance_approver", "payment_audit_approver", "executive", "admin",
+      "finance_approver", "payment_audit_approver", "executive", "payment_approver", "admin",
     ],
   },
   {

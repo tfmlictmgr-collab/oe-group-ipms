@@ -24,9 +24,12 @@ type RoleOption = { key: string; label: string };
 export default function TrainingBrowser({
   processes,
   roles,
+  orgName,
 }: {
   processes: Process[];
   roles: RoleOption[];
+  /** Shown on the presentation cover and in each slide footer. */
+  orgName?: string;
 }) {
   const searchParams = useSearchParams();
   const [query, setQuery] = useState("");
@@ -78,6 +81,8 @@ export default function TrainingBrowser({
         roleName={roleName}
         trainerView={trainerView}
         startAt={searchParams.get("process") ?? undefined}
+        orgName={orgName}
+        audience={roleFilter === "all" ? undefined : roleName(roleFilter)}
         onExit={() => setPresenting(false)}
       />
     );
