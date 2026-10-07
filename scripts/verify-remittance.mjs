@@ -485,20 +485,60 @@ console.log("\nH. Rent: fees are deducted and land in fee income");
 
 console.log("\nI. Cannot pay out more than is held for a counterparty");
 {
-  const { data: remId, error } = await svc.rpc("create_landlord_remittance", {
-    p_org_id: orgId, p_landlord_user_id: landlord.id, p_property_id: null,
-    p_period: `${stamp}-OVER`, p_gross: 50000000, p_reference: `REM-${stamp}-OVER`,
-  });
-  if (error) { ok(`refused at creation — ${error.message.slice(0, 44)}`); }
-  else {
-    made.remittances.push(remId);
-    await svc.rpc("claim_remittance_for_sending", { p_id: remId, p_sent_by: fin.id });
-    const { error: postErr } = await svc.rpc("record_remittance_sent", {
-      p_id: remId, p_transfer_code: "TRF_OVERDRAW",
+  // ⚠️ This used to send ₦50,000,000 with no approval chain, so the CLAIM was
+  // refused, the remittance stayed `queued`, and `record_remittance_sent`
+  // refused "queued to sent" — a pass that never reached the ledger. Two fixes:
+  // the chain is staged, so the claim succeeds and the posting is the only
+  // thing left to refuse; and the gross is sized to overpay the landlord
+  // payable by ₦100,000 while the net stays well inside what the client-funds
+  // account holds, so the refusal can only come from the counterparty guard
+  // (assert_funds_available, liability branch) and not the bank-overdraft one.
+  const { data: payableAcct } = await svc.rpc("canonical_ledger_account",
+    { p_org_id: orgId, p_purpose: "landlord_payable" });
+  const payableBal = async () => {
+    const { data } = await svc.from("ledger_account_balances")
+      .select("natural_balance").eq("account_id", payableAcct).single();
+    return Number(data.natural_balance);
+  };
+  const owed = Math.max(0, await payableBal());
+  const gross = owed + 100000;
+  const net = gross * 0.875; // 10% management + 2.5% admin, set in section H
+  const heldNow = await held();
+  if (net >= heldNow) {
+    bad(`cannot isolate the guard: ₦${net} net would also overdraw client funds (₦${heldNow} held)`);
+  } else {
+    const { data: remId, error } = await svc.rpc("create_landlord_remittance", {
+      p_org_id: orgId, p_landlord_user_id: landlord.id, p_property_id: null,
+      p_period: `${stamp}-OVER`, p_gross: gross, p_reference: `REM-${stamp}-OVER`,
     });
-    postErr
-      ? ok(`the ledger refused the overpayment (${postErr.message.slice(0, 44)})`)
-      : bad("PAID OUT MORE THAN WAS HELD");
+    if (error) { bad(`could not create the overpayment fixture — ${error.message}`); }
+    else {
+      made.remittances.push(remId);
+      const lc = await clearLandlordPayoutChain(svc, orgId, remId);
+      if (!lc.ok) bad(`could not stage the landlord chain — ${lc.why}`);
+      const { error: claimErr } = await svc.rpc("claim_remittance_for_sending",
+        { p_id: remId, p_sent_by: fin.id });
+      if (claimErr) { bad(`the claim was refused, so the guard was never reached — ${claimErr.message}`); }
+      else {
+        const bankBefore = await held();
+        const owedBefore = await payableBal();
+        const { error: postErr } = await svc.rpc("record_remittance_sent", {
+          p_id: remId, p_transfer_code: "TRF_OVERDRAW",
+        });
+        postErr && /would be left overdrawn/.test(postErr.message) && !/client-funds/.test(postErr.message)
+          ? ok(`the ledger refused overpaying the landlord payable by ₦100,000 (${postErr.message.slice(0, 60)})`)
+          : bad(`OVERPAYMENT NOT REFUSED BY THE COUNTERPARTY GUARD (${postErr?.message ?? "it posted"})`);
+        const { data: r } = await svc.from("remittances")
+          .select("status, ledger_entry_id").eq("id", remId).single();
+        r.ledger_entry_id === null && (await held()) === bankBefore && (await payableBal()) === owedBefore
+          ? ok("nothing was posted — client funds and the landlord payable are unchanged")
+          : bad(`SOMETHING POSTED: entry ${r.ledger_entry_id}, status ${r.status}`);
+        // Leave it terminal rather than `sending` for the next run.
+        await svc.rpc("record_remittance_outcome", {
+          p_id: remId, p_status: "failed", p_message: "fixture: overpayment refused",
+        });
+      }
+    }
   }
 }
 
