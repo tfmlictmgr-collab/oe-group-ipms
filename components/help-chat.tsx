@@ -1,12 +1,18 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 type Msg = { from: "me" | "bot"; text: string };
 
 // Role help bubble, bottom right of every dashboard screen. It posts the
 // question and nothing else — the server decides whose material answers it.
-export function HelpChat() {
+export function HelpChat({ logoUrl, logoText }: { logoUrl?: string | null; logoText?: string | null }) {
+  // Rendered through a portal on <body>: inside the dashboard shell, an ancestor
+  // that scrolls or transforms becomes the containing block for `fixed`, which
+  // pinned the bubble to the end of the page instead of the screen corner.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const [open, setOpen] = useState(false);
   const [starters, setStarters] = useState<string[]>([]);
   const [label, setLabel] = useState("");
@@ -47,7 +53,8 @@ export function HelpChat() {
     }
   }
 
-  return (
+  if (!mounted) return null;
+  return createPortal(
     <div data-print="screen-only" className="fixed bottom-4 right-4 z-50 print:hidden">
       {open && (
         <div className="mb-3 flex h-[28rem] w-[min(22rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-lg border bg-background shadow-xl">
@@ -73,7 +80,7 @@ export function HelpChat() {
             )}
             {msgs.map((m, i) => (
               <div key={i} className={m.from === "me" ? "text-right" : ""}>
-                <div className={`inline-block max-w-[90%] whitespace-pre-wrap rounded-lg px-2.5 py-1.5 text-left ${m.from === "me" ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
+                <div style={m.from === "me" ? { background: "var(--brand)", color: "var(--brand-fg)" } : undefined} className={`inline-block max-w-[90%] whitespace-pre-wrap rounded-lg px-2.5 py-1.5 text-left ${m.from === "me" ? "text-white" : "bg-muted"}`}>
                   {m.text}
                 </div>
               </div>
@@ -89,17 +96,27 @@ export function HelpChat() {
               placeholder="Ask how to do something…"
               className="min-w-0 flex-1 rounded border bg-background px-2 py-1.5 text-sm"
             />
-            <button disabled={busy || !text.trim()} className="rounded bg-primary px-3 text-sm text-primary-foreground disabled:opacity-50">Send</button>
+            <button disabled={busy || !text.trim()} style={{ background: "var(--brand)", color: "var(--brand-fg)" }} className="rounded px-3 text-sm disabled:opacity-50">Send</button>
           </form>
         </div>
       )}
       <button
         onClick={() => setOpen((o) => !o)}
-        aria-label={open ? "Close help" : "Open help"}
-        className="ml-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary text-xl text-primary-foreground shadow-lg"
+        aria-label={open ? "Close help" : "Need help? Open the help assistant"}
+        style={{ background: "var(--brand)", color: "var(--brand-fg)" }}
+        className="ml-auto flex items-center gap-2 rounded-full py-1.5 pl-1.5 pr-4 text-xs font-bold uppercase tracking-wide shadow-lg"
       >
-        {open ? "×" : "?"}
+        <span className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-white text-xs font-bold" style={{ color: "var(--brand)" }}>
+          {logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={logoUrl} alt="" className="h-6 w-6 object-contain" />
+          ) : (
+            (logoText || "?").slice(0, 2).toUpperCase()
+          )}
+        </span>
+        {open ? "Close" : "Need help?"}
       </button>
-    </div>
+    </div>,
+    document.body
   );
 }

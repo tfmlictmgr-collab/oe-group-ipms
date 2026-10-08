@@ -385,7 +385,7 @@ export default async function DashboardLayout({
       >
         {mfa.kind === "due" && <MfaDueBanner enforcedFrom={mfa.enforcedFrom.toISOString()} />}
         {children}
-        <HelpChat />
+        <HelpChat logoUrl={theme.logoUrl} logoText={theme.logoText} />
       </AppShell>
     </div>
   );
