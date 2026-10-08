@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-type Msg = { from: "me" | "bot"; text: string };
+type Msg = { from: "me" | "bot"; text: string; fid?: string | null; rated?: 1 | -1 };
 
 // Role help bubble, bottom right of every dashboard screen. It posts the
 // question and nothing else — the server decides whose material answers it.
@@ -45,7 +45,7 @@ export function HelpChat({ logoUrl, logoText }: { logoUrl?: string | null; logoT
         body: JSON.stringify({ question, earlier }),
       });
       const j = r.ok || r.status === 429 ? await r.json() : null;
-      setMsgs((m) => [...m, { from: "bot", text: j?.answer ?? "Sorry, I couldn't answer that just now. Please ask your administrator." }]);
+      setMsgs((m) => [...m, { from: "bot", text: j?.answer ?? "Sorry, I couldn't answer that just now. Please ask your administrator.", fid: j?.feedbackId ?? null }]);
     } catch {
       setMsgs((m) => [...m, { from: "bot", text: "Sorry, I couldn't answer that just now. Please ask your administrator." }]);
     } finally {
@@ -54,6 +54,17 @@ export function HelpChat({ logoUrl, logoText }: { logoUrl?: string | null; logoT
   }
 
   if (!mounted) return null;
+  function rate(i: number, rating: 1 | -1) {
+    const m = msgs[i];
+    if (!m?.fid || m.rated) return;
+    setMsgs((all) => all.map((x, k) => (k === i ? { ...x, rated: rating } : x)));
+    fetch("/api/help-chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ feedbackId: m.fid, rating }),
+    }).catch(() => {});
+  }
+
   return createPortal(
     <div data-print="screen-only" className="fixed bottom-4 right-4 z-50 print:hidden">
       {open && (
@@ -83,6 +94,19 @@ export function HelpChat({ logoUrl, logoText }: { logoUrl?: string | null; logoT
                 <div style={m.from === "me" ? { background: "var(--brand)", color: "var(--brand-fg)" } : undefined} className={`inline-block max-w-[90%] whitespace-pre-wrap rounded-lg px-2.5 py-1.5 text-left ${m.from === "me" ? "text-white" : "bg-muted"}`}>
                   {m.text}
                 </div>
+                {m.from === "bot" && m.fid && (
+                  <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                    {m.rated ? (
+                      <span>Thanks. Your administrator can see this.</span>
+                    ) : (
+                      <>
+                        <span>Did that help?</span>
+                        <button onClick={() => rate(i, 1)} aria-label="Helpful" className="rounded border px-1.5 hover:bg-muted">👍</button>
+                        <button onClick={() => rate(i, -1)} aria-label="Not helpful" className="rounded border px-1.5 hover:bg-muted">👎</button>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
             {busy && <div className="text-xs text-muted-foreground">Looking that up…</div>}

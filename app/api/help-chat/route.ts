@@ -54,8 +54,16 @@ export async function POST(req: Request) {
     );
   }
 
-  let body: { question?: unknown; earlier?: unknown };
+  let body: { question?: unknown; earlier?: unknown; feedbackId?: unknown; rating?: unknown };
   try { body = await req.json(); } catch { return new NextResponse("Bad request", { status: 400 }); }
+
+  // A thumbs up/down on an earlier answer. The database refuses a second rating,
+  // another organisation's row, and anything older than a day.
+  if (typeof body.feedbackId === "string" && (body.rating === 1 || body.rating === -1)) {
+    const supabase = await createClient();
+    await supabase.rpc("rate_help_answer", { p_id: body.feedbackId, p_rating: body.rating });
+    return NextResponse.json({ ok: true });
+  }
   const question = typeof body.question === "string" ? body.question.trim().slice(0, MAX_QUESTION) : "";
   if (!question) return new NextResponse("Bad request", { status: 400 });
 
@@ -66,7 +74,20 @@ export async function POST(req: Request) {
     ? body.earlier.filter((q): q is string => typeof q === "string").slice(-2).map((q) => q.slice(0, MAX_QUESTION))
     : [];
 
-  if (looksLikeInjection(question)) return NextResponse.json({ answer: OUT_OF_SCOPE, source: "referral" });
+  // Keeps the question for the administrator's review (masked, no user id,
+  // deleted after 90 days - 0316). Never allowed to break an answer: before the
+  // migration reaches a world, or if it errors, the person still gets theirs.
+  const reply = async (answer: string, source: "model" | "guide" | "referral", sections: string[]) => {
+    let feedbackId: string | null = null;
+    try {
+      const supabase = await createClient();
+      const { data } = await supabase.rpc("log_help_question", { p_question: question, p_outcome: source, p_sections: sections });
+      feedbackId = typeof data === "string" ? data : null;
+    } catch { /* logging is best effort */ }
+    return NextResponse.json({ answer, source, feedbackId });
+  };
+
+  if (looksLikeInjection(question)) return reply(OUT_OF_SCOPE, "referral", []);
   let hits = retrieve(question, c.chunks, 4);
   // Weak keyword match: ask the model to choose sections from the role's own
   // titles. It can only return ids that exist in this role's list.
@@ -77,11 +98,12 @@ export async function POST(req: Request) {
       hits = [...routed.map((chunk) => ({ chunk, score: 99 })), ...hits.filter((h) => !seen.has(h.chunk.id))].slice(0, 4);
     }
   }
-  if (hits.length === 0) return NextResponse.json({ answer: OUT_OF_SCOPE, source: "referral" });
+  if (hits.length === 0) return reply(OUT_OF_SCOPE, "referral", []);
+  const titles = hits.map((h) => h.chunk.title);
 
   const material = hits.map((h) => h.chunk.text).join("\n\n");
   const system = systemPrompt(c.label, c.org.name, material);
   const answer = await askModel(system, [...earlier, question]);
-  if (answer) return NextResponse.json({ answer, source: "model" });
-  return NextResponse.json({ answer: plainAnswer(hits), source: "guide" });
+  if (answer) return reply(answer, "model", titles);
+  return reply(plainAnswer(hits), "guide", titles);
 }
