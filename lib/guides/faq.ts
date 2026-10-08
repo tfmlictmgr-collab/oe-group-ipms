@@ -18,6 +18,8 @@ export type Faq = {
   /** Roles that may be told this. */
   roles: string[];
   answer: string;
+  /** Answers that are alternatives to one another. When a question fits several about equally, the assistant asks `ask` and offers each `label` as a choice. */
+  group?: { ask: string; label: string };
 };
 
 const INVITERS = ["admin", "regional_manager", "property_manager", "facility_manager"];
@@ -26,6 +28,7 @@ export const FAQ: Faq[] = [
   {
     question: "How do I invite or onboard a tenant?",
     roles: INVITERS,
+    group: { ask: "Who would you like to invite or onboard?", label: "A tenant" },
     answer:
       "It depends on whether the tenant is NEW or already in a tenancy. " +
       "A NEW tenant (where your organisation takes tenancy applications): do not invite them directly. " +
@@ -45,6 +48,7 @@ export const FAQ: Faq[] = [
   {
     question: "How do I invite or onboard a landlord (property owner)?",
     roles: INVITERS,
+    group: { ask: "Who would you like to invite or onboard?", label: "A landlord" },
     answer:
       "The building must already be on the system (Properties). Then: " +
       "1. People → Invitations, the \"Invite someone\" card. " +
@@ -54,11 +58,12 @@ export const FAQ: Faq[] = [
       "5. Click \"Issue invitation\". " +
       "The invitation is emailed and the link is shown so you can copy it. It is valid for 14 days. " +
       "Once they accept, they see only the statements, payments and reports of the buildings you ticked, and nobody else's. " +
-      "To give them another building later, ask your administrator.",
+      "To give them another building later, an administrator attaches it.",
   },
   {
     question: "How do I invite or onboard a vendor (contractor)?",
     roles: INVITERS,
+    group: { ask: "Who would you like to invite or onboard?", label: "A vendor" },
     answer:
       "The company comes first, then the person's login. " +
       "1. Vendors → Add Vendor: enter the company's details. " +
