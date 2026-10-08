@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { UserPlus, Copy, Check, Mail } from "lucide-react";
@@ -263,11 +264,34 @@ export default function InviteDialog({
 
             {needsVendor && (
               <div className="space-y-1.5">
-                <Label htmlFor="inv-vendor">Vendor record</Label>
-                <Select id="inv-vendor" value={vendorId} onChange={(e) => pickVendor(e.target.value)}>
-                  <option value="">— link later —</option>
+                <Label htmlFor="inv-vendor">Vendor company</Label>
+                {/* Required. "Link later" was offered here and the database
+                    refuses every vendor invitation without a company (0116),
+                    so it could only ever end in a constraint error. */}
+                <Select
+                  id="inv-vendor"
+                  value={vendorId}
+                  required
+                  onChange={(e) => pickVendor(e.target.value)}
+                  disabled={vendors.length === 0}
+                >
+                  <option value="" disabled>
+                    {vendors.length === 0 ? "No vendor companies yet" : "Choose their company…"}
+                  </option>
                   {vendors.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
                 </Select>
+                <p className="text-xs text-muted-foreground">
+                  A vendor login belongs to a company.{" "}
+                  {vendors.length === 0 ? "Add the company first" : "Not listed? Add it first"} under{" "}
+                  <Link href="/dashboard/vendors/new" className="underline underline-offset-2">
+                    Vendors → Add Vendor
+                  </Link>
+                  , or send them the application link from the{" "}
+                  <Link href="/dashboard/people/applications" className="underline underline-offset-2">
+                    Vendor Applications
+                  </Link>{" "}
+                  tab.
+                </p>
               </div>
             )}
           </div>
@@ -325,7 +349,7 @@ export default function InviteDialog({
             </div>
           )}
 
-          <Button type="submit" variant="brand" disabled={busy || !email.trim()}>
+          <Button type="submit" variant="brand" disabled={busy || !email.trim() || (needsVendor && !vendorId)}>
             {busy ? "Issuing…" : "Issue invitation"}
           </Button>
         </form>
