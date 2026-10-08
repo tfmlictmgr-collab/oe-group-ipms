@@ -68,6 +68,15 @@ export async function inviteMember(
   if (!INVITABLE_ROLES.includes(input.role as InvitableRole)) {
     return fail("That role cannot be invited.");
   }
+  // A vendor login always belongs to a company. `invitations_vendor_role_needs_company`
+  // (0116) refuses one without, and said so as a raw constraint name; this
+  // says it as a sentence, before the database has to.
+  if (input.role === "vendor" && !input.vendorId) {
+    return fail(
+      "Choose the vendor company this person works for.",
+      "A vendor login always belongs to a company. If it is not in the list, add it under Vendors → Add Vendor first, or send them the application link from People → Vendor Applications."
+    );
+  }
   if (input.role === "payment_approver" && ![1, 2, 3].includes(Number(input.approvalTier))) {
     return fail(
       "Choose a tier for this payment approver.",
