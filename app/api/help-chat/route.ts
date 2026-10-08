@@ -5,7 +5,7 @@ import { roleLabel } from "@/lib/roles";
 import { checkRateLimit } from "@/lib/rate-limit";
 import type { Edition } from "@/lib/guides/processes";
 import {
-  OUT_OF_SCOPE, askModel, looksLikeInjection, knowledgeFor, plainAnswer, retrieve, startersFor, systemPrompt,
+  OUT_OF_SCOPE, askModel, looksLikeInjection, routeByTitles, knowledgeFor, plainAnswer, retrieve, startersFor, systemPrompt,
 } from "@/lib/help-bot";
 
 // The role help assistant.
@@ -67,7 +67,16 @@ export async function POST(req: Request) {
     : [];
 
   if (looksLikeInjection(question)) return NextResponse.json({ answer: OUT_OF_SCOPE, source: "referral" });
-  const hits = retrieve(question, c.chunks, 4);
+  let hits = retrieve(question, c.chunks, 4);
+  // Weak keyword match: ask the model to choose sections from the role's own
+  // titles. It can only return ids that exist in this role's list.
+  if (hits.length < 2 || hits[0].score < 5) {
+    const routed = await routeByTitles(question, c.chunks);
+    if (routed?.length) {
+      const seen = new Set(routed.map((r) => r.id));
+      hits = [...routed.map((chunk) => ({ chunk, score: 99 })), ...hits.filter((h) => !seen.has(h.chunk.id))].slice(0, 4);
+    }
+  }
   if (hits.length === 0) return NextResponse.json({ answer: OUT_OF_SCOPE, source: "referral" });
 
   const material = hits.map((h) => h.chunk.text).join("\n\n");
