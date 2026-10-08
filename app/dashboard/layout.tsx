@@ -9,6 +9,7 @@ import type { NavContext } from "@/components/shell/nav-config";
 import { seesBi, biScope } from "./bi/scope";
 import { mfaGate } from "@/lib/mfa-gate";
 import MfaDueBanner from "./MfaDueBanner";
+import { HelpChat } from "@/components/help-chat";
 
 // ⚠️ The browser tab named the wrong company.
 //
@@ -384,6 +385,7 @@ export default async function DashboardLayout({
       >
         {mfa.kind === "due" && <MfaDueBanner enforcedFrom={mfa.enforcedFrom.toISOString()} />}
         {children}
+        <HelpChat />
       </AppShell>
     </div>
   );
