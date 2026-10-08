@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Search, ChevronDown, ChevronUp, Download, Presentation } from "lucide-react";
 import type { Process } from "@/lib/guides/processes";
@@ -9,6 +9,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import PresentMode from "./PresentMode";
+import RefText from "./RefText";
+
+/** Anchor for a module heading. Process cards use the process id itself. */
+const moduleAnchor = (m: string) => `module-${m.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
 
 type RoleOption = { key: string; label: string };
 
@@ -70,6 +74,39 @@ export default function TrainingBrowser({
       else next.add(id);
       return next;
     });
+
+  // Follow a reference to another process: make sure it is on the page (a
+  // search or role filter may be hiding it), open it, and scroll to it. The
+  // address bar carries the anchor, so the link can be shared.
+  const goTo = useCallback(
+    (id: string) => {
+      if (!filtered.some((p) => p.id === id)) {
+        setQuery("");
+        setRoleFilter("all");
+      }
+      setOpen((prev) => new Set(prev).add(id));
+      window.setTimeout(() => {
+        document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+        history.replaceState(null, "", `#${id}`);
+      }, 60);
+    },
+    [filtered]
+  );
+
+  const goToModule = (module: string) => {
+    const id = moduleAnchor(module);
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    history.replaceState(null, "", `#${id}`);
+  };
+
+  // A link straight to one process (…/training#invite-assign-offboard-people)
+  // opens it on arrival.
+  useEffect(() => {
+    const id = decodeURIComponent(window.location.hash.slice(1));
+    if (id && processes.some((p) => p.id === id)) goTo(id);
+    // Once, on arrival only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const roleName = (key: string) =>
     key === "system" ? "Automatic" : roles.find((r) => r.key === key)?.label ?? key;
@@ -161,11 +198,31 @@ export default function TrainingBrowser({
         )}
       </div>
 
+      {filtered.length > 0 && grouped.size > 1 && (
+        <nav aria-label="Contents" className="rounded-lg border border-border bg-muted/30 px-4 py-3">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Contents</p>
+          <ol className="flex flex-wrap gap-x-5 gap-y-1.5 text-sm">
+            {Array.from(grouped.entries()).map(([module, items], i) => (
+              <li key={module}>
+                <button
+                  type="button"
+                  onClick={() => goToModule(module)}
+                  className="text-left hover:underline"
+                >
+                  <span className="text-muted-foreground">{i + 1}.</span> {module}{" "}
+                  <span className="text-muted-foreground">({items.length})</span>
+                </button>
+              </li>
+            ))}
+          </ol>
+        </nav>
+      )}
+
       {filtered.length === 0 ? (
         <p className="text-sm text-muted-foreground">Nothing matches that search.</p>
       ) : (
         Array.from(grouped.entries()).map(([module, items]) => (
-          <section key={module} className="space-y-3">
+          <section key={module} id={moduleAnchor(module)} className="scroll-mt-28 space-y-3">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
               {module}
             </h2>
@@ -173,7 +230,7 @@ export default function TrainingBrowser({
               {items.map((p) => {
                 const isOpen = open.has(p.id) || items.length === 1;
                 return (
-                  <Card key={p.id} id={p.id}>
+                  <Card key={p.id} id={p.id} className="scroll-mt-28">
                     <CardHeader
                       className="cursor-pointer select-none pb-3"
                       onClick={() => toggle(p.id)}
@@ -181,7 +238,9 @@ export default function TrainingBrowser({
                       <div className="flex items-start justify-between gap-3">
                         <div className="space-y-1">
                           <CardTitle className="text-base">{p.title}</CardTitle>
-                          <CardDescription>{p.startsWhen}</CardDescription>
+                          <CardDescription>
+                            <RefText text={p.startsWhen} processes={processes} onRef={goTo} />
+                          </CardDescription>
                         </div>
                         <div className="flex shrink-0 items-center gap-2">
                           {p.requiresFeature && (
@@ -207,14 +266,14 @@ export default function TrainingBrowser({
                               >
                                 {roleName(step.role)}
                               </Badge>
-                              <span>{step.action}</span>
+                              <span><RefText text={step.action} processes={processes} onRef={goTo} /></span>
                             </li>
                           ))}
                         </ol>
 
                         <div className="rounded-md bg-success/10 px-3 py-2 text-sm">
                           <span className="font-medium text-success-onTint">Done means: </span>
-                          {p.doneMeans}
+                          <RefText text={p.doneMeans} processes={processes} onRef={goTo} />
                         </div>
 
                         {p.refusals && p.refusals.length > 0 && (
@@ -224,8 +283,12 @@ export default function TrainingBrowser({
                             </p>
                             {p.refusals.map((r, i) => (
                               <div key={i} className="rounded-md bg-warning/10 px-3 py-2 text-sm">
-                                <p className="font-medium text-warning-onTint">{r.trigger}</p>
-                                <p className="text-muted-foreground">{r.explanation}</p>
+                                <p className="font-medium text-warning-onTint">
+                                  <RefText text={r.trigger} processes={processes} onRef={goTo} />
+                                </p>
+                                <p className="text-muted-foreground">
+                                  <RefText text={r.explanation} processes={processes} onRef={goTo} />
+                                </p>
                               </div>
                             ))}
                           </div>
@@ -238,17 +301,17 @@ export default function TrainingBrowser({
                             </p>
                             <p className="text-sm">
                               <span className="font-medium">Demo: </span>
-                              {p.trainer.demo}
+                              <RefText text={p.trainer.demo} processes={processes} onRef={goTo} />
                             </p>
                             {p.trainer.commonMistake && (
                               <p className="text-sm">
                                 <span className="font-medium">Common mistake: </span>
-                                {p.trainer.commonMistake}
+                                <RefText text={p.trainer.commonMistake} processes={processes} onRef={goTo} />
                               </p>
                             )}
                             <p className="text-sm">
                               <span className="font-medium">Practice exercise: </span>
-                              {p.trainer.exercise}
+                              <RefText text={p.trainer.exercise} processes={processes} onRef={goTo} />
                             </p>
                           </div>
                         )}
