@@ -26,6 +26,10 @@
       "schedule": "15 3 * * *"
     },
     {
+      "path": "/api/jobs/purge-help-feedback",
+      "schedule": "45 3 * * *"
+    },
+    {
       "path": "/api/jobs/copy-vendor-documents",
       "schedule": "*/15 * * * *"
     },
