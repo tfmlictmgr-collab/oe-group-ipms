@@ -1792,27 +1792,81 @@ export const PROCESS_CATALOGUE: Process[] = [
     id: "invite-assign-offboard-people",
     title: "Invite people, assign them to places, and offboard them",
     module: "People",
-    startsWhen: "Someone new needs access, or someone leaves.",
+    startsWhen:
+      "Someone new needs access — a member of staff, a tenant, a landlord or a " +
+      "contractor — or someone leaves.",
     steps: [
       {
         role: "admin",
         action:
-          "People → Invite, choosing the narrowest role that lets the person " +
-          "do their job. A regional manager may invite only operational staff " +
-          "bounded to their own region — never an administrator; inviting an " +
-          "admin is non-delegable and stays with the org's own administrator " +
-          "(decision 7).",
+          "People → Invitations → \"Invite someone\": their email, their name and " +
+          "the role. The role list only offers what YOU may invite. An " +
+          "administrator: anyone. A regional manager: facilities and property " +
+          "managers, landlords, tenants and vendors, in their own region. OEA's " +
+          "Executive: facilities managers, property managers and operations staff. " +
+          "A facilities or property manager: operations staff, landlords, tenants, " +
+          "vendors and read-only observers, on the properties they hold.",
       },
       {
-        role: "tenant",
-        action: "Accepts the emailed invitation and signs in with their own email.",
+        role: "property_manager",
+        action:
+          "A tenant: choose Tenant, then the Unit they live in. For a NEW tenant, " +
+          "use the application and offer instead (\"Take a tenancy from application " +
+          "to an active lease\"): accepting the offer sends their invitation " +
+          "itself. Invite directly only someone already in a tenancy, such as one " +
+          "brought in with an existing rent roll.",
+      },
+      {
+        role: "property_manager",
+        action:
+          "A landlord: choose Property Owner and tick \"Properties owned\". They see " +
+          "those buildings' statements, payments and reports, and nobody else's.",
       },
       {
         role: "facility_manager",
         action:
-          "Attaches the new person to the properties or region they need — " +
-          "see \"Who is attached to this property\" in \"Build your property " +
-          "tree and file a new building\".",
+          "A vendor: the company comes first. Vendors → Add Vendor, or approve " +
+          "their own registration (\"Register a vendor, attach them to work, and " +
+          "evaluate them\"). Then invite a login: choose Vendor and pick the " +
+          "\"Vendor record\"; its email and contact name fill in. Each further " +
+          "person at the same company gets their own login, invited the same way.",
+      },
+      {
+        role: "regional_manager",
+        action:
+          "Staff. A facilities or property manager: tick \"Properties attached to\". " +
+          "A regional manager: pick their region, location, project or site; they " +
+          "reach every property beneath it, including ones filed later. Operations " +
+          "staff: no places, they see the jobs dispatched to them.",
+      },
+      {
+        role: "admin",
+        action:
+          "Desks only an administrator appoints: another administrator, the " +
+          "Managing Director or Managing Partner, OEA's Executive, the Payment " +
+          "Officer, the Payment Auditor and the Payment Approver (who also needs " +
+          "an \"Approval limit\").",
+      },
+      {
+        role: "system",
+        action:
+          "Emails the invitation in the organisation's own name. If the email " +
+          "could not be sent, the screen shows the link to copy and share " +
+          "(WhatsApp is fine). \"Awaiting acceptance\" lists every unused " +
+          "invitation, to resend or revoke.",
+      },
+      {
+        role: "tenant",
+        action:
+          "Accepts the invitation, sets a password and, where required, two-factor " +
+          "sign-in (\"Sign in for the first time, and set up two-factor sign-in\").",
+      },
+      {
+        role: "facility_manager",
+        action:
+          "Attaches the new person to any further properties they need — see " +
+          "\"Who is attached to this property\" in \"Build your property tree and " +
+          "file a new building\".",
       },
       {
         role: "admin",
@@ -1838,14 +1892,38 @@ export const PROCESS_CATALOGUE: Process[] = [
       "visible on the audit trail.",
     refusals: [
       {
-        trigger: "A regional manager tries to invite an administrator.",
+        trigger:
+          "A regional manager or a facilities manager looks for Administrator, " +
+          "Managing Director or a payment desk in the role list.",
         explanation:
-          "Refused. `invitation.create_admin` is non-delegable — only the " +
-          "org's own administrator issues an admin invitation (decision 7).",
+          "Not offered, and refused by the database if tried another way. Those " +
+          "desks are an administrator's to appoint (decisions 7 and 42), so the " +
+          "people who approve and release money are never chosen by the people " +
+          "whose work they pay for.",
+      },
+      {
+        trigger: "A manager tries to attach someone to a property they do not hold.",
+        explanation:
+          "Refused. An invitation can only place a person on properties, units or " +
+          "vendors within the inviter's own reach.",
+      },
+      {
+        trigger: "The vendor is not in the \"Vendor record\" list.",
+        explanation:
+          "A login always belongs to a company. Add the company first (Vendors → " +
+          "Add Vendor) or approve its registration, then invite.",
+      },
+      {
+        trigger: "There is no unit to choose when inviting a tenant.",
+        explanation:
+          "The unit must exist on a property you hold. Add it under Properties " +
+          "first.",
       },
     ],
     trainer: {
-      demo: "Invite a person and accept the invitation live, end to end.",
+      demo:
+        "Invite one of each live — a tenant on a unit, a landlord on a building, " +
+        "a vendor login on an existing company — and accept one end to end.",
       commonMistake:
         "Sharing a login with a replacement instead of inviting them properly " +
         "— it breaks the audit trail's attribution to a real person.",
@@ -1854,8 +1932,12 @@ export const PROCESS_CATALOGUE: Process[] = [
         "property, then deactivate it and confirm sign-in now fails.",
     },
     capabilities: ["people.invite", "people.deactivate", "invitation.create_admin"],
-    routes: ["/dashboard/people", "/dashboard/people/directory"],
-    roles: ["admin", "regional_manager", "operations_executive"],
+    routes: ["/dashboard/people", "/dashboard/people/directory", "/dashboard/people/invitations"],
+    roles: [
+      "admin", "regional_manager", "operations_executive", "facility_manager",
+      "property_manager", "tenant", "property_owner", "vendor", "fm_ops_staff",
+      "payment_approver",
+    ],
   },
   {
     id: "read-the-audit-trail",
@@ -2333,4 +2415,43 @@ export function processesForRole(
   return processesForEdition(edition, orgFeatures).filter((p) =>
     p.roles.includes(role)
   );
+}
+
+/** A run of text, and the process it names if it is a reference to one. */
+export type RefSegment = { text: string; ref?: string };
+
+/**
+ * Splits text into plain runs and references to other processes, so every
+ * surface (the screen, the slides, the PDF) can link a reference to the
+ * process it names.
+ *
+ * A reference is a quoted title, which is how the catalogue has always written
+ * them: "Raise a request and see it through to close". A quote may be the
+ * title or the start of exactly one title ("Record a payment made by bank
+ * transfer"), since authors shorten them. Anything else in quotes — a button
+ * name, a sentence on screen — matches no title and stays plain text.
+ *
+ * Only processes passed in are linkable, so a reference to one this edition
+ * does not include stays plain rather than linking to nothing.
+ */
+export function splitProcessRefs(
+  text: string,
+  processes: readonly Pick<Process, "id" | "title">[]
+): RefSegment[] {
+  const out: RefSegment[] = [];
+  let last = 0;
+  for (const m of text.matchAll(/["“]([^"”]{8,160})["”]/g)) {
+    const quoted = m[1].trim().toLowerCase();
+    const exact = processes.filter((p) => p.title.toLowerCase() === quoted);
+    const prefix = quoted.length >= 12
+      ? processes.filter((p) => p.title.toLowerCase().startsWith(quoted))
+      : [];
+    const hit = exact.length === 1 ? exact[0] : prefix.length === 1 ? prefix[0] : null;
+    if (!hit || m.index === undefined) continue;
+    if (m.index > last) out.push({ text: text.slice(last, m.index) });
+    out.push({ text: m[0], ref: hit.id });
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) out.push({ text: text.slice(last) });
+  return out;
 }

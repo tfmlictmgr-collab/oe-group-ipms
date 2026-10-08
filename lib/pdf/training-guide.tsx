@@ -1,7 +1,7 @@
 import * as React from "react";
-import { Document, Page, Text, View, Image, StyleSheet } from "@react-pdf/renderer";
+import { Document, Page, Text, View, Image, Link, StyleSheet } from "@react-pdf/renderer";
 import type { GuideOrg } from "@/lib/pdf/role-guide";
-import type { Process } from "@/lib/guides/processes";
+import { splitProcessRefs, type Process } from "@/lib/guides/processes";
 
 // The training handbook, as a branded document — the whole catalogue, one
 // role's chapter, or a single process as a job aid, depending on what the
@@ -81,6 +81,14 @@ const styles = StyleSheet.create({
     textTransform: "uppercase", marginBottom: 3,
   },
   trainerLine: { fontSize: 8.5, color: "#333", marginBottom: 2 },
+  contentsHeading: {
+    fontSize: 11, fontFamily: "Helvetica-Bold", marginBottom: 6,
+  },
+  contentsModule: {
+    fontSize: 8.5, fontFamily: "Helvetica-Bold", color: "#888",
+    textTransform: "uppercase", letterSpacing: 1, marginTop: 8, marginBottom: 3,
+  },
+  contentsItem: { fontSize: 10, marginBottom: 2.5, textDecoration: "none" },
   footer: {
     position: "absolute", bottom: 26, left: 44, right: 44,
     borderTopWidth: 1, borderTopColor: "#DDD", paddingTop: 7,
@@ -89,9 +97,41 @@ const styles = StyleSheet.create({
   },
 });
 
+/**
+ * Catalogue text with each quoted reference to another process in this
+ * document turned into an internal link to it. A reference to a process the
+ * document does not contain (a single job aid, a role chapter) stays plain.
+ */
+function Linked({
+  text, linkable, brand,
+}: { text: string; linkable: readonly Pick<Process, "id" | "title">[]; brand: string }) {
+  const parts = splitProcessRefs(text, linkable);
+  if (parts.every((p) => !p.ref)) return <>{text}</>;
+  return (
+    <>
+      {parts.map((p, i) =>
+        p.ref ? (
+          <Link key={i} src={`#${p.ref}`} style={{ color: brand, textDecoration: "underline" }}>
+            {p.text}
+          </Link>
+        ) : (
+          p.text
+        )
+      )}
+    </>
+  );
+}
+
 function ProcessBlock({
-  process, trainerView, roleLabelFor, brand,
-}: { process: Process; trainerView: boolean; roleLabelFor: (r: string) => string; brand: string }) {
+  process, trainerView, roleLabelFor, brand, linkable,
+}: {
+  process: Process;
+  trainerView: boolean;
+  roleLabelFor: (r: string) => string;
+  brand: string;
+  linkable: readonly Pick<Process, "id" | "title">[];
+}) {
+  const L = (text: string) => <Linked text={text} linkable={linkable} brand={brand} />;
   // ⚠️ NOT `wrap={false}` on the outer block. `@react-pdf/renderer`'s
   // pagination treats an unwrappable View as one atomic unit that must fit in
   // whatever space is left on the current page — and when that unit is taller
@@ -109,22 +149,22 @@ function ProcessBlock({
   // forcing them together only prevents an ugly mid-sentence break, never a
   // pagination failure.
   return (
-    <View style={styles.processBlock}>
+    <View style={styles.processBlock} id={process.id}>
       <Text style={styles.processTitle}>{process.title}</Text>
-      <Text style={styles.startsWhen}>Starts when: {process.startsWhen}</Text>
+      <Text style={styles.startsWhen}>Starts when: {L(process.startsWhen)}</Text>
 
       {process.steps.map((step, i) => (
         <View key={i} style={styles.step} wrap={false}>
           <Text style={[styles.stepRole, { color: brand }]}>
             {step.role === "system" ? "AUTOMATIC" : roleLabelFor(step.role).toUpperCase()}
           </Text>
-          <Text style={styles.stepAction}>{step.action}</Text>
+          <Text style={styles.stepAction}>{L(step.action)}</Text>
         </View>
       ))}
 
       <View style={styles.doneBox} wrap={false}>
         <Text style={styles.doneLabel}>Done means</Text>
-        <Text style={styles.doneText}>{process.doneMeans}</Text>
+        <Text style={styles.doneText}>{L(process.doneMeans)}</Text>
       </View>
 
       {process.refusals && process.refusals.length > 0 && (
@@ -132,8 +172,8 @@ function ProcessBlock({
           <Text style={styles.refusalHeading}>Common refusals — the control working</Text>
           {process.refusals.map((r, i) => (
             <View key={i} wrap={false}>
-              <Text style={styles.refusalTrigger}>{r.trigger}</Text>
-              <Text style={styles.refusalExplanation}>{r.explanation}</Text>
+              <Text style={styles.refusalTrigger}>{L(r.trigger)}</Text>
+              <Text style={styles.refusalExplanation}>{L(r.explanation)}</Text>
             </View>
           ))}
         </View>
@@ -142,11 +182,11 @@ function ProcessBlock({
       {trainerView && (
         <View style={styles.trainerBox} wrap={false}>
           <Text style={styles.trainerHeading}>For the trainer</Text>
-          <Text style={styles.trainerLine}>Demo: {process.trainer.demo}</Text>
+          <Text style={styles.trainerLine}>Demo: {L(process.trainer.demo)}</Text>
           {process.trainer.commonMistake && (
-            <Text style={styles.trainerLine}>Common mistake: {process.trainer.commonMistake}</Text>
+            <Text style={styles.trainerLine}>Common mistake: {L(process.trainer.commonMistake)}</Text>
           )}
-          <Text style={styles.trainerLine}>Practice exercise: {process.trainer.exercise}</Text>
+          <Text style={styles.trainerLine}>Practice exercise: {L(process.trainer.exercise)}</Text>
         </View>
       )}
     </View>
@@ -158,6 +198,8 @@ export function TrainingGuideDocument({
 }: TrainingGuideData) {
   const brand = org.primary || "#003366";
   const support = [org.supportEmail, org.supportPhone].filter(Boolean).join("  ·  ");
+  // Every process in THIS document, so a reference links only to a page that exists.
+  const linkable = groups.flatMap((g) => g.items);
 
   return (
     <Document
@@ -180,6 +222,24 @@ export function TrainingGuideDocument({
         <Text style={styles.title}>{title}</Text>
         <Text style={styles.subtitle}>{subtitle}</Text>
 
+        {/* Contents, each line a link to its process. Not for a one-process
+            job aid, where a contents list of one line is noise. */}
+        {linkable.length > 1 && (
+          <View style={{ marginBottom: 8 }}>
+            <Text style={styles.contentsHeading}>Contents</Text>
+            {groups.map((g) => (
+              <View key={g.module} wrap={false}>
+                <Text style={styles.contentsModule}>{g.module}</Text>
+                {g.items.map((p) => (
+                  <Link key={p.id} src={`#${p.id}`} style={[styles.contentsItem, { color: brand }]}>
+                    {p.title}
+                  </Link>
+                ))}
+              </View>
+            ))}
+          </View>
+        )}
+
         {groups.map((group, i) => (
           // `break` (before every module but the first) starts each module on
           // its own page. Reads better bound for training anyway, and it
@@ -191,7 +251,7 @@ export function TrainingGuideDocument({
           // ways, not reasoned about: same catalogue, same process content,
           // only the per-module page break differs between the crash and the
           // fix.
-          <View key={group.module} break={i > 0}>
+          <View key={group.module} break={i > 0 || linkable.length > 1}>
             <Text style={styles.moduleHeading}>{group.module}</Text>
             {group.items.map((p) => (
               <ProcessBlock
@@ -200,6 +260,7 @@ export function TrainingGuideDocument({
                 trainerView={trainerView}
                 roleLabelFor={roleLabelFor}
                 brand={brand}
+                linkable={linkable}
               />
             ))}
           </View>

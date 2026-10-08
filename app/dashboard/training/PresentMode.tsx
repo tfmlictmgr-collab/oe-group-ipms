@@ -6,6 +6,7 @@ import {
   X, ChevronLeft, ChevronRight, Maximize, Minimize, LayoutGrid, NotebookPen,
 } from "lucide-react";
 import type { Process, ProcessStep, ProcessRefusal } from "@/lib/guides/processes";
+import RefText from "./RefText";
 
 // Live slide mode: the fifth surface on the same one source, alongside the
 // screen, the two PDFs and the generated deck. It renders the exact
@@ -129,6 +130,33 @@ export default function PresentMode({
     [last]
   );
 
+  // Following a link (an agenda row, a module list, a reference in the text)
+  // remembers where it came from, so "Back" returns there, as in any deck.
+  const [trail, setTrail] = useState<number[]>([]);
+  const jump = useCallback(
+    (to: number) => {
+      if (to < 0 || to === current) return;
+      setTrail((t) => [...t, current]);
+      setIndex(to);
+    },
+    [current]
+  );
+  const back = useCallback(() => {
+    setTrail((t) => {
+      if (t.length === 0) return t;
+      setIndex(t[t.length - 1]);
+      return t.slice(0, -1);
+    });
+  }, []);
+  const goToProcess = useCallback(
+    (id: string) => jump(slides.findIndex((x) => x.kind === "overview" && x.process.id === id)),
+    [jump, slides]
+  );
+  const goToModule = useCallback(
+    (module: string) => jump(slides.findIndex((x) => x.kind === "section" && x.module === module)),
+    [jump, slides]
+  );
+
   const toggleFullscreen = useCallback(() => {
     // Best-effort: a shared-screen or sandboxed context may refuse this
     // silently, and the deck still works at window size.
@@ -154,6 +182,7 @@ export default function PresentMode({
       }
       if (["ArrowRight", "ArrowDown", "PageDown", " "].includes(e.key)) { e.preventDefault(); go(1); }
       else if (["ArrowLeft", "ArrowUp", "PageUp"].includes(e.key)) { e.preventDefault(); go(-1); }
+      else if (e.key === "Backspace") { e.preventDefault(); back(); }
       else if (e.key === "Home") setIndex(0);
       else if (e.key === "End") setIndex(last);
       else if (e.key.toLowerCase() === "n" && trainerView) setNotesOpen((v) => !v);
@@ -163,7 +192,7 @@ export default function PresentMode({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [go, last, onExit, gridOpen, trainerView, toggleFullscreen]);
+  }, [go, back, last, onExit, gridOpen, trainerView, toggleFullscreen]);
 
   // Swipe on a touch screen, so a tablet can drive the deck.
   const touchX = useRef<number | null>(null);
@@ -203,7 +232,10 @@ export default function PresentMode({
     slide.kind === "overview" || slide.kind === "steps" || slide.kind === "refusals" || slide.kind === "practice"
       ? slide.process
       : null;
-  const ctx: Ctx = { processes, roleName, orgName, audience, trainerView, index: current, total: slides.length };
+  const ctx: Ctx = {
+    processes, roleName, orgName, audience, trainerView, index: current, total: slides.length,
+    goToProcess, goToModule,
+  };
 
   if (!mounted) return null;
 
@@ -271,6 +303,16 @@ export default function PresentMode({
           <CtrlButton label="Next slide" onClick={() => go(1)} disabled={current === last}>
             <ChevronRight className="size-5" />
           </CtrlButton>
+          {trail.length > 0 && (
+            <button
+              type="button"
+              onClick={back}
+              title="Back to where you jumped from (Backspace)"
+              className="ml-2 rounded-md px-2.5 py-1.5 text-neutral-200 transition hover:bg-white/10"
+            >
+              ← Back to slide {trail[trail.length - 1] + 1}
+            </button>
+          )}
         </div>
         <p className="hidden truncate text-neutral-400 md:block">
           {notesProcess ? `${notesProcess.module} · ${notesProcess.title}` : orgName ?? "Training"}
@@ -352,7 +394,7 @@ function SlideGrid({
                 style={{ width: W * thumb, height: H * thumb }}
               >
                 <div style={{ width: W, height: H, transform: `scale(${thumb})`, transformOrigin: "top left" }} className="pointer-events-none absolute left-0 top-0">
-                  <SlideView slide={s} ctx={{ ...ctx, index: i }} />
+                  <SlideView slide={s} ctx={{ ...ctx, index: i, goToProcess: undefined, goToModule: undefined }} />
                 </div>
               </div>
               <p className="mt-1 text-xs tabular-nums text-neutral-400">{i + 1}</p>
@@ -377,6 +419,10 @@ type Ctx = {
   trainerView: boolean;
   index: number;
   total: number;
+  /** Jump to a process's first slide. Absent on thumbnails, which are inert. */
+  goToProcess?: (id: string) => void;
+  /** Jump to a module's divider slide. */
+  goToModule?: (module: string) => void;
 };
 
 const BRAND = "var(--brand, #1f2937)";
@@ -499,7 +545,13 @@ function AgendaSlide({ ctx }: { ctx: Ctx }) {
             <span className={`flex shrink-0 items-center justify-center rounded-full font-bold text-white ${dense ? "size-9 text-[16px]" : "size-11 text-[19px]"}`} style={{ background: BRAND }}>
               {i + 1}
             </span>
-            <span className={`flex-1 font-medium ${dense ? "text-[21px]" : "text-[24px]"}`}>{m}</span>
+            <span className={`flex-1 font-medium ${dense ? "text-[21px]" : "text-[24px]"}`}>
+              {ctx.goToModule ? (
+                <button type="button" onClick={() => ctx.goToModule!(m)} className="text-left hover:underline">
+                  {m}
+                </button>
+              ) : m}
+            </span>
             <span className="text-[17px] text-slate-500">
               {counts.get(m)} {counts.get(m) === 1 ? "process" : "processes"}
             </span>
@@ -511,7 +563,7 @@ function AgendaSlide({ ctx }: { ctx: Ctx }) {
 }
 
 function SectionSlide({ slide, ctx }: { slide: Extract<Slide, { kind: "section" }>; ctx: Ctx }) {
-  const titles = ctx.processes.filter((p) => p.module === slide.module).map((p) => p.title);
+  const inModule = ctx.processes.filter((p) => p.module === slide.module);
   return (
     <div className="flex h-full w-full bg-white text-slate-900">
       <div className="flex w-[420px] shrink-0 flex-col justify-center px-16 text-white" style={{ background: BRAND }}>
@@ -523,8 +575,17 @@ function SectionSlide({ slide, ctx }: { slide: Extract<Slide, { kind: "section" 
           <h2 className="text-[60px] font-bold leading-[1.1] tracking-tight">{slide.module}</h2>
           <div className="mt-5 h-1.5 w-24 rounded-full" style={{ background: ACCENT }} />
           <ul className="mt-8 space-y-3 text-[23px] text-slate-600">
-            {titles.slice(0, 6).map((t) => <li key={t}>· {t}</li>)}
-            {titles.length > 6 && <li className="text-slate-400">and {titles.length - 6} more</li>}
+            {inModule.slice(0, 6).map((p) => (
+              <li key={p.id}>
+                ·{" "}
+                {ctx.goToProcess ? (
+                  <button type="button" onClick={() => ctx.goToProcess!(p.id)} className="text-left hover:text-slate-900 hover:underline">
+                    {p.title}
+                  </button>
+                ) : p.title}
+              </li>
+            ))}
+            {inModule.length > 6 && <li className="text-slate-400">and {inModule.length - 6} more</li>}
           </ul>
         </div>
         <Footer ctx={ctx} />
@@ -541,11 +602,11 @@ function OverviewSlide({ process, ctx }: { process: Process; ctx: Ctx }) {
         <div className="space-y-7">
           <div>
             <p className="text-[17px] font-semibold uppercase tracking-wider text-slate-500">Starts when</p>
-            <p className="mt-2 text-[24px] leading-snug text-slate-800">{process.startsWhen}</p>
+            <p className="mt-2 text-[24px] leading-snug text-slate-800"><RefText text={process.startsWhen} processes={ctx.processes} onRef={ctx.goToProcess} /></p>
           </div>
           <div className="rounded-xl border-l-[6px] px-6 py-5" style={{ borderColor: "#15803d", background: "#f0fdf4" }}>
             <p className="text-[17px] font-semibold uppercase tracking-wider text-green-800">Done means</p>
-            <p className="mt-2 text-[21px] leading-snug text-slate-800">{process.doneMeans}</p>
+            <p className="mt-2 text-[21px] leading-snug text-slate-800"><RefText text={process.doneMeans} processes={ctx.processes} onRef={ctx.goToProcess} /></p>
           </div>
         </div>
         <div className="rounded-xl bg-slate-50 px-6 py-5">
@@ -581,7 +642,7 @@ function StepsSlide({ slide, ctx }: { slide: Extract<Slide, { kind: "steps" }>; 
             </span>
             <div className="min-w-0 flex-1 pt-1.5">
               <RolePill role={step.role} ctx={ctx} />
-              <p className="mt-2 text-[20px] leading-snug text-slate-800">{step.action}</p>
+              <p className="mt-2 text-[20px] leading-snug text-slate-800"><RefText text={step.action} processes={ctx.processes} onRef={ctx.goToProcess} /></p>
             </div>
           </li>
         ))}
@@ -597,8 +658,8 @@ function RefusalsSlide({ slide, ctx }: { slide: Extract<Slide, { kind: "refusals
       <div className="space-y-4">
         {slide.refusals.map((r, i) => (
           <div key={i} className="rounded-xl border-l-[6px] px-6 py-4" style={{ borderColor: "#b45309", background: "#fffbeb" }}>
-            <p className="text-[21px] font-semibold leading-snug text-amber-900">{r.trigger}</p>
-            <p className="mt-1.5 text-[19px] leading-snug text-slate-700">{r.explanation}</p>
+            <p className="text-[21px] font-semibold leading-snug text-amber-900"><RefText text={r.trigger} processes={ctx.processes} onRef={ctx.goToProcess} /></p>
+            <p className="mt-1.5 text-[19px] leading-snug text-slate-700"><RefText text={r.explanation} processes={ctx.processes} onRef={ctx.goToProcess} /></p>
           </div>
         ))}
       </div>
@@ -613,7 +674,7 @@ function PracticeSlide({ process, ctx }: { process: Process; ctx: Ctx }) {
         <p className="text-[20px] font-semibold uppercase tracking-[0.2em] text-white/75">Your turn · {process.module}</p>
         <h2 className="mt-3 text-[46px] font-bold leading-[1.1] tracking-tight">{process.title}</h2>
         <div className="mt-5 h-1.5 w-24 rounded-full" style={{ background: ACCENT }} />
-        <p className="mt-8 max-w-[1050px] text-[30px] leading-snug text-white/95">{process.trainer.exercise}</p>
+        <p className="mt-8 max-w-[1050px] text-[30px] leading-snug text-white/95"><RefText text={process.trainer.exercise} processes={ctx.processes} onRef={ctx.goToProcess} /></p>
         <p className="mt-8 text-[18px] text-white/70">Practise on the demo organisation, never a live one.</p>
       </div>
       <Footer ctx={ctx} dark />
