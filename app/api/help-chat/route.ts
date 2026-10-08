@@ -5,7 +5,7 @@ import { roleLabel } from "@/lib/roles";
 import { checkRateLimit } from "@/lib/rate-limit";
 import type { Edition } from "@/lib/guides/processes";
 import {
-  OUT_OF_SCOPE, askModel, looksLikeInjection, routeByTitles, knowledgeFor, plainAnswer, retrieve, startersFor, systemPrompt,
+  OUT_OF_SCOPE, askModel, isPleasantry, looksLikeInjection, routeByTitles, knowledgeFor, plainAnswer, retrieve, startersFor, systemPrompt,
 } from "@/lib/help-bot";
 
 // The role help assistant.
@@ -87,6 +87,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ answer, source, feedbackId });
   };
 
+  if (isPleasantry(question)) {
+    const eg = startersFor(c.chunks, 1)[0];
+    return NextResponse.json({
+      answer: "You're welcome. Ask me how to do something in your role" + (eg ? `, for example: "${eg}"` : ".") ,
+      source: "referral",
+      feedbackId: null,
+    });
+  }
   if (looksLikeInjection(question)) return reply(OUT_OF_SCOPE, "referral", []);
   let hits = retrieve(question, c.chunks, 4);
   // Weak keyword match: ask the model to choose sections from the role's own

@@ -14,6 +14,7 @@
 // into a bill or into silence.
 import { guideForRole } from "@/lib/guides/content";
 import { processesForRole, type Edition } from "@/lib/guides/processes";
+import { FAQ } from "@/lib/guides/faq";
 import { roleLabel } from "@/lib/roles";
 
 export type Chunk = { id: string; title: string; text: string };
@@ -47,6 +48,17 @@ export function plain(t: string): string {
     .trim();
 }
 
+/** Roles whose steps in the PEOPLE processes (inviting, assigning) an
+ * administrator or regional manager is also told, in full. Those journeys are
+ * written by acting role, so without this an administrator asking "how do I
+ * invite a landlord?" was told the landlord step belonged to someone else -
+ * when it is theirs to do and to supervise. Money and approval journeys are
+ * deliberately NOT included. */
+const ALSO_ACTS_AS: Record<string, string[]> = {
+  admin: ["property_manager", "facility_manager", "regional_manager"],
+  regional_manager: ["property_manager", "facility_manager"],
+};
+
 /** Everything this role may be told about, as small retrievable pieces. */
 export function knowledgeFor(
   role: string,
@@ -56,6 +68,11 @@ export function knowledgeFor(
 ): Chunk[] {
   const label = roleLabel(role, brand);
   const chunks: Chunk[] = [];
+
+  for (const f of FAQ) {
+    if (!f.roles.includes(role)) continue;
+    chunks.push({ id: `faq-${chunks.length}`, title: f.question, text: f.question + " " + f.answer });
+  }
 
   const guide = guideForRole(role, label);
   if (guide) {
@@ -90,7 +107,8 @@ export function knowledgeFor(
       others = [];
     };
     for (const s of p.steps) {
-      if (s.role === role) { flush(); parts.push(`${++n}. ${s.action}`); }
+      const mine = s.role === role || (p.module === "People" && (ALSO_ACTS_AS[role] ?? []).includes(s.role));
+      if (mine) { flush(); parts.push(`${++n}. ${s.action}`); }
       else others.push(s.role === "system" ? "the system" : roleLabel(s.role, brand));
     }
     flush();
@@ -106,12 +124,17 @@ export function knowledgeFor(
 /** Starter questions, derived from the role's own process titles. */
 export function startersFor(chunks: Chunk[], n = 5): string[] {
   return chunks
-    .filter((c) => c.id.startsWith("process-") && !/whole journey|sign in for the first time/i.test(c.title))
+    .filter((c) => c.id.startsWith("faq-") || (c.id.startsWith("process-") && !/whole journey|sign in for the first time/i.test(c.title)))
     .slice(0, n)
-    .map((c) => `Walk me through: ${c.title}`);
+    .map((c) => (c.id.startsWith("faq-") ? c.title : `Walk me through: ${c.title}`));
 }
 
 const INJECTION = /ignore (all |your |the |previous |prior )|previous instructions|system prompt|your (rules|instructions)|pretend|jailbreak|act as|you are now|developer mode|reveal .*prompt/i;
+/** A greeting or thanks is not a gap in the guide; answer it kindly and keep it out of the review list. */
+export function isPleasantry(q: string): boolean {
+  return /^\s*(hi|hello|hey|hiya|good\s+(morning|afternoon|evening)|thanks?|thank\s+you|ok(ay)?|great|cheers)[\s!.,?]*$/i.test(q);
+}
+
 export function looksLikeInjection(q: string): boolean { return INJECTION.test(q); }
 
 // People ask in their own words ("onboard a landlord"); the guides say "invite",
@@ -156,6 +179,9 @@ export function retrieve(question: string, chunks: Chunk[], k = 3): { chunk: Chu
         if (title.has(w)) score += 3;
         else if (body.has(w)) score += 1;
       }
+      // A curated answer to a question phrased like this one beats a chapter
+      // that merely mentions the words.
+      if (chunk.id.startsWith("faq-") && score >= 3) score += 4;
       return { chunk, score };
     })
     .filter((r) => r.score >= 2)
