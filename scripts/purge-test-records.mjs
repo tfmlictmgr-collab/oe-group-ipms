@@ -124,9 +124,29 @@ say(`\n${apply ? "APPLY" : "DRY RUN"} — world=${world} org=${orgSlug}`);
 say(`Vendor companies (${vendors.length}): ` + (vendors.map((v) => v.name).join("; ") || "none"));
 say(`Targets (${users.length}): ` + users.map((u) => `${u.full_name} <${u.email}> [${u.role}]`).join("; "));
 
-// Money guard.
-const money = (await q("select (select count(*) from ledger_entries where org_id=$1)::int le, (select count(*) from remittances where org_id=$1)::int rm", [org.id]))[0];
-if (money.le || money.rm) applyOnly.push(`MONEY POSTED: ${money.le} ledger entries, ${money.rm} remittances in ${orgSlug}. A purge may not remove real money; do this by hand under a board note.`);
+// Money guard, per account. An organisation that has taken real money (every
+// live one, from its first day) must still be able to remove a test account
+// that money never touched, so the question is asked of each TARGET, not of
+// the organisation. An account money touched is refused and named: it is
+// deactivated in the app instead, because its payments, receipts and payouts
+// stay on the books (the ledger is immutable by design).
+for (const u of users) {
+  const m = (await q(
+    `select
+       (select count(*) from payment_intents where payer_user_id = $1 and (status = 'paid' or coalesce(amount_paid, 0) > 0))::int as online,
+       (select count(*) from offline_payment_claims where (payer_user_id = $1 or recorded_by = $1) and status = 'confirmed')::int as offline,
+       (select count(*) from rent_charges rc join leases l on l.id = rc.lease_id where l.tenant_user_id = $1 and coalesce(rc.amount_paid, 0) > 0)::int as rent,
+       (select count(*) from service_charges where billed_to_user_id = $1 and coalesce(amount_paid, 0) > 0)::int as sc,
+       (select count(*) from remittances r join payout_recipients p on p.id = r.recipient_id where p.user_id = $1)::int as payouts,
+       (select count(*) from ledger_entries where created_by = $1)::int as ledger`, [u.id]))[0];
+  const found = Object.entries(m).filter(([, n]) => n > 0).map(([k, n]) => `${k}=${n}`);
+  if (found.length) problems.push(`ACCOUNT HAS MONEY HISTORY: ${u.email} (${found.join(", ")}). Deactivate it in the app instead (People → Directory → Manage → Deactivate), and leave it out of this run.`);
+}
+if (tag) {
+  const n = (await q(`select count(*)::int n from rent_charges rc join leases l on l.id = rc.lease_id
+                       where l.org_id = $1 and l.tenant_name ilike $2 and coalesce(rc.amount_paid, 0) > 0`, [org.id, tag + "%"]))[0].n;
+  if (n) problems.push(`TAGGED TENANCY HAS MONEY HISTORY: ${n} paid rent charge(s) on leases named "${tag}…". End those tenancies in the app; they stay on the books.`);
+}
 
 const before = (await q(`select (select count(*) from properties where org_id=$1)::int p, (select count(*) from units where org_id=$1)::int u,
   (select count(*) from users where org_id=$1 and role not in ('tenant','property_owner','vendor'))::int staff`, [org.id]))[0];
