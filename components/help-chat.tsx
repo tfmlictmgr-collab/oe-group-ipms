@@ -3,7 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-type Msg = { from: "me" | "bot"; text: string; fid?: string | null; rated?: 1 | -1 };
+type Choice = { label: string; question: string };
+type Msg = { from: "me" | "bot"; text: string; fid?: string | null; rated?: 1 | -1; choices?: Choice[]; refine?: boolean };
+
+const REFINE: Choice[] = [
+  { label: "Simpler", question: "Explain that more simply" },
+  { label: "More detail", question: "Give me more detail" },
+  { label: "What next?", question: "What happens next?" },
+];
 
 // Role help bubble, bottom right of every dashboard screen. It posts the
 // question and nothing else — the server decides whose material answers it.
@@ -34,7 +41,7 @@ export function HelpChat({ logoUrl, logoText }: { logoUrl?: string | null; logoT
   async function ask(q: string) {
     const question = q.trim();
     if (!question || busy) return;
-    const earlier = msgs.filter((m) => m.from === "me").map((m) => m.text).slice(-2);
+    const history = msgs.slice(-4).map((m) => ({ from: m.from, text: m.text }));
     setMsgs((m) => [...m, { from: "me", text: question }]);
     setText("");
     setBusy(true);
@@ -42,10 +49,10 @@ export function HelpChat({ logoUrl, logoText }: { logoUrl?: string | null; logoT
       const r = await fetch("/api/help-chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question, earlier }),
+        body: JSON.stringify({ question, history }),
       });
       const j = r.ok || r.status === 429 ? await r.json() : null;
-      setMsgs((m) => [...m, { from: "bot", text: j?.answer ?? "Sorry, I couldn't answer that just now. Please ask your administrator.", fid: j?.feedbackId ?? null }]);
+      setMsgs((m) => [...m, { from: "bot", text: j?.answer ?? "Sorry, I couldn't answer that just now. Please ask your administrator.", fid: j?.feedbackId ?? null, choices: j?.choices ?? [], refine: j?.source === "model" || j?.source === "guide" }]);
     } catch {
       setMsgs((m) => [...m, { from: "bot", text: "Sorry, I couldn't answer that just now. Please ask your administrator." }]);
     } finally {
@@ -94,6 +101,24 @@ export function HelpChat({ logoUrl, logoText }: { logoUrl?: string | null; logoT
                 <div style={m.from === "me" ? { background: "var(--brand)", color: "var(--brand-fg)" } : undefined} className={`inline-block max-w-[90%] whitespace-pre-wrap rounded-lg px-2.5 py-1.5 text-left ${m.from === "me" ? "text-white" : "bg-muted"}`}>
                   {m.text}
                 </div>
+                {m.from === "bot" && (m.choices?.length ?? 0) > 0 && i === msgs.length - 1 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {m.choices!.map((c) => (
+                      <button key={c.question} onClick={() => ask(c.question)} className="rounded-full border px-2.5 py-1 text-xs hover:bg-muted">
+                        {c.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {m.from === "bot" && m.refine && i === msgs.length - 1 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {REFINE.map((c) => (
+                      <button key={c.label} onClick={() => ask(c.question)} className="rounded-full border px-2.5 py-1 text-xs text-muted-foreground hover:bg-muted">
+                        {c.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 {m.from === "bot" && m.fid && (
                   <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
                     {m.rated ? (

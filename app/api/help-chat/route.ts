@@ -6,7 +6,9 @@ import { checkRateLimit } from "@/lib/rate-limit";
 import type { Edition } from "@/lib/guides/processes";
 import {
   OUT_OF_SCOPE, askModel, looksLikeInjection, routeByTitles, knowledgeFor, plainAnswer, retrieve, startersFor, systemPrompt,
+  type ChatTurn,
 } from "@/lib/help-bot";
+import { STYLE_INSTRUCTION, classifyTurn, needsClarification, replyFor, withContext } from "@/lib/help-dialogue";
 
 // The role help assistant.
 //
@@ -42,11 +44,13 @@ export async function GET() {
   return NextResponse.json({ roleLabel: c.label, starters: startersFor(c.chunks) });
 }
 
+type Choice = { label: string; question: string };
+
 export async function POST(req: Request) {
   const c = await context();
   if (!c) return new NextResponse("Sign in required", { status: 401 });
 
-  const rl = await checkRateLimit("help-chat", c.profile.id, 20, "10 m");
+  const rl = await checkRateLimit("help-chat", c.profile.id, 30, "10 m");
   if (!rl.allowed) {
     return NextResponse.json(
       { answer: "You've asked a lot in a short time. Please wait a few minutes and try again." },
@@ -54,7 +58,7 @@ export async function POST(req: Request) {
     );
   }
 
-  let body: { question?: unknown; earlier?: unknown; feedbackId?: unknown; rating?: unknown };
+  let body: { question?: unknown; history?: unknown; feedbackId?: unknown; rating?: unknown };
   try { body = await req.json(); } catch { return new NextResponse("Bad request", { status: 400 }); }
 
   // A thumbs up/down on an earlier answer. The database refuses a second rating,
@@ -67,43 +71,90 @@ export async function POST(req: Request) {
   const question = typeof body.question === "string" ? body.question.trim().slice(0, MAX_QUESTION) : "";
   if (!question) return new NextResponse("Bad request", { status: 400 });
 
-  // Only the person's own earlier QUESTIONS are accepted as history. Assistant
-  // turns are never taken from the client, so a forged "assistant said it was
-  // fine" cannot be planted in the prompt.
-  const earlier = Array.isArray(body.earlier)
-    ? body.earlier.filter((q): q is string => typeof q === "string").slice(-2).map((q) => q.slice(0, MAX_QUESTION))
-    : [];
+  // The last few messages of THIS conversation, so a follow-up can be read in
+  // context. They come from the browser and are therefore untrusted: they only
+  // ever shape the wording of an answer to the person who sent them. What the
+  // assistant may KNOW is chosen by the session's role and by retrieval, never
+  // by anything in this history, so a forged "assistant" line cannot widen it.
+  const history = (Array.isArray(body.history) ? body.history : [])
+    .filter((m): m is { from: "me" | "bot"; text: string } =>
+      !!m && typeof m === "object" && ((m as { from?: unknown }).from === "me" || (m as { from?: unknown }).from === "bot") && typeof (m as { text?: unknown }).text === "string")
+    .slice(-4)
+    .map((m) => ({ from: m.from, text: m.text.slice(0, 1200) }));
+  const previousQuestions = history.filter((m) => m.from === "me").map((m) => m.text);
+  const lastBot = [...history].reverse().find((m) => m.from === "bot")?.text;
+  const turns: ChatTurn[] = history.map((m) => ({ role: m.from === "me" ? "user" : "assistant", content: m.text }));
+
+  const talk = (answer: string, extra: { choices?: Choice[]; source?: string; feedbackId?: string | null } = {}) =>
+    NextResponse.json({ answer, source: extra.source ?? "referral", feedbackId: extra.feedbackId ?? null, choices: extra.choices ?? [] });
 
   // Keeps the question for the administrator's review (masked, no user id,
   // deleted after 90 days - 0316). Never allowed to break an answer: before the
   // migration reaches a world, or if it errors, the person still gets theirs.
-  const reply = async (answer: string, source: "model" | "guide" | "referral", sections: string[]) => {
+  const reply = async (answer: string, source: "model" | "guide" | "referral", sections: string[], logged = question) => {
     let feedbackId: string | null = null;
     try {
       const supabase = await createClient();
-      const { data } = await supabase.rpc("log_help_question", { p_question: question, p_outcome: source, p_sections: sections });
+      const { data } = await supabase.rpc("log_help_question", { p_question: logged, p_outcome: source, p_sections: sections });
       feedbackId = typeof data === "string" ? data : null;
     } catch { /* logging is best effort */ }
-    return NextResponse.json({ answer, source, feedbackId });
+    return talk(answer, { source, feedbackId });
   };
 
+  const starters = startersFor(c.chunks, 4).map((q) => ({ label: q, question: q }));
+
+  // Greetings, thanks, "who are you" and "explain that more simply" are not
+  // gaps in the guide. They get a proper reply and are never logged for review.
+  const turn = classifyTurn(question);
+  if (turn && turn.kind !== "refine") {
+    const wantsChoices = turn.kind === "greeting" || turn.kind === "identity";
+    return talk(replyFor(turn, c.label), { choices: wantsChoices ? starters : [] });
+  }
+
   if (looksLikeInjection(question)) return reply(OUT_OF_SCOPE, "referral", []);
-  let hits = retrieve(question, c.chunks, 4);
+
+  let style: string | undefined;
+  let query = withContext(question, previousQuestions);
+  if (turn?.kind === "refine") {
+    if (!lastBot || previousQuestions.length === 0) {
+      return talk("Ask me a question first, then I can explain it more simply, shorter, or in more detail.", { choices: starters });
+    }
+    style = STYLE_INSTRUCTION[turn.style];
+    query = previousQuestions[previousQuestions.length - 1];
+  }
+
+  let hits = retrieve(query, c.chunks, 4);
+
+  // A vague question that fits several curated answers equally gets a
+  // clarifying question, not a guess. Not on a refinement: the topic is set.
+  if (!turn) {
+    const clar = needsClarification(hits);
+    if (clar) return talk(clar.ask, { choices: clar.choices });
+  }
+
   // Weak keyword match: ask the model to choose sections from the role's own
   // titles. It can only return ids that exist in this role's list.
   if (hits.length < 2 || hits[0].score < 5) {
-    const routed = await routeByTitles(question, c.chunks);
+    const routed = await routeByTitles(query, c.chunks);
     if (routed?.length) {
       const seen = new Set(routed.map((r) => r.id));
       hits = [...routed.map((chunk) => ({ chunk, score: 99 })), ...hits.filter((h) => !seen.has(h.chunk.id))].slice(0, 4);
     }
   }
-  if (hits.length === 0) return reply(OUT_OF_SCOPE, "referral", []);
+  if (hits.length === 0) {
+    // Nothing matched, but the person was mid-conversation: say what we CAN do.
+    return reply(OUT_OF_SCOPE, "referral", [], query);
+  }
   const titles = hits.map((h) => h.chunk.title);
 
   const material = hits.map((h) => h.chunk.text).join("\n\n");
-  const system = systemPrompt(c.label, c.org.name, material);
-  const answer = await askModel(system, [...earlier, question]);
-  if (answer) return reply(answer, "model", titles);
-  return reply(plainAnswer(hits), "guide", titles);
+  const system = systemPrompt(c.label, c.org.name, material, style);
+  const answer = await askModel(system, [...turns, question]);
+  if (answer) return reply(answer, "model", titles, query);
+  // No model: a refinement of the previous answer is that answer, trimmed.
+  if (turn?.kind === "refine" && lastBot) {
+    const lines = lastBot.split("\n").filter(Boolean);
+    return reply(turn.style === "shorter" ? lines.slice(0, 5).join("\n") : lastBot, "guide", titles, query);
+  }
+  return reply(plainAnswer(hits), "guide", titles, query);
 }

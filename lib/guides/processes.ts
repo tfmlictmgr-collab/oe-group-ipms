@@ -1799,8 +1799,10 @@ export const PROCESS_CATALOGUE: Process[] = [
       {
         role: "admin",
         action:
-          "People → Invitations → \"Invite someone\": their email, their name and " +
-          "the role. The role list only offers what YOU may invite. An " +
+          "People → Invitations → the \"Invite someone\" card: their email, their name and " +
+          "the role, then \"Issue invitation\". The link is emailed and also shown to " +
+          "copy; it lasts 14 days and is revoked from the pending list on the same " +
+          "page. The role list only offers what YOU may invite. An " +
           "administrator: anyone. A regional manager: facilities and property " +
           "managers, landlords, tenants and vendors, in their own region. OEA's " +
           "Executive: facilities managers, property managers and operations staff. " +
