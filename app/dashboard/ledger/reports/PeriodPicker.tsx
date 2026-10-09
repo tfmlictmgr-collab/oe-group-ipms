@@ -25,10 +25,13 @@ export default function PeriodPicker({
   from,
   to,
   basePath = "/dashboard/ledger/reports",
+  keep = "",
 }: {
   from: string;
   to: string;
   basePath?: string;
+  /** Other query parameters to carry through (e.g. "view=collections&group=property"), so changing the dates never changes the report. */
+  keep?: string;
 }) {
   const router = useRouter();
   const [f, setF] = React.useState(from);
@@ -36,7 +39,7 @@ export default function PeriodPicker({
 
   const apply = () =>
     router.push(
-      `${basePath}?from=${encodeURIComponent(f)}&to=${encodeURIComponent(t)}`
+      `${basePath}?${keep ? `${keep}&` : ""}from=${encodeURIComponent(f)}&to=${encodeURIComponent(t)}`
     );
 
   return (

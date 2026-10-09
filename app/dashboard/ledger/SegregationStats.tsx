@@ -20,7 +20,7 @@ export type Balance = {
 // `client_funds_position` sums, so the drawer explains the same figure the
 // tile shows rather than a similar one computed differently.
 const HELD_PURPOSES = ["client_funds"];
-const OWED_PURPOSES = ["service_charge_fund", "landlord_payable", "vendor_payable", "tenant_deposit", "requisition_payable"];
+const OWED_PURPOSES = ["service_charge_fund", "landlord_payable", "vendor_payable", "tenant_deposit", "requisition_payable", "suspense"];
 
 /**
  * The three segregation tiles, each opening onto the accounts behind it.
@@ -39,20 +39,23 @@ export default function SegregationStats({
   held,
   owed,
   unallocated,
+  overdrawn = 0,
   balances,
 }: {
   currency: string;
   held: number;
   owed: number;
   unallocated: number;
+  /** 0317: overdrawn client liabilities, stated on their own and never netted against what is owed. */
+  overdrawn?: number;
   balances: Balance[];
 }) {
   const drawer = useDrawer();
   const shortfall = unallocated < 0;
 
-  const rows = (purposes: string[]): DrawerRecord[] =>
+  const rows = (purposes: string[], only?: (n: number) => boolean): DrawerRecord[] =>
     balances
-      .filter((b) => purposes.includes(b.purpose))
+      .filter((b) => purposes.includes(b.purpose) && (!only || only(Number(b.natural_balance))))
       .sort((a, b) => Math.abs(Number(b.natural_balance)) - Math.abs(Number(a.natural_balance)))
       .map((b) => ({
         id: b.account_id,
@@ -62,7 +65,7 @@ export default function SegregationStats({
 
   return (
     <>
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className={overdrawn > 0 ? "grid gap-4 sm:grid-cols-2 lg:grid-cols-4" : "grid gap-4 sm:grid-cols-3"}>
         <StatCard
           label="Funds held" value={formatMoney(held, currency)} icon={<Wallet />}
           onClick={() => drawer.open({
@@ -77,12 +80,25 @@ export default function SegregationStats({
           label="Owed to clients" value={formatMoney(owed, currency)} icon={<Landmark />}
           onClick={() => drawer.open({
             eyebrow: `Segregation · ${currency}`, title: "Owed to clients",
-            scope: "Every liability the funds held must cover",
+            scope: "Every liability the funds held must cover. An overdrawn account counts as nothing owed here; it is shown under Funds overdrawn.",
             facts: [["Total owed", formatMoney(owed, currency)]],
-            records: rows(OWED_PURPOSES),
+            records: rows(OWED_PURPOSES, (n) => n > 0),
             emptyLabel: "Nothing currently owed in this currency.",
           })}
         />
+        {overdrawn > 0 && (
+          <StatCard
+            label="Funds overdrawn" value={formatMoney(overdrawn, currency)} icon={<TriangleAlert />}
+            hint="spent more than they held"
+            onClick={() => drawer.open({
+              eyebrow: `Segregation · ${currency}`, title: "Funds overdrawn",
+              scope: "Accounts that have paid out more than they held. The difference was paid with other money in the client account, so it is a shortfall until it is recovered or funded.",
+              facts: [["Total overdrawn", formatMoney(overdrawn, currency)]],
+              records: rows(OWED_PURPOSES, (n) => n < 0),
+              emptyLabel: "No overdrawn accounts.",
+            })}
+          />
+        )}
         <StatCard
           label={shortfall ? "Shortfall" : "Unallocated"}
           value={formatMoney(unallocated, currency)}

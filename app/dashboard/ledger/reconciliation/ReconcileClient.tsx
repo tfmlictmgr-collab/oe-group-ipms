@@ -235,7 +235,11 @@ export default function ReconcileClient({
               onClick={() =>
                 run(() => runReconciliation(bankAccountId, asOf), (r) => {
                   setResult(r);
-                  if (r.status === "balanced") {
+                  if (Number(r.matched_lines) + Number(r.unmatched_lines) === 0 && r.status !== "balanced") {
+                    toast.warning("No bank statement to compare", {
+                      description: "Import the bank statement for this date first. Nothing was compared, so this is not a variance.",
+                    });
+                  } else if (r.status === "balanced") {
                     toast.success("Reconciled — no variance");
                   } else {
                     toast.error("Variance found", {
@@ -249,7 +253,18 @@ export default function ReconcileClient({
             </Button>
           </div>
 
-          {result && (
+          {result && Number(result.matched_lines) + Number(result.unmatched_lines) === 0 && result.status !== "balanced" ? (
+            <div className="space-y-2 rounded-md border border-warning/50 bg-warning/5 p-4 text-sm">
+              <p className="flex items-center gap-2 font-medium">
+                <TriangleAlert className="size-4 text-warning" /> No bank statement for this date
+              </p>
+              <p className="text-muted-foreground">
+                The ledger holds {formatMoney(result.ledger_balance, currency)}, but no statement lines have been imported, so
+                there was nothing to compare it with. Import the statement (and enter its closing balance) and run this again.
+                Online payments also reach the bank only when the gateway settles, usually the next business day, net of its fees.
+              </p>
+            </div>
+          ) : result && (
             <div
               className={cn(
                 "space-y-3 rounded-md border p-4",

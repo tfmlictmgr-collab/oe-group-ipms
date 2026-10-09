@@ -193,7 +193,9 @@ export default async function ReconciliationPage({
                       {r.unmatched_lines}
                     </TableCell>
                     <TableCell>
-                      {r.status === "balanced" ? (
+                      {Number(r.matched_lines) + Number(r.unmatched_lines) === 0 && r.status !== "balanced" ? (
+                        <Badge variant="warning">No statement</Badge>
+                      ) : r.status === "balanced" ? (
                         <Badge variant="success">
                           <CheckCircle2 className="size-3" /> Balanced
                         </Badge>
