@@ -7,6 +7,8 @@ import { PageHeader } from "@/components/patterns/page-header";
 import { EmptyState } from "@/components/patterns/empty-state";
 import { Button } from "@/components/ui/button";
 import OfflineClaimList, { type QueueRow } from "./OfflineClaimList";
+import { testIds, showingTest, withoutTest } from "@/lib/test-records";
+import { TestRecordsToggle } from "@/components/patterns/test-records-toggle";
 
 // Payments made off-platform — the shared queue.
 //
@@ -29,11 +31,12 @@ export const dynamic = "force-dynamic";
 export default async function OfflinePaymentsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ view?: string }>;
+  searchParams: Promise<{ view?: string; test?: string }>;
 }) {
   const session = await getSessionProfile();
   if (!session) redirect("/login");
-  const { view } = await searchParams;
+  const sp = await searchParams;
+  const { view } = sp;
 
   const supabase = await createClient();
   const [{ data }, { data: canRecord }] = await Promise.all([
@@ -42,7 +45,12 @@ export default async function OfflinePaymentsPage({
     // withdraws it from a role sees the button go with it (decision 7).
     supabase.rpc("has_permission", { p_capability: "payments.record_offline" }),
   ]);
-  const rows = (data ?? []) as QueueRow[];
+  // 0321: claims marked as test are hidden unless asked for, labelled when shown.
+  const testClaims = await testIds(supabase, "offline_payment_claim");
+  const allRows = (data ?? []) as QueueRow[];
+  const testCount = allRows.filter((r) => testClaims.has(r.claim_id)).length;
+  const rows = withoutTest(allRows, testClaims, showingTest(sp), (r) => r.claim_id)
+    .map((r) => (testClaims.has(r.claim_id) ? { ...r, payer_name: `TEST · ${r.payer_name ?? "Payer"}` } : r));
   const mine = rows.filter((r) => r.is_my_turn);
 
   return (
@@ -86,7 +94,10 @@ export default async function OfflinePaymentsPage({
           }
         />
       ) : (
-        <OfflineClaimList rows={rows} initialView={view === "all" ? "all" : "desk"} />
+        <>
+          <TestRecordsToggle count={testCount} className="mb-3" />
+          <OfflineClaimList rows={rows} initialView={view === "all" ? "all" : "desk"} />
+        </>
       )}
     </div>
   );

@@ -2014,13 +2014,51 @@ export const PROCESS_CATALOGUE: Process[] = [
           "unexplained.",
       },
       {
+        role: "finance_approver",
+        action:
+          "Import the day's bank statement before running it. A run with no " +
+          "statement lines compares nothing and reads \"No statement\", not a " +
+          "variance. Online payments reach the bank only when the gateway " +
+          "settles, usually the next business day and net of its fees.",
+      },
+      {
+        role: "finance_approver",
+        action:
+          "Online payments wait in the Paystack (or Flutterwave) balance until " +
+          "the gateway settles them. When the settlement reaches the bank: " +
+          "Reconciliation → \"Record money moving between accounts\" → Gateway " +
+          "settlement — the transactions total, the gateway's fees and its " +
+          "settlement reference, copied from the gateway's own report. The bank " +
+          "gets the net and the fees are recorded as a bank charge. The same panel " +
+          "records a top-up of the Paystack balance, a bank charge, and money the " +
+          "organisation paid in to fund an overdrawn account.",
+      },
+      {
+        role: "payment_approver",
+        action:
+          "Client Funds → Balances: \"Funds overdrawn\" names any building fund " +
+          "that paid out more than it held. That is a shortfall in client " +
+          "money until it is recovered from the building or funded from the " +
+          "organisation's own money. Click any balance to open that account's " +
+          "every movement with the balance after each.",
+      },
+      {
+        role: "payment_approver",
+        action:
+          "Client Funds → Reports: Money in (by property, tenant, landlord, type " +
+          "or channel), Money out (by type, payee, property or channel), " +
+          "Property funds, Trial balance, and Profit & loss — for any period, " +
+          "printable, and downloadable as CSV of exactly what is on screen.",
+      },
+      {
         role: "admin",
         action: "Client Funds → reads the same ledger, read-only oversight.",
       },
     ],
     doneMeans:
       "The ledger balance matches the bank statement for the day, or every " +
-      "variance carries a same-day, stated reason.",
+      "variance carries a same-day, stated reason, and no building fund is " +
+      "left overdrawn without a recorded plan to recover it.",
     refusals: [
       {
         trigger: "An admin or executive tries to post a ledger entry.",
@@ -2040,8 +2078,8 @@ export const PROCESS_CATALOGUE: Process[] = [
         "seeded variance for the demo org.",
     },
     capabilities: ["ledger.read", "ledger.write"],
-    routes: ["/dashboard/ledger"],
-    roles: ["finance_approver", "admin", "executive"],
+    routes: ["/dashboard/ledger", "/dashboard/ledger/reports", "/dashboard/ledger/accounts"],
+    roles: ["finance_approver", "payment_approver", "admin", "executive"],
   },
   {
     id: "configure-banking-thresholds-channels",

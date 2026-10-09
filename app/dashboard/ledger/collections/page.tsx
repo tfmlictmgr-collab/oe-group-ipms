@@ -3,15 +3,18 @@ import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
 import { collectionRouteForOrg } from "@/lib/gateway";
 import CollectionsClient, { type IntentRow, type BillableRow } from "./CollectionsClient";
+import { testIds, showingTest, withoutTest } from "@/lib/test-records";
+import { TestRecordsToggle } from "@/components/patterns/test-records-toggle";
 
 export default async function CollectionsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ ref?: string }>;
+  searchParams: Promise<{ ref?: string; test?: string }>;
 }) {
   const session = await getSessionProfile();
   if (!session) redirect("/login");
-  const { ref } = await searchParams;
+  const sp = await searchParams;
+  const { ref } = sp;
 
   const supabase = await createClient();
 
@@ -56,7 +59,16 @@ export default async function CollectionsPage({
       ])
     : ([{ state: "unknown" }, { state: "unknown" }] as const);
 
-  const rows = (intents ?? []) as unknown as IntentRow[];
+  // 0321: test collections are hidden unless asked for, and labelled when shown.
+  // The ledger still counts them; only this activity list leaves them out.
+  const testIntents = await testIds(supabase, "payment_intent");
+  const allRows = (intents ?? []) as unknown as (IntentRow & { users?: { full_name: string | null } | null })[];
+  const testCount = allRows.filter((r) => testIntents.has(r.id)).length;
+  const rows = withoutTest(allRows, testIntents, showingTest(sp), (r) => r.id).map((r) =>
+    testIntents.has(r.id)
+      ? ({ ...r, users: { ...(r.users ?? {}), full_name: `TEST · ${r.users?.full_name ?? "Payer"}` } } as IntentRow)
+      : (r as IntentRow)
+  );
   const requested = ref ? rows.find((r) => r.gateway_reference === ref) ?? null : null;
 
   // Exclude charges that already have a live request — the action refuses them
@@ -73,6 +85,8 @@ export default async function CollectionsPage({
   const fxCurrencies = Array.from(new Set((fxAccounts ?? []).map((a) => a.currency)));
 
   return (
+    <>
+    <TestRecordsToggle count={testCount} />
     <CollectionsClient
       intents={rows}
       billable={billable}
@@ -83,5 +97,6 @@ export default async function CollectionsPage({
       fx={fx}
       fxCurrencies={fxCurrencies}
     />
+    </>
   );
 }

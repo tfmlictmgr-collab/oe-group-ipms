@@ -32,6 +32,8 @@ type Position = {
   funds_held: number | string | null;
   funds_owed: number | string | null;
   unallocated: number | string | null;
+  funds_overdrawn: number | string | null;
+  overdrawn_accounts: number | string | null;
 };
 
 const CLASS_LABEL: Record<string, string> = {
@@ -57,7 +59,7 @@ export default async function LedgerBalancesPage() {
     // `.maybeSingle()` would have thrown the moment a second currency existed.
     supabase
       .from("client_funds_position")
-      .select("currency, funds_held, funds_owed, unallocated"),
+      .select("currency, funds_held, funds_owed, unallocated, funds_overdrawn, overdrawn_accounts"),
   ]);
 
   const balances = (balancesRes.data as Balance[]) ?? [];
@@ -105,6 +107,11 @@ export default async function LedgerBalancesPage() {
         const owed = Number(position?.funds_owed ?? 0);
         const unallocated = Number(position?.unallocated ?? 0);
         const shortfall = unallocated < 0;
+        // 0317: an overdrawn fund is stated on its own and never nets against
+        // what is owed, so a building that spent more than it held shows as a
+        // shortfall rather than as a smaller debt.
+        const overdrawn = Number(position?.funds_overdrawn ?? 0);
+        const overdrawnCount = Number(position?.overdrawn_accounts ?? 0);
         const currencyBalances = balances.filter((b) => b.currency === currency);
 
         return (
@@ -135,6 +142,14 @@ export default async function LedgerBalancesPage() {
                     ? "Liabilities exceed the funds held. Client money may have been applied to something it shouldn't have been — investigate before any further disbursement."
                     : "Money held covers everything owed to clients."}
                 </CardDescription>
+                {overdrawn > 0 && (
+                  <p className="mt-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                    {overdrawnCount === 1 ? "One fund is" : `${overdrawnCount} funds are`} overdrawn by{" "}
+                    <span className="font-semibold tabular-nums">{formatMoney(overdrawn, currency)}</span>: paid out more than{" "}
+                    {overdrawnCount === 1 ? "it" : "they"} held, using other money in this account. Recover it from the
+                    building&apos;s next collection, or fund it from the organisation&apos;s own money, before paying anything else from it.
+                  </p>
+                )}
               </CardHeader>
               <CardContent>
                 <SegregationStats
@@ -142,6 +157,7 @@ export default async function LedgerBalancesPage() {
                   held={held}
                   owed={owed}
                   unallocated={unallocated}
+                  overdrawn={overdrawn}
                   balances={currencyBalances}
                 />
               </CardContent>
@@ -171,7 +187,10 @@ export default async function LedgerBalancesPage() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {rows.map((b) => (
+                        {rows.map((b) => {
+                          // A liability below zero has paid out more than it holds.
+                          const isOverdrawn = b.class === "liability" && Number(b.natural_balance) < 0;
+                          return (
                           <TableRow key={b.account_id}>
                             <TableCell className="font-mono text-xs text-muted-foreground">{b.code}</TableCell>
                             <TableCell>
@@ -179,15 +198,24 @@ export default async function LedgerBalancesPage() {
                               {b.purpose === "client_funds" && (
                                 <Badge variant="info" className="ml-2">Segregated</Badge>
                               )}
+                              {b.purpose === "gateway_clearing" && (
+                                <Badge variant="warning" className="ml-2">Awaiting settlement</Badge>
+                              )}
+                              {isOverdrawn && (
+                                <Badge variant="destructive" className="ml-2">Overdrawn</Badge>
+                              )}
                             </TableCell>
                             <TableCell className="text-right tabular-nums text-muted-foreground">
                               {b.posting_count}
                             </TableCell>
-                            <TableCell className="text-right font-medium tabular-nums">
-                              {formatMoney(b.natural_balance, currency)}
+                            <TableCell className={cn("text-right font-medium tabular-nums", isOverdrawn && "text-destructive")}>
+                              <Link href={`/dashboard/ledger/accounts/${b.account_id}`} className="hover:underline">
+                                {formatMoney(b.natural_balance, currency)}
+                              </Link>
                             </TableCell>
                           </TableRow>
-                        ))}
+                          );
+                        })}
                       </TableBody>
                     </Table>
                   </CardContent>

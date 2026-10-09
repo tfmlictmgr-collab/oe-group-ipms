@@ -14,6 +14,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import RoleGate, { roleAllowed } from "../RoleGate";
 import BatchApprove, { type PaymentRow } from "./BatchApprove";
 import { OPS_MANAGERS } from "@/lib/roles";
+import { testIds, showingTest, withoutTest } from "@/lib/test-records";
+import { TestRecordsToggle } from "@/components/patterns/test-records-toggle";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +31,7 @@ type TraceRow = {
   unmatched_and_paid: boolean;
 };
 
-export default async function PaymentsPage() {
+export default async function PaymentsPage({ searchParams }: { searchParams: Promise<{ test?: string }> }) {
   const session = await getSessionProfile();
   if (!session) redirect("/login");
   // `executive` reads this screen because they are part of the gate on it:
@@ -53,7 +55,8 @@ export default async function PaymentsPage() {
   // Read through the trace view rather than `payments` directly, so every row
   // arrives beside the work order it names — or beside the fact that it names
   // none. `security_invoker`, so RLS still decides which rows come back.
-  const [{ data }, { data: limitRows }] = await Promise.all([
+  const showTest = showingTest(await searchParams);
+  const [{ data }, { data: limitRows }, testPayments] = await Promise.all([
     supabase
       .from("payment_work_order_trace")
       .select(
@@ -61,9 +64,14 @@ export default async function PaymentsPage() {
       )
       .order("created_at", { ascending: false }),
     supabase.rpc("my_approval_limit"),
+    testIds(supabase, "payment"),
   ]);
 
-  const payments = (data as TraceRow[]) ?? [];
+  // 0321: test invoices are hidden unless asked for, and labelled when shown.
+  const allPayments = (data as TraceRow[]) ?? [];
+  const testCount = allPayments.filter((p) => testPayments.has(p.payment_id)).length;
+  const payments = withoutTest(allPayments, testPayments, showTest, (p) => p.payment_id)
+    .map((p) => (testPayments.has(p.payment_id) ? { ...p, vendor_name: `TEST · ${p.vendor_name ?? "Vendor"}` } : p));
   const limitRow = (limitRows ?? [])[0] as
     | { threshold: number | string; unlimited: boolean; may_approve: boolean }
     | undefined;
@@ -114,6 +122,7 @@ export default async function PaymentsPage() {
           </Button>
         }
       />
+      <TestRecordsToggle count={testCount} />
 
       {payments.length === 0 ? (
         <EmptyState

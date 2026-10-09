@@ -47,10 +47,16 @@ const { data: execUser } = await svc.from("users").select("id")
 await svc.rpc("ensure_default_ledger_accounts", { p_org_id: orgId });
 
 const { data: bankAcctId } = await svc.rpc("collection_bank_account", { p_org_id: orgId });
+// Client money held = the client-funds bank account PLUS any gateway balance
+// (0320): a Paystack payout is paid out of the Paystack balance, not the bank,
+// so "client funds fell by the net" is measured across both — exactly what
+// `client_funds_position.funds_held` now sums.
 const held = async () => {
-  const { data } = await svc.from("ledger_account_balances")
+  const { data: bankRow } = await svc.from("ledger_account_balances")
     .select("natural_balance").eq("account_id", bankAcctId).single();
-  return Number(data.natural_balance);
+  const { data: gw } = await svc.from("ledger_account_balances")
+    .select("natural_balance").eq("org_id", orgId).eq("purpose", "gateway_clearing").eq("currency", "NGN");
+  return Number(bankRow.natural_balance) + (gw ?? []).reduce((a, r) => a + Number(r.natural_balance), 0);
 };
 const balanceOf = async (purpose) => {
   const { data: acct } = await svc.from("ledger_accounts").select("id")
@@ -473,7 +479,7 @@ console.log("\nH. Rent: fees are deducted and land in fee income");
       made.entries.push(e2);
       const bankAfter = await held();
       bankBefore - bankAfter === 875000
-        ? ok("the bank gave up ₦875,000 — the net, not the gross")
+        ? ok("client money held (bank + Paystack balance) gave up ₦875,000 — the net, not the gross")
         : bad(`bank moved by ${bankBefore - bankAfter}`);
       const feeAfter = await balanceOf("fee_income");
       Math.abs(Math.abs(feeAfter - feeBefore) - 125000) < 0.01

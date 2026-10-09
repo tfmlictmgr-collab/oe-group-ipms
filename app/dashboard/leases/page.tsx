@@ -9,6 +9,8 @@ import LeaseStats from "./LeaseStats";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import RentRollTable, { type RentRollRow } from "./RentRollTable";
+import { testIds, showingTest, withoutTest } from "@/lib/test-records";
+import { TestRecordsToggle } from "@/components/patterns/test-records-toggle";
 
 // The rent roll: the tenancy schedule a landlord is handed, and the screen a
 // property manager works from.
@@ -17,7 +19,7 @@ import RentRollTable, { type RentRollRow } from "./RentRollTable";
 // a landlord sees their portfolio, an FM/PM the properties they hold. No
 // filtering is repeated in this file, deliberately: a second scoping rule is a
 // second thing to get wrong.
-export default async function LeasesPage() {
+export default async function LeasesPage({ searchParams }: { searchParams: Promise<{ test?: string }> }) {
   const session = await getSessionProfile();
   if (!session) redirect("/login");
   const profile = session.profile!;
@@ -32,7 +34,8 @@ export default async function LeasesPage() {
   if (profile.role === "tenant") redirect("/dashboard/my-rent");
 
   const supabase = await createClient();
-  const [rollRes, moduleRes, canWriteRes] = await Promise.all([
+  const showTest = showingTest(await searchParams);
+  const [rollRes, moduleRes, canWriteRes, testLeases] = await Promise.all([
     supabase
       .from("rent_roll")
       .select(
@@ -43,6 +46,7 @@ export default async function LeasesPage() {
       .order("end_date"),
     supabase.rpc("org_has_module", { p_org_id: profile.org_id, p_module: "lettings" }),
     supabase.rpc("has_permission", { p_capability: "leases.write" }),
+    testIds(supabase, "lease"),
   ]);
 
   if (!moduleRes.data) {
@@ -60,7 +64,7 @@ export default async function LeasesPage() {
 
   // `rent_roll` is a view added in 0091 and is not in the generated types yet,
   // so the client types its rows as errors.
-  const rows = (rollRes.data ?? []) as unknown as {
+  const allRows = (rollRes.data ?? []) as unknown as {
     lease_id: string; property_name: string; unit_label: string;
     tenant_user_id: string | null; tenant_name: string | null; tenant_phone: string | null;
     tenant_email: string | null;
@@ -69,6 +73,10 @@ export default async function LeasesPage() {
     rent_billed: number; rent_collected: number; rent_outstanding: number;
     landlord_net: number;
   }[];
+  // 0321: test tenancies are hidden unless asked for, and labelled when shown.
+  const testCount = allRows.filter((r) => testLeases.has(r.lease_id)).length;
+  const rows = withoutTest(allRows, testLeases, showTest, (r) => r.lease_id)
+    .map((r) => (testLeases.has(r.lease_id) ? { ...r, property_name: `TEST · ${r.property_name}` } : r));
 
   const canWrite = Boolean(canWriteRes.data);
 
@@ -100,6 +108,7 @@ export default async function LeasesPage() {
         }
       />
 
+      <TestRecordsToggle count={testCount} />
       <LeaseStats rows={rows} />
 
       {expiring.length > 0 && (

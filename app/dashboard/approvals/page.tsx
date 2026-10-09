@@ -11,6 +11,8 @@ import {
   ALL_CHAIN_ROLES, getChainState, formatNaira, effectiveTier, tierLabel,
 } from "@/lib/approvals/chain";
 import { payableRef } from "@/lib/acknowledgement";
+import { testIds, showingTest } from "@/lib/test-records";
+import { TestRecordsToggle } from "@/components/patterns/test-records-toggle";
 
 export const dynamic = "force-dynamic";
 
@@ -50,7 +52,7 @@ const QUEUE_CAP = 100;
 export default async function ApprovalsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ sort?: string; from?: string; to?: string; q?: string }>;
+  searchParams: Promise<{ sort?: string; from?: string; to?: string; q?: string; test?: string }>;
 }) {
   const session = await getSessionProfile();
   if (!session?.profile) redirect("/login");
@@ -99,7 +101,7 @@ export default async function ApprovalsPage({
 
   // Vendor invoices that have passed the B4 gate, landlord payouts raised and
   // not yet sent, and FM/PM ops requisitions awaiting the same chain (0170).
-  const [{ data: payments }, { data: payouts }, { data: requisitions }] = await Promise.all([
+  const [{ data: paymentsAll }, { data: payoutsAll }, { data: requisitionsAll }] = await Promise.all([
     dated(
       supabase
         .from("payments")
@@ -136,6 +138,21 @@ export default async function ApprovalsPage({
       .order("created_at", { ascending })
       .limit(QUEUE_CAP),
   ]);
+
+  // 0321: payables marked as test (walkthrough records money touched) are left
+  // out of the queue unless "Show test records" is on. Nothing about them
+  // changes; they simply stop crowding the desks' real work.
+  const showTest = showingTest(sp);
+  const [testPay, testRem, testReq] = await Promise.all([
+    testIds(supabase, "payment"), testIds(supabase, "remittance"), testIds(supabase, "ops_requisition"),
+  ]);
+  const testCount =
+    (paymentsAll ?? []).filter((r) => testPay.has(r.id)).length +
+    (payoutsAll ?? []).filter((r) => testRem.has(r.id)).length +
+    (requisitionsAll ?? []).filter((r) => testReq.has(r.id)).length;
+  const payments = showTest ? paymentsAll : (paymentsAll ?? []).filter((r) => !testPay.has(r.id));
+  const payouts = showTest ? payoutsAll : (payoutsAll ?? []).filter((r) => !testRem.has(r.id));
+  const requisitions = showTest ? requisitionsAll : (requisitionsAll ?? []).filter((r) => !testReq.has(r.id));
 
   // Honest about the cap. If a bucket came back full, the page is showing a
   // window rather than everything, and saying so is the difference between a
@@ -390,6 +407,8 @@ export default async function ApprovalsPage({
             : " Approval bands are off for this organisation, so any approver at a stage can clear it."}
         </p>
       </div>
+
+      <TestRecordsToggle count={testCount} />
 
       {/* Tabs, search and collapse live in the board: they are view state, and
           view state belongs in the browser. The SCOPING — which rows exist at

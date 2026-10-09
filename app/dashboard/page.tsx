@@ -10,11 +10,13 @@ import RequestsBoard from "./RequestsBoard";
 import ScopeTabs from "./ScopeTabs";
 import { OPS_MANAGERS } from "@/lib/roles";
 import { parseScope, showsScopeTabs, scopeLabel, scopesFor } from "./request-scope";
+import { testIds, showingTest } from "@/lib/test-records";
+import { TestRecordsToggle } from "@/components/patterns/test-records-toggle";
 
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ view?: string }>;
+  searchParams: Promise<{ view?: string; test?: string }>;
 }) {
   // A viewer has no policy on tickets, so this page would render an empty list
   // that reads as a broken build rather than a withheld one. Send them to the
@@ -62,7 +64,12 @@ export default async function DashboardPage({
   // moved — an FM/PM lands on their own assigned work rather than on every
   // request across their properties. The other view stays one click away
   // because triage depends on it (0178).
-  const scope = parseScope((await searchParams)?.view, session?.profile?.role);
+  const sp = await searchParams;
+  const scope = parseScope(sp?.view, session?.profile?.role);
+  // 0321: requests marked as test are left out of the query itself (so the
+  // 200-row page and the count stay honest), unless "Show test records" is on.
+  const showTest = showingTest(sp);
+  const testTickets = await testIds(supabase, "ticket");
 
   // Bounded deliberately. Unbounded, this hit PostgREST's 1000-row cap and older
   // requests dropped off the list with nothing to say so — the reader would
@@ -114,6 +121,8 @@ export default async function DashboardPage({
     q = q.or(clauses.join(","));
   }
 
+  if (!showTest && testTickets.size > 0) q = q.not("id", "in", `(${Array.from(testTickets).join(",")})`);
+
   const { data: tickets, count } = await q
     .order("created_at", { ascending: false })
     .limit(REQUEST_PAGE);
@@ -164,11 +173,15 @@ export default async function DashboardPage({
         />
       )}
 
+      <TestRecordsToggle count={testTickets.size} />
+
       {/* One owner of the ticket array, so the stat tiles and the list cannot
           describe different sets — which they did the moment a request arrived
           over the socket. */}
       <RequestsBoard
-        initialTickets={(tickets as Ticket[]) ?? []}
+        initialTickets={((tickets as Ticket[]) ?? []).map((t) =>
+          testTickets.has(t.id) ? { ...t, summary: `TEST · ${t.summary ?? t.message_text ?? "Request"}` } : t
+        )}
         scope={scope}
         viewerId={user?.id ?? null}
         propertyIds={propertyIds}

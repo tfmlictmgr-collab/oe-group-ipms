@@ -14,7 +14,7 @@ const TABS = [
   { href: "/dashboard/ledger/reports", label: "Reports", icon: FileBarChart },
 ];
 
-export default function LedgerNav({ variance }: { variance?: number }) {
+export default function LedgerNav({ variance, noStatement = false }: { variance?: number; noStatement?: boolean }) {
   const pathname = usePathname();
 
   return (
@@ -29,7 +29,11 @@ export default function LedgerNav({ variance }: { variance?: number }) {
         const Icon = t.icon;
         // Surface an unreconciled variance on the tab itself — it is the one
         // number that should never be discovered by accident.
-        const flag = t.href.endsWith("reconciliation") && variance != null && variance !== 0;
+        const isRecon = t.href.endsWith("reconciliation");
+        // A run with no bank statement lines compared nothing: its "variance" is
+        // the whole ledger balance and says nothing about missing money.
+        const flag = isRecon && !noStatement && variance != null && variance !== 0;
+        const pending = isRecon && noStatement;
         return (
           <Link
             key={t.href}
@@ -47,6 +51,11 @@ export default function LedgerNav({ variance }: { variance?: number }) {
             {flag && (
               <span className="rounded-full bg-destructive/12 px-1.5 py-0.5 text-[0.65rem] font-semibold text-destructive">
                 variance
+              </span>
+            )}
+            {pending && (
+              <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-[0.65rem] font-semibold text-warning-foreground">
+                no statement
               </span>
             )}
           </Link>

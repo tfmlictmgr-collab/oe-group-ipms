@@ -6,6 +6,10 @@
 //        --emails a@x.com,b@y.com [--prefix wt.] [--tag WT-] [--include-audit]
 //   ...add  --apply --backup <file> --confirm "PURGE oea <n>"  to commit.
 //
+//   ...add  --mark-test  to MARK (and deactivate) the accounts and vendors money touched,
+//   instead of stopping: they stay on the books, hidden from activity lists and
+//   labelled TEST (0321). --test-properties "Name,Name" marks test buildings too
+//   (a property is never deleted).
 //   ...add  --vendors "Tutors De Clean,Other Co"  to remove named vendor COMPANIES
 //   (and their logins and stored files). A vendor that was ever paid, scored,
 //   given a ticket or a ledger account is REFUSED - that is financial history.
@@ -40,8 +44,10 @@ const prefix = arg("prefix") && arg("prefix") !== true ? String(arg("prefix")).t
 const tag = arg("tag") && arg("tag") !== true ? String(arg("tag")) : null;
 const vendorNames = String(arg("vendors", "")).split(",").map((s) => s.trim()).filter(Boolean);
 const includeAudit = !!arg("include-audit"), apply = !!arg("apply");
-if (!world || (!emails.length && !prefix && !tag && !vendorNames.length)) {
-  console.error("usage: --world <demo|dev|staging|prod> --org <slug> (--emails a,b | --prefix wt. | --tag WT- | --vendors \"Name,Name\") [--include-audit] [--apply --backup FILE --confirm \"PURGE <org> <n>\"]");
+const markTest = !!arg("mark-test");
+const testPropertyNames = String(arg("test-properties", "")).split(",").map((s) => s.trim()).filter(Boolean);
+if (!world || (!emails.length && !prefix && !tag && !vendorNames.length && !testPropertyNames.length)) {
+  console.error("usage: --world <demo|dev|staging|prod> --org <slug> (--emails a,b | --prefix wt. | --tag WT- | --vendors \"Name,Name\" | --test-properties \"Name,Name\") [--include-audit] [--mark-test] [--apply --backup FILE --confirm \"PURGE <org> <n>\"]");
   process.exit(2);
 }
 if (world === "demo") { console.error("Refusing: the frozen demo world is never a target."); process.exit(2); }
@@ -105,7 +111,7 @@ for (const name of vendorNames) {
   else if (rows.length > 1) problems.push(`VENDOR AMBIGUOUS: "${name}" matches ${rows.length} companies; rename or remove the duplicates by hand`);
   else vendors.push(rows[0]);
 }
-const vendorIds = vendors.map((v) => v.id);
+let vendorIds = vendors.map((v) => v.id);
 if (vendorIds.length) {
   const logins = await q(
     `select u.id, u.email, u.full_name, u.role,
@@ -118,7 +124,9 @@ if (vendorIds.length) {
     if (!users.some((u) => u.id === l.id)) users.push({ id: l.id, email: l.email, full_name: l.full_name, role: l.role });
   }
 }
-const ids = users.map((u) => u.id);
+let ids = users.map((u) => u.id);
+// 0321: what money touched is marked as test (with --mark-test) rather than deleted.
+const toMarkUsers = [], toMarkVendors = [], toMarkProps = [];
 
 say(`\n${apply ? "APPLY" : "DRY RUN"} — world=${world} org=${orgSlug}`);
 say(`Vendor companies (${vendors.length}): ` + (vendors.map((v) => v.name).join("; ") || "none"));
@@ -140,7 +148,10 @@ for (const u of users) {
        (select count(*) from remittances r join payout_recipients p on p.id = r.recipient_id where p.user_id = $1)::int as payouts,
        (select count(*) from ledger_entries where created_by = $1)::int as ledger`, [u.id]))[0];
   const found = Object.entries(m).filter(([, n]) => n > 0).map(([k, n]) => `${k}=${n}`);
-  if (found.length) problems.push(`ACCOUNT HAS MONEY HISTORY: ${u.email} (${found.join(", ")}). Deactivate it in the app instead (People → Directory → Manage → Deactivate), and leave it out of this run.`);
+  if (found.length) {
+    if (markTest) toMarkUsers.push(u);
+    else problems.push(`ACCOUNT HAS MONEY HISTORY: ${u.email} (${found.join(", ")}). Re-run with --mark-test to keep it as a deactivated, hidden TEST record, or deactivate it in the app and leave it out of this run.`);
+  }
 }
 if (tag) {
   const n = (await q(`select count(*)::int n from rent_charges rc join leases l on l.id = rc.lease_id
@@ -153,7 +164,7 @@ const before = (await q(`select (select count(*) from properties where org_id=$1
 
 // Storage objects owned by targets are removed through the API after commit
 // (deleting the row in SQL would orphan the file).
-const objects = ids.length ? await q("select bucket_id, name from storage.objects where owner = any($1::uuid[])", [ids]) : [];
+let objects = ids.length ? await q("select bucket_id, name from storage.objects where owner = any($1::uuid[])", [ids]) : [];
 
 // A vendor with money or work history is not deletable, whatever was asked.
 // These are COUNTED before anything is touched.
@@ -169,7 +180,39 @@ for (const v of vendors) {
   }
   const rem = (await q("select count(*)::int n from remittances r join payout_recipients p on p.id = r.recipient_id where p.vendor_id = $1", [v.id]).catch(() => [{ n: 0 }]))[0].n;
   if (rem) found.push(`remittances=${rem}`);
-  if (found.length) problems.push(`VENDOR HAS HISTORY: "${v.name}" (${found.join(", ")}). It was used; retire it instead of deleting it.`);
+  if (found.length) {
+    if (markTest) toMarkVendors.push(v);
+    else problems.push(`VENDOR HAS HISTORY: "${v.name}" (${found.join(", ")}). It was used; re-run with --mark-test to keep it as a hidden TEST record.`);
+  }
+}
+
+// Buildings named as test buildings are marked, never deleted.
+for (const name of testPropertyNames) {
+  const rows = await q("select id, name from properties where org_id=$1 and lower(name)=lower($2) and deleted_at is null", [org.id, name]);
+  if (rows.length !== 1) problems.push(`TEST PROPERTY ${rows.length ? "AMBIGUOUS" : "NOT FOUND"}: "${name}"`);
+  else toMarkProps.push(rows[0]);
+}
+
+// What is marked is not deleted: take it (and a marked vendor's own logins) out
+// of the deletion targets before anything else is planned.
+if (toMarkVendors.length) {
+  const markedVendorIds = toMarkVendors.map((v) => v.id);
+  const logins = await q(`select u.id, u.email, u.full_name, u.role from vendor_users vu join users u on u.id = vu.user_id
+                           where vu.vendor_id = any($1::uuid[])`, [markedVendorIds]);
+  for (const l of logins) if (!toMarkUsers.some((u) => u.id === l.id)) toMarkUsers.push(l);
+  vendorIds = vendorIds.filter((id) => !markedVendorIds.includes(id));
+  for (let i = vendors.length - 1; i >= 0; i--) if (markedVendorIds.includes(vendors[i].id)) vendors.splice(i, 1);
+}
+if (toMarkUsers.length) {
+  const markedIds = toMarkUsers.map((u) => u.id);
+  for (let i = users.length - 1; i >= 0; i--) if (markedIds.includes(users[i].id)) users.splice(i, 1);
+  ids = users.map((u) => u.id);
+  objects = ids.length ? await q("select bucket_id, name from storage.objects where owner = any($1::uuid[])", [ids]) : [];
+}
+if (toMarkUsers.length || toMarkVendors.length || toMarkProps.length) {
+  say("Kept and marked as TEST (money touched them, or named as test buildings): " +
+    [...toMarkUsers.map((u) => `${u.full_name} <${u.email}>`), ...toMarkVendors.map((v) => `vendor "${v.name}"`), ...toMarkProps.map((p) => `property "${p.name}"`)].join("; "));
+  say(`Still to delete: ${users.length} account(s), ${vendors.length} vendor company(ies).`);
 }
 
 // Stored files that belong to the vendor company (KYC pack, bank evidence).
@@ -195,7 +238,14 @@ const step = async (label, sql, params) => {
   catch (e) { await c.query("rollback to savepoint s"); problems.push(`${label} FAILED — ${e.message}${e.detail ? " (" + e.detail + ")" : ""}`); return 0; }
 };
 
-if ((!problems.length && (ids.length || vendorIds.length)) || tag) {
+if ((!problems.length && (ids.length || vendorIds.length || toMarkUsers.length || toMarkVendors.length || toMarkProps.length)) || tag) {
+  // 0321: mark first, so the cascade sees every record before anything is removed.
+  if (!problems.length && (toMarkUsers.length || toMarkVendors.length || toMarkProps.length)) {
+    const marked = await q("select * from mark_test_records($1, $2::uuid[], $3::uuid[], $4::uuid[], $5)",
+      [org.id, toMarkUsers.map((u) => u.id), toMarkVendors.map((v) => v.id), toMarkProps.map((p) => p.id), "Walkthrough test record (purge --mark-test)"]);
+    for (const m of marked) report.push(`marked as TEST: ${m.entity_type} × ${m.marked}`);
+    await step("deactivate the marked accounts", "update users set deactivated_at = coalesce(deactivated_at, now()) where id = any($1::uuid[]) and deactivated_at is null", [toMarkUsers.map((u) => u.id)]);
+  }
   for (const [t, trg] of RELAXED) await c.query(`alter table ${t} disable trigger ${trg}`);
 
   if (vendorIds.length && !problems.length) {

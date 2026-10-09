@@ -63,7 +63,7 @@ export default async function LedgerLayout({
   const supabase = await createClient();
   const { data: latest } = await supabase
     .from("reconciliations")
-    .select("variance")
+    .select("variance, matched_lines, unmatched_lines")
     .order("run_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -98,7 +98,10 @@ export default async function LedgerLayout({
             actions={<PrintButton />}
           />
         </div>
-        <LedgerNav variance={latest ? Number(latest.variance) : undefined} />
+        <LedgerNav
+          variance={latest ? Number(latest.variance) : undefined}
+          noStatement={latest ? Number(latest.matched_lines) + Number(latest.unmatched_lines) === 0 : false}
+        />
       </div>
       {children}
     </div>

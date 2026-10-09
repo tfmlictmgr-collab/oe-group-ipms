@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { BookOpen } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
@@ -6,12 +7,22 @@ import { formatMoney } from "@/lib/currency";
 import { EmptyState } from "@/components/patterns/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { testIds } from "@/lib/test-records";
+import { TestBadge } from "@/components/patterns/test-records-toggle";
 
 type Posting = {
   id: string;
   amount: number | string;
   memo: string | null;
-  ledger_accounts: { code: string; name: string; currency: string } | null;
+  ledger_accounts: { id: string; code: string; name: string; currency: string; class: string } | null;
+};
+
+type RunningBalance = { posting_id: string; balance_after: number | string };
+type Override = {
+  consumed_entry_id: string;
+  reason: string;
+  shortfall_covered: number | string | null;
+  users: { full_name: string | null } | null;
 };
 
 type Entry = {
@@ -47,13 +58,32 @@ export default async function JournalPage() {
   const { data } = await supabase
     .from("ledger_entries")
     .select(
-      "id, entry_date, description, reference, source, created_at, ledger_postings(id, amount, memo, ledger_accounts(code, name, currency))"
+      "id, entry_date, description, reference, source, created_at, ledger_postings(id, amount, memo, ledger_accounts(id, code, name, currency, class))"
     )
     .order("entry_date", { ascending: false })
     .order("created_at", { ascending: false })
     .limit(100);
 
   const entries = (data as unknown as Entry[]) ?? [];
+
+  // 0318: each account's balance AFTER each line, from the same running
+  // balance the per-account page reads — so a fund going below zero is said on
+  // the line that took it there, not left to be added up by hand.
+  const postingIds = entries.flatMap((e) => e.ledger_postings.map((p) => p.id));
+  const entryIds = entries.map((e) => e.id);
+  const [{ data: balData }, { data: ovData }] = await Promise.all([
+    postingIds.length
+      ? supabase.from("ledger_posting_balances").select("posting_id, balance_after").in("posting_id", postingIds)
+      : Promise.resolve({ data: [] }),
+    entryIds.length
+      ? supabase.from("fund_overrides").select("consumed_entry_id, reason, shortfall_covered, users:authorised_by(full_name)").in("consumed_entry_id", entryIds)
+      : Promise.resolve({ data: [] }),
+  ]);
+  // 0321: an entry posted by a test record is LABELLED here, never hidden — a
+  // journal that drops rows is not a record, and the balances include it.
+  const testEntries = await testIds(supabase, "ledger_entry");
+  const balanceAfter = new Map(((balData ?? []) as RunningBalance[]).map((b) => [b.posting_id, Number(b.balance_after)]));
+  const overrideFor = new Map(((ovData ?? []) as unknown as Override[]).map((o) => [o.consumed_entry_id, o]));
 
   if (entries.length === 0) {
     return (
@@ -103,7 +133,7 @@ export default async function JournalPage() {
             <CardHeader className="pb-3">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <CardTitle className="text-base">{e.description}</CardTitle>
+                  <CardTitle className="text-base">{e.description}{testEntries.has(e.id) && <TestBadge />}</CardTitle>
                   <CardDescription>
                     {fmtDate(e.entry_date)}
                     {e.reference ? ` · ${e.reference}` : ""}
@@ -130,10 +160,22 @@ export default async function JournalPage() {
                   not a record.
                 </p>
               )}
+              {overrideFor.get(e.id) && (() => {
+                const o = overrideFor.get(e.id)!;
+                return (
+                  <p className="mb-2 rounded-md border border-warning/50 bg-warning/5 px-3 py-2 text-xs">
+                    Paid under a fund override by {o.users?.full_name ?? "the Payment Officer"}
+                    {o.shortfall_covered != null && <> · the fund was short by <b>{formatMoney(o.shortfall_covered, currency)}</b>, paid from other money in the client account</>}
+                    {" "}· reason: &ldquo;{o.reason}&rdquo;
+                  </p>
+                );
+              })()}
               <ul className="space-y-1.5">
                 {e.ledger_postings.map((p) => {
                   const amt = Number(p.amount);
                   const isDebit = amt > 0;
+                  const after = balanceAfter.get(p.id);
+                  const overdrawn = p.ledger_accounts?.class === "liability" && after != null && after < 0;
                   return (
                     <li
                       key={p.id}
@@ -143,7 +185,11 @@ export default async function JournalPage() {
                         <span className="font-mono text-xs text-muted-foreground">
                           {p.ledger_accounts?.code}
                         </span>{" "}
-                        {p.ledger_accounts?.name}
+                        {p.ledger_accounts ? (
+                          <Link href={`/dashboard/ledger/accounts/${p.ledger_accounts.id}`} className="hover:underline">
+                            {p.ledger_accounts.name}
+                          </Link>
+                        ) : null}
                         {p.memo && (
                           <span className="ml-2 text-xs text-muted-foreground">— {p.memo}</span>
                         )}
@@ -153,6 +199,11 @@ export default async function JournalPage() {
                           {isDebit ? "Dr" : "Cr"}
                         </span>
                         <span className="tabular-nums">{formatMoney(Math.abs(amt), currency)}</span>
+                        {after != null && (
+                          <span className={overdrawn ? "text-xs font-semibold tabular-nums text-destructive" : "text-xs tabular-nums text-muted-foreground"}>
+                            → {formatMoney(after, currency)}{overdrawn ? " overdrawn" : ""}
+                          </span>
+                        )}
                       </span>
                     </li>
                   );
@@ -164,7 +215,8 @@ export default async function JournalPage() {
       })}
 
       <p className="text-xs text-muted-foreground">
-        Showing the most recent {entries.length} entries. Entries cannot be edited
+        Showing the most recent {entries.length} entries. The figure after each arrow
+        is that account&apos;s balance after the line. Entries cannot be edited
         or deleted — a correction is posted as a reversing entry, so both remain
         visible.
       </p>
