@@ -198,6 +198,9 @@ export default async function LedgerBalancesPage() {
                               {b.purpose === "client_funds" && (
                                 <Badge variant="info" className="ml-2">Segregated</Badge>
                               )}
+                              {b.purpose === "gateway_clearing" && (
+                                <Badge variant="warning" className="ml-2">Awaiting settlement</Badge>
+                              )}
                               {isOverdrawn && (
                                 <Badge variant="destructive" className="ml-2">Overdrawn</Badge>
                               )}

@@ -19,7 +19,8 @@ export type Balance = {
 // Which accounts compose each side of the segregation position. Mirrors what
 // `client_funds_position` sums, so the drawer explains the same figure the
 // tile shows rather than a similar one computed differently.
-const HELD_PURPOSES = ["client_funds"];
+// 0320: money paid online but not yet settled sits at the gateway, and is still client money held.
+const HELD_PURPOSES = ["client_funds", "gateway_clearing"];
 const OWED_PURPOSES = ["service_charge_fund", "landlord_payable", "vendor_payable", "tenant_deposit", "requisition_payable", "suspense"];
 
 /**
@@ -70,7 +71,7 @@ export default function SegregationStats({
           label="Funds held" value={formatMoney(held, currency)} icon={<Wallet />}
           onClick={() => drawer.open({
             eyebrow: `Segregation · ${currency}`, title: "Funds held",
-            scope: "The client-funds bank account(s) backing everything owed",
+            scope: "The client-funds bank account(s), plus online payments still at the gateway awaiting settlement",
             facts: [["Total held", formatMoney(held, currency)]],
             records: rows(HELD_PURPOSES),
             emptyLabel: "No client-funds account configured for this currency.",

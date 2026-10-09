@@ -12,6 +12,7 @@ import {
   Table, TableHeader, TableBody, TableRow, TableHead, TableCell,
 } from "@/components/ui/table";
 import ReconcileClient from "./ReconcileClient";
+import MovementsPanel, { type OverdrawnAccount } from "./MovementsPanel";
 import { existingStatementRefs } from "../actions";
 
 const fmtDate = (d: string) =>
@@ -87,6 +88,27 @@ export default async function ReconciliationPage({
   const runs = runsRes.data ?? [];
   const unmatched = unmatchedRes.data ?? [];
 
+  // 0320: the movements finance records by hand. Only the two desks the
+  // database admits are offered the panel; the functions refuse anyone else.
+  const canRecord = ["finance_approver", "payment_approver"].includes(session.profile?.role ?? "");
+  let gatewayBalances: { gateway: string; balance: number }[] = [];
+  let overdrawn: OverdrawnAccount[] = [];
+  if (canRecord) {
+    const [{ data: gw }, { data: gwBal }, { data: od }] = await Promise.all([
+      supabase.from("ledger_accounts").select("id, gateway")
+        .eq("purpose", "gateway_clearing").eq("currency", bank.currency),
+      supabase.from("ledger_account_balances").select("account_id, natural_balance")
+        .eq("purpose", "gateway_clearing").eq("currency", bank.currency),
+      supabase.from("ledger_account_balances").select("account_id, code, name, natural_balance")
+        .eq("class", "liability").eq("currency", bank.currency).lt("natural_balance", 0),
+    ]);
+    const balOf = new Map(((gwBal ?? []) as { account_id: string; natural_balance: number | string }[]).map((r) => [r.account_id, Number(r.natural_balance)]));
+    gatewayBalances = ((gw ?? []) as { id: string; gateway: string }[])
+      .map((r) => ({ gateway: r.gateway, balance: balOf.get(r.id) ?? 0 }));
+    overdrawn = ((od ?? []) as { account_id: string; code: string; name: string; natural_balance: number | string }[])
+      .map((r) => ({ id: r.account_id, label: `${r.code} · ${r.name}`, overdrawn: -Number(r.natural_balance) }));
+  }
+
   return (
     <div className="space-y-4">
       {banks.length > 1 && (
@@ -114,6 +136,16 @@ export default async function ReconciliationPage({
         currency={bank.currency}
         existingRefs={refs.ok ? refs.data : []}
       />
+
+      {canRecord && (
+        <MovementsPanel
+          bankAccountId={bank.id}
+          bankLabel={bank.label}
+          currency={bank.currency}
+          gatewayBalances={gatewayBalances}
+          overdrawn={overdrawn}
+        />
+      )}
 
       {unmatched.length > 0 && (
         <Card>
