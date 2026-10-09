@@ -25,6 +25,8 @@ export type AssetRow = {
   certificate_expiry: string | null;
   insurance_expiry: string | null;
   compliance_required: boolean;
+  /** How many identical items this row stands for (0326). */
+  quantity: number;
   properties: { name: string } | null;
 };
 
@@ -159,6 +161,11 @@ export default function AssetList({ assets }: { assets: AssetRow[] }) {
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-mono text-xs text-muted-foreground">{a.asset_tag}</span>
                       <span className="min-w-0 truncate font-medium">{a.name}</span>
+                      {a.quantity > 1 && (
+                        <Badge variant="muted" title="Identical items on this register row">
+                          × {a.quantity.toLocaleString()}
+                        </Badge>
+                      )}
                     </div>
                     <p className="mt-0.5 truncate text-xs text-muted-foreground">
                       {[a.manufacturer, a.model, a.serial_number && `SN ${a.serial_number}`]

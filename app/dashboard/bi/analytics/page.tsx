@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/patterns/page-header";
 import { EmptyState } from "@/components/patterns/empty-state";
 import { Button } from "@/components/ui/button";
-import { biScope } from "../scope";
+import { effectiveBiScope } from "../scope";
 import { loadAnalytics, type Filters } from "./actions";
 import AnalyticsConsole, { type Option } from "./AnalyticsConsole";
 
@@ -31,7 +31,7 @@ export default async function AnalyticsPage() {
   if (!session) redirect("/login");
 
   const role = session.profile?.role;
-  const scope = biScope(role);
+  const scope = await effectiveBiScope(role, await createClient());
 
   if (!scope.requests) {
     return (

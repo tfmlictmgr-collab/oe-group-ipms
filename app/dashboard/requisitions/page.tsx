@@ -1,14 +1,13 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ChevronRight, ReceiptText } from "lucide-react";
+import { ReceiptText } from "lucide-react";
 import { getSessionProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { payableRef } from "@/lib/acknowledgement";
 import { getChainState, waitingOn, formatNaira } from "@/lib/approvals/chain";
 import { PageHeader } from "@/components/patterns/page-header";
-import { EmptyState } from "@/components/patterns/empty-state";
-import { StatusBadge } from "@/components/patterns/status-badge";
 import { Button } from "@/components/ui/button";
+import RequisitionList, { type RequisitionRow } from "./RequisitionList";
 
 // The requisitions a person raised, and where each one is (requested 3 Oct 2026).
 //
@@ -25,7 +24,7 @@ import { Button } from "@/components/ui/button";
 export const dynamic = "force-dynamic";
 
 /** Enough history to be useful without resolving the chain for every row ever. */
-const LIMIT = 50;
+const LIMIT = 200;
 
 const fmtDate = (d: string) =>
   new Date(d).toLocaleDateString("en-GB", {
@@ -74,11 +73,24 @@ export default async function MyRequisitionsPage() {
       })
   );
 
+  const rowsForList: RequisitionRow[] = list.map((r) => ({
+    id: r.id,
+    reference: r.reference,
+    ref: payableRef("ops_requisition", r.id),
+    description: r.description,
+    totalAmount: Number(r.total_amount),
+    amountLabel: formatNaira(Number(r.total_amount)),
+    status: r.status,
+    createdAt: r.created_at,
+    createdLabel: fmtDate(r.created_at),
+    waiting: waiting.get(r.id) ?? null,
+  }));
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="My Requisitions"
-        description="Requisitions you have raised, newest first, and who each one is waiting on."
+        description="Requisitions you have raised and who each one is waiting on. Search, filter by status or date, and sort."
         actions={
           mayRaise ? (
             <Button asChild variant="outline" size="sm">
@@ -90,43 +102,12 @@ export default async function MyRequisitionsPage() {
         }
       />
 
-      {list.length === 0 ? (
-        <EmptyState
-          icon={<ReceiptText />}
-          title="You have not raised a requisition yet"
-          description="When you raise one it appears here, with where it is in the approval chain."
-        />
-      ) : (
-        <ul className="space-y-2.5">
-          {list.map((r) => (
-            <li key={r.id}>
-              <Link
-                href={`/dashboard/approvals/requisitions/${r.id}`}
-                className="group flex items-center gap-4 rounded-lg border border-border bg-card p-4 shadow-sm transition-all hover:border-[var(--brand)]/40 hover:shadow-md"
-              >
-                <div className="min-w-0 flex-1 space-y-1">
-                  <p className="truncate font-medium">
-                    {r.reference} — {formatNaira(Number(r.total_amount))}
-                  </p>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {payableRef("ops_requisition", r.id)} · raised {fmtDate(r.created_at)}
-                    {r.description ? ` · ${r.description.slice(0, 80)}` : ""}
-                  </p>
-                  {waiting.has(r.id) && (
-                    <p className="text-xs font-medium text-foreground">{waiting.get(r.id)}</p>
-                  )}
-                </div>
-                <div className="flex flex-shrink-0 items-center gap-2">
-                  <StatusBadge status={r.status} />
-                  <ChevronRight className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
-                </div>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
+      <RequisitionList rows={rowsForList} />
+
       {list.length === LIMIT && (
-        <p className="text-xs text-muted-foreground">Showing your {LIMIT} most recent.</p>
+        <p className="text-xs text-muted-foreground">
+          Showing your {LIMIT} most recent requisitions. Search and filters apply to these.
+        </p>
       )}
     </div>
   );

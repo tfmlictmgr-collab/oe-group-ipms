@@ -239,6 +239,20 @@ try {
       continue;
     }
 
+    // ── 8. The Owner Rep (0327) ───────────────────────────────────────────
+    // Unlike a landlord, they see every request on the properties they
+    // represent (behind owner_rep.requests_read), plus what they raised.
+    if (u.role === "owner_representative") {
+      if (r.visible > explained + r.in_scope) {
+        fail(
+          `${label}: sees ${r.visible}, only ${explained + r.in_scope} explained by the properties they represent or their own hand`
+        );
+      } else {
+        pass(`${label}: ${r.visible} request(s) — ${r.in_scope} on properties they represent, ${r.own} self-raised`);
+      }
+      continue;
+    }
+
     // ── 6. Everyone else: only what is specifically theirs ────────────────
     if (r.visible <= explained) {
       pass(

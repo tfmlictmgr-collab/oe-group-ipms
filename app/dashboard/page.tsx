@@ -8,7 +8,7 @@ import { PageHeader } from "@/components/patterns/page-header";
 import { Button } from "@/components/ui/button";
 import RequestsBoard from "./RequestsBoard";
 import ScopeTabs from "./ScopeTabs";
-import { OPS_MANAGERS } from "@/lib/roles";
+import { OPS_MANAGERS, OWNER_REP } from "@/lib/roles";
 import { parseScope, showsScopeTabs, scopeLabel, scopesFor } from "./request-scope";
 import { testIds, showingTest } from "@/lib/test-records";
 import { TestRecordsToggle } from "@/components/patterns/test-records-toggle";
@@ -56,6 +56,11 @@ export default async function DashboardPage({
   const canRaiseWork =
     ["admin", ...OPS_MANAGERS].includes(session?.profile?.role ?? "") &&
     Boolean((await supabase.rpc("has_permission", { p_capability: "workorders.raise" })).data);
+  // 0327. An Owner Rep raises a request only while their switch is on; the
+  // policy refuses it regardless, this only stops the button offering it.
+  const canRaiseRequest =
+    session?.profile?.role !== OWNER_REP ||
+    Boolean((await supabase.rpc("has_permission", { p_capability: "owner_rep.requests_raise" })).data);
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -141,7 +146,9 @@ export default async function DashboardPage({
             ? "The requests assigned to you, updating in real time."
             : scope === "raised"
               ? "The requests you logged yourself, updating in real time."
-              : "Requests you have access to, updating in real time."
+              : session?.profile?.role === OWNER_REP
+                ? "Every request on the properties you represent, updating in real time."
+                : "Requests you have access to, updating in real time."
         }
         actions={
           <div className="flex flex-wrap gap-2">
@@ -156,11 +163,13 @@ export default async function DashboardPage({
                 </Link>
               </Button>
             )}
-            <Button asChild variant={canRaiseWork ? "outline" : "brand"}>
-              <Link href="/dashboard/new">
-                <Plus /> New Request
-              </Link>
-            </Button>
+            {canRaiseRequest && (
+              <Button asChild variant={canRaiseWork ? "outline" : "brand"}>
+                <Link href="/dashboard/new">
+                  <Plus /> New Request
+                </Link>
+              </Button>
+            )}
           </div>
         }
       />

@@ -3,7 +3,7 @@ import { publicOrgName } from "@/lib/org-public";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { createClient } from "@/lib/supabase/server";
 import { getBrandTheme } from "@/lib/brands";
-import { biScope } from "@/app/dashboard/bi/scope";
+import { effectiveBiScope } from "@/app/dashboard/bi/scope";
 import {
   AnalyticsReportDocument, type AnalyticsReportData,
 } from "@/lib/pdf/analytics-report";
@@ -56,7 +56,8 @@ export async function GET(request: NextRequest) {
   const { data: profile } = await supabase
     .from("users").select("role, full_name, email, org_id").eq("id", user.id).single();
 
-  const scope = biScope(profile?.role);
+  // 0327: the Owner Rep's analytics switch is honoured here too.
+  const scope = await effectiveBiScope(profile?.role, supabase);
   // The same gate the page uses. Without it, a role that cannot open the console
   // could still fetch its contents by typing the export URL.
   if (!scope.requests) {

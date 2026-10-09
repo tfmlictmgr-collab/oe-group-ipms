@@ -117,7 +117,7 @@ export default async function MyWorkPage() {
         // have typed, and a job with nothing in it named no location whatsoever.
         // The embeds lapse on their own when the job is signed off and paid,
         // which is the point: the address is for attending, not for keeping.
-        "id, summary, message_text, category, urgency, status, created_at, resolved_at, property_or_unit, acknowledged_at, properties(name, address), units(label)"
+        "id, summary, message_text, category, urgency, status, created_at, resolved_at, property_or_unit, acknowledged_at, property_id, properties(name, address), units(label)"
       )
       .order("created_at", { ascending: false })
       .limit(100),
@@ -144,10 +144,22 @@ export default async function MyWorkPage() {
       .limit(50),
   ]);
 
+  // The properties this contractor is attending (requested 9 Oct 2026). Not
+  // filtered here, and not inferred from the jobs: `properties_select` admits
+  // a vendor to a building exactly while they hold a live job on it — not yet
+  // signed off, or signed off with money still owed (0269) — so this list IS
+  // that rule, and a building drops off it when the work is done and paid.
+  const { data: siteRows } = await supabase
+    .from("properties")
+    .select("id, name, address")
+    .order("name");
+  const sites = (siteRows ?? []) as { id: string; name: string; address: string | null }[];
+
   type Job = {
     id: string; summary: string | null; message_text: string | null;
     category: string | null; urgency: string | null; status: string;
     created_at: string; resolved_at: string | null; property_or_unit: string | null;
+    property_id: string | null;
     properties: { name: string | null; address: string | null } | null;
     units: { label: string | null } | null;
     acknowledged_at: string | null;
@@ -256,6 +268,44 @@ export default async function MyWorkPage() {
           {inProgress}{listTruncated ? "+" : ""} of your open jobs are in progress right now.
         </p>
       )}
+
+      {/* ── Where they are working ───────────────────────────────────────── */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Properties you are attending</CardTitle>
+          <CardDescription>
+            The buildings you hold a live job on. One leaves this list once its
+            work is signed off and paid.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {sites.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No live jobs, so no properties to attend right now.
+            </p>
+          ) : (
+            <ul className="divide-y divide-border">
+              {sites.map((s) => {
+                const here = jobs.filter((j) => j.property_id === s.id);
+                const openHere = here.filter((j) => OPEN_STATES.includes(j.status)).length;
+                return (
+                  <li key={s.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{s.name}</p>
+                      {s.address && <p className="truncate text-xs text-muted-foreground">{s.address}</p>}
+                    </div>
+                    <span className="text-xs text-muted-foreground">
+                      {openHere > 0
+                        ? `${openHere} open job${openHere === 1 ? "" : "s"}`
+                        : "Awaiting sign-off or payment"}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
 
       {/* ── Pipeline ─────────────────────────────────────────────────────── */}
       <Card>

@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { Plus, Download, Upload } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
-import { roleAbbrev, FM_PM, OPS_MANAGERS } from "@/lib/roles";
+import { roleAbbrev, FM_PM, OPS_MANAGERS, OWNER_REP } from "@/lib/roles";
 import { PageHeader } from "@/components/patterns/page-header";
 import { Button } from "@/components/ui/button";
 import RoleGate, { roleAllowed } from "../RoleGate";
@@ -27,10 +27,12 @@ export default async function AssetsPage() {
       "finance_approver",
       "property_owner",
       "executive",
+      OWNER_REP,
     ])
   ) {
     return <RoleGate title="Asset Register" />;
   }
+  const isOwnerRep = session.profile?.role === OWNER_REP;
 
   const canWrite = ["admin", ...OPS_MANAGERS].includes(session.profile?.role ?? "");
   // Who maintains plant is the FACILITIES manager on both brands now that OEA
@@ -40,14 +42,24 @@ export default async function AssetsPage() {
   const who = roleAbbrev("facility_manager", session.org?.delivery_brand);
 
   const supabase = await createClient();
-  const { data } = await supabase
-    .from("assets")
-    .select(
-      "id, asset_tag, name, category, status, condition, criticality, manufacturer, model, serial_number, location_detail, next_service_due, certificate_expiry, insurance_expiry, compliance_required, properties!assets_property_id_fkey(name)"
-    )
-    .order("asset_tag");
 
-  const assets = (data as unknown as AssetRow[]) ?? [];
+  // 0327. An Owner Rep reads the register through `owner_rep_asset_register`,
+  // which leaves out every cost and insured value (the table policy refuses
+  // them the table itself), behind their owner_rep.assets switch.
+  let assets: AssetRow[];
+  if (isOwnerRep) {
+    const { data } = await supabase.rpc("owner_rep_asset_register", {});
+    assets = ((data ?? []) as (Omit<AssetRow, "properties" | "insurance_expiry"> & { property_name: string })[])
+      .map((a) => ({ ...a, insurance_expiry: null, properties: { name: a.property_name } }));
+  } else {
+    const { data } = await supabase
+      .from("assets")
+      .select(
+        "id, asset_tag, name, category, status, condition, criticality, manufacturer, model, serial_number, location_detail, next_service_due, certificate_expiry, insurance_expiry, compliance_required, quantity, properties!assets_property_id_fkey(name)"
+      )
+      .order("asset_tag");
+    assets = (data as unknown as AssetRow[]) ?? [];
+  }
 
   return (
     <div className="space-y-6">

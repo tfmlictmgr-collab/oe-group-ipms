@@ -58,6 +58,9 @@ const TENANT_ROLES = [
   ["facility_manager", "Manager"],
   ["fm_ops_staff", "Operations Staff"],
   ["property_owner", "Property Owner"],
+  // 0327. Oversight on the owner's behalf — attached below to the same
+  // property as the demo landlord, as its representative.
+  ["owner_representative", "Owner Rep"],
   ["tenant", "Tenant"],
   ["vendor", "Vendor"],
 ];
@@ -318,7 +321,12 @@ for (const org of orgs.filter((o) => !o.is_platform_operator)) {
 // An administrator needs no assignment (they are org-wide by policy), and a
 // tenant is scoped by unit occupancy rather than stakeholding — so only the
 // manager and the owner are attached here.
-const SCOPED = { facility_manager: "manager", property_owner: "owner" };
+const SCOPED = {
+  facility_manager: "manager",
+  property_owner: "owner",
+  // 0327. The Owner Rep represents the demo landlord's own property.
+  owner_representative: "representative",
+};
 let attached = 0;
 let detached = 0;
 

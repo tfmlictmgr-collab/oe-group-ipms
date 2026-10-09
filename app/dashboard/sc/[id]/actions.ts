@@ -497,3 +497,31 @@ export async function deleteBudget(budgetId: string): Promise<ActionResult> {
   revalidatePath("/dashboard/sc");
   return ok();
 }
+
+/**
+ * Fix the inputs, re-issue (0329). Withdraws an invoiced budget's invoices,
+ * corrects its total or description and returns it to draft, where the method
+ * and shares can be put right and the invoices generated again. Refused while
+ * money is attached, on exactly the test Void uses.
+ */
+export async function reopenBudgetForCorrection(
+  budgetId: string,
+  input: { totalAmount: string; description: string; reason: string }
+): Promise<ActionResult<{ withdrawn: number }>> {
+  const raw = input.totalAmount.replace(/[,\s₦$£€]/g, "");
+  const total = raw === "" ? null : Number(raw);
+  if (total !== null && (!Number.isFinite(total) || total <= 0)) {
+    return fail("The budget total has to be a number greater than zero.");
+  }
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("reopen_sc_budget_for_correction", {
+    p_budget_id: budgetId,
+    p_total_amount: total,
+    p_description: input.description.trim() || null,
+    p_reason: input.reason.trim(),
+  });
+  if (error) return fail(error.message);
+  revalidatePath(`/dashboard/sc/${budgetId}`);
+  revalidatePath("/dashboard/sc");
+  return ok({ withdrawn: Number(data ?? 0) });
+}

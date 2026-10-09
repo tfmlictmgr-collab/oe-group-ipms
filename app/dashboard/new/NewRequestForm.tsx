@@ -35,6 +35,7 @@ export default function NewRequestForm({
   initialMessage = "",
   initialCategory = "",
   initialLeaseId = "",
+  propertyRequired = false,
 }: {
   /**
    * A tenant with MORE THAN ONE live tenancy — each option IS a specific
@@ -68,6 +69,12 @@ export default function NewRequestForm({
   initialMessage?: string;
   initialCategory?: string;
   initialLeaseId?: string;
+  /**
+   * 0327. An Owner Rep raises only against a property they represent, and the
+   * policy refuses one with none — so the picker is required for them rather
+   * than offering "Not about one property" and failing at submit.
+   */
+  propertyRequired?: boolean;
 }) {
   const router = useRouter();
   const [messageText, setMessageText] = useState(initialMessage);
@@ -299,16 +306,19 @@ export default function NewRequestForm({
               <div className="space-y-1.5">
                 <Label htmlFor="property-select">
                   Property{" "}
-                  <span className="font-normal text-muted-foreground">
-                    (optional)
-                  </span>
+                  {!propertyRequired && (
+                    <span className="font-normal text-muted-foreground">
+                      (optional)
+                    </span>
+                  )}
                 </Label>
                 <Select
                   id="property-select"
                   value={propertyId}
+                  required={propertyRequired}
                   onChange={(e) => { setPropertyId(e.target.value); setUnitId(""); }}
                 >
-                  <option value="">Not about one property</option>
+                  <option value="">{propertyRequired ? "Choose a property…" : "Not about one property"}</option>
                   {propertyOptions.map((p) => (
                     <option key={p.id} value={p.id}>{p.label}</option>
                   ))}

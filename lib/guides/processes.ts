@@ -2427,6 +2427,126 @@ export const PROCESS_CATALOGUE: Process[] = [
     routes: ["/orgs/consolidated"],
     roles: ["admin"],
   },
+  {
+    id: "owner-rep-oversight",
+    title: "Oversee a building as an Owner Rep: every request, no money",
+    module: "Requests",
+    startsWhen:
+      "A property owner appoints someone to keep an eye on their building for " +
+      "them — an agent, a trustee, a surveyor — and the organisation invites " +
+      "that person as an Owner Rep.",
+    steps: [
+      {
+        role: "admin",
+        action:
+          "People → Invitations → Invite someone, role Owner Rep, and tick the " +
+          "properties they represent. A facilities or property manager may do the " +
+          "same for a property they hold. At least one property is required.",
+      },
+      {
+        role: "owner_representative",
+        action:
+          "Accepts the invitation and lands on Requests, \"On my properties\": " +
+          "every request on the buildings they represent, whoever raised it, " +
+          "updating live. \"Raised by me\" lists their own.",
+      },
+      {
+        role: "owner_representative",
+        action:
+          "New Request → chooses the property (required) and describes the " +
+          "problem. It reaches the property's managers like any other request.",
+      },
+      {
+        role: "owner_representative",
+        action:
+          "Properties shows the buildings and their units; Assets shows the " +
+          "register without purchase, replacement or insured values; Analytics " +
+          "shows request volumes and response times for those buildings.",
+      },
+    ],
+    doneMeans:
+      "The Owner Rep can answer the owner's question \"what is going on at my " +
+      "building?\" from the requests, the register and the analytics, and has " +
+      "seen no money.",
+    refusals: [
+      {
+        trigger: "The Owner Rep asks where the statements, rent or service charges are.",
+        explanation:
+          "An Owner Rep sees no money by any route: not rent, service charge, " +
+          "tenancies, statements, payments or asset costs. That is held in the " +
+          "database, not only hidden on screen, and no switch turns it on (0327).",
+      },
+      {
+        trigger: "They cannot assign, close or rate a request.",
+        explanation:
+          "The role oversees; it does not act. The property's managers dispatch " +
+          "and sign off the work.",
+      },
+      {
+        trigger: "Requests, raising, properties, assets or analytics is missing for them.",
+        explanation:
+          "Each is a switch on OE Group's permission matrix (group \"Owner Rep\"), " +
+          "set per organisation. All five are on by default.",
+      },
+    ],
+    trainer: {
+      demo:
+        "Sign in as the demo Owner Rep, open Requests, then try the URL of a " +
+        "property statement to show it does not exist for them.",
+      commonMistake:
+        "Inviting them as a Property Owner. A landlord is paid rent and sees the " +
+        "money; an Owner Rep is not and does not.",
+      exercise:
+        "Raise a request as the demo Owner Rep, then sign in as the property " +
+        "manager and find it on their desk.",
+    },
+    capabilities: [
+      "owner_rep.properties", "owner_rep.requests_read", "owner_rep.requests_raise",
+      "owner_rep.assets", "owner_rep.analytics",
+    ],
+    routes: ["/dashboard", "/dashboard/new", "/dashboard/properties", "/dashboard/assets", "/dashboard/bi"],
+    roles: ["owner_representative", "admin", "facility_manager", "property_manager"],
+  },
+  {
+    id: "property-manager-client-funds",
+    title: "Read the funds of the buildings you manage",
+    module: "Money in",
+    startsWhen:
+      "A property manager is asked how much a building's service-charge fund " +
+      "holds, or whether a tenant's payment has come in.",
+    steps: [
+      {
+        role: "property_manager",
+        action:
+          "Client Funds → choose the period. Each building you manage shows its " +
+          "service-charge fund: what it held at the start, collected, spent and " +
+          "holds now. A fund below zero is marked Overdrawn.",
+      },
+      {
+        role: "property_manager",
+        action:
+          "Opens a building to see every movement with the balance after each, " +
+          "and reads the payments received for their properties underneath. " +
+          "Print or download either as CSV.",
+      },
+    ],
+    doneMeans: "The manager can state a building's fund balance and its recent movements from the screen.",
+    refusals: [
+      {
+        trigger: "They cannot see the bank balance, reconciliation or payouts.",
+        explanation:
+          "This is a window onto their own buildings' funds. The organisation's " +
+          "client-funds account stays with finance and oversight (decision 7).",
+      },
+    ],
+    trainer: {
+      demo: "Sign in as the demo property manager and open Client Funds.",
+      exercise: "Find which building's fund received the most this year, and open its movements.",
+    },
+    capabilities: [],
+    routes: ["/dashboard/property-funds"],
+    roles: ["property_manager"],
+  },
 ];
 
 /** The catalogue, narrowed to one edition. Never hand-maintained per edition —

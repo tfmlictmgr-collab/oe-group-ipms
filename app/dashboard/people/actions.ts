@@ -25,7 +25,7 @@ export type InviteInput = {
   role: string;
   fullName: string;
   propertyIds: string[];
-  propertyRelation: "manager" | "owner";
+  propertyRelation: "manager" | "owner" | "representative";
   /** A hierarchy node (0067) — how a regional manager is scoped. */
   nodeId?: string | null;
   unitId?: string | null;
@@ -75,6 +75,12 @@ export async function inviteMember(
     return fail(
       "Choose the vendor company this person works for.",
       "A vendor login always belongs to a company. If it is not in the list, add it under Vendors → Add Vendor first, or send them the application link from People → Vendor Applications."
+    );
+  }
+  if (input.role === "owner_representative" && input.propertyIds.length === 0) {
+    return fail(
+      "Choose the properties this Owner Rep represents.",
+      "An Owner Rep sees the properties they are attached to and nothing else."
     );
   }
   if (input.role === "payment_approver" && ![1, 2, 3].includes(Number(input.approvalTier))) {
@@ -141,7 +147,15 @@ export async function inviteMember(
     role: input.role,
     full_name: input.fullName.trim() || null,
     property_ids: input.propertyIds,
-    property_relation: input.propertyRelation,
+    // Derived from the role, never taken from the form: an owner owns, an Owner
+    // Rep represents (0327), everyone else manages. `owner_rep_invitation_shape`
+    // sets the representative relation in the database regardless.
+    property_relation:
+      input.role === "property_owner"
+        ? "owner"
+        : input.role === "owner_representative"
+          ? "representative"
+          : "manager",
     // `invitations_insert` (0081) checks this is inside a subtree the inviter
     // holds, and `accept_invitation` applies it as a property_stakeholders row.
     node_id: input.nodeId || null,

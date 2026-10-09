@@ -566,11 +566,13 @@ export async function commitUnitImport(
   return ok({ inserted: Number(data ?? 0) });
 }
 
-/** The attaché assignment — which FM/PM or owner is staked to this property. */
+/** The attaché assignment — which FM/PM, owner or Owner Rep is staked to this property. */
 export async function setPropertyStakeholder(
   propertyId: string,
   userId: string,
-  relation: "manager" | "owner",
+  // 0327: "representative" is the Owner Rep's relation; the database refuses
+  // it for anyone else, and refuses any other relation for an Owner Rep.
+  relation: "manager" | "owner" | "representative",
   attached: boolean
 ): Promise<ActionResult> {
   const supabase = await createClient();

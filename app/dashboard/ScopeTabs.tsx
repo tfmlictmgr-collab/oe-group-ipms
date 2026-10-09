@@ -46,12 +46,20 @@ export default function ScopeTabs({
       role === "regional_manager"
         ? "Everything across your region, including requests nobody has picked up yet."
         : "Everything on the properties you manage, including requests nobody has picked up yet.",
-    all: "Every request in the organisation.",
+    all:
+      role === "owner_representative"
+        ? "Every request on the properties you represent, whoever raised it."
+        : "Every request in the organisation.",
   };
 
   const tabs = scopes.map((key) => ({
     key,
-    label: key === "properties" ? propertiesLabel : LABELS[key],
+    label:
+      key === "properties"
+        ? propertiesLabel
+        : key === "all" && role === "owner_representative"
+          ? "On my properties"
+          : LABELS[key],
     hint: HINTS[key],
   }));
 

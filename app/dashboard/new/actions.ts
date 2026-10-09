@@ -132,6 +132,12 @@ export async function raiseRequest(input: {
     }
   }
 
+  // 0327. An Owner Rep raises only against a property they represent. The
+  // policy refuses anything else; this says it as a sentence first.
+  if (me.role === "owner_representative" && !propertyId) {
+    return fail("Choose the property this request is about.", "You can raise requests on the properties you represent.");
+  }
+
   const { classification, provider } = await classifyMessageWithProvider(messageText);
 
   // The reporter's own words win on CATEGORY when they gave one — they know

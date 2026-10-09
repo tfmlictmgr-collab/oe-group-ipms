@@ -93,8 +93,8 @@ export default function AssetForm({
           <Input
             {...common}
             type={f.type === "date" ? "date" : f.type === "number" ? "number" : "text"}
-            min={f.type === "number" ? 0 : undefined}
-            step={f.type === "number" ? "any" : undefined}
+            min={f.key === "quantity" ? 1 : f.type === "number" ? 0 : undefined}
+            step={f.key === "quantity" ? 1 : f.type === "number" ? "any" : undefined}
             placeholder={f.type === "date" ? undefined : f.example}
             required={f.required}
           />

@@ -78,7 +78,11 @@ if (roles.length === 0) {
 console.log("\nB. Every role in use has a guide");
 {
   const missing = [];
+  // 0327. The Owner Rep was asked for without a guide ("all owner features
+  // except guide and my portfolio"), so it has none and is not offered one.
+  const NO_GUIDE_BY_REQUEST = ["owner_representative"];
   for (const r of roles) {
+    if (NO_GUIDE_BY_REQUEST.includes(r)) continue;
     const g = guideForRole(r, roleLabel(r, "OEA"));
     if (!g) missing.push(r);
   }

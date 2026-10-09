@@ -45,6 +45,11 @@ export function biScope(role: string | undefined): BiScope {
       return { requests: true, vendorPerf: true, collection: false, liabilities: false, budget: false };
     case "finance_approver": // financial
       return { requests: false, vendorPerf: false, collection: true, liabilities: true, budget: true };
+    // 0327. Requests on the properties they represent — never the collection,
+    // liability or budget columns, which are money. The page also checks the
+    // owner_rep.analytics switch before rendering anything.
+    case "owner_representative":
+      return { requests: true, vendorPerf: false, collection: false, liabilities: false, budget: false };
     case "property_owner": // own portfolio (RLS-scoped to owned properties)
       return { requests: true, vendorPerf: false, collection: true, liabilities: false, budget: true };
     default:
@@ -56,4 +61,19 @@ export function biScope(role: string | undefined): BiScope {
 export function seesBi(role: string | undefined): boolean {
   const s = biScope(role);
   return s.requests || s.vendorPerf || s.collection || s.liabilities || s.budget;
+}
+
+/**
+ * The scope after the operator's switches (0327). The Owner Rep's analytics are
+ * a capability of their own, so every surface that reads `biScope` for a page,
+ * the console or the export asks this instead — one answer, three consumers.
+ */
+export async function effectiveBiScope(
+  role: string | undefined,
+  supabase: { rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown }> }
+): Promise<BiScope> {
+  const scope = biScope(role);
+  if (role !== "owner_representative") return scope;
+  const { data } = await supabase.rpc("has_permission", { p_capability: "owner_rep.analytics" });
+  return data === true ? scope : NONE;
 }

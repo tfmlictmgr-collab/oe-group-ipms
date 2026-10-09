@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/table";
 import RentRollActions from "../RentRollActions";
 import TenantOfRecordForm from "./TenantOfRecordForm";
+import { CorrectTenancyButton, CorrectChargeButton } from "./CorrectTenancy";
 
 // One tenancy, in full — and the statement for the person living in it.
 //
@@ -561,7 +562,21 @@ export default async function LeaseDetailPage({
           )}
 
           {canWrite && (
-            <div className="mt-5 flex justify-end border-t border-border pt-4" data-print="screen-only">
+            <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-border pt-4" data-print="screen-only">
+              {/* 0329: a figure entered by mistake is corrected here, with a
+                  reason once the tenancy is live. */}
+              <CorrectTenancyButton
+                leaseId={lease.id}
+                status={lease.status}
+                terms={{
+                  rentAmount: Number(lease.rent_amount),
+                  rentFrequency: lease.rent_frequency as "annual" | "quarterly" | "monthly",
+                  depositAmount: Number(lease.deposit_amount ?? 0),
+                  escalationPct: Number(lease.escalation_pct ?? 0),
+                  startDate: lease.start_date,
+                  endDate: lease.end_date,
+                }}
+              />
               <RentRollActions
                 leaseId={lease.id}
                 status={lease.status}
@@ -669,8 +684,23 @@ export default async function LeaseDetailPage({
                             )}
                           </TableCell>
                         )}
-                        <TableCell>
+                        <TableCell className="whitespace-nowrap">
                           <StatusBadge status={c.status} />
+                          {/* 0329: only on a demand nothing has happened to.
+                              The database refuses any other regardless. */}
+                          {canWrite && seesFeeSplit && c.status === "due" &&
+                            Number(c.amount_paid) === 0 && !c.remitted_at && (
+                            <CorrectChargeButton
+                              leaseId={lease.id}
+                              charge={{
+                                id: c.id,
+                                amount: Number(c.amount),
+                                periodStart: c.period_start,
+                                periodEnd: c.period_end,
+                                dueDate: c.due_date,
+                              }}
+                            />
+                          )}
                         </TableCell>
                       </TableRow>
                     );

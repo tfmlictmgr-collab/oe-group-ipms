@@ -75,6 +75,11 @@ export async function createLease(input: LeaseInput): Promise<ActionResult<{ id:
   if (error) {
     // The exclusion constraint speaks in Postgres; a letting agent needs the
     // fact, which is that the flat is already taken for those dates.
+    // 0328: the unit is allocated to somebody else. The database's sentence
+    // already says what to do; it is passed through rather than retold.
+    if (error.message.includes("allocated to someone else")) {
+      return fail(error.message.replace(/^.*?:\s*/, ""));
+    }
     if (error.message.includes("leases_no_overlap")) {
       return fail(
         "That unit is already let over those dates.",
@@ -169,20 +174,30 @@ export async function endTenancy(
   return ok();
 }
 
-/** Units with no live tenancy and no occupant — what can actually be let (0200). */
-export async function vacantUnitsFor(
-  propertyId: string
-): Promise<ActionResult<{ units: { id: string; label: string }[] }>> {
-  const supabase = await createClient();
+export type LettableUnit = {
+  id: string;
+  label: string;
+  /** The person allocated to the unit, if any. A tenancy here is for them. */
+  occupantUserId: string | null;
+  occupantName: string | null;
+};
 
-  // ⚠️ The vacancy test is the database's, not this file's (0200). This used to
-  // ask "has no active or renewed lease", while the property counters and the
-  // `auto` intake window asked "has no occupant" — two questions, free to
-  // disagree, and they did: a unit assigned by invitation acceptance (which
-  // writes no lease) read as free here, and a lease activated for a tenant with
-  // no portal user read as free to the counters. `unit_is_vacant` is now the
-  // one answer all three read.
-  const { data, error } = await supabase.rpc("vacant_units_for_property", {
+/**
+ * Units a tenancy can be recorded on (0328): no live tenancy covering today.
+ *
+ * ⚠️ This used to be `vacant_units_for_property`, and vacancy is "no occupant
+ * AND no live tenancy" (0200). A tenant who arrived by invitation is the unit's
+ * occupant with no lease at all, so their own unit was missing from the one
+ * form that records their tenancy. Vacancy is still that rule for the
+ * counters and the intake window; this asks a different question, and the
+ * occupant comes back with the unit so the form can say who the tenancy is
+ * for. `leases_for_the_units_occupant` refuses a tenancy for anyone else.
+ */
+export async function lettableUnitsFor(
+  propertyId: string
+): Promise<ActionResult<{ units: LettableUnit[] }>> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("lettable_units_for_property", {
     p_property_id: propertyId,
   });
   if (error) return failFromDb(error, "read this property's units");
@@ -190,9 +205,13 @@ export async function vacantUnitsFor(
   // `display_label` carries the distinguisher — since 0198 the label alone is a
   // TYPE, so twelve stalls would otherwise be twelve identical dropdown entries.
   return ok({
-    units: (data ?? []).map((u: { id: string; display_label: string }) => ({
+    units: (data ?? []).map((u: {
+      id: string; display_label: string; occupant_user_id: string | null; occupant_name: string | null;
+    }) => ({
       id: u.id,
       label: u.display_label,
+      occupantUserId: u.occupant_user_id,
+      occupantName: u.occupant_name,
     })),
   });
 }
@@ -261,5 +280,89 @@ export async function recordTenantOfRecord(
   revalidatePath(`/dashboard/leases/${leaseId}`);
   revalidatePath("/dashboard/schedule");
   revalidatePath("/dashboard/people/directory");
+  return ok();
+}
+
+/**
+ * Corrects a tenancy's terms entered by mistake (0329). A draft is edited
+ * freely; a live tenancy needs a reason, which `correct_lease_terms` writes to
+ * the audit trail with the before and after. Demands already raised keep their
+ * own figures — a wrong demand is corrected on its own, below.
+ */
+export async function correctLeaseTerms(
+  leaseId: string,
+  input: {
+    rentAmount: string;
+    rentFrequency: "annual" | "quarterly" | "monthly";
+    depositAmount: string;
+    escalationPct: string;
+    startDate: string;
+    endDate: string;
+    reason: string;
+  }
+): Promise<ActionResult> {
+  const rent = Number(input.rentAmount.replace(/[,\s₦$£€]/g, ""));
+  const deposit = Number(input.depositAmount.replace(/[,\s₦$£€]/g, "") || "0");
+  const escalation = Number(input.escalationPct.replace(/[%\s]/g, "") || "0");
+  if (!Number.isFinite(rent) || !Number.isFinite(deposit) || !Number.isFinite(escalation)) {
+    return fail("Give the rent, deposit and escalation as numbers.");
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("correct_lease_terms", {
+    p_lease_id: leaseId,
+    p_rent_amount: rent,
+    p_rent_frequency: input.rentFrequency,
+    p_deposit_amount: deposit,
+    p_escalation_pct: escalation,
+    p_start_date: input.startDate,
+    p_end_date: input.endDate,
+    p_reason: input.reason.trim() || null,
+  });
+  if (error) {
+    if (error.message.includes("leases_no_overlap")) {
+      return fail(
+        "Those dates overlap another live tenancy on this unit.",
+        "A unit cannot be let twice for the same days."
+      );
+    }
+    return fail(error.message);
+  }
+  revalidatePath(`/dashboard/leases/${leaseId}`);
+  revalidatePath("/dashboard/leases");
+  revalidatePath("/dashboard/schedule");
+  return ok();
+}
+
+/**
+ * Corrects a rent demand raised at the wrong amount or for the wrong period
+ * (0329) — only while nothing has happened to it. The fee is recomputed by the
+ * database at the rate already frozen on the demand (decision 14).
+ */
+export async function correctRentCharge(
+  leaseId: string,
+  chargeId: string,
+  input: { amount: string; periodStart: string; periodEnd: string; dueDate: string; reason: string }
+): Promise<ActionResult> {
+  const amount = Number(input.amount.replace(/[,\s₦$£€]/g, ""));
+  if (!Number.isFinite(amount)) return fail("Give the amount as a number.");
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("correct_rent_charge", {
+    p_charge_id: chargeId,
+    p_amount: amount,
+    p_period_start: input.periodStart,
+    p_period_end: input.periodEnd,
+    p_due_date: input.dueDate || null,
+    p_reason: input.reason.trim(),
+  });
+  if (error) {
+    if (error.message.includes("rent_charges_one_per_period")) {
+      return fail("That period has already been billed on this tenancy.");
+    }
+    return fail(error.message);
+  }
+  revalidatePath(`/dashboard/leases/${leaseId}`);
+  revalidatePath("/dashboard/leases");
   return ok();
 }

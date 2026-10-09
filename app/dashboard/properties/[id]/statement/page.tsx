@@ -4,7 +4,7 @@ import { ArrowLeft, FileBarChart } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
 import { formatMoney } from "@/lib/currency";
-import { roleLabel } from "@/lib/roles";
+import { roleLabel, seesNoMoney } from "@/lib/roles";
 import { PageHeader } from "@/components/patterns/page-header";
 import { EmptyState } from "@/components/patterns/empty-state";
 import { StatusBadge } from "@/components/patterns/status-badge";
@@ -92,6 +92,10 @@ export default async function PropertyStatementPage({
   const { id } = await params;
   const session = await getSessionProfile();
   if (!session) redirect("/login");
+  // 0327. An Owner Rep sees no money. `property_statement()` already returns
+  // them nothing; refusing here keeps them off a page of zeroes, which would
+  // read as "nothing was billed".
+  if (seesNoMoney(session.profile?.role)) notFound();
 
   const sp = await searchParams;
   const now = new Date();
