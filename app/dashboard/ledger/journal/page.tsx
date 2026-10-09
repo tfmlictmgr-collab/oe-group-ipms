@@ -7,6 +7,8 @@ import { formatMoney } from "@/lib/currency";
 import { EmptyState } from "@/components/patterns/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { testIds } from "@/lib/test-records";
+import { TestBadge } from "@/components/patterns/test-records-toggle";
 
 type Posting = {
   id: string;
@@ -77,6 +79,9 @@ export default async function JournalPage() {
       ? supabase.from("fund_overrides").select("consumed_entry_id, reason, shortfall_covered, users:authorised_by(full_name)").in("consumed_entry_id", entryIds)
       : Promise.resolve({ data: [] }),
   ]);
+  // 0321: an entry posted by a test record is LABELLED here, never hidden — a
+  // journal that drops rows is not a record, and the balances include it.
+  const testEntries = await testIds(supabase, "ledger_entry");
   const balanceAfter = new Map(((balData ?? []) as RunningBalance[]).map((b) => [b.posting_id, Number(b.balance_after)]));
   const overrideFor = new Map(((ovData ?? []) as unknown as Override[]).map((o) => [o.consumed_entry_id, o]));
 
@@ -128,7 +133,7 @@ export default async function JournalPage() {
             <CardHeader className="pb-3">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <CardTitle className="text-base">{e.description}</CardTitle>
+                  <CardTitle className="text-base">{e.description}{testEntries.has(e.id) && <TestBadge />}</CardTitle>
                   <CardDescription>
                     {fmtDate(e.entry_date)}
                     {e.reference ? ` · ${e.reference}` : ""}

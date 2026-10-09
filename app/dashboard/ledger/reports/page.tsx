@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/table";
 import PeriodPicker from "./PeriodPicker";
 import DownloadCsv from "./DownloadCsv";
+import { TestRecordsToggle, TestBadge } from "@/components/patterns/test-records-toggle";
 
 // The head of accounts' reports (0318).
 //
@@ -42,11 +43,12 @@ type PnlRow = { currency: string; class: string; account_code: string; account_n
 type Collection = {
   paid_on: string; channel: string; purpose: string; property: string | null; unit: string | null; payer: string | null;
   landlord: string | null; currency: string; amount: number | string; management_fee: number | string | null;
-  landlord_net: number | string | null; reference: string | null;
+  landlord_net: number | string | null; reference: string | null; is_test: boolean;
 };
 type Payout = {
   paid_on: string; kind: string; payee: string | null; property: string | null; channel: string; currency: string;
   gross: number | string; fees: number | string; net: number | string; reference: string | null; bank_reference: string | null;
+  is_test: boolean;
 };
 type Fund = {
   account_id: string; code: string; property: string; currency: string; opening: number | string; collected: number | string;
@@ -102,7 +104,7 @@ function currenciesOf(rows: { currency: string }[]) {
 export default async function ReportsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ from?: string; to?: string; view?: string; group?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; view?: string; group?: string; test?: string }>;
 }) {
   const session = await getSessionProfile();
   if (!session) redirect("/login");
@@ -114,6 +116,10 @@ export default async function ReportsPage({
   const view: View = (VIEWS.find((v) => v.key === sp.view)?.key ?? "collections") as View;
   const groups = view === "payouts" ? PAYOUT_GROUPS : COLLECTION_GROUPS;
   const group = sp.group && sp.group in groups ? sp.group : "none";
+  // 0321/0323: activity reports leave test records out unless asked for. The
+  // property funds, trial balance and P&L are the ledger itself and always
+  // include them — a ledger report that leaves rows out does not add up.
+  const showTest = sp.test === "1";
   const qs = (o: Record<string, string>) => new URLSearchParams({ from, to, view, group, ...o }).toString();
   const title = VIEWS.find((v) => v.key === view)!.label;
   const fileTag = `${title.toLowerCase().replace(/[^a-z]+/g, "-")}-${from}-to-${to}`;
@@ -170,13 +176,16 @@ export default async function ReportsPage({
 
   if (view === "collections") {
     const { data, error } = await supabase.rpc("report_collections", { p_from: from, p_to: to });
-    const rows = (data ?? []) as Collection[];
+    const all = (data ?? []) as Collection[];
+    const testCount = all.filter((r) => r.is_test).length;
+    const rows = showTest ? all : all.filter((r) => !r.is_test);
     const g = COLLECTION_GROUPS[group];
-    const headers = ["Date", "Channel", "Type", "Property", "Unit", "Tenant / payer", "Landlord", "Currency", "Amount", "Management fee", "Landlord net", "Reference"];
-    const csv = rows.map((r) => [r.paid_on, r.channel, r.purpose, r.property, r.unit, r.payer, r.landlord, r.currency, n(r.amount), r.management_fee == null ? null : n(r.management_fee), r.landlord_net == null ? null : n(r.landlord_net), r.reference]);
+    const headers = ["Date", "Channel", "Type", "Property", "Unit", "Tenant / payer", "Landlord", "Currency", "Amount", "Management fee", "Landlord net", "Reference", "Test record"];
+    const csv = rows.map((r) => [r.paid_on, r.channel, r.purpose, r.property, r.unit, r.payer, r.landlord, r.currency, n(r.amount), r.management_fee == null ? null : n(r.management_fee), r.landlord_net == null ? null : n(r.landlord_net), r.reference, r.is_test ? "yes" : ""]);
     body = error ? <Problem message={error.message} /> : (
       <>
         <Toolbar groups={COLLECTION_GROUPS} group={group} qs={qs} csv={<DownloadCsv filename={`${fileTag}.csv`} headers={headers} rows={csv} />} />
+        <TestRecordsToggle count={testCount} />
         {rows.length === 0 ? <Nothing /> : currenciesOf(rows).map((ccy) => {
           const mine = rows.filter((r) => r.currency === ccy);
           return (
@@ -203,7 +212,7 @@ export default async function ReportsPage({
                             <TableCell>{r.purpose}</TableCell>
                             <TableCell className="whitespace-nowrap">{r.channel}</TableCell>
                             <TableCell>{r.property ?? "—"}{r.unit ? ` · ${r.unit}` : ""}</TableCell>
-                            <TableCell>{r.payer ?? "—"}</TableCell>
+                            <TableCell>{r.payer ?? "—"}{r.is_test && <TestBadge />}</TableCell>
                             <TableCell>{r.landlord ?? "—"}</TableCell>
                             <TableCell className="text-right tabular-nums">{formatMoney(r.amount, ccy)}</TableCell>
                             <TableCell className="text-right tabular-nums text-muted-foreground">{r.management_fee == null ? "—" : formatMoney(r.management_fee, ccy)}</TableCell>
@@ -226,13 +235,16 @@ export default async function ReportsPage({
 
   if (view === "payouts") {
     const { data, error } = await supabase.rpc("report_payouts", { p_from: from, p_to: to });
-    const rows = (data ?? []) as Payout[];
+    const all = (data ?? []) as Payout[];
+    const testCount = all.filter((r) => r.is_test).length;
+    const rows = showTest ? all : all.filter((r) => !r.is_test);
     const g = PAYOUT_GROUPS[group];
-    const headers = ["Date", "Type", "Payee", "Property", "Channel", "Currency", "Gross", "Fees", "Net", "Reference", "Bank / gateway reference"];
-    const csv = rows.map((r) => [r.paid_on, r.kind, r.payee, r.property, r.channel, r.currency, n(r.gross), n(r.fees), n(r.net), r.reference, r.bank_reference]);
+    const headers = ["Date", "Type", "Payee", "Property", "Channel", "Currency", "Gross", "Fees", "Net", "Reference", "Bank / gateway reference", "Test record"];
+    const csv = rows.map((r) => [r.paid_on, r.kind, r.payee, r.property, r.channel, r.currency, n(r.gross), n(r.fees), n(r.net), r.reference, r.bank_reference, r.is_test ? "yes" : ""]);
     body = error ? <Problem message={error.message} /> : (
       <>
         <Toolbar groups={PAYOUT_GROUPS} group={group} qs={qs} csv={<DownloadCsv filename={`${fileTag}.csv`} headers={headers} rows={csv} />} />
+        <TestRecordsToggle count={testCount} />
         {rows.length === 0 ? <Nothing /> : currenciesOf(rows).map((ccy) => {
           const mine = rows.filter((r) => r.currency === ccy);
           return (
@@ -257,7 +269,7 @@ export default async function ReportsPage({
                           <TableRow key={`${k}-${i}`}>
                             <TableCell className="whitespace-nowrap">{r.paid_on}</TableCell>
                             <TableCell>{r.kind}</TableCell>
-                            <TableCell>{r.payee ?? "—"}</TableCell>
+                            <TableCell>{r.payee ?? "—"}{r.is_test && <TestBadge />}</TableCell>
                             <TableCell>{r.property ?? "—"}</TableCell>
                             <TableCell className="whitespace-nowrap">{r.channel}</TableCell>
                             <TableCell className="font-mono text-xs">{r.bank_reference ?? "—"}</TableCell>

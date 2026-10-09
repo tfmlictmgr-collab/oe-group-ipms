@@ -6,6 +6,9 @@ import { getSessionProfile } from "@/lib/auth";
 import { PageHeader } from "@/components/patterns/page-header";
 import { EmptyState } from "@/components/patterns/empty-state";
 import PropertyStats from "./PropertyStats";
+import { testIds, showingTest, withoutTest } from "@/lib/test-records";
+import { TestRecordsToggle } from "@/components/patterns/test-records-toggle";
+import { TestBadge } from "@/components/patterns/test-records-toggle";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,7 +16,7 @@ import {
   Table, TableHeader, TableBody, TableRow, TableHead, TableCell,
 } from "@/components/ui/table";
 
-export default async function PropertiesPage() {
+export default async function PropertiesPage({ searchParams }: { searchParams: Promise<{ test?: string }> }) {
   const session = await getSessionProfile();
   if (!session) redirect("/login");
 
@@ -25,20 +28,25 @@ export default async function PropertiesPage() {
   //
   // RLS still decides what comes back: `properties.read_all` sees the org,
   // everyone else sees the properties they are attached to.
-  const [{ data: summary }, { data: canWrite }, { data: canManageHierarchy }] = await Promise.all([
+  const showTest = showingTest(await searchParams);
+  const [{ data: summary }, { data: canWrite }, { data: canManageHierarchy }, testProps] = await Promise.all([
     supabase.from("property_summary")
       .select("id, name, reference, address, property_type, unit_count, occupied_count, total_factor, node_path")
       .order("name"),
     supabase.rpc("has_permission", { p_capability: "properties.write" }),
     supabase.rpc("has_permission", { p_capability: "hierarchy.write" }),
+    testIds(supabase, "property"),
   ]);
 
-  const props = (summary ?? []) as {
+  const allProps = (summary ?? []) as {
     id: string; name: string; reference: string | null;
     address: string | null; property_type: string | null;
     unit_count: number; occupied_count: number; total_factor: number | string;
     node_path: string | null;
   }[];
+  // 0321: buildings marked as test are hidden unless asked for.
+  const testCount = allProps.filter((p) => testProps.has(p.id)).length;
+  const props = withoutTest(allProps, testProps, showTest, (p) => p.id);
 
   return (
     <div className="space-y-6">
@@ -61,6 +69,7 @@ export default async function PropertiesPage() {
         }
       />
 
+      <TestRecordsToggle count={testCount} />
       <PropertyStats props={props} />
 
       {props.length === 0 ? (
@@ -111,6 +120,7 @@ export default async function PropertiesPage() {
                           >
                             {p.name}
                           </Link>
+                          {testProps.has(p.id) && <TestBadge />}
                           <span className="block text-xs text-muted-foreground">
                             {p.reference ? `${p.reference} · ` : ""}{p.address ?? "No address recorded"}
                           </span>

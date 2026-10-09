@@ -20,6 +20,8 @@ import RoleGate from "../../RoleGate";
 import RecordDownloads from "../RecordDownloads";
 import MemberActions from "../members/MemberActions";
 import DirectoryList, { type DirectoryRow } from "./DirectoryList";
+import { testIds, showingTest } from "@/lib/test-records";
+import { TestRecordsToggle } from "@/components/patterns/test-records-toggle";
 
 // People → Directory: every person and company the organisation deals with,
 // each row opening a whole profile (decision 46).
@@ -104,7 +106,7 @@ function listSummary(items: string[], max = 2): string | undefined {
 export default async function DirectoryPage({
   searchParams,
 }: {
-  searchParams: Promise<{ group?: string }>;
+  searchParams: Promise<{ group?: string; test?: string }>;
 }) {
   const session = await getSessionProfile();
   if (!session?.profile || !session.org) redirect("/login");
@@ -115,7 +117,8 @@ export default async function DirectoryPage({
   if (profile.role !== "admin") return <RoleGate title="Directory" />;
 
   const brand = org.delivery_brand ?? null;
-  const group = parseDirectoryGroup((await searchParams).group);
+  const sp = await searchParams;
+  const group = parseDirectoryGroup(sp.group);
   const supabase = await createClient();
 
   const isOperator = Boolean(org.is_platform_operator);
@@ -384,6 +387,20 @@ export default async function DirectoryPage({
     emptyHint = "No vendors yet — they appear here once invited or registered.";
   }
 
+  // 0321: people and companies marked as test (kept because money touched
+  // them) are hidden unless "Show test records" is on, and labelled when shown.
+  const [testUsers, testVendors, testLeases] = await Promise.all([
+    testIds(supabase, "user"), testIds(supabase, "vendor"), testIds(supabase, "lease"),
+  ]);
+  const idOf = (key: string) => key.replace(/^(login|unnamed|record):/, "");
+  const isTest = (r: DirectoryRow) => {
+    const id = idOf(r.key);
+    return testUsers.has(id) || testVendors.has(id) || testLeases.has(id);
+  };
+  const testCount = rows.filter(isTest).length;
+  rows = (showingTest(sp) ? rows : rows.filter((r) => !isTest(r)))
+    .map((r) => (isTest(r) ? { ...r, name: `TEST · ${r.name}` } : r));
+
   const label = DIRECTORY_GROUPS.find((g) => g.key === group)!.label;
   const accounts = rows.filter((r) => r.actions);
   const inactiveAccounts = accounts.filter((r) => r.inactive).length;
@@ -454,6 +471,7 @@ export default async function DirectoryPage({
           </div>
         </CardHeader>
         <CardContent>
+          <TestRecordsToggle count={testCount} className="mb-3" />
           <DirectoryList rows={rows} noun={noun} emptyHint={emptyHint} />
         </CardContent>
       </Card>

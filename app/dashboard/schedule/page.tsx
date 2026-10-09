@@ -13,6 +13,8 @@ import {
 } from "@/components/ui/table";
 import ScheduleFilters from "./ScheduleFilters";
 import { capabilityRefusal } from "@/lib/capability-refusal";
+import { testIds, showingTest, withoutTest } from "@/lib/test-records";
+import { TestRecordsToggle } from "@/components/patterns/test-records-toggle";
 
 export const dynamic = "force-dynamic";
 
@@ -157,7 +159,13 @@ export default async function SchedulePage({
     .order(s.column, { ascending: s.ascending, nullsFirst: false })
     .limit(1000);
 
-  const rows = (data ?? []) as Row[];
+  // 0321: test tenancies are hidden unless asked for, and labelled when shown.
+  // The ledger-derived totals below therefore describe real tenancies only.
+  const testLeases = await testIds(supabase, "lease");
+  const allRows = (data ?? []) as Row[];
+  const testCount = allRows.filter((r) => testLeases.has(r.lease_id as string)).length;
+  const rows = withoutTest(allRows, testLeases, showingTest(sp), (r) => r.lease_id as string)
+    .map((r) => (testLeases.has(r.lease_id as string) ? { ...r, property_name: `TEST · ${r.property_name}` } : r));
 
   // Grouped in one pass, in the order the query returned — so the chosen sort
   // decides the order WITHIN each group and the group headings follow first
@@ -253,6 +261,7 @@ export default async function SchedulePage({
         )}
       </div>
 
+      <TestRecordsToggle count={testCount} />
       <ScheduleFilters
         group={group}
         sort={sort}

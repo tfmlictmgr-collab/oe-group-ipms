@@ -10,6 +10,8 @@ import { Button } from "@/components/ui/button";
 import RoleGate, { roleAllowed } from "../RoleGate";
 import VendorList from "./VendorList";
 import { OPS_MANAGERS } from "@/lib/roles";
+import { testIds, showingTest, withoutTest } from "@/lib/test-records";
+import { TestRecordsToggle } from "@/components/patterns/test-records-toggle";
 
 type VendorRow = {
   id: string;
@@ -18,7 +20,7 @@ type VendorRow = {
   status: string;
 };
 
-export default async function VendorsPage() {
+export default async function VendorsPage({ searchParams }: { searchParams: Promise<{ test?: string }> }) {
   const session = await getSessionProfile();
   if (!session) redirect("/login");
   // `executive` holds `vendors.read`. Scoring a vendor (`vendors.evaluate`) is
@@ -49,10 +51,14 @@ export default async function VendorsPage() {
   // that structurally undercounts them. Two queries rather than one embed,
   // because the corrected figure lives in a view PostgREST cannot embed
   // without a foreign key; grouped here instead.
-  const [{ data }, { data: scored }] = await Promise.all([
+  const showTest = showingTest(await searchParams);
+  const [{ data }, { data: scored }, testVendors] = await Promise.all([
     supabase.from("vendors").select("id, name, service_category, status").order("name"),
     supabase.from("vendor_evaluation_tickets").select("vendor_id, composite_score"),
+    testIds(supabase, "vendor"),
   ]);
+  const allVendors = (data as VendorRow[]) ?? [];
+  const testCount = allVendors.filter((v) => testVendors.has(v.id)).length;
 
   const byVendor = new Map<string, { composite_score: number | string | null }[]>();
   for (const row of (scored as { vendor_id: string; composite_score: number | null }[]) ?? []) {
@@ -61,7 +67,7 @@ export default async function VendorsPage() {
     byVendor.set(row.vendor_id, list);
   }
 
-  const scoredVendors = ((data as VendorRow[]) ?? [])
+  const scoredVendors = withoutTest(allVendors, testVendors, showTest, (v) => v.id)
     .map((v) => {
       const evals = byVendor.get(v.id) ?? [];
       return {
@@ -82,7 +88,7 @@ export default async function VendorsPage() {
   // and the component renders a dash for it.
   const vendors = scoredVendors.map((v, i) => ({
     id: v.id,
-    name: v.name,
+    name: testVendors.has(v.id) ? `TEST · ${v.name}` : v.name,
     serviceCategory: v.service_category,
     avg: v.avg,
     count: v.count,
@@ -103,6 +109,7 @@ export default async function VendorsPage() {
         }
       />
 
+      <TestRecordsToggle count={testCount} />
       {vendors.length === 0 ? (
         <EmptyState
           icon={<Building2 />}

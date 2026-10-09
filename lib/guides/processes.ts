@@ -2022,6 +2022,18 @@ export const PROCESS_CATALOGUE: Process[] = [
           "settles, usually the next business day and net of its fees.",
       },
       {
+        role: "finance_approver",
+        action:
+          "Online payments wait in the Paystack (or Flutterwave) balance until " +
+          "the gateway settles them. When the settlement reaches the bank: " +
+          "Reconciliation → \"Record money moving between accounts\" → Gateway " +
+          "settlement — the transactions total, the gateway's fees and its " +
+          "settlement reference, copied from the gateway's own report. The bank " +
+          "gets the net and the fees are recorded as a bank charge. The same panel " +
+          "records a top-up of the Paystack balance, a bank charge, and money the " +
+          "organisation paid in to fund an overdrawn account.",
+      },
+      {
         role: "payment_approver",
         action:
           "Client Funds → Balances: \"Funds overdrawn\" names any building fund " +
