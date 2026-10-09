@@ -1,5 +1,8 @@
 import * as React from "react";
 import { Document, Page, Text, View, Image, StyleSheet } from "@react-pdf/renderer";
+import { registerPdfFonts, PDF_FONT } from "./fonts";
+
+registerPdfFonts();
 
 // The console's figures as a board-ready document.
 //
@@ -65,7 +68,7 @@ const pct = (n: number | null) => (n === null ? "—" : `${n.toFixed(1)}%`);
 const num = (n: number) => n.toLocaleString("en-NG");
 
 const s = StyleSheet.create({
-  page: { paddingTop: 40, paddingBottom: 56, paddingHorizontal: 40, fontSize: 9, color: "#1A1A2E" },
+  page: { fontFamily: PDF_FONT, paddingTop: 40, paddingBottom: 56, paddingHorizontal: 40, fontSize: 9, color: "#1A1A2E" },
   header: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
   logo: { height: 30, maxWidth: 140, objectFit: "contain" },
   orgName: { fontSize: 14, fontWeight: 700 },

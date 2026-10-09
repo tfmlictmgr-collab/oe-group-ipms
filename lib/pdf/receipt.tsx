@@ -1,5 +1,8 @@
 import * as React from "react";
 import { Document, Page, Text, View, Image, StyleSheet } from "@react-pdf/renderer";
+import { registerPdfFonts, PDF_FONT } from "./fonts";
+
+registerPdfFonts();
 import { gatewayLabel } from "@/lib/gateway-label";
 
 // A receipt is evidence, not decoration. It carries the org's own brand (B1 —
@@ -46,7 +49,7 @@ const fmt = (d: string | null) =>
     : "—";
 
 const s = StyleSheet.create({
-  page: { paddingTop: 44, paddingBottom: 56, paddingHorizontal: 46, fontSize: 10, color: "#1A1A2E" },
+  page: { fontFamily: PDF_FONT, paddingTop: 44, paddingBottom: 56, paddingHorizontal: 46, fontSize: 10, color: "#1A1A2E" },
   header: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
   logo: { height: 34, maxWidth: 150, objectFit: "contain" },
   orgName: { fontSize: 15, fontWeight: 700 },
