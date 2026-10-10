@@ -239,12 +239,12 @@ console.log("\nD. The named account is the one the posting lands on");
   });
   made.entries.push(collEntry);
 
-  // `simulated`, like the collection above: since 0320 a PAYSTACK payout is
-  // paid from the Paystack balance (gateway_clearing), not the bank, so the
-  // table's default gateway would test a different account than this section
-  // is about. A non-Paystack payout still comes off the named bank account.
+  // ⚠️ The payout's gateway is not ours to choose: since 0289 it follows the
+  // recipient's account (`remittances_gateway_follows_recipient`), and this
+  // suite borrows the demo landlord's recipient when one exists. So the account
+  // the money comes off is read from the rule, not assumed (below).
   const { data: r, error: cErr } = await svc.from("remittances")
-    .insert(newRemittance({ gateway: "simulated" })).select("id, bank_account_id").single();
+    .insert(newRemittance()).select("id, bank_account_id, gateway, currency").single();
   if (cErr) {
     bad(`could not create — ${cErr.message}`);
   } else {
@@ -267,17 +267,33 @@ console.log("\nD. The named account is the one the posting lands on");
       const { data: postings } = await svc.from("ledger_postings")
         .select("account_id, amount").eq("entry_id", entryId);
       const bankSide = (postings ?? []).find((p) => Number(p.amount) < 0);
-      bankSide?.account_id === bank.ledger_account_id
-        ? ok("the money came off the ledger account behind the named bank account")
-        : bad(`posted to ${bankSide?.account_id}, not ${bank.ledger_account_id}`);
-
-      // The same account reconciliation compares the statement against — which
-      // is the whole point: a payout is now matchable by construction.
       const { data: reconBank } = await svc.from("bank_accounts")
         .select("ledger_account_id").eq("id", r.bank_account_id).single();
-      reconBank.ledger_account_id === bankSide?.account_id
-        ? ok("reconciliation reads that same account, so the payout is matchable")
-        : bad("the posting and reconciliation are about different accounts");
+
+      if (r.gateway === "paystack") {
+        // 0320: a Paystack transfer is paid from the Paystack balance, which is
+        // reconciled against Paystack's own dashboard, not the bank statement.
+        // The payout still NAMES its client-funds bank account (section A's
+        // rule); the money just does not leave from it.
+        const { data: clearing } = await svc.from("ledger_accounts").select("id")
+          .eq("org_id", orgId).eq("purpose", "gateway_clearing")
+          .eq("gateway", "paystack").eq("currency", r.currency).maybeSingle();
+        clearing && bankSide?.account_id === clearing.id
+          ? ok("a Paystack payout came off the Paystack balance, where the gateway holds the money (0320)")
+          : bad(`a Paystack payout posted to ${bankSide?.account_id}, not the Paystack balance ${clearing?.id}`);
+        r.bank_account_id === bank.id
+          ? ok("and it still names the client-funds bank account it was paid on behalf of")
+          : bad(`it names bank account ${r.bank_account_id}, not ${bank.id}`);
+      } else {
+        bankSide?.account_id === bank.ledger_account_id
+          ? ok("the money came off the ledger account behind the named bank account")
+          : bad(`posted to ${bankSide?.account_id}, not ${bank.ledger_account_id}`);
+        // The same account reconciliation compares the statement against — which
+        // is the whole point: a payout is now matchable by construction.
+        reconBank.ledger_account_id === bankSide?.account_id
+          ? ok("reconciliation reads that same account, so the payout is matchable")
+          : bad("the posting and reconciliation are about different accounts");
+      }
 
       console.log("\nE. Once posted, where it came from is history");
       const target = foreignBank?.id ?? bank.id;

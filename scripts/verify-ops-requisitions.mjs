@@ -353,7 +353,7 @@ console.log("\n5. Disbursement — per distinct payee, the ledger once, no doubl
   // one can never go out. The money question is therefore asked of a payout
   // that HAS been claimed: the same lines must not be paid again.
   if (rem1) {
-    const { error: claimErr } = await svc.rpc("claim_remittance_for_sending", { p_id: rem1 });
+    const { error: claimErr } = await svc.rpc("claim_remittance_for_sending", { p_id: rem1, p_sent_by: finance.id });
     claimErr ? bad(`could not claim the first payout — ${claimErr.message.slice(0, 70)}`) : ok("the first payout is claimed for sending");
   }
   const { error: doubleErr } = await svc.rpc("create_requisition_vendor_remittance", {
