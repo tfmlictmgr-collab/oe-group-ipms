@@ -8,6 +8,12 @@
 //     step with it;
 //   • the daily expiry still runs with no signed-in caller, and by hand for an
 //     administrator.
+//   • and 0332's lease guard, at each status this suite reaches through its own
+//     function: a signed-in caller removes (soft-deletes) only a draft, a
+//     refused removal leaves the unit's occupant where it was, and the refusal
+//     survives the app's cut at the first colon. (verify-entry-corrections §F
+//     covers 0332 on an active lease and a draft; this adds renewed, expired,
+//     terminated and the occupant.)
 //
 // Every act runs in a signed-in user's own session inside ONE transaction that
 // is rolled back at the end. That includes `expire_due_leases` over the real
@@ -78,8 +84,11 @@ const flag = async () => (await one("select coalesce(current_setting('app.lease_
 const NOT_MINE = /do not manage the property this tenancy is on/;
 const STATUS_GUARD = /status changes only through Activate, Renew or End tenancy/;
 const INSERT_GUARD = /recorded as a draft and made live with Activate/;
+const NOT_REMOVED = /has been live is a record and cannot be deleted\. End it with End tenancy/;
+// What `failFromDb` shows: everything up to the first colon is cut (decision 52).
+const shown = (m) => (m ?? "").replace(/^.*?:\s*/, "");
 
-console.log(`\nLease transitions: place and path (0330) · ${envFile}`);
+console.log(`\nLease transitions: place and path (0330), removal (0332) · ${envFile}`);
 await db.connect();
 await db.query("begin");
 
@@ -103,6 +112,7 @@ try {
     "insert into units (org_id, property_id, label, apportionment_factor) values ($1, $2, $3, 100) returning id",
     [org.id, propId, label])).id;
   const [m1, m2, m3, m4] = [await unit(mine.id, "M1"), await unit(mine.id, "M2"), await unit(mine.id, "M3"), await unit(mine.id, "M4")];
+  const [m5, m6] = [await unit(mine.id, "M5"), await unit(mine.id, "M6")];
   const [o1, o2] = [await unit(other.id, "O1"), await unit(other.id, "O2")];
   await db.query("insert into property_stakeholders (org_id, property_id, user_id, relation) values ($1, $2, $3, 'manager')",
     [org.id, mine.id, pm.id]);
@@ -204,6 +214,60 @@ try {
   await as(pm.id);
   m = await refused("select expire_due_leases($1)", [org.id]);
   check(/only an administrator/.test(m ?? ""), "a property manager still may not run it by hand", m);
+
+  // Every status here was reached through its own function above, never by a
+  // write to `status`: mDraft is renewed, successor terminated, due1 expired.
+  section("E. A tenancy that has been live is not removed, at any status (0332)");
+  m = await refused(
+    `insert into leases (org_id, property_id, unit_id, tenant_user_id, start_date, end_date, rent_amount, rent_frequency)
+     values ($1, $2, $3, $4, current_date, current_date + 365, 1000000, 'annual') returning id`,
+    [org.id, mine.id, m5, tenant2]);
+  check(m === null, "the PM records a second tenancy", m);
+  const live = refused.last.rows[0].id;
+  m = await refused("select activate_lease($1)", [live]);
+  check(m === null && (await occupantOf(m5)) === tenant2, "and activates it, making its tenant the occupant", m);
+  m = await refused("update leases set deleted_at = now() where id = $1", [live]);
+  check(NOT_REMOVED.test(m ?? ""), "removing an active tenancy is refused, naming End tenancy", m);
+  check(m !== null && shown(m) === m, "the refusal survives the app's cut at the first colon", shown(m));
+  check((await one("select id from leases where id = $1", [live]))?.id === live, "the tenancy is still listed to the PM");
+  await asOwner();
+  const u5 = await one("select occupant_user_id, deleted_at from units where id = $1", [m5]);
+  check(u5.occupant_user_id === tenant2 && u5.deleted_at === null, "the unit's occupant is unchanged");
+  check((await leaseRow(live)).status === "active", "and the tenancy is still active");
+  await as(pm.id);
+  m = await refused("update leases set deleted_at = now(), notes = 'tidying up' where id = $1", [live]);
+  check(NOT_REMOVED.test(m ?? ""), "removing it alongside another column is refused too", m);
+  m = await refused("update leases set deleted_at = now() where id = $1", [mDraft]);
+  check(NOT_REMOVED.test(m ?? ""), "removing a renewed tenancy is refused", m);
+  m = await refused("update leases set deleted_at = now() where id = $1", [due1]);
+  check(NOT_REMOVED.test(m ?? ""), "removing an expired tenancy is refused", m);
+  m = await refused("update leases set deleted_at = now() where id = $1", [successor]);
+  check(NOT_REMOVED.test(m ?? ""), "removing a terminated tenancy is refused", m);
+  check(m !== null && shown(m) === m, "that refusal survives the cut too", shown(m));
+  m = await refused(
+    `insert into leases (org_id, property_id, unit_id, tenant_user_id, tenant_name, start_date, end_date, rent_amount, rent_frequency)
+     values ($1, $2, $3, null, 'Probe Company Ltd', current_date, current_date + 365, 1000000, 'annual') returning id`,
+    [org.id, mine.id, m6]);
+  check(m === null, "the PM records a draft company let", m);
+  const draft = m === null ? refused.last.rows[0].id : null;
+  m = await refused("update leases set deleted_at = now() where id = $1", [draft]);
+  check(m === null && refused.last.rowCount === 1, "a draft may still be removed by the PM", m);
+  check(!(await one("select id from leases where id = $1", [draft])), "and it leaves the list");
+  m = await refused("update leases set notes = 'probe note' where id = $1", [live]);
+  check(m === null && refused.last.rowCount === 1, "other writes to a live tenancy are not this guard's concern", m);
+  await asOwner();
+  m = await refused("update leases set deleted_at = now() where id = $1", [due2]);
+  check(m === null && refused.last.rowCount === 1, "a session with no signed-in caller is not this guard's subject", m);
+  const g = await one(
+    `select has_function_privilege('authenticated', 'guard_lease_soft_delete()', 'EXECUTE') a,
+            has_function_privilege('anon', 'guard_lease_soft_delete()', 'EXECUTE') b`);
+  check(!g.a && !g.b, "the removal guard is not executable by a client role");
+  await as(pm.id);
+  m = await refused("update leases set deleted_at = null where id = $1", [due2]);
+  check(/cannot be restored/.test(m ?? "") || (m === null && refused.last.rowCount === 0),
+    "a signed-in caller cannot revive it", m);
+  await asOwner();
+  check((await one("select deleted_at from leases where id = $1", [due2])).deleted_at !== null, "and it stays removed");
 } catch (e) {
   bad(`unexpected: ${e.message}`);
 } finally {
@@ -215,4 +279,4 @@ if (failures > 0) {
   console.log(`\n\x1b[31m${failures} check(s) failed.\x1b[0m`);
   process.exit(1);
 }
-console.log("\n\x1b[32mALL CHECKS PASSED — a tenancy is billed, activated, renewed and ended only on a building the caller manages, and its status moves only through those functions.\x1b[0m");
+console.log("\n\x1b[32mALL CHECKS PASSED — a tenancy is billed, activated, renewed and ended only on a building the caller manages, its status moves only through those functions, and only a draft is removed.\x1b[0m");
