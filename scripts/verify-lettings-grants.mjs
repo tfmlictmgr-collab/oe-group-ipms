@@ -212,6 +212,12 @@ console.log("\nC. Every orgs column is either allowed or deliberately excluded")
     // merchant key the platform's own configuration carries. Section B attempts
     // the write.
     "uses_platform_gateway",
+    // 0308 (2 Oct 2026): when two-factor sign-in becomes compulsory for an
+    // organisation. Set only by an OE Group operator administrator through
+    // `operator_set_mfa_enforcement`, audited in operator_actions, and NOT
+    // added to the column-level UPDATE grant, in 0308's own words: "loosening
+    // this is not the organisation's call any more than its approval ladder".
+    "mfa_enforced_from",
   ]);
 
   // ⚠️ THE CALLER'S OWN ROW. Not `.limit(1)`.

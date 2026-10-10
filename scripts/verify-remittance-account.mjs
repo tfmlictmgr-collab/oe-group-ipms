@@ -239,8 +239,12 @@ console.log("\nD. The named account is the one the posting lands on");
   });
   made.entries.push(collEntry);
 
+  // `simulated`, like the collection above: since 0320 a PAYSTACK payout is
+  // paid from the Paystack balance (gateway_clearing), not the bank, so the
+  // table's default gateway would test a different account than this section
+  // is about. A non-Paystack payout still comes off the named bank account.
   const { data: r, error: cErr } = await svc.from("remittances")
-    .insert(newRemittance()).select("id, bank_account_id").single();
+    .insert(newRemittance({ gateway: "simulated" })).select("id, bank_account_id").single();
   if (cErr) {
     bad(`could not create — ${cErr.message}`);
   } else {

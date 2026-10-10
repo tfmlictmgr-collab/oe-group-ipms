@@ -143,20 +143,34 @@ const { data: managed } = pmUser
   : { data: [] };
 const managedProps = new Set((managed ?? []).map((m) => m.property_id));
 
+// ⚠️ And a lease whose tenant can actually SIGN IN with the demo password.
+// The first candidate on staging (10 Oct 2026) belonged to a tenant whose
+// account does not take it, so "the tenancy's own tenant: could not sign in"
+// was a fact about that fixture, not the policy. Managed properties first, then
+// the rest, taking the first tenant that signs in.
 const candidates = (leases ?? []).filter((l) => chargeCount[l.id] && l.tenant_user_id);
-const lease =
-  candidates.find((l) => managedProps.has(l.property_id)) ?? candidates[0];
-if (!lease) { console.error("No OEA lease with rent charges and a tenant — cannot run."); process.exit(1); }
+const ordered = [
+  ...candidates.filter((l) => managedProps.has(l.property_id)),
+  ...candidates.filter((l) => !managedProps.has(l.property_id)),
+];
+let lease = null, tenantRow = null, tenant = null;
+for (const l of ordered) {
+  const { data: row } = await svc.from("users").select("email, deactivated_at")
+    .eq("id", l.tenant_user_id).maybeSingle();
+  if (!row?.email || row.deactivated_at) continue;
+  const s = await login(row.email);
+  if (s) { lease = l; tenantRow = row; tenant = s; break; }
+}
+if (!lease) {
+  console.error(`No OEA lease with rent charges whose tenant can sign in (${candidates.length} candidate(s)) — cannot run.`);
+  process.exit(1);
+}
 const pmHoldsProperty = managedProps.has(lease.property_id);
-
-const { data: tenantRow } = await svc
-  .from("users").select("email").eq("id", lease.tenant_user_id).maybeSingle();
 
 console.log(`\n  lease ${lease.id} · ${lease.status} · ${chargeCount[lease.id]} charge(s) · tenant ${tenantRow?.email}`);
 
 const pm = await login(PM_EMAIL);
 const finance = await login("oea.financeapprover@oegroup.test");
-const tenant = await login(tenantRow?.email);
 const owner = await login("oea.propertyowner@oegroup.test");
 const tfmlAdmin = tfml ? await login("tfml.admin@oegroup.test") : null;
 

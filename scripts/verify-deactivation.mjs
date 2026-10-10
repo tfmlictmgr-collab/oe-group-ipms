@@ -320,12 +320,29 @@ try {
    */
   const SERVICE_ROLE_ONLY = /if\s+auth\.uid\(\)\s+is\s+not\s+null\s+then\s+raise/i;
 
+  /**
+   * A function whose FIRST statement is a call to a guard helper that is
+   * itself deactivation-aware. 0320's four ledger movements (bank charge,
+   * gateway settlement and top-up, funding an overdrawn account) each open
+   * with `b := ledger_movement_bank(...)`, which refuses a deactivated caller
+   * (`current_user_is_active()`) and anyone but the two payment desks before
+   * anything is written. Read as a rule, not a list of names: the helper must
+   * pass AWARE on its own live body, and the call must be the first thing the
+   * function does, so a helper reached after a write does not count.
+   */
+  const awareHelpers = new Set(fns.filter((r) => AWARE.test(r.def)).map((r) => r.proname));
+  const opensWithAwareHelper = (def) => {
+    const first = /\bbegin\s+([^;]*;)/i.exec(def)?.[1] ?? "";
+    return [...awareHelpers].some((h) => new RegExp(`\\b${h}\\s*\\(`).test(first));
+  };
+
   const unaware = fns
     .filter((r) =>
       r.ret !== "trigger" &&
       !EXEMPT.has(r.proname) &&
       !AWARE.test(r.def) &&
-      !SERVICE_ROLE_ONLY.test(r.def))
+      !SERVICE_ROLE_ONLY.test(r.def) &&
+      !opensWithAwareHelper(r.def))
     .map((r) => r.proname);
 
   unaware.length === 0
