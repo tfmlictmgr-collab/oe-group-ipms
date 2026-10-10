@@ -82,7 +82,14 @@ const DELETE_TABLES = new Set([
   "service_charges", "invitations", "tickets", "leases", "tenant_applications",
   "rent_charges", "payment_intents", "vendor_users", "offline_payment_claims",
   "vendor_registrations", "vendor_documents",
+  // A landlord's or stakeholder's link to a building: it is the person's, not
+  // the building's. The building stays.
+  "property_stakeholders",
 ]);
+// Pointers that record WHO is somewhere rather than who did something. The row
+// is real and stays; the pointer is cleared, as end_tenancy does when it frees
+// a unit (0200), so the unit reads vacant.
+const CLEAR_COLS = new Set(["units.occupant_user_id"]);
 const ACTOR_COL = /(^|_)(created|updated|reviewed|approved|invited|verified|decided|raised|submitted|assigned|set|confirmed|recorded|resolved|released|actor)(_by|_user_id)?$|^(created_by|updated_by|assigned_to_user_id)$/;
 
 const c = new pg.Client({ host: env.SUPABASE_DB_HOST, port: +env.SUPABASE_DB_PORT, database: env.SUPABASE_DB_NAME, user: env.SUPABASE_DB_USER, password: env.SUPABASE_DB_PASSWORD, ssl: { rejectUnauthorized: false } });
@@ -293,6 +300,7 @@ if ((!problems.length && (ids.length || vendorIds.length || toMarkUsers.length |
       continue;
     }
     if (DELETE_TABLES.has(child)) { await step(`delete ${child} via ${col}`, `delete from ${child} where "${col}" = any($1::uuid[])`, [ids]); continue; }
+    if (CLEAR_COLS.has(`${child}.${col}`) && f.nullable) { await step(`clear ${child}.${col}`, `update ${child} set "${col}"=null where "${col}" = any($1::uuid[])`, [ids]); continue; }
     if (ACTOR_COL.test(col) && f.nullable) { await step(`clear ${child}.${col}`, `update ${child} set "${col}"=null where "${col}" = any($1::uuid[])`, [ids]); continue; }
     problems.push(`UNCLASSIFIED: ${child}.${col} holds ${n} row(s) pointing at a target. Say whether to delete them or clear the pointer.`);
   }
