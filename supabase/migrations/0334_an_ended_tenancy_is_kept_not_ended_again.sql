@@ -24,10 +24,12 @@ declare
   fn regprocedure := 'public.guard_lease_soft_delete()'::regprocedure;
   d text;
   acl_before text;
-  o text := $o$    if new.deleted_at is not null then
-      raise exception 'A tenancy that has been live is a record and cannot be deleted. End it with End tenancy instead.';$o$;
-  n text := $n$    if new.deleted_at is not null then
-      if old.status in ('active', 'renewed') then
+  -- Anchored on the statement, not the lines around it. The first draft of
+  -- this swap matched indented lines and the live body's layout differed from
+  -- 0332's file on dev and staging, so the swap refused, correctly. The
+  -- statement is the same whatever the indentation.
+  o text := $o$raise exception 'A tenancy that has been live is a record and cannot be deleted. End it with End tenancy instead.';$o$;
+  n text := $n$if old.status in ('active', 'renewed') then
         raise exception 'A tenancy that has been live is a record and cannot be deleted. End it with End tenancy instead.';
       end if;
       -- 0334. Expired or terminated, so End tenancy would refuse it too.
@@ -36,6 +38,11 @@ begin
   select replace(pg_get_functiondef(p.oid), E'\r', ''), p.proacl::text
     into d, acl_before
     from pg_proc p where p.oid = fn;
+  -- The new sentence must be absent (the swap's own output contains `o` once,
+  -- so the count alone would let it run twice) and `o` present exactly once.
+  if position('has ended and is kept as part of the record' in d) > 0 then
+    raise exception '0334 guard_lease_soft_delete — already carries the ended-tenancy refusal';
+  end if;
   if (length(d) - length(replace(d, o, ''))) / length(o) <> 1 then
     raise exception '0334 guard_lease_soft_delete — expected its deletion refusal exactly once';
   end if;
