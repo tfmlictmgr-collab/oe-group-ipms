@@ -252,7 +252,13 @@ try {
   const draft = m === null ? refused.last.rows[0].id : null;
   m = await refused("update leases set deleted_at = now() where id = $1", [draft]);
   check(m === null && refused.last.rowCount === 1, "a draft may still be removed by the PM", m);
-  check(!(await one("select id from leases where id = $1", [draft])), "and it leaves the list");
+  // Not "the PM can no longer read it": `leases_write` (0090) is FOR ALL, so its
+  // USING also admits SELECT, and the letting desk still reads its own
+  // property's removed rows. The lists filter `deleted_at` themselves.
+  await asOwner();
+  check((await one("select deleted_at from leases where id = $1", [draft]))?.deleted_at !== null,
+    "and it is marked removed");
+  await as(pm.id);
   m = await refused("update leases set notes = 'probe note' where id = $1", [live]);
   check(m === null && refused.last.rowCount === 1, "other writes to a live tenancy are not this guard's concern", m);
   await asOwner();
