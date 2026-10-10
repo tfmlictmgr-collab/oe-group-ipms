@@ -130,7 +130,11 @@ for (const c of allCharges ?? []) chargeCount[c.lease_id] = (chargeCount[c.lease
 // chosen at random exercises whichever branch it happens to land on; this one
 // is chosen to exercise the branch under test, and §B/§C still assert the RULE
 // (does what they read agree with what they hold) rather than the instance.
-const PM_EMAIL = "oea.facilitymanager@oegroup.test";
+// ⚠️ The PROPERTY manager, not the facilities manager (10 Oct 2026). Decision
+// 29 / 0314 took lease reads off the facilities manager (they maintain plant;
+// the property manager lets), and this suite went on signing in as the FM and
+// expecting the rent roll — red for the rule working, not for a fault.
+const PM_EMAIL = "oea.pm@oegroup.test";
 const { data: pmUser } = await svc
   .from("users").select("id").eq("email", PM_EMAIL).maybeSingle();
 const { data: managed } = pmUser
@@ -150,7 +154,7 @@ const { data: tenantRow } = await svc
 
 console.log(`\n  lease ${lease.id} · ${lease.status} · ${chargeCount[lease.id]} charge(s) · tenant ${tenantRow?.email}`);
 
-const pm = await login("oea.facilitymanager@oegroup.test");
+const pm = await login(PM_EMAIL);
 const finance = await login("oea.financeapprover@oegroup.test");
 const tenant = await login(tenantRow?.email);
 const owner = await login("oea.propertyowner@oegroup.test");

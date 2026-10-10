@@ -121,6 +121,8 @@ const REVIEWED_FUNCTIONS = new Set([
   "offline_allocatable_charges", "write_offline_claim_allocations", "may_read_offline_claim",
   "current_user_may_attach_property", "current_user_scoped_vendor_ids",
   "correct_lease_terms", "correct_rent_charge", "reopen_sc_budget_for_correction",
+  // 0330: leases.write plus the place clause, and the Owner Rep refused by name.
+  "raise_rent_charge", "activate_lease", "end_tenancy", "renew_lease",
   // service-role only, or no data
   "system_recommend_application", "b7_grants",
   // names the managers of a property — no money, no tenant data

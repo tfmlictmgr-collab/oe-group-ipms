@@ -223,6 +223,67 @@ try {
     [budget.id]
   );
   check(trail?.reason === "budget total keyed wrongly", "the audit trail records why");
+
+  section("F. A record with a tenant or money on it is not hidden (0332)");
+  await as(pm.id);
+  m = await refused("update leases set deleted_at = now() where id = $1", [lease.id]);
+  check(/cannot be deleted/.test(m ?? ""), "a live tenancy cannot be soft-deleted by a direct write", m);
+  m = await refused(
+    `insert into leases (org_id, property_id, unit_id, tenant_name, start_date, end_date, rent_amount, rent_frequency)
+     values ($1, $2, $3, 'PROBE draft', current_date + 400, current_date + 765, 500000, 'annual') returning id`,
+    [org.id, prop.id, u2.id]
+  );
+  const draft = refused.last?.rows?.[0];
+  check(m === null && Boolean(draft), "a draft tenancy is recorded", m);
+  if (draft) {
+    m = await refused("update leases set deleted_at = now() where id = $1", [draft.id]);
+    check(m === null, "a draft that was never live can be removed", m);
+    m = await refused("update leases set deleted_at = null where id = $1", [draft.id]);
+    check(m === null, "and put back", m);
+  }
+  await asOwner();
+  await db.query("update leases set deleted_at = now() where id = $1", [lease.id]);
+  await as(pm.id);
+  m = await refused("update leases set deleted_at = null where id = $1", [lease.id]);
+  check(/cannot be restored/.test(m ?? ""), "a deleted live tenancy cannot be revived by a direct write", m);
+  await asOwner();
+  await db.query("update leases set deleted_at = null where id = $1", [lease.id]);
+
+  await as(approver.id);
+  const b2 = await one(
+    `insert into sc_budgets (org_id, property_id, period, total_amount, status)
+     values ($1, $2, $3, 300000, 'draft') returning id`,
+    [org.id, prop.id, `CORRPROBE-${crypto.randomBytes(3).toString("hex")}`]
+  );
+  const paidInv = await one(
+    `insert into service_charges (org_id, budget_id, unit_id, billing_period, amount, status, property_or_unit)
+     values ($1, $2, $3, 'probe', 150000, 'invoiced', 'probe') returning id`,
+    [org.id, b2.id, u1.id]
+  );
+  const unpaidInv = await one(
+    `insert into service_charges (org_id, budget_id, unit_id, billing_period, amount, status, property_or_unit)
+     values ($1, $2, $3, 'probe', 150000, 'invoiced', 'probe') returning id`,
+    [org.id, b2.id, u2.id]
+  );
+  await asOwner();
+  await db.query("update service_charges set amount_paid = 50000, status = 'part_paid' where id = $1", [paidInv.id]);
+  await as(pm.id);
+  m = await refused("update service_charges set deleted_at = now() where id = $1", [paidInv.id]);
+  check(/money attached/.test(m ?? ""), "a part-paid invoice cannot be withdrawn by a direct write", m);
+  m = await refused("update service_charges set deleted_at = now() where id = $1", [unpaidInv.id]);
+  check(/withdrawn with Regenerate/.test(m ?? ""), "an unpaid invoice is withdrawn only through the budget's own controls", m);
+  // Either refusal will do: RLS hides a withdrawn invoice from the manager, so
+  // the write usually matches nothing before the guard is even asked.
+  m = await refused("update service_charges set deleted_at = null where id = $1 returning id", [inv.id]);
+  check(/cannot be revived/.test(m ?? "") || (m === null && refused.last.rowCount === 0),
+    "a withdrawn invoice cannot be revived by a direct write", m);
+  m = await refused("select retire_service_charges_for_regenerate($1)", [b2.id]);
+  check(/money attached/.test(m ?? ""), "Regenerate refuses a budget whose invoice has money on it", m);
+  await asOwner();
+  await db.query("update service_charges set amount_paid = 0, status = 'invoiced' where id = $1", [paidInv.id]);
+  await as(pm.id);
+  m = await refused("select retire_service_charges_for_regenerate($1)", [b2.id]);
+  check(m === null, "and still withdraws an untouched budget's invoices", m);
 } catch (e) {
   bad(`unexpected: ${e.message}`);
 } finally {
