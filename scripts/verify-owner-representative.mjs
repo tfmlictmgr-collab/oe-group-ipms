@@ -105,7 +105,6 @@ const REVIEWED_POLICIES = {
   "sc_budgets.sc_budgets_delete": "gated",
   "service_charges.service_charges_insert": "gated",
   "service_charges.service_charges_update": "gated",
-  "tenant_applications.tenant_applications_staff_update": "gated",
 };
 const REVIEWED_FUNCTIONS = new Set([
   // refused for the Owner Rep in their own body (0327)

@@ -15,8 +15,9 @@ import { getSessionProfile } from "@/lib/auth";
 // `records.export` on for that org.
 //
 // Files are read through the CALLER's own session, not the service role —
-// the storage policies that already scope `application-documents` and
-// `vendor-documents` to the caller's own org are the boundary; this route
+// the storage policies that scope `application-documents` to the
+// application's reviewers and `vendor-documents` to the vendor and the vendor
+// desk (0331) are the boundary; this route
 // adds nothing to what those policies already allow one document at a time,
 // it only bundles them.
 export const runtime = "nodejs";
