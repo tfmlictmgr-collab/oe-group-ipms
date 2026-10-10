@@ -345,10 +345,26 @@ console.log("\n5. Disbursement — per distinct payee, the ledger once, no doubl
     ? ok("the accrual posts exactly once, for the FULL ₦7,500 requisition total — not per remittance")
     : bad(`postings were ${JSON.stringify(postings)}`);
 
+  // ⚠️ Since 0311 a payout still `queued` (created, never claimed for sending)
+  // is one that never left: a second attempt closes it as failed and releases
+  // its lines, so a refused "Send through Paystack" can be tried again. That
+  // is safe because sending is create → claim → send in one request, and
+  // `claim_remittance_for_sending` refuses anything not `queued`, so the closed
+  // one can never go out. The money question is therefore asked of a payout
+  // that HAS been claimed: the same lines must not be paid again.
+  if (rem1) {
+    const { error: claimErr } = await svc.rpc("claim_remittance_for_sending", { p_id: rem1, p_sent_by: finance.id });
+    claimErr ? bad(`could not claim the first payout — ${claimErr.message.slice(0, 70)}`) : ok("the first payout is claimed for sending");
+  }
   const { error: doubleErr } = await svc.rpc("create_requisition_vendor_remittance", {
     p_requisition_id: reqId, p_vendor_id: vendor.id, p_reference: `REM3-${S}`, p_executed_by: finance.id,
   });
-  doubleErr ? ok("a second attempt on already-settled lines is refused") : bad("!!! THE SAME LINES WERE DISBURSED TWICE");
+  doubleErr ? ok("a second attempt on lines whose payout is being sent is refused") : bad("!!! THE SAME LINES WERE DISBURSED TWICE");
+  const { data: live } = await svc.from("remittances").select("id, status")
+    .in("id", [rem1].filter(Boolean)).neq("status", "failed");
+  (live ?? []).length === 1
+    ? ok("and exactly one live payout holds them")
+    : bad(`expected one live payout for these lines, found ${JSON.stringify(live)}`);
 
   // Maker-checker: the stage-3 approver cannot also be the one who sends.
   const { data: reqId2 } = await opsClient.rpc("raise_ops_requisition", {

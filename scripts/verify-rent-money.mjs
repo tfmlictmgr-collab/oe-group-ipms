@@ -148,9 +148,17 @@ let charge, entryId;
     byPurpose[k] = (byPurpose[k] ?? 0) + Number(p.amount);
   }
 
-  byPurpose.client_funds === RENT
-    ? ok(`the bank is debited the full receipt (${naira(RENT)})`)
-    : bad(`bank posting was ${byPurpose.client_funds}`);
+  // ⚠️ Since 0320 (decision 64) an online collection waits at the gateway until
+  // it settles: a Paystack or Flutterwave receipt is debited to that gateway's
+  // clearing account, not the bank. This check asked for the bank and had been
+  // red since that migration — asserting the rule decision 64 replaced. It now
+  // asks for the account the money is actually held in, read from the intent.
+  const { data: paidVia } = await svc
+    .from("payment_intents").select("gateway").eq("id", intentId).single();
+  const heldIn = ["paystack", "flutterwave"].includes(paidVia?.gateway) ? "gateway_clearing" : "client_funds";
+  byPurpose[heldIn] === RENT
+    ? ok(`the full receipt (${naira(RENT)}) is held in ${heldIn === "gateway_clearing" ? `${paidVia.gateway}'s clearing account until it settles` : "the bank"}`)
+    : bad(`the ${heldIn} posting was ${byPurpose[heldIn]}, expected ${RENT}`);
 
   byPurpose.fee_income === -TOTAL_FEE
     ? ok(`the fee is credited to fee income (${naira(TOTAL_FEE)}) — it no longer sits in the landlord's balance`)

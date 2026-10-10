@@ -366,6 +366,9 @@ console.log("\nE. Every role has somewhere to land");
     // exists.
     payment_audit_approver: "/dashboard",
     payment_approver: "/dashboard",
+    // 0327. The Owner Rep lands on Requests — every request on the properties
+    // they represent. They have no portfolio home: that is the landlord's.
+    owner_representative: "/dashboard",
   };
   const uncovered = ROLES.filter((r) => !HOME[r]);
   uncovered.length === 0

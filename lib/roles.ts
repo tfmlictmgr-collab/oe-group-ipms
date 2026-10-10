@@ -36,6 +36,9 @@ const BASE_LABELS: Record<string, string> = {
   // 0306/0307. OEA only — see OEA_ONLY_ROLES. The identifier is NOT
   // `executive`, which on OEA is the Managing Partner.
   operations_executive: "Executive",
+  // 0325/0327. Third-party oversight on a property owner's behalf. Sees every
+  // request on the properties they represent and no money at all.
+  owner_representative: "Owner Rep",
 };
 
 // Per-brand overrides. Only where the brand genuinely changes the job title.
@@ -112,6 +115,18 @@ export const OVERSIGHT_ROLES = [
   "payment_approver",
 ] as const;
 
+/** The Owner Rep (0327): reads its own properties' requests and never money. */
+export const OWNER_REP = "owner_representative";
+
+/**
+ * Does this role see no money at all? Asked by every money screen as well as
+ * RLS — the database is the boundary (0327), this keeps the screen from
+ * rendering an empty money panel that reads as "nothing billed".
+ */
+export function seesNoMoney(role: string | null | undefined): boolean {
+  return role === OWNER_REP;
+}
+
 /** Does this role hold org-wide sight of money and the audit trail? */
 export function isOversight(role: string | null | undefined): boolean {
   return (OVERSIGHT_ROLES as readonly string[]).includes(role ?? "");
@@ -159,6 +174,7 @@ export const INVITABLE_ROLES = [
   "payment_audit_approver",
   "payment_approver",
   "property_owner",
+  "owner_representative",
   "tenant",
   "vendor",
   "viewer",
@@ -205,6 +221,9 @@ export const ROLE_RANK: Record<string, number> = {
   property_manager: 50,
   fm_ops_staff: 30,
   property_owner: 20,
+  // 0327. Below a landlord, above the read-only observer — so an FM/PM may
+  // invite one onto a property they hold, as they may a landlord.
+  owner_representative: 18,
   viewer: 15,
   vendor: 10,
   tenant: 10,
@@ -323,6 +342,8 @@ export const ROLE_HINTS: Partial<Record<string, string>> = {
   payment_approver:
     "The chief accounting officer. Gives final approval on outbound payments (bounded by an amount rather than a place — give them a tier: 1 up to the tier-1 limit, 2 up to the approval limit, 3 without limit) and confirms and posts a reported off-platform payment after the auditor and the executive have signed it. Reads the client-funds ledger, including online collections. Never disburses — that stays with the Payment Officer. On OEA they are the only role at the outbound stage, so the organisation needs one whose tier covers its largest payment.",
   property_owner: "Their own portfolio only — summary, statements and vendor performance.",
+  owner_representative:
+    "Oversight on a property owner's behalf. Sees the properties they are attached to, every service request on them (and may raise one), the asset register and request analytics — and no money at all: no rent, service charge, statements, payments or asset costs. Approves, assigns and closes nothing. Each of these is a switch on the operator's permission matrix.",
   regional_manager:
     // Rewritten 11 Sept 2026 — the old line ("plus inviting operational staff
     // … No financial access") had been overtaken twice: decision 26 gave the
@@ -399,4 +420,16 @@ export function roleAbbrev(role: string | null | undefined, brand?: string | nul
   if (role === "facility_manager") return "FM";
   if (role === "property_manager") return "PM";
   return roleLabel(role, brand);
+}
+
+/**
+ * Who reads the funds of the buildings they manage, read-only, under Client
+ * Funds (requested 9 Oct 2026). The data has been theirs since 0249 through
+ * `property_finance_roles()`; this only decides who is offered the screen.
+ * ⚠️ A role list, not a capability: ledger read is non-delegable (decision 7).
+ */
+export const PROPERTY_FUND_READERS: readonly string[] = ["property_manager"];
+
+export function readsPropertyFunds(role: string | null | undefined): boolean {
+  return PROPERTY_FUND_READERS.includes(role ?? "");
 }

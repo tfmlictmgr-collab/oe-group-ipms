@@ -176,8 +176,12 @@ export default async function TicketDetailPage({
   //
   // `canEvaluate` below is unchanged: both still evaluate, and a tenant who
   // somehow held management authority is staff for this purpose.
+  // 0327: an Owner Rep who raised a request is not its tenant — the
+  // satisfaction rating belongs to the person who lives with the work (0220
+  // refuses it from anyone else), and an Owner Rep rates nothing.
   const isTenant =
-    Boolean(t.sender_id) && t.sender_id === session.user.id && !canManage;
+    Boolean(t.sender_id) && t.sender_id === session.user.id && !canManage &&
+    session.profile?.role !== "owner_representative";
   const isDone = DONE_STATES.includes(t.status);
   const canEvaluate = t.assigned_vendor_id != null && isDone && (isTenant || canManage);
 

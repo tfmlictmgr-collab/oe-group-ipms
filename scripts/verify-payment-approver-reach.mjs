@@ -131,7 +131,11 @@ if (auditor) {
 // round it went — and keeps the check two-directional, which is what would
 // catch a third exception appearing without a decision behind it.
 console.log("\n\x1b[1m§B The two desks' capabilities, and the named few that differ\x1b[0m");
-const OFFICER_ONLY = ["payments.record_offline"];   // 0281, decision 45
+// `payments.verify_service` (0312, 3 Oct 2026): the baseline is every role the
+// invoice screen offered "Service verified" and "Run performance check" to,
+// which included the payment officer and never the payment approver.
+const OFFICER_ONLY = ["payments.record_offline",     // 0281, decision 45
+                      "payments.verify_service"];    // 0312
 const APPROVER_ONLY = ["sc.manage"];                // 0293, 13 Sept 2026
 const capsFor = async (role) => {
   const { data } = await svc.rpc("b7_baseline");

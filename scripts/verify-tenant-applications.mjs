@@ -221,7 +221,10 @@ console.log("\nH. Retention purges the person, keeps the decision");
     decided_at: new Date().toISOString(),
     decision_notes: "probe rejection",
     // 90 days is the rule; dated in the past here so the purge is exercised.
-    purge_after: new Date(Date.now() - 1000).toISOString(),
+    // A day back, not a second: the purge compares against the DATABASE's
+    // now(), and a laptop running a few seconds fast made "one second ago" a
+    // future date, so nothing was purged and three checks failed together.
+    purge_after: new Date(Date.now() - 86_400_000).toISOString(),
   }).eq("id", appId);
 
   const { data: purged, error } = await svc.rpc("purge_expired_applications");

@@ -227,6 +227,9 @@ export async function createAsset(
     if (f.type === "number") {
       const n = Number(String(v).replace(/[,\s₦]/g, ""));
       if (!Number.isFinite(n) || n < 0) return fail(`${f.label} must be a positive number.`);
+      if (f.key === "quantity" && (!Number.isInteger(n) || n < 1 || n > 1000000)) {
+        return fail("Quantity is a whole number, at least 1.");
+      }
       row[f.key] = n;
     } else if (f.type === "boolean") {
       row[f.key] = v === "true" || v === "yes" || v === "on";
@@ -259,6 +262,31 @@ export async function createAsset(
 
   revalidatePath("/dashboard/assets");
   return ok(data.id as string);
+}
+
+/**
+ * Sets how many identical items a register row stands for (0326). Runs in the
+ * caller's session, so `assets_update` decides who may; `.select()` because an
+ * UPDATE that RLS declines matches nothing and raises nothing (decision 38).
+ */
+export async function setAssetQuantity(assetId: string, raw: string): Promise<ActionResult> {
+  const n = Number(String(raw).replace(/[,\s]/g, ""));
+  if (!Number.isInteger(n) || n < 1 || n > 1000000) {
+    return fail("Quantity is a whole number, at least 1.");
+  }
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("assets")
+    .update({ quantity: n })
+    .eq("id", assetId)
+    .select("id");
+  if (error) return failFromDb(error, "update the quantity");
+  if (!data || data.length === 0) {
+    return fail("You cannot change this asset.", "Only the managers of its property may edit the register.");
+  }
+  revalidatePath(`/dashboard/assets/${assetId}`);
+  revalidatePath("/dashboard/assets");
+  return ok();
 }
 
 export async function archiveAsset(assetId: string): Promise<ActionResult> {

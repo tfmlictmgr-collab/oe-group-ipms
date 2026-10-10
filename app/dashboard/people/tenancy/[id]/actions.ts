@@ -533,9 +533,9 @@ export async function contestFinding(
 
 /**
  * A short-lived link to a private attachment. The storage policy
- * (`staff read their org documents`) already gates this to the caller's own
- * org — a signed URL is a convenience for the browser, not the security
- * boundary.
+ * (`staff read their org documents`) admits only a caller who can read the
+ * attachment's application — its reviewers (0331) — so a signed URL is a
+ * convenience for the browser, not the security boundary.
  */
 export async function getAttachmentUrl(
   storagePath: string,

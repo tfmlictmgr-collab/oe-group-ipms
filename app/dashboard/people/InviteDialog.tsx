@@ -59,7 +59,9 @@ export default function InviteDialog({
 
   // Attaché assignment only applies to the roles that are scoped to properties.
   const needsProperties =
-    (FM_PM as readonly string[]).includes(role) || role === "property_owner";
+    (FM_PM as readonly string[]).includes(role) || role === "property_owner" ||
+    // 0327. An Owner Rep is invited to the properties they represent.
+    role === "owner_representative";
   // A regional manager is scoped to a NODE, not a list of properties — the
   // whole point (0067) is that they reach everything beneath it, including
   // properties filed later, without ever being re-assigned.
@@ -136,7 +138,8 @@ export default function InviteDialog({
           role,
           fullName,
           propertyIds: needsProperties ? propertyIds : [],
-          propertyRelation: role === "property_owner" ? "owner" : "manager",
+          propertyRelation:
+            role === "property_owner" ? "owner" : role === "owner_representative" ? "representative" : "manager",
           nodeId: needsNode ? nodeId || null : null,
           unitId: needsUnit ? unitId || null : null,
           vendorId: needsVendor ? vendorId || null : null,
@@ -317,7 +320,11 @@ export default function InviteDialog({
           {needsProperties && (
             <div className="space-y-2">
               <Label>
-                {role === "property_owner" ? "Properties owned" : "Properties attached to"}
+                {role === "property_owner"
+                  ? "Properties owned"
+                  : role === "owner_representative"
+                    ? "Properties they represent"
+                    : "Properties attached to"}
               </Label>
               <p className="text-xs text-muted-foreground">
                 This is the attaché assignment — it decides exactly which

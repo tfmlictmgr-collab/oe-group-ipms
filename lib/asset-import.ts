@@ -205,6 +205,10 @@ export function validateAssetCsv(text: string, ctx: ImportContext): {
           issues.push({ column: f.key, message: `Expected a positive number (got "${v}").` });
         } else if (f.key === "expected_life_years" && !Number.isInteger(n)) {
           issues.push({ column: f.key, message: "Expected a whole number of years." });
+        } else if (f.key === "quantity" && (!Number.isInteger(n) || n < 1 || n > 1000000)) {
+          // 0326: `assets_quantity_positive` refuses anything else; said here
+          // first so the preview never approves a row the insert will refuse.
+          issues.push({ column: f.key, message: "Quantity is a whole number, at least 1." });
         } else values[f.key] = n;
       } else if (f.type === "boolean") {
         const low = v.toLowerCase();

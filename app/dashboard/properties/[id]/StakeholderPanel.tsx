@@ -12,13 +12,15 @@ import { setPropertyStakeholder } from "../actions";
 
 type Candidate = { id: string; name: string; email?: string | null; role: string; roleName: string };
 
+type Relation = "manager" | "owner" | "representative";
+
 export default function StakeholderPanel({
   propertyId, brand, candidates, attached, canWrite, opensProfiles = false,
 }: {
   propertyId: string;
   brand: string | null;
   candidates: Candidate[];
-  attached: { userId: string; relation: "manager" | "owner" }[];
+  attached: { userId: string; relation: Relation }[];
   canWrite: boolean;
   opensProfiles?: boolean;
 }) {
@@ -27,9 +29,12 @@ export default function StakeholderPanel({
   const [query, setQuery] = React.useState("");
   const [attachedOnly, setAttachedOnly] = React.useState(false);
 
-  const isAttached = (userId: string, relation: "manager" | "owner") =>
+  const isAttached = (userId: string, relation: Relation) =>
     attached.some((a) => a.userId === userId && a.relation === relation);
-  const relationOf = (c: Candidate) => (c.role === "property_owner" ? "owner" : "manager");
+  // 0327: an Owner Rep is attached as the property's representative — never as
+  // its owner, whom every landlord reader would then take them for.
+  const relationOf = (c: Candidate): Relation =>
+    c.role === "property_owner" ? "owner" : c.role === "owner_representative" ? "representative" : "manager";
 
   // Asked for directly (11 Sept 2026): every manager and owner in the org is a
   // candidate here, so on a real portfolio the list runs to dozens and the one
@@ -49,7 +54,7 @@ export default function StakeholderPanel({
   }, [candidates, attached, query, attachedOnly]);
   const attachedCount = candidates.filter((c) => isAttached(c.id, relationOf(c))).length;
 
-  async function toggle(c: Candidate, relation: "manager" | "owner") {
+  async function toggle(c: Candidate, relation: Relation) {
     const key = `${c.id}:${relation}`;
     setBusy(key);
     try {

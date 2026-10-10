@@ -20,6 +20,7 @@ import {
 import GenerateButton from "./GenerateButton";
 import ApportionmentControls from "./ApportionmentControls";
 import BudgetCorrection from "./BudgetCorrection";
+import ReissueBudget from "./ReissueBudget";
 
 const METHOD_LABEL: Record<ApportionMethod, string> = {
   area: "pro-rata by occupied space",
@@ -153,6 +154,14 @@ export default async function BudgetDetailPage({
         description={[property?.name, budget.description, budget.period].filter(Boolean).join(" · ")}
         actions={
           <div className="flex items-center gap-1">
+            {/* 0329: fix the inputs, re-issue. */}
+            {canManage && budget.status === "invoiced" && (
+              <ReissueBudget
+                budgetId={budget.id}
+                totalAmount={Number(budget.total_amount)}
+                description={budget.description}
+              />
+            )}
             {canManage && (
               <BudgetCorrection
                 budgetId={budget.id}

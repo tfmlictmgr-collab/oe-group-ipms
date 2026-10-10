@@ -1,9 +1,11 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Inbox } from "lucide-react";
 import { getSessionProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/patterns/page-header";
+import { EmptyState } from "@/components/patterns/empty-state";
+import { OWNER_REP } from "@/lib/roles";
 import { Button } from "@/components/ui/button";
 import NewRequestForm from "./NewRequestForm";
 
@@ -44,6 +46,7 @@ export default async function NewRequestPage({
   // which the nav does not offer them, so "Back" used to lead somewhere they
   // had no route to.
   const isTenant = session.profile?.role === "tenant";
+  const isOwnerRep = session.profile?.role === OWNER_REP;
   const back = isTenant ? "/dashboard/my-requests" : "/dashboard";
 
   // ── Only ever a LIST TO PICK FROM (0273) ────────────────────────────────
@@ -56,6 +59,27 @@ export default async function NewRequestPage({
   // anyway: a tenant's own live tenancies, or a landlord/staff member's own
   // reachable properties.
   const supabase = await createClient();
+
+  // 0327. An Owner Rep raises only while their switch is on. The policy is the
+  // boundary; this says so before they type a description.
+  if (isOwnerRep) {
+    const { data: mayRaise } = await supabase.rpc("has_permission", {
+      p_capability: "owner_rep.requests_raise",
+    });
+    if (!mayRaise) {
+      return (
+        <div className="mx-auto max-w-2xl space-y-6">
+          <PageHeader title="New Service Request" />
+          <EmptyState
+            icon={<Inbox />}
+            title="Raising requests is not turned on for your role"
+            description="You can follow every request on the properties you represent from Requests."
+          />
+        </div>
+      );
+    }
+  }
+
   let tenancyOptions: { id: string; label: string }[] = [];
   let propertyOptions: { id: string; label: string; propertyId?: string }[] = [];
   let unitOptions: { id: string; label: string; propertyId?: string }[] = [];
@@ -135,6 +159,7 @@ export default async function NewRequestPage({
         initialMessage={prefill}
         initialCategory={prefillCategory}
         initialLeaseId={tenancyOptions.length > 0 ? prefillLeaseId : ""}
+        propertyRequired={isOwnerRep}
       />
     </div>
   );

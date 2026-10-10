@@ -87,6 +87,12 @@ export const ASSET_FIELDS: AssetField[] = [
     hint: "Model number.", example: "2506A-E15" },
   { key: "serial_number", label: "Serial number", type: "text", group: "identity",
     hint: "Manufacturer serial.", example: "8841207" },
+  // 0326. How many identical items this row stands for — twelve office chairs,
+  // four split units. Plant serviced, metered or certified on its own (a
+  // generator, a lift) belongs on its own row with its own tag.
+  { key: "quantity", label: "Quantity", type: "number", group: "identity",
+    hint: "Whole number, at least 1. Defaults to 1. Give plant that is serviced or certified individually its own row.",
+    example: "1" },
 
   // Location
   { key: "property_name", label: "Property", type: "text", required: true, group: "location",

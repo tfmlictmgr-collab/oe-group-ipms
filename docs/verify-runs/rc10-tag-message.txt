@@ -1,0 +1,18 @@
+v1.0.0-rc10
+
+An Owner Rep oversees a building and sees no money (0325, 0327). Mistaken
+tenancy terms, rent demands and budgets are corrected with a reason, on the
+audit trail (0329). An allocated unit can be let to its occupant (0328). A
+tenancy moves only through its own functions, on buildings the caller
+manages (0330); applicant and vendor documents are read only by their
+reviewers (0331); a tenancy that has been live, or an invoice with money on
+it, cannot be hidden (0332, 0334). A voided budget frees its period on every
+world, and the suite that kept stripping that index restores what it found
+(0335). The triage prompt loads from a CRLF checkout.
+
+- 0.2: CI types, lint, build green on the PR head.
+- 0.3: 142 of 142 against staging - 141 in one full run, people-directory
+  under the runner after it (killed at 300 s; 294 s with the slow-suite
+  budget). docs/verify-runs/rc10-20261010.md.
+- 0.4 / 0.5: self-assessment and npm audit not re-run for this cut.
+- Migrations for production: 0325 to 0335 (ledger 345 to 356, highest 0335).

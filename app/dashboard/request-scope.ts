@@ -39,7 +39,11 @@ const DESK_FIRST: readonly string[] = [...FM_PM, "regional_manager", "fm_ops_sta
  * list is unfiltered and RLS-scoped, so anything they raised already appears
  * there beside the jobs dispatched to them.
  */
-const CAN_RAISE: readonly string[] = [...DESK_FIRST, "admin", "operations_executive"];
+const CAN_RAISE: readonly string[] = [
+  ...DESK_FIRST, "admin", "operations_executive",
+  // 0327. An Owner Rep may raise a request on a property they represent.
+  "owner_representative",
+];
 
 /**
  * ⚠️ The landing view is "desk", NOT "mine".
@@ -72,6 +76,9 @@ export function scopesFor(role: string | null | undefined): RequestScope[] {
   // 0309. The Executive raises and is dispatched work like an FM, over the
   // whole organisation — so "All" is their desk, with their own two views.
   if (r === "operations_executive") return ["all", "mine", "raised"];
+  // 0327. "All" is already only their own properties: RLS gives an Owner Rep
+  // nothing else.
+  if (r === "owner_representative") return ["all", "raised"];
   return [];
 }
 
@@ -103,5 +110,6 @@ export function scopeLabel(scope: RequestScope, role: string | null | undefined)
   if (scope === "properties") {
     return role === "regional_manager" ? "In my region" : "On my properties";
   }
+  if (role === "owner_representative") return "On my properties";
   return "All";
 }

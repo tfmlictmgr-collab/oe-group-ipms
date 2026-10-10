@@ -13,6 +13,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { OPS_MANAGERS, OWNER_REP } from "@/lib/roles";
+import OwnerRepAsset from "./OwnerRepAsset";
+import QuantityEditor from "./QuantityEditor";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -34,6 +37,11 @@ export default async function AssetDetailPage({
   const { id } = await params;
   const session = await getSessionProfile();
   if (!session) redirect("/login");
+
+  // 0327. An Owner Rep never reads the asset table, which carries purchase,
+  // replacement and insured values, so they get the cost-free view.
+  if (session.profile?.role === OWNER_REP) return <OwnerRepAsset id={id} />;
+  const canWrite = ["admin", ...OPS_MANAGERS].includes(session.profile?.role ?? "");
 
   const supabase = await createClient();
   // ⚠️ The FK is NAMED, and the error is NOT discarded. Both halves of a live
@@ -190,6 +198,11 @@ export default async function AssetDetailPage({
             <Field label="Property">{property?.name}</Field>
             <Field label="Unit">{unit?.label ?? "Building-wide"}</Field>
             <Field label="Location">{asset.location_detail}</Field>
+            <Field label="Quantity">
+              {canWrite
+                ? <QuantityEditor assetId={asset.id} quantity={Number(asset.quantity ?? 1)} />
+                : Number(asset.quantity ?? 1).toLocaleString()}
+            </Field>
             <Field label="Manufacturer">{asset.manufacturer}</Field>
             <Field label="Model">{asset.model}</Field>
             <Field label="Serial number">

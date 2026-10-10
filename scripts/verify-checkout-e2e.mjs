@@ -25,6 +25,7 @@
 // through.
 //
 // Usage: node scripts/verify-checkout-e2e.mjs
+import { createRequire } from "node:module";
 import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
@@ -262,9 +263,16 @@ console.log("\nG. The receipt is not public");
 
 console.log("\nH. A receipt renders, and carries the verified figures");
 {
-  const { renderToBuffer } = await import("@react-pdf/renderer");
-  const React = (await import("react")).default;
+  // The receipt module runs under tsx as CommonJS, so it requires its own
+  // copy of @react-pdf; an ESM `import()` here would load a SECOND copy, whose
+  // Font registry never saw `registerPdfFonts()`, and rendering fails with
+  // "Font family not registered: DejaVuSans" although the app is fine (its
+  // route imports both statically into one bundle). Require them the same way
+  // the receipt does, so there is one copy.
   const { ReceiptDocument } = await import("../lib/pdf/receipt.tsx");
+  const requireCjs = createRequire(import.meta.url);
+  const { renderToBuffer } = requireCjs("@react-pdf/renderer");
+  const React = requireCjs("react");
 
   const { data: i } = await svc.from("payment_intents")
     .select("amount_paid, ledger_entry_id, paid_at, currency").eq("id", intent.id).single();

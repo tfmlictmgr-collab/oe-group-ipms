@@ -32,7 +32,10 @@ const ROLES = [
   // request queue, which is not a small one), and an administrator could see
   // none of it.
   "payment_audit_approver", "payment_approver",
-  "property_owner", "viewer",
+  "property_owner",
+  // 0327. Its column holds its own five switches and nothing else.
+  "owner_representative",
+  "viewer",
   "executive", "admin",
 ] as const;
 
@@ -55,6 +58,7 @@ const SHORT_LABEL: Record<string, string> = {
   payment_audit_approver: "Pay auditor",
   payment_approver: "Pay approver",
   property_owner: "Owner",
+  owner_representative: "Owner Rep",
   viewer: "Read-only",
   executive: "MD / MP",
   admin: "Admin",
@@ -68,7 +72,29 @@ const SHORT_LABEL: Record<string, string> = {
 const ONLY_FOR: Record<string, readonly string[]> = {
   "requisitions.approve_within_limit": ["operations_executive"],
   "operations.org_wide": ["operations_executive"],
+  // 0327. The Owner Rep's own switches.
+  "owner_rep.properties": ["owner_representative"],
+  "owner_rep.requests_read": ["owner_representative"],
+  "owner_rep.requests_raise": ["owner_representative"],
+  "owner_rep.assets": ["owner_representative"],
+  "owner_rep.analytics": ["owner_representative"],
 };
+
+/**
+ * A role that may hold nothing but its own switches (0327). Every other cell in
+ * its column is a dash: `set_role_permission` refuses those grants and
+ * `has_permission` ignores them, so offering a switch would be offering a lie —
+ * the Owner Rep sees no money by any route, and these are the routes.
+ */
+const OWN_SWITCHES_ONLY: Record<string, string> = {
+  owner_representative: "owner_rep.",
+};
+
+function hasNoEffect(capability: string, role: string): boolean {
+  if (ONLY_FOR[capability] && !ONLY_FOR[capability].includes(role)) return true;
+  const own = OWN_SWITCHES_ONLY[role];
+  return own !== undefined && !capability.startsWith(own);
+}
 
 /** Which groups are open, remembered per browser. Collapsed by default: the
  *  matrix is long, and a group with a deviation in it opens itself. */
@@ -312,7 +338,7 @@ export default function MatrixEditor({
                             </td>
                           );
                         }
-                        if (ONLY_FOR[c.key] && !ONLY_FOR[c.key].includes(r)) {
+                        if (hasNoEffect(c.key, r)) {
                           return (
                             <td
                               key={r}

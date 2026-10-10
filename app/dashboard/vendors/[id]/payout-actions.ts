@@ -181,8 +181,9 @@ export async function listBanks() {
  * A short-lived link to a vendor's own KYC document — used here for the bank
  * letter, which is where 0164 says the full account number is read from.
  *
- * The storage policy already gates the bucket to the caller's org; the signed
- * URL is a convenience for the browser, not the security boundary. Kept narrow
+ * The storage policy admits the vendor's own users and holders of vendors.read
+ * (0331, mirroring vendor_documents_select); the signed URL is a convenience
+ * for the browser, not the security boundary. Kept narrow
  * on purpose: it signs a path, it does not list them.
  */
 export async function getVendorDocumentUrl(

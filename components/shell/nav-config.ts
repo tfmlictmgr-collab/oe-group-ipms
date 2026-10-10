@@ -85,6 +85,12 @@ export type NavContext = {
    * owner is not billed; they are paid.
    */
   isOwner: boolean;
+  /**
+   * An Owner Rep (0327): oversight on a property owner's behalf. Every request
+   * on the properties they represent, and NO money — so none of the money
+   * screens, the statements, or the role guide (asked for directly).
+   */
+  isOwnerRep: boolean;
   /** Decision 9: "Nothing financial, no org-wide read." */
   isRegionalManager: boolean;
   /**
@@ -164,6 +170,12 @@ export type NavContext = {
   seesRecords: boolean;
   /** The client-funds ledger is finance + admin only. */
   seesLedger: boolean;
+  /**
+   * The property manager's read-only Client Funds: each building they manage,
+   * its service-charge fund and the payments received for it. Their own
+   * properties only — never the client-funds account itself.
+   */
+  seesPropertyFunds: boolean;
   /**
    * An administrator of the platform operator org — the only person who may see
    * that other organisations exist (decision 12).
@@ -387,6 +399,14 @@ export const NAV_GROUPS: NavGroup[] = [
         ],
       },
       {
+        // Same name, a narrower window: the funds of the buildings a property
+        // manager holds (9 Oct 2026). Never shown beside the full ledger.
+        label: "Client Funds",
+        href: "/dashboard/property-funds",
+        icon: Scale,
+        show: (c) => c.seesPropertyFunds && !c.seesLedger,
+      },
+      {
         label: "Payments",
         href: "/dashboard/payments",
         icon: Banknote,
@@ -457,7 +477,8 @@ export const NAV_GROUPS: NavGroup[] = [
         // raise a service-charge budget could not read the invoices it produced.
         // `service_charges_select` scopes them to their own region, so what they
         // reach is the place, not the organisation.
-        show: (c) => !c.isViewer && !c.isVendor && !c.isOpsStaff,
+        // 0327. Not an Owner Rep: a statement is money, and they see none.
+        show: (c) => !c.isViewer && !c.isVendor && !c.isOpsStaff && !c.isOwnerRep,
       },
       {
         label: "Audit Trail",
@@ -494,7 +515,8 @@ export const NAV_GROUPS: NavGroup[] = [
         label: "Guide",
         href: "/dashboard/guide",
         icon: BookOpen,
-        show: () => true,
+        // Every role but the Owner Rep, who was asked for without one (0327).
+        show: (c) => !c.isOwnerRep,
       },
       {
         // The trainer's handbook, not the learner's. Gated on `training.read`
@@ -526,6 +548,7 @@ export const NAV_GROUPS: NavGroup[] = [
           { label: "Lettings", href: "/dashboard/settings/lettings", show: (c) => c.isAdmin },
           { label: "Evaluation Rubric", href: "/dashboard/settings/evaluation", show: (c) => c.isAdmin },
           { label: "AI & Classification", href: "/dashboard/settings/ai", show: (c) => c.isAdmin },
+          { label: "Help Questions", href: "/dashboard/settings/help-questions", show: (c) => c.isAdmin },
           { label: "Permissions", href: "/dashboard/settings/permissions", show: (c) => c.isAdmin },
         ],
         // A viewer still has their own notification preferences to manage; the

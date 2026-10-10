@@ -159,7 +159,12 @@ console.log("1. The organisation climbs the OEA ladder");
   const byOrder = (stages ?? []).sort((a, b) => a.stage_order - b.stage_order);
   eq("three stages", byOrder.length, 3);
   eq("stage 1 is the audit", String(byOrder[0]?.required_roles), "payment_audit_approver");
-  eq("stage 2 is the MP", String(byOrder[1]?.required_roles), "executive");
+  // 0307 (decision 59): the OEA Executive may sign stage 2 for an operations
+  // requisition at or below ops_executive_requisition_limit, never one they
+  // raised; the approval trigger enforces the limit and the payable type, so
+  // every vendor payment and landlord payout is still the MP's alone.
+  eq("stage 2 is the MP (and the OEA Executive, for small requisitions only)",
+    String(byOrder[1]?.required_roles), "executive,operations_executive");
   eq("stage 3 is the payment approver", String(byOrder[2]?.required_roles), "payment_approver");
   // AMENDED (0261). This asserted "false,false,true" - stage 3 always
   // tier-resolved. The board switched approval BANDS off by default on

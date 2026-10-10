@@ -4,7 +4,7 @@ import { getSessionProfile } from "@/lib/auth";
 import { orgForCurrentHost } from "@/lib/org-host";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/shell/app-shell";
-import { roleLabel, FM_PM, isOversight } from "@/lib/roles";
+import { roleLabel, FM_PM, isOversight, OWNER_REP, readsPropertyFunds } from "@/lib/roles";
 import type { NavContext } from "@/components/shell/nav-config";
 import { seesBi, biScope } from "./bi/scope";
 import { mfaGate } from "@/lib/mfa-gate";
@@ -209,6 +209,9 @@ export default async function DashboardLayout({
     // against the database function by the verification suite.
     seesAudit: isOversight(role),
     seesLedger: isOversight(role),
+    // The funds of the buildings they manage, read-only (9 Oct 2026). A
+    // window onto their own properties, not the client-funds account.
+    seesPropertyFunds: readsPropertyFunds(role),
     isAdmin: role === "admin",
 
     // Identity, not privilege — which home screen a person gets.
@@ -224,6 +227,9 @@ export default async function DashboardLayout({
     // a list of their own (3 Oct 2026).
     raisesRequisitions: can("requisitions.raise"),
     isOwner: role === "property_owner",
+    // 0327. Oversight on an owner's behalf: requests, properties, assets and
+    // analytics behind their own switches, and no money anywhere.
+    isOwnerRep: role === OWNER_REP,
     // Decision 9, verbatim: "Nothing financial, no org-wide read." Statements
     // is a financial screen with two branches — a per-unit tenant bill, or the
     // org-wide staff ledger — and a regional manager is entitled to neither.
@@ -251,9 +257,12 @@ export default async function DashboardLayout({
     // own building. Deriving purely from capabilities would have taken away two
     // pages that work — a regression introduced by a cleanup, which is the
     // worst kind.
-    seesProperties: can("properties.write") || can("properties.read_all") || role === "property_owner",
+    seesProperties:
+      can("properties.write") || can("properties.read_all") || role === "property_owner" ||
+      (role === OWNER_REP && can("owner_rep.properties")),
     seesAssets:
-      can("assets.read") || can("assets.write") || can("assets.import") || role === "property_owner",
+      can("assets.read") || can("assets.write") || can("assets.import") || role === "property_owner" ||
+      (role === OWNER_REP && can("owner_rep.assets")),
     seesVendors: can("vendors.read") || can("vendors.write"),
     reviewsVendorRegistrations: can("vendors.write"),
     // ⚠️ `|| isOversight(role)` added 5 Sept 2026, for the READ.
@@ -336,8 +345,9 @@ export default async function DashboardLayout({
 
     // B7 "Exec / BI dashboard" column — one definition, shared with the pages
     // themselves so the link and the page can never disagree about who may look.
-    seesBi: seesBi(role),
-    seesRequestAnalytics: biScope(role).requests,
+    // The Owner Rep's analytics are a switch of their own (0327).
+    seesBi: seesBi(role) && (role !== OWNER_REP || can("owner_rep.analytics")),
+    seesRequestAnalytics: biScope(role).requests && (role !== OWNER_REP || can("owner_rep.analytics")),
 
     // Everyone operational who is not given a personal home screen above.
     isStaff: [

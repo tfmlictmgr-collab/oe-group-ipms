@@ -120,6 +120,9 @@ const nextConfig = {
     "/api/webhooks/whatsapp/route": ["./docs/AURA_Triage_Classification_Prompt.md"],
     "/api/webhooks/telegram/route": ["./docs/AURA_Triage_Classification_Prompt.md"],
     "/dashboard/new": ["./docs/AURA_Triage_Classification_Prompt.md"],
+    // lib/pdf/fonts.ts reads these by a runtime path (₦ in PDFs, 9 Oct 2026).
+    "/api/receipts/[intentId]/route": ["./lib/pdf/fonts/*.ttf"],
+    "/api/analytics/report/route": ["./lib/pdf/fonts/*.ttf"],
   },
 
   async headers() {

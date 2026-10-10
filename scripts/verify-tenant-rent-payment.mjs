@@ -293,20 +293,25 @@ console.log("\nG. THE PRE-FIX STATE — proving section C tests something real")
     end; $fn$;
   `);
 
-  if (tenantB) {
-    const c = await login(tenantB.email);
-    const { data: sneaked, error } = await c.rpc("create_rent_payment_intent", { p_rent_charge_id: charge.id });
-    !error && sneaked
-      ? ok("without the check, the unrelated tenant DID open a link on another tenant's rent — the finding reproduced")
-      : bad(`expected the pre-fix function to allow it, but it refused: ${error?.message}`);
-    if (sneaked) await svc.from("payment_intents").delete().eq("id", sneaked);
-    await c.auth.signOut();
-  } else {
-    console.log("  (skipped — needs a second tenant)");
+  // ⚠️ Restored in `finally`: the definition installed above is the VULNERABLE
+  // pre-0110 one (any tenant can open a link on anyone's rent). A sign-in or
+  // network failure here used to end the suite with it still live.
+  try {
+    if (tenantB) {
+      const c = await login(tenantB.email);
+      const { data: sneaked, error } = await c.rpc("create_rent_payment_intent", { p_rent_charge_id: charge.id });
+      !error && sneaked
+        ? ok("without the check, the unrelated tenant DID open a link on another tenant's rent — the finding reproduced")
+        : bad(`expected the pre-fix function to allow it, but it refused: ${error?.message}`);
+      if (sneaked) await svc.from("payment_intents").delete().eq("id", sneaked);
+      await c.auth.signOut();
+    } else {
+      console.log("  (skipped — needs a second tenant)");
+    }
+  } finally {
+    await client.query(fixedDef);
+    await client.end();
   }
-
-  await client.query(fixedDef);
-  await client.end();
 
   // And the restored function refuses again — the database is left protected.
   if (tenantB) {

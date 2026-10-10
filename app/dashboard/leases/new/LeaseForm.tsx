@@ -8,7 +8,7 @@ import { Input, Select, Textarea } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { runAction, describeError } from "@/lib/run-action";
 import { Plus } from "lucide-react";
-import { createLease, vacantUnitsFor } from "../actions";
+import { createLease, lettableUnitsFor, type LettableUnit } from "../actions";
 import { saveUnit } from "../../properties/actions";
 
 type Option = { id: string; label: string };
@@ -58,7 +58,7 @@ export default function LeaseForm({
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
-  const [units, setUnits] = React.useState<Option[]>([]);
+  const [units, setUnits] = React.useState<LettableUnit[]>([]);
   const [loadingUnits, setLoadingUnits] = React.useState(false);
 
   /**
@@ -90,9 +90,9 @@ export default function LeaseForm({
       toast.success("Unit added");
       setAddingUnit(false);
       setNewUnit({ type: "", count: "1", space: "" });
-      // Re-ask rather than splice the new row in: `vacantUnitsFor` applies
-      // `unit_is_vacant` (decision 22's one rule), and a list this form built
-      // for itself would be a second opinion on vacancy.
+      // Re-ask rather than splice the new row in: `lettableUnitsFor` applies the
+      // database's own test (0328), and a list this form built for itself would
+      // be a second opinion on it.
       await onProperty(form.propertyId);
     } catch (err) {
       toast.error("Could not add that unit", { description: describeError(err) });
@@ -136,17 +136,16 @@ export default function LeaseForm({
 
   // ⚠️ Deliberately NOT `onProperty()`, which clears the unit — the whole
   // reason we are here is that the unit is already decided. The offered unit is
-  // also added to the list explicitly below, because `vacantUnitsFor` could
-  // legitimately not return it (an occupant recorded on acceptance would make
-  // it non-vacant, and the tenancy still has to be recordable).
+  // also added to the list explicitly below, in case the unit list cannot be
+  // read; since 0328 an allocated unit is offered anyway.
   React.useEffect(() => {
     if (!prefill?.propertyId) return;
     let cancelled = false;
     setLoadingUnits(true);
     void (async () => {
       try {
-        const r = await runAction(vacantUnitsFor(prefill.propertyId));
-        if (!cancelled) setUnits(r.units.map((u) => ({ id: u.id, label: u.label })));
+        const r = await runAction(lettableUnitsFor(prefill.propertyId));
+        if (!cancelled) setUnits(r.units);
       } catch {
         // The offered unit is still selectable from the explicit option below.
       } finally {
@@ -156,9 +155,11 @@ export default function LeaseForm({
     return () => { cancelled = true; };
   }, [prefill?.propertyId]);
 
-  // Only units with no live tenancy are offered. The database refuses a double
-  // let regardless; not offering it is how someone avoids discovering that
-  // after typing the whole form.
+  // Only units with no live tenancy are offered — including one a tenant is
+  // already allocated to, which is offered FOR that tenant (0328). The database
+  // refuses a double let and a tenancy for anyone but the occupant regardless;
+  // not offering either is how someone avoids discovering that after typing
+  // the whole form.
   async function onProperty(propertyId: string) {
     set("propertyId", propertyId);
     set("unitId", "");
@@ -166,13 +167,26 @@ export default function LeaseForm({
     if (!propertyId) return;
     setLoadingUnits(true);
     try {
-      const r = await runAction(vacantUnitsFor(propertyId));
-      setUnits(r.units.map((u) => ({ id: u.id, label: u.label })));
+      const r = await runAction(lettableUnitsFor(propertyId));
+      setUnits(r.units);
     } catch (err) {
       toast.error("Could not load units", { description: describeError(err) });
     } finally {
       setLoadingUnits(false);
     }
+  }
+
+  // A unit somebody is allocated to is let to them (0328): the tenant follows
+  // the unit, and the database refuses a tenancy on it for anyone else.
+  const allocatedTo = units.find((u) => u.id === form.unitId && u.occupantUserId) ?? null;
+
+  function onUnit(unitId: string) {
+    const u = units.find((x) => x.id === unitId);
+    setForm((f) => ({
+      ...f,
+      unitId,
+      tenantUserId: u?.occupantUserId ?? (units.some((x) => x.occupantUserId === f.tenantUserId) ? "" : f.tenantUserId),
+    }));
   }
 
   async function submit(e: React.FormEvent) {
@@ -218,7 +232,7 @@ export default function LeaseForm({
           <Select
             id="l-unit" required value={form.unitId}
             disabled={!form.propertyId || loadingUnits}
-            onChange={(e) => set("unitId", e.target.value)}
+            onChange={(e) => onUnit(e.target.value)}
           >
             <option value="">
               {!form.propertyId
@@ -226,14 +240,16 @@ export default function LeaseForm({
                 : loadingUnits
                   ? "Loading…"
                   : units.length === 0
-                    ? "No vacant units"
+                    ? "No units free to let"
                     : "Choose a unit…"}
             </option>
             {prefill && !units.some((u) => u.id === prefill.unitId) && (
               <option value={prefill.unitId}>{prefill.unitLabel} (offered)</option>
             )}
             {units.map((u) => (
-              <option key={u.id} value={u.id}>{u.label}</option>
+              <option key={u.id} value={u.id}>
+                {u.occupantUserId ? `${u.label} — allocated to ${u.occupantName ?? "a tenant"}` : u.label}
+              </option>
             ))}
           </Select>
           {form.propertyId && !loadingUnits && units.length === 0 && !addingUnit && (
@@ -325,16 +341,23 @@ export default function LeaseForm({
           </Label>
           <Select
             id="l-tenant" value={form.tenantUserId}
+            disabled={Boolean(allocatedTo)}
             onChange={(e) => set("tenantUserId", e.target.value)}
           >
             <option value="">Assign later</option>
+            {allocatedTo && !tenants.some((t) => t.id === allocatedTo.occupantUserId) && (
+              <option value={allocatedTo.occupantUserId ?? ""}>
+                {allocatedTo.occupantName ?? "The allocated tenant"}
+              </option>
+            )}
             {tenants.map((t) => (
               <option key={t.id} value={t.id}>{t.label}</option>
             ))}
           </Select>
           <p className="text-xs text-muted-foreground">
-            An approved applicant is enrolled as a tenant automatically. Leave
-            this blank if the paperwork is ahead of the account.
+            {allocatedTo
+              ? `This unit is allocated to ${allocatedTo.occupantName ?? "a tenant"}, so the tenancy is theirs. To let it to someone else, clear the occupant under People → Unit Occupancy first.`
+              : "An approved applicant is enrolled as a tenant automatically. Leave this blank if the paperwork is ahead of the account."}
           </p>
         </div>
 

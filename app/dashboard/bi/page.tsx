@@ -9,7 +9,7 @@ import BiStats from "./BiStats";
 import { EmptyState } from "@/components/patterns/empty-state";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CountBar, ScoreBar, BudgetBar, MixDonut, type NamedValue, type BudgetRow } from "./Charts";
-import { biScope } from "./scope";
+import { effectiveBiScope } from "./scope";
 
 function titleize(s: string) {
   return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -40,7 +40,7 @@ export default async function BiDashboardPage() {
   if (!session) redirect("/login");
 
   const role = session.profile?.role;
-  const scope = biScope(role);
+  const scope = await effectiveBiScope(role, await createClient());
 
   const hasAnyWidget =
     scope.requests || scope.vendorPerf || scope.collection || scope.liabilities || scope.budget;

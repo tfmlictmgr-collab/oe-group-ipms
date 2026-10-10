@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { ArrowLeft, MapPin, Package, FileBarChart } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth";
-import { roleLabel, FM_PM } from "@/lib/roles";
+import { roleLabel, FM_PM, seesNoMoney } from "@/lib/roles";
 import { PageHeader } from "@/components/patterns/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -61,9 +61,13 @@ export default async function PropertyDetailPage({
     supabase.from("property_stakeholders")
       .select("user_id, relation")
       .eq("property_id", id),
-    supabase.from("assets")
-      .select("id", { count: "exact", head: true })
-      .eq("property_id", id),
+    // 0327. An Owner Rep reads the register through its cost-free function,
+    // not the table (which carries purchase and insured values).
+    seesNoMoney(session.profile?.role)
+      ? supabase.rpc("owner_rep_asset_register", {}, { count: "exact", head: true }).eq("property_id", id)
+      : supabase.from("assets")
+          .select("id", { count: "exact", head: true })
+          .eq("property_id", id),
     supabase.rpc("has_permission", { p_capability: "properties.write" }),
     // The directory stays org-visible to whoever may dispatch work (0012) —
     // this is the standing list to pick FROM, not what is already attached.
@@ -101,11 +105,14 @@ export default async function PropertyDetailPage({
                 could only ever disagree with the one that counts. A landlord
                 reaches their own building's statement by this route; B7 gives
                 them "Own portfolio (RT)". */}
-            <Button asChild variant="outline" size="sm">
-              <Link href={`/dashboard/properties/${id}/statement`}>
-                <FileBarChart /> Statement
-              </Link>
-            </Button>
+            {/* 0327: not for an Owner Rep, who sees no money. */}
+            {!seesNoMoney(session.profile?.role) && (
+              <Button asChild variant="outline" size="sm">
+                <Link href={`/dashboard/properties/${id}/statement`}>
+                  <FileBarChart /> Statement
+                </Link>
+              </Button>
+            )}
             {canWrite && (
               <Button asChild variant="outline" size="sm">
                 <Link href={`/dashboard/properties/${id}/edit`}>Edit details</Link>
@@ -156,7 +163,7 @@ export default async function PropertyDetailPage({
             propertyId={id}
             brand={session.org?.delivery_brand ?? null}
             candidates={allMembers
-              .filter((m) => [...FM_PM, "property_owner"].includes(m.role))
+              .filter((m) => [...FM_PM, "property_owner", "owner_representative"].includes(m.role))
               .map((m) => ({
                 id: m.id,
                 name: m.full_name ?? m.email ?? "Unnamed",
@@ -169,7 +176,7 @@ export default async function PropertyDetailPage({
             // list itself is unchanged for every reader; only the link goes.
             opensProfiles={session.profile?.role === "admin"}
             attached={(stakeholders ?? []).map((s) => ({
-              userId: s.user_id, relation: s.relation as "manager" | "owner",
+              userId: s.user_id, relation: s.relation as "manager" | "owner" | "representative",
             }))}
             canWrite={Boolean(canWrite)}
           />
