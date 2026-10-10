@@ -10,7 +10,12 @@ const PROMPT_DOC_PATH = path.join(
 );
 
 function loadSystemPrompt(): string {
-  const doc = readFileSync(PROMPT_DOC_PATH, "utf8");
+  // Line endings normalised first: a Windows checkout (core.autocrlf) turns
+  // the fence into "```\r\n", the pattern never matched, and every message
+  // was filed unclassified for human review with nothing but this throw in
+  // the server log (found on the rc10 run, 10 Oct 2026). The repository copy
+  // is LF, so production was unaffected, but one CRLF save would not be.
+  const doc = readFileSync(PROMPT_DOC_PATH, "utf8").replace(/\r\n?/g, "\n");
   const match = doc.match(/```\n([\s\S]*?)\n```/);
   if (!match) {
     throw new Error(
