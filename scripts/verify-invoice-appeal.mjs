@@ -332,13 +332,28 @@ for (const org of (orgs ?? []).filter((o) => !o.is_platform_operator)) {
   // than described.
   {
     if (who.facility_manager) {
+      // 0312 made verifying a switch (`payments.verify_service`), on for the
+      // FM at baseline and movable per organisation on the operator matrix.
+      // Assert the RULE: an FM verifies where the switch is on, and is refused
+      // in so many words where an operator has switched it off (OEA's staging
+      // row is off, 10 Oct 2026).
+      const { data: sw } = await svc.from("role_permissions").select("granted")
+        .eq("org_id", org.id).eq("role", "facility_manager")
+        .eq("capability", "payments.verify_service").maybeSingle();
+      const fmMayVerify = sw?.granted !== false;
       const fmVerify = await scenario(org.id, vendor.id, "pending_verification", who.facility_manager,
         `update payments set status='verified', service_verified_at=now() where id=$ID returning id`);
-      // An FM may verify only vendors in their scope; zero rows is a correct
-      // refusal for an unscoped vendor, not a failure of the rule.
-      fmVerify.ok
-        ? ok(`an FM/PM ${fmVerify.rows.length ? "verifies service" : "is scoped out of this vendor (correct)"}`)
-        : bad(`FM verification errored: ${fmVerify.err}`);
+      if (!fmMayVerify) {
+        /switched off for your role/.test(fmVerify.err ?? "")
+          ? ok("an FM is refused verification, because the switch is off in this organisation")
+          : bad(`the FM's verify switch is off here, yet: ${fmVerify.ok ? "the update went through" : fmVerify.err}`);
+      } else {
+        // An FM may verify only vendors in their scope; zero rows is a correct
+        // refusal for an unscoped vendor, not a failure of the rule.
+        fmVerify.ok
+          ? ok(`an FM/PM ${fmVerify.rows.length ? "verifies service" : "is scoped out of this vendor (correct)"}`)
+          : bad(`FM verification errored: ${fmVerify.err}`);
+      }
     }
 
     if (who.finance_approver) {
