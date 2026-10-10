@@ -68,6 +68,13 @@ const SLOW = new Set([
   "verify-conversational-intelligence",
   "verify-notification-links",
   "verify-role-workflows",
+  // Added 10 Oct 2026 (rc10), after it was killed at 300s in a full run and
+  // PASSED standalone twice: 3m57s cold, 3m13s with every page already
+  // compiled, so the time is not first-render compilation. It renders ~20
+  // server-side dashboard pages as six roles, each page paying its own
+  // database round-trips to Supabase; no sleeps, no retries, no backlog. Same
+  // shape as notification-links and role-workflows: pages walked, not a fault.
+  "verify-people-directory",
 ]);
 
 // 📌 `verify-vendor-self-service` is deliberately NOT here, though it was
