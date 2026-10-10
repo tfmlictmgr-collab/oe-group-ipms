@@ -37,8 +37,12 @@ const bad = (m) => { failures++; console.log(`  \x1b[31mFAIL\x1b[0m ${m}`); };
 const MARK = "PROBEC1";
 const stamp = Date.now().toString(36).toUpperCase().slice(-5);
 const INDEX = "sc_budgets_one_per_property_period_uidx";
-const INDEX_DDL =
-  `create unique index ${INDEX} on sc_budgets (property_id, lower(btrim(period)))`;
+// ⚠️ NOT a hard-coded copy of the DDL. This suite used to rebuild the index
+// from 0109's text after section E dropped it, which silently stripped 0315's
+// `where status <> 'void'` from every world it ran on: staging was found on
+// 10 Oct 2026 with 0315 in its ledger and 0109's index in its catalogue, and a
+// voided budget holding its period (decision 70, 0335). Section E now reads
+// the LIVE definition before dropping it and puts back exactly that.
 
 // Start-of-run sweep — a run that dies before its own cleanup must not leave
 // debris the next run cannot see (the lesson from 0805's own stray-fixture
@@ -172,6 +176,10 @@ try {
     // unprotected and the failure would surface here rather than where the
     // damage was done.
     let preFixWinners = null;
+    const { rows: [live] } = await pgClient.query(
+      `select indexdef from pg_indexes where schemaname = 'public' and indexname = $1`, [INDEX]
+    );
+    if (!live) throw new Error(`${INDEX} is missing before section E — run \`npm run migrate\` first`);
     try {
       await pgClient.query(`drop index ${INDEX}`);
       preFixWinners = await race(`${stamp}-E`, 4);
@@ -180,7 +188,7 @@ try {
         `delete from sc_budgets where property_id = $1 and period = $2`,
         [prop.id, `${stamp}-E`]
       );
-      await pgClient.query(INDEX_DDL);
+      await pgClient.query(live.indexdef);
     }
 
     preFixWinners && preFixWinners.length > 1
@@ -188,11 +196,11 @@ try {
       : bad(`expected the pre-fix race to write >1 budget, it wrote ${preFixWinners?.length ?? 0} — section C may be passing for the wrong reason`);
 
     const { rows } = await pgClient.query(
-      `select 1 from pg_indexes where tablename = 'sc_budgets' and indexname = $1`, [INDEX]
+      `select indexdef from pg_indexes where schemaname = 'public' and indexname = $1`, [INDEX]
     );
-    rows.length === 1
-      ? ok("the index was restored afterwards — the database is left protected")
-      : bad("THE INDEX WAS NOT RESTORED — re-run `npm run migrate` before anything else");
+    rows[0]?.indexdef === live.indexdef
+      ? ok("the index was restored exactly as it was — the database is left protected")
+      : bad(`THE INDEX WAS NOT RESTORED AS IT WAS — was "${live.indexdef}", now "${rows[0]?.indexdef ?? "missing"}"; re-run \`npm run migrate\``);
   }
 
   console.log("\nF. The constraint is not over-broad");

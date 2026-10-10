@@ -7,9 +7,16 @@
 -- still 0109's, with no WHERE clause at all, although `_migrations` records 0315
 -- as applied and the rest of 0315 (the void columns, `guard_sc_budget_update`)
 -- is live. `verify-sc-budget-void` §G failed on it: a voided budget still held
--- its slot, and the correct budget could not be raised. How 0315's index was
--- lost on staging is not known; what matters is that a world can say it has
--- 0315 and not have its index.
+-- its slot, and the correct budget could not be raised.
+--
+-- Cause, found the same day: `scripts/verify-sc-budget-uniqueness.mjs` §E drops
+-- this index to prove the race it guards against is real, then rebuilt it from
+-- a hard-coded copy of 0109's DDL. Every full suite run on dev or staging
+-- therefore stripped 0315's WHERE clause again (it did so once more right after
+-- 0335 was first applied). The suite now restores the live definition it read.
+-- Production never runs the suites, so its index is as 0315 left it. What
+-- matters for this file is that a world can have 0315 in its ledger and not
+-- have its index.
 --
 -- So this asks the catalogue rather than the ledger. Where the index already
 -- leaves voided budgets out (any world where 0315 landed whole) it does
