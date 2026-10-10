@@ -188,8 +188,11 @@ console.log("\nE. Conversation context, and its expiry");
     : bad("the awaiting state was not carried");
 
   // Expire it in the past — a message weeks later must start fresh.
+  // A day back, not a second: this clock is the machine running the suite,
+  // and the function compares against the DATABASE's now(). A laptop running
+  // a few seconds fast left a "one second ago" expiry still in the future.
   await svc.from("chat_conversations")
-    .update({ expires_at: new Date(Date.now() - 1000).toISOString() })
+    .update({ expires_at: new Date(Date.now() - 86_400_000).toISOString() })
     .eq("org_id", poc.id).eq("channel", "whatsapp").eq("sender_ref", SENDER);
   const { data: stale } = await svc.rpc("conversation_context", {
     p_org_id: poc.id, p_channel: "whatsapp", p_sender_ref: SENDER,
