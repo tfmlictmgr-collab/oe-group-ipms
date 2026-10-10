@@ -11,7 +11,8 @@
 //   • and 0332's lease guard, at each status this suite reaches through its own
 //     function: a signed-in caller removes (soft-deletes) only a draft, a
 //     refused removal leaves the unit's occupant where it was, and the refusal
-//     survives the app's cut at the first colon. (verify-entry-corrections §F
+//     survives the app's cut at the first colon; an ended one is told it is
+//     kept, not to End tenancy (0334). (verify-entry-corrections §F
 //     covers 0332 on an active lease and a draft; this adds renewed, expired,
 //     terminated and the occupant.)
 //
@@ -85,6 +86,7 @@ const NOT_MINE = /do not manage the property this tenancy is on/;
 const STATUS_GUARD = /status changes only through Activate, Renew or End tenancy/;
 const INSERT_GUARD = /recorded as a draft and made live with Activate/;
 const NOT_REMOVED = /has been live is a record and cannot be deleted\. End it with End tenancy/;
+const ENDED_KEPT = /has ended and is kept as part of the record/;
 // What `failFromDb` shows: everything up to the first colon is cut (decision 52).
 const shown = (m) => (m ?? "").replace(/^.*?:\s*/, "");
 
@@ -240,9 +242,9 @@ try {
   m = await refused("update leases set deleted_at = now() where id = $1", [mDraft]);
   check(NOT_REMOVED.test(m ?? ""), "removing a renewed tenancy is refused", m);
   m = await refused("update leases set deleted_at = now() where id = $1", [due1]);
-  check(NOT_REMOVED.test(m ?? ""), "removing an expired tenancy is refused", m);
+  check(ENDED_KEPT.test(m ?? ""), "removing an expired tenancy is refused, naming no remedy it cannot use (0334)", m);
   m = await refused("update leases set deleted_at = now() where id = $1", [successor]);
-  check(NOT_REMOVED.test(m ?? ""), "removing a terminated tenancy is refused", m);
+  check(ENDED_KEPT.test(m ?? ""), "removing a terminated tenancy is refused the same way", m);
   check(m !== null && shown(m) === m, "that refusal survives the cut too", shown(m));
   m = await refused(
     `insert into leases (org_id, property_id, unit_id, tenant_user_id, tenant_name, start_date, end_date, rent_amount, rent_frequency)
