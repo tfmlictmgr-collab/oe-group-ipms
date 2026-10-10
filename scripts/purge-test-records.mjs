@@ -13,6 +13,8 @@
 //   ...add  --vendors "Tutors De Clean,Other Co"  to remove named vendor COMPANIES
 //   (and their logins and stored files). A vendor that was ever paid, scored,
 //   given a ticket or a ledger account is REFUSED - that is financial history.
+//   ...add  --vendor-ids <uuid>,<uuid>  to name vendor companies by id instead,
+//   where two companies share a name (a name matching two is refused).
 //
 // DRY RUN IS THE DEFAULT AND IS NOT A GUESS. It executes every delete for real
 // inside one transaction and then ROLLS BACK, so the counts and any refusal are
@@ -43,11 +45,12 @@ const emails = String(arg("emails", "")).split(",").map((s) => s.trim().toLowerC
 const prefix = arg("prefix") && arg("prefix") !== true ? String(arg("prefix")).toLowerCase() : null;
 const tag = arg("tag") && arg("tag") !== true ? String(arg("tag")) : null;
 const vendorNames = String(arg("vendors", "")).split(",").map((s) => s.trim()).filter(Boolean);
+const vendorIdArgs = String(arg("vendor-ids", "")).split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
 const includeAudit = !!arg("include-audit"), apply = !!arg("apply");
 const markTest = !!arg("mark-test");
 const testPropertyNames = String(arg("test-properties", "")).split(",").map((s) => s.trim()).filter(Boolean);
-if (!world || (!emails.length && !prefix && !tag && !vendorNames.length && !testPropertyNames.length)) {
-  console.error("usage: --world <demo|dev|staging|prod> --org <slug> (--emails a,b | --prefix wt. | --tag WT- | --vendors \"Name,Name\" | --test-properties \"Name,Name\") [--include-audit] [--mark-test] [--apply --backup FILE --confirm \"PURGE <org> <n>\"]");
+if (!world || (!emails.length && !prefix && !tag && !vendorNames.length && !vendorIdArgs.length && !testPropertyNames.length)) {
+  console.error("usage: --world <demo|dev|staging|prod> --org <slug> (--emails a,b | --prefix wt. | --tag WT- | --vendors \"Name,Name\" | --vendor-ids id,id | --test-properties \"Name,Name\") [--include-audit] [--mark-test] [--apply --backup FILE --confirm \"PURGE <org> <n>\"]");
   process.exit(2);
 }
 if (world === "demo") { console.error("Refusing: the frozen demo world is never a target."); process.exit(2); }
@@ -111,6 +114,13 @@ for (const name of vendorNames) {
   else if (rows.length > 1) problems.push(`VENDOR AMBIGUOUS: "${name}" matches ${rows.length} companies; rename or remove the duplicates by hand`);
   else vendors.push(rows[0]);
 }
+// By id, for companies a name cannot tell apart. Still this organisation's only.
+for (const id of vendorIdArgs) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)) { problems.push(`VENDOR ID NOT A UUID: "${id}"`); continue; }
+  const rows = await q("select id, name, approval_status from vendors where org_id=$1 and id=$2", [org.id, id]);
+  if (rows.length === 0) problems.push(`VENDOR NOT FOUND in ${orgSlug}: id ${id}`);
+  else if (!vendors.some((v) => v.id === rows[0].id)) vendors.push(rows[0]);
+}
 let vendorIds = vendors.map((v) => v.id);
 if (vendorIds.length) {
   const logins = await q(
@@ -129,7 +139,7 @@ let ids = users.map((u) => u.id);
 const toMarkUsers = [], toMarkVendors = [], toMarkProps = [];
 
 say(`\n${apply ? "APPLY" : "DRY RUN"} — world=${world} org=${orgSlug}`);
-say(`Vendor companies (${vendors.length}): ` + (vendors.map((v) => v.name).join("; ") || "none"));
+say(`Vendor companies (${vendors.length}): ` + (vendors.map((v) => `${v.name} (${v.id.slice(0, 8)}, ${v.approval_status})`).join("; ") || "none"));
 say(`Targets (${users.length}): ` + users.map((u) => `${u.full_name} <${u.email}> [${u.role}]`).join("; "));
 
 // Money guard, per account. An organisation that has taken real money (every
