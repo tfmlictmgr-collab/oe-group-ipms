@@ -200,7 +200,15 @@ try {
       console.log(`Skipping ${file} (already applied).`);
       continue;
     }
-    const sql = readFileSync(path.join(migrationsDir, file), "utf8");
+    // ⚠️ Line endings normalised. The repository stores every migration with
+    // LF, but a Windows checkout (core.autocrlf) hands this script CRLF, and a
+    // migration that rebuilds a live function through an exactly-once swap
+    // then looks for "...\r\n..." in a body that holds "...\n...". 0329
+    // refused on production that way on 10 Oct 2026 although every anchor
+    // matched the live catalogue (scripts/preflight-pending-swaps.mjs), and
+    // 0334's first draft refused on dev and staging the same way. A file now
+    // runs exactly as it would from a Linux checkout.
+    const sql = readFileSync(path.join(migrationsDir, file), "utf8").replace(/\r\n?/g, "\n");
     console.log(`Applying ${file}...`);
     await client.query("begin");
     try {
